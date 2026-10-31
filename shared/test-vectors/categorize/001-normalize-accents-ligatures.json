@@ -1,0 +1,241 @@
+{
+  "id": "001-normalize-accents-ligatures",
+  "description": "Minuscules, diacritiques (NFD), ligatures, ponctuation.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "Lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "CRÈME FRAÎCHE",
+      "expected": {
+        "normalized": "creme fraiche",
+        "category_id": "dairy",
+        "matched_keyword": "creme fraiche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème fraîche",
+      "expected": {
+        "normalized": "creme fraiche",
+        "category_id": "dairy",
+        "matched_keyword": "creme fraiche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Œufs",
+      "expected": {
+        "normalized": "oeuf",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bœuf",
+      "expected": {
+        "normalized": "boeuf",
+        "category_id": "butcher",
+        "matched_keyword": "boeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Cœur de laitue",
+      "expected": {
+        "normalized": "coeur laitue",
+        "category_id": "produce",
+        "matched_keyword": "laitue",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "ex æquo",
+      "expected": {
+        "normalized": "ex aequo",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "pâtes/riz",
+      "expected": {
+        "normalized": "pate riz",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus d'orange",
+      "expected": {
+        "normalized": "jus orange",
+        "category_id": "beverages",
+        "matched_keyword": "jus orange",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus d’orange",
+      "expected": {
+        "normalized": "jus orange",
+        "category_id": "beverages",
+        "matched_keyword": "jus orange",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chou-fleur",
+      "expected": {
+        "normalized": "chou fleur",
+        "category_id": "produce",
+        "matched_keyword": "chou fleur",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "  beaucoup   d'espaces  ",
+      "expected": {
+        "normalized": "beaucoup espace",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "é è ê ë",
+      "expected": {
+        "normalized": "e e e e",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "à â",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "î ï ô ù û ü",
+      "expected": {
+        "normalized": "i i o u u u",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "ç ÿ",
+      "expected": {
+        "normalized": "c y",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "Noël",
+      "expected": {
+        "normalized": "noel",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "maïs",
+      "expected": {
+        "normalized": "mais",
+        "category_id": "savory-grocery",
+        "matched_keyword": "mais",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Gruyère râpé",
+      "expected": {
+        "normalized": "gruyere rape",
+        "category_id": "cheese",
+        "matched_keyword": "gruyere",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pain au chocolat !!!",
+      "expected": {
+        "normalized": "pain chocolat",
+        "category_id": "bakery",
+        "matched_keyword": "pain chocolat",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thé",
+      "expected": {
+        "normalized": "the",
+        "category_id": "breakfast",
+        "matched_keyword": "the",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâté",
+      "expected": {
+        "normalized": "pate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Häagen-Dazs",
+      "expected": {
+        "normalized": "haagen daz",
+        "category_id": "frozen",
+        "matched_keyword": "haagen daz",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "crèmé",
+      "expected": {
+        "normalized": "creme",
+        "category_id": "dairy",
+        "matched_keyword": "creme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "???",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    }
+  ]
+}

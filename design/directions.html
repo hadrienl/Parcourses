@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parcourses, trois directions</title>
+<style>
+/* Page de présentation : neutre, pour laisser parler les maquettes */
+:root{--bg:#f4f2ee;--ink:#1b1a18;--mute:#6a655d;--line:#dcd7cf}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#131211;--ink:#efece6;--mute:#a59f95;--line:#2d2a27}}
+:root[data-theme="dark"]{--bg:#131211;--ink:#efece6;--mute:#a59f95;--line:#2d2a27}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,"SF Pro Text",Roboto,system-ui,sans-serif}
+header,section{max-width:1400px;margin:0 auto;padding:32px 16px}
+h1{font-size:clamp(28px,5vw,48px);margin:0 0 8px;letter-spacing:-.02em}
+h2{font-size:clamp(24px,4vw,36px);margin:0;letter-spacing:-.02em}
+.intent{font-size:18px;color:var(--mute);max-width:70ch;margin:6px 0 16px}
+.badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:#c8371d;color:#fff;margin-left:8px;vertical-align:middle}
+section{border-top:1px solid var(--line)}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 24px;font-size:14px;color:var(--mute);margin-bottom:20px}
+.notes b{color:var(--ink)}
+.row{display:flex;gap:20px;overflow-x:auto;padding:8px 0 20px;scroll-snap-type:x mandatory}
+.cap{font-size:12px;color:var(--mute);text-align:center;margin-top:8px}
+.cell{scroll-snap-align:start;flex:0 0 auto}
+
+/* ===== Cadre téléphone ===== */
+.phone{width:280px;height:580px;border-radius:44px;position:relative;overflow:hidden;background:var(--s);color:var(--t);
+  box-shadow:0 0 0 8px #0d0d0f,0 18px 40px rgba(0,0,0,.25);font-family:var(--font);margin:8px}
+.phone.android{border-radius:30px}
+.sb{height:40px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;font-size:12px;font-weight:600}
+.android .sb{padding:0 18px;height:30px}
+.island{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:86px;height:24px;background:#000;border-radius:20px}
+.android .island{width:12px;height:12px;top:9px}
+.body{padding:0 16px}
+.ttl{font:var(--title);margin:8px 0 2px;letter-spacing:-.02em}
+.sub{font-size:12px;color:var(--t2)}
+.it{display:flex;align-items:center;gap:12px;min-height:48px;font-size:16px;position:relative}
+.it.done{color:var(--t2)}
+.it.done .nm{text-decoration:line-through}
+.qty{margin-left:auto;font-size:13px;color:var(--t2)}
+.home{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:100px;height:4px;border-radius:4px;background:var(--t);opacity:.5}
+.android .home{width:70px;height:3px}
+
+/* Couche de contrôle : verre iOS / toolbar M3 */
+.dock{position:absolute;left:12px;right:12px;bottom:22px;display:flex;gap:8px;align-items:center}
+.glass{background:var(--glass);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);
+  border:1px solid var(--glassEdge);border-radius:28px;min-height:52px;display:flex;align-items:center;padding:0 16px;font-size:15px;flex:1;
+  box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.cta{min-height:52px;border-radius:28px;padding:0 20px;display:flex;align-items:center;justify-content:center;font-weight:700;background:var(--brand);color:var(--onBrand);font-size:15px}
+.m3bar{background:var(--surf2);border-radius:20px;min-height:56px;display:flex;align-items:center;padding:0 8px;gap:4px;flex:1;font-size:14px}
+.m3bar span{padding:8px 12px;border-radius:14px}
+.fab{width:64px;height:64px;border-radius:20px;background:var(--brand);color:var(--onBrand);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:300}
+.chip{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:99px;background:var(--surf2);font-size:13px;margin:0 6px 6px 0}
+
+/* ============ Direction A : Le Fil ============ */
+.A{--font:-apple-system,"SF Pro Text",Roboto,system-ui,sans-serif;--title:800 30px/1.1 -apple-system,"SF Pro Display",Roboto,sans-serif;
+  --s:#fbf8f3;--t:#1d1b18;--t2:#6b645a;--surf2:#efe9df;--brand:#c8371d;--onBrand:#fff;--thread:#c8371d;
+  --glass:rgba(255,255,255,.55);--glassEdge:rgba(255,255,255,.8)}
+.A.dark{--s:#141210;--t:#f3eee6;--t2:#a89f92;--surf2:#25211d;--brand:#ff6a4d;--onBrand:#2a0a03;--thread:#ff6a4d;
+  --glass:rgba(40,36,32,.55);--glassEdge:rgba(255,255,255,.12)}
+.A .list{position:relative;padding-left:30px;margin-top:10px}
+.A .list:before{content:"";position:absolute;left:11px;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--surf2)}
+.A .list .done-thread{position:absolute;left:11px;top:10px;width:3px;border-radius:3px;background:var(--thread)}
+.A .bead{position:absolute;left:-26px;width:20px;height:20px;border-radius:50%;border:3px solid var(--t2);background:var(--s)}
+.A .done .bead{border-color:var(--thread);background:var(--thread)}
+.A .done .bead:after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid var(--onBrand);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+.A .next{font-weight:700;font-size:20px}
+.A .next .bead{border-color:var(--thread);box-shadow:0 0 0 5px color-mix(in srgb,var(--thread) 25%,transparent)}
+.A .aisle{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t2);margin:6px 0 0}
+.A .big{font:800 56px/1 -apple-system,"SF Pro Display",Roboto,sans-serif;letter-spacing:-.04em;color:var(--thread)}
+.A.android .bead{border-radius:7px}
+.A.android .done .bead{border-radius:50% 50% 50% 50%/40% 40% 60% 60%}
+
+/* ============ Direction B : Ticket ============ */
+.B{--font:"SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace;--title:900 34px/1 "Helvetica Neue",Inter,Roboto,sans-serif;
+  --s:#f2efe6;--t:#111;--t2:#5f5b52;--surf2:#e3ded1;--brand:#111;--onBrand:#f2efe6;--accent:#1f5bff;
+  --glass:rgba(242,239,230,.6);--glassEdge:rgba(0,0,0,.15)}
+.B.dark{--s:#0e0e0e;--t:#f2efe6;--t2:#9b968a;--surf2:#222;--brand:#f2efe6;--onBrand:#0e0e0e;--accent:#8fb0ff;
+  --glass:rgba(30,30,30,.6);--glassEdge:rgba(255,255,255,.15)}
+.B .ttl{text-transform:uppercase}
+.B .it{border-bottom:1px dashed var(--t2);font-size:15px;gap:10px}
+.B .box{width:22px;height:22px;border:2px solid var(--t);flex:0 0 auto;position:relative}
+.B .done .box{background:var(--t)}
+.B .done .box:after{content:"✕";position:absolute;inset:0;color:var(--s);font-size:14px;line-height:18px;text-align:center}
+.B .num{font:900 64px/1 "Helvetica Neue",Inter,Roboto,sans-serif;letter-spacing:-.05em}
+.B .rule{border-top:3px double var(--t);margin:8px 0}
+.B .next{background:var(--accent);color:#fff;margin:0 -16px;padding:0 16px;font-weight:700}
+.B.dark .next{color:#0e0e0e}
+.B .next .box{border-color:currentColor}
+.B .tear{height:10px;background:radial-gradient(circle at 6px 0,transparent 5px,var(--s) 6px) 0 0/12px 10px repeat-x}
+
+/* ============ Direction C : Le Plan ============ */
+.C{--font:"Avenir Next",Roboto,system-ui,sans-serif;--title:700 28px/1.1 "Avenir Next",Roboto,sans-serif;
+  --s:#eef3ef;--t:#12261d;--t2:#506358;--surf2:#dce7e0;--brand:#0f6b4a;--onBrand:#fff;
+  --r1:#ffd166;--r2:#7bc6ff;--r3:#ff9fb2;--r4:#b8e986;--glass:rgba(255,255,255,.55);--glassEdge:rgba(255,255,255,.8)}
+.C.dark{--s:#0c1612;--t:#e5f0ea;--t2:#93a99d;--surf2:#1b2a23;--brand:#4fd39c;--onBrand:#04261a;
+  --r1:#8a6a17;--r2:#1d5f8c;--r3:#8c3346;--r4:#4c7a22;--glass:rgba(20,34,28,.55);--glassEdge:rgba(255,255,255,.12)}
+.C .tile{border-radius:18px;padding:10px 12px;margin:8px 0;background:var(--surf2)}
+.C .tile h4{margin:0 0 2px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between}
+.C .tile.cur{outline:3px solid var(--brand);outline-offset:-3px}
+.C .tk{width:24px;height:24px;border-radius:8px;border:2.5px solid var(--t);flex:0 0 auto;position:relative}
+.C .done .tk{background:var(--brand);border-color:var(--brand)}
+.C .done .tk:after{content:"";position:absolute;left:6px;top:2px;width:6px;height:11px;border:solid var(--onBrand);border-width:0 3px 3px 0;transform:rotate(45deg)}
+.C.android .tile{border-radius:28px 12px 28px 12px}
+.C .it{min-height:44px}
+.C.android .it{min-height:48px}
+
+table.rec{border-collapse:collapse;font-size:14px;width:100%;max-width:900px}
+table.rec td,table.rec th{border-bottom:1px solid var(--line);padding:8px;text-align:left;vertical-align:top}
+</style>
+</head>
+<body>
+<header>
+  <h1>Parcourses : trois directions</h1>
+  <p class="intent">Trois partis pris franchement différents pour l'issue #6. Chaque direction montre les listes, le choix du magasin et le mode courses, sous iOS (Liquid Glass) et Android (M3 Expressive), en clair puis en sombre. Faites défiler chaque rangée horizontalement.</p>
+  <p class="intent" style="font-size:14px">Règle commune : le verre et la toolbar flottante ne portent que les contrôles, jamais la liste. L'état coché se lit à la forme (coche, barré), pas seulement à la couleur. Cibles ≥ 44 pt / 48 dp, actions dans la zone du pouce.</p>
+</header>
+
+<section id="A">
+  <h2>A · Le Fil <span class="badge">Recommandée</span></h2>
+  <p class="intent">Un fil rouge relie vos articles dans l'ordre du trajet : chaque coche le tire un peu plus loin, et l'on voit d'un regard où l'on en est.</p>
+  <div class="notes">
+    <div><b>Métaphore</b> : le fil d'Ariane. Les articles sont des perles enfilées ; le fil se colore jusqu'à la dernière coche.</div>
+    <div><b>Typo</b> : système (SF Pro / Roboto Flex), titre 800, gros chiffre « 7 » en couleur de marque. Article suivant en 20 pt gras.</div>
+    <div><b>Couleur</b> : un seul vermillon (#C8371D, 5,3:1 sur crème) sur fond crème chaud ; sombre : #FF6A4D sur brun-noir.</div>
+    <div><b>Signature</b> : le fil qui avance (ressort court), la perle qui se remplit ; sous Android la perle passe du carré arrondi au « cookie ».</div>
+  </div>
+  <div class="row" data-dir="A"></div>
+</section>
+
+<section id="B">
+  <h2>B · Ticket</h2>
+  <p class="intent">La liste comme un ticket de caisse imprimé à l'envers : typographie mono, filets pointillés, gros chiffres noirs. Sobre, rapide, un brin rétro.</p>
+  <div class="notes">
+    <div><b>Métaphore</b> : le ticket qu'on obtient à la sortie, ici avant d'entrer.</div>
+    <div><b>Typo</b> : mono pour les articles, grotesque 900 pour les chiffres. Très lisible à bout de bras.</div>
+    <div><b>Couleur</b> : noir sur papier, un seul bleu électrique pour « le suivant ». Sombre : papier inversé.</div>
+    <div><b>Risque</b> : la mono réduit le nombre de caractères par ligne en grand texte ; ton plus froid.</div>
+  </div>
+  <div class="row" data-dir="B"></div>
+</section>
+
+<section id="C">
+  <h2>C · Le Plan</h2>
+  <p class="intent">Le magasin se dessine en tuiles de rayon colorées : on avance de tuile en tuile, et la carte se complète à mesure que la communauté l'apprend.</p>
+  <div class="notes">
+    <div><b>Métaphore</b> : un plan simplifié, une tuile par rayon, la tuile courante entourée.</div>
+    <div><b>Typo</b> : Avenir Next / Roboto, arrondie et douce.</div>
+    <div><b>Couleur</b> : vert sapin de marque + quatre teintes pastel de rayons (texte toujours en encre, jamais sur la couleur seule).</div>
+    <div><b>Risque</b> : dépend des catégories de rayon, peu fiables en magasin « inconnu » ; plus dense.</div>
+  </div>
+  <div class="row" data-dir="C"></div>
+</section>
+
+<section>
+  <h2>Comparaison</h2>
+  <table class="rec">
+    <tr><th></th><th>A · Le Fil</th><th>B · Ticket</th><th>C · Le Plan</th></tr>
+    <tr><td>Idée liée au produit</td><td>Forte : le trajet lui-même</td><td>Moyenne : l'acte d'achat</td><td>Forte : le magasin</td></tr>
+    <tr><td>Lecture en rayon</td><td>Excellente (un « suivant » géant)</td><td>Excellente</td><td>Bonne, plus dense</td></tr>
+    <tr><td>Magasin inconnu</td><td>Le fil reste gris et pointillé : honnête</td><td>Neutre</td><td>Faible : tuiles vides</td></tr>
+    <tr><td>Fidélité plateformes</td><td>Très bonne</td><td>Mono hors des conventions</td><td>Bonne</td></tr>
+    <tr><td>Coût d'implémentation</td><td>Moyen (tracé du fil)</td><td>Faible</td><td>Élevé (tuiles, groupes)</td></tr>
+  </table>
+</section>
+
+<script>
+// Gabarits des écrans. Les contenus sont identiques d'une direction à l'autre pour comparer à égalité.
+const items=[["Pain de campagne","Boulangerie",1],["Tomates","Fruits & légumes",1],["Courgettes ×3","Fruits & légumes",0],["Lait demi-écrémé ×2","Crèmerie",0],["Comté","Crèmerie",0],["Café en grains","Épicerie",0],["Lessive","Entretien",0]];
+const sb=a=>`<div class="island"></div><div class="sb"><span>9:41</span><span>${a?'▲ ◼ 87%':'●●● 87%'}</span></div>`;
+const home='<div class="home"></div>';
+
+function dockIOS(label,cta){return `<div class="dock"><div class="glass">${label}</div>${cta?`<div class="cta">${cta}</div>`:''}</div>`}
+function dockAnd(label,fab){return `<div class="dock"><div class="m3bar"><span style="background:var(--brand);color:var(--onBrand)">${label}</span><span>Magasins</span><span>⋯</span></div>${fab?`<div class="fab">${fab}</div>`:''}</div>`}
+
+const S={
+A:{
+ lists:(a)=>`<div class="body"><div class="sub">Samedi</div><div class="ttl">Mes listes</div>
+  <div style="margin-top:14px">${["Courses de la semaine|12 articles · Leclerc Auch|●●●●○○","Apéro dimanche|5 articles|●○○○○","Maison|3 articles|○○○"].map(l=>{const[n,s,p]=l.split('|');return `<div style="background:var(--surf2);border-radius:${a?28:22}px;padding:14px 16px;margin:10px 0"><div style="font-weight:700;font-size:17px">${n}</div><div class="sub">${s}</div><div style="color:var(--thread);letter-spacing:2px;margin-top:4px">${p.replace(/●/g,'━').replace(/○/g,'┄')}</div></div>`}).join('')}
+  <div style="margin-top:8px"><span class="chip">+ lait</span><span class="chip">+ œufs</span><span class="chip">+ pain</span></div></div>
+  ${a?dockAnd('Listes','+'):dockIOS('Ajouter « 2 laits »…','＋')}`,
+ store:(a)=>`<div class="body"><div class="ttl">Où êtes-vous ?</div><div class="sub">Localisation précise · utilisée une fois, jamais stockée</div>
+  <svg viewBox="0 0 250 120" width="100%" style="margin:12px 0"><path d="M10 100 C60 20,120 110,170 50 S240 30,240 30" fill="none" stroke="var(--thread)" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 9"/><circle cx="170" cy="50" r="12" fill="var(--thread)"/><circle cx="170" cy="50" r="22" fill="none" stroke="var(--thread)" opacity=".3" stroke-width="6"/></svg>
+  <div style="background:var(--surf2);border-radius:${a?28:22}px;padding:16px"><div class="sub">Le plus proche · 120 m</div><div style="font-weight:800;font-size:20px">Leclerc Auch</div><div class="sub" style="color:var(--thread);font-weight:700">Trajet connu à 72 %</div></div>
+  ${["Intermarché Auch Sud|1,4 km|En apprentissage","Carrefour Market Fleurance|9 km|Inconnu"].map(l=>{const[n,d,k]=l.split('|');return `<div class="it" style="border-bottom:1px solid var(--surf2)"><div><div>${n}</div><div class="sub">${d} · ${k}</div></div><span class="qty">›</span></div>`}).join('')}</div>
+  ${a?dockAnd('Choisir',''):`<div class="dock"><div class="cta" style="flex:1">C'est ici</div></div>`}`,
+ shop:(a)=>`<div class="body"><div style="display:flex;align-items:end;gap:10px"><div class="big">5</div><div class="sub" style="padding-bottom:6px">restants<br><b style="color:var(--t)">Leclerc Auch</b></div></div>
+  <div class="list"><div class="done-thread" style="height:86px"></div>
+  ${items.map((it,i)=>`${i==0||items[i-1][1]!=it[1]?`<div class="aisle">${it[1]}</div>`:''}<div class="it ${it[2]?'done':''} ${i==2?'next':''}"><span class="bead"></span><span class="nm">${it[0]}</span></div>`).join('')}</div></div>
+  ${a?dockAnd('Courses','✓'):dockIOS('◉ Leclerc · 72 %','Terminer')}`
+},
+B:{
+ lists:(a)=>`<div class="body"><div class="ttl">Listes</div><div class="rule"></div>
+  ${["COURSES SEMAINE|12","APÉRO DIMANCHE|05","MAISON|03"].map(l=>{const[n,c]=l.split('|');return `<div class="it"><span>${n}</span><span class="qty" style="font:900 22px 'Helvetica Neue',Roboto">${c}</span></div>`}).join('')}
+  <div class="tear" style="margin-top:14px"></div><div class="sub">SUGGESTIONS : LAIT · ŒUFS · PAIN</div></div>
+  ${a?dockAnd('LISTES','+'):dockIOS('&gt; 2 laits_','＋')}`,
+ store:(a)=>`<div class="body"><div class="ttl">Magasin</div><div class="rule"></div>
+  <div class="sub">DÉTECTÉ À 120 M</div><div style="font:900 30px/1.05 'Helvetica Neue',Roboto">LECLERC<br>AUCH</div>
+  <div style="margin:8px 0;font-size:13px">TRAJET ███████░░░ 72%</div><div class="rule"></div>
+  ${["INTERMARCHÉ SUD|1,4 KM|APPREND","CARREFOUR FLEURANCE|9 KM|INCONNU"].map(l=>{const[n,d,k]=l.split('|');return `<div class="it"><span>${n}</span><span class="qty">${d}<br>${k}</span></div>`}).join('')}</div>
+  ${a?dockAnd('CHOISIR',''):`<div class="dock"><div class="cta" style="flex:1">C'EST ICI</div></div>`}`,
+ shop:(a)=>`<div class="body"><div style="display:flex;justify-content:space-between;align-items:end"><div class="num">05</div><div class="sub" style="text-align:right">RESTANTS<br>LECLERC AUCH</div></div><div class="rule"></div>
+  ${items.map((it,i)=>`<div class="it ${it[2]?'done':''} ${i==2?'next':''}"><span class="box"></span><span class="nm">${it[0].toUpperCase()}</span></div>`).join('')}</div>
+  ${a?dockAnd('COURSES','✓'):dockIOS('LECLERC · 72%','FIN')}`
+},
+C:{
+ lists:(a)=>`<div class="body"><div class="ttl">Mes listes</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">${[["Semaine","12","--r1"],["Apéro","5","--r3"],["Maison","3","--r2"],["＋ Nouvelle","","--surf2"]].map(([n,c,v])=>`<div class="tile" style="background:var(${v});margin:0;min-height:96px"><div style="font:800 30px 'Avenir Next',Roboto">${c}</div><div style="font-weight:600">${n}</div></div>`).join('')}</div>
+  <div style="margin-top:10px"><span class="chip">+ lait</span><span class="chip">+ œufs</span></div></div>
+  ${a?dockAnd('Listes','+'):dockIOS('Ajouter un article…','＋')}`,
+ store:(a)=>`<div class="body"><div class="ttl">Votre magasin</div>
+  <svg viewBox="0 0 250 120" width="100%" style="margin:10px 0">${[0,1,2,3,4,5].map(i=>`<rect x="${8+i*40}" y="${i%2?30:14}" width="34" height="${i%2?80:96}" rx="8" fill="var(${['--r1','--r2','--r3','--r4','--surf2','--surf2'][i]})"/>`).join('')}<text x="200" y="70" font-size="11" fill="var(--t2)">?</text><text x="240" y="70" font-size="11" fill="var(--t2)">?</text></svg>
+  <div class="tile cur"><div class="sub">Le plus proche · 120 m</div><div style="font-weight:700;font-size:20px">Leclerc Auch</div><div class="sub">4 rayons sur 6 cartographiés</div></div>
+  <div class="tile"><b>Intermarché Auch Sud</b><div class="sub">1,4 km · en apprentissage</div></div></div>
+  ${a?dockAnd('Choisir',''):`<div class="dock"><div class="cta" style="flex:1">C'est ici</div></div>`}`,
+ shop:(a)=>`<div class="body"><div class="ttl">5 restants</div><div class="sub">Leclerc Auch · rayon 2 sur 5</div>
+  ${[["Boulangerie","--r1",[0]],["Fruits & légumes","--r4",[1,2]],["Crèmerie","--r2",[3,4]],["Épicerie","--r3",[5]]].map(([n,c,ix],k)=>`<div class="tile ${k==1?'cur':''}" style="${k==1?'':''}"><h4><span>${n}</span><span style="width:12px;height:12px;border-radius:4px;background:var(${c})"></span></h4>${ix.map(i=>`<div class="it ${items[i][2]?'done':''}"><span class="tk"></span><span class="nm">${items[i][0]}</span></div>`).join('')}</div>`).join('')}</div>
+  ${a?dockAnd('Courses','✓'):dockIOS('Leclerc · 4/6 rayons','Terminer')}`
+}};
+
+const names={lists:"Listes",store:"Choix du magasin",shop:"Mode courses"};
+document.querySelectorAll('.row').forEach(row=>{
+  const d=row.dataset.dir;let h='';
+  for(const scr of ["lists","store","shop"])for(const and of [false,true])for(const dark of [false,true])
+    h+=`<div class="cell"><div class="phone ${d} ${and?'android':''} ${dark?'dark':''}">${sb(and)}${S[d][scr](and)}${home}</div><div class="cap">${names[scr]} · ${and?'Android':'iOS'} · ${dark?'sombre':'clair'}</div></div>`;
+  row.innerHTML=h;
+});
+</script>
+</body>
+</html>

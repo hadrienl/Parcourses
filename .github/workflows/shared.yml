@@ -1,0 +1,35 @@
+# Socle partagé : tests de la référence et vérification des vecteurs commités.
+name: shared
+
+on:
+  pull_request:
+    paths:
+      - "shared/**"
+      - ".github/workflows/shared.yml"
+  push:
+    branches: [main]
+    paths:
+      - "shared/**"
+      - ".github/workflows/shared.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shared
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.9.7
+      # deno.json impose "lock": { "frozen": true } : une dépendance absente de deno.lock échoue.
+      - name: Format et lint
+        run: deno fmt --check && deno lint
+      - name: Tests de la référence
+        run: deno task test
+      - name: Vecteurs régénérés identiques aux vecteurs commités
+        run: deno task check

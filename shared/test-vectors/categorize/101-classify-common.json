@@ -1,0 +1,628 @@
+{
+  "id": "101-classify-common",
+  "description": "Saisies courantes, une par catégorie au moins.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "pommes",
+      "expected": {
+        "normalized": "pomme",
+        "category_id": "produce",
+        "matched_keyword": "pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "2 kg de pommes de terre",
+      "expected": {
+        "normalized": "pomme terre",
+        "category_id": "produce",
+        "matched_keyword": "pomme terre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Tomates cerises",
+      "expected": {
+        "normalized": "tomate cerise",
+        "category_id": "produce",
+        "matched_keyword": "tomate cerise",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "salade",
+      "expected": {
+        "normalized": "salade",
+        "category_id": "produce",
+        "matched_keyword": "salade",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Courgettes bio",
+      "expected": {
+        "normalized": "courgette bio",
+        "category_id": "produce",
+        "matched_keyword": "courgette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bananes",
+      "expected": {
+        "normalized": "banane",
+        "category_id": "produce",
+        "matched_keyword": "banane",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "persil",
+      "expected": {
+        "normalized": "persil",
+        "category_id": "produce",
+        "matched_keyword": "persil",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "baguette",
+      "expected": {
+        "normalized": "baguette",
+        "category_id": "bakery",
+        "matched_keyword": "baguette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "2 baguettes tradition",
+      "expected": {
+        "normalized": "baguette tradition",
+        "category_id": "bakery",
+        "matched_keyword": "baguette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Croissants",
+      "expected": {
+        "normalized": "croissant",
+        "category_id": "bakery",
+        "matched_keyword": "croissant",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pain de mie",
+      "expected": {
+        "normalized": "pain mie",
+        "category_id": "bakery",
+        "matched_keyword": "pain mie",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "steak haché",
+      "expected": {
+        "normalized": "steak hache",
+        "category_id": "butcher",
+        "matched_keyword": "steak hache",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Poulet",
+      "expected": {
+        "normalized": "poulet",
+        "category_id": "butcher",
+        "matched_keyword": "poulet",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "escalopes de dinde",
+      "expected": {
+        "normalized": "escalope dinde",
+        "category_id": "butcher",
+        "matched_keyword": "escalope dinde",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "merguez",
+      "expected": {
+        "normalized": "merguez",
+        "category_id": "butcher",
+        "matched_keyword": "merguez",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jambon",
+      "expected": {
+        "normalized": "jambon",
+        "category_id": "deli",
+        "matched_keyword": "jambon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lardons",
+      "expected": {
+        "normalized": "lardon",
+        "category_id": "deli",
+        "matched_keyword": "lardon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "taboulé",
+      "expected": {
+        "normalized": "taboule",
+        "category_id": "deli",
+        "matched_keyword": "taboule",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pizza",
+      "expected": {
+        "normalized": "pizza",
+        "category_id": "deli",
+        "matched_keyword": "pizza",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "saumon",
+      "expected": {
+        "normalized": "saumon",
+        "category_id": "seafood",
+        "matched_keyword": "saumon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crevettes",
+      "expected": {
+        "normalized": "crevette",
+        "category_id": "seafood",
+        "matched_keyword": "crevette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "moules",
+      "expected": {
+        "normalized": "moule",
+        "category_id": "seafood",
+        "matched_keyword": "moule",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "emmental râpé",
+      "expected": {
+        "normalized": "emmental rape",
+        "category_id": "cheese",
+        "matched_keyword": "emmental rape",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "camembert",
+      "expected": {
+        "normalized": "camembert",
+        "category_id": "cheese",
+        "matched_keyword": "camembert",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "mozzarella",
+      "expected": {
+        "normalized": "mozzarella",
+        "category_id": "cheese",
+        "matched_keyword": "mozzarella",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "beurre doux",
+      "expected": {
+        "normalized": "beurre doux",
+        "category_id": "dairy",
+        "matched_keyword": "beurre doux",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "yaourts nature",
+      "expected": {
+        "normalized": "yaourt nature",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt nature",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "12 œufs",
+      "expected": {
+        "normalized": "oeuf",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème fraîche épaisse",
+      "expected": {
+        "normalized": "creme fraiche epaisse",
+        "category_id": "dairy",
+        "matched_keyword": "creme fraiche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâtes",
+      "expected": {
+        "normalized": "pate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "riz basmati",
+      "expected": {
+        "normalized": "riz basmati",
+        "category_id": "savory-grocery",
+        "matched_keyword": "riz basmati",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "huile d'olive",
+      "expected": {
+        "normalized": "huile olive",
+        "category_id": "savory-grocery",
+        "matched_keyword": "huile olive",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "moutarde",
+      "expected": {
+        "normalized": "moutarde",
+        "category_id": "savory-grocery",
+        "matched_keyword": "moutarde",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thon",
+      "expected": {
+        "normalized": "thon",
+        "category_id": "savory-grocery",
+        "matched_keyword": "thon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "sauce soja",
+      "expected": {
+        "normalized": "sauce soja",
+        "category_id": "world-food",
+        "matched_keyword": "sauce soja",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "tortillas",
+      "expected": {
+        "normalized": "tortilla",
+        "category_id": "world-food",
+        "matched_keyword": "tortilla",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait de coco",
+      "expected": {
+        "normalized": "lait coco",
+        "category_id": "world-food",
+        "matched_keyword": "lait coco",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "café",
+      "expected": {
+        "normalized": "cafe",
+        "category_id": "breakfast",
+        "matched_keyword": "cafe",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thé vert",
+      "expected": {
+        "normalized": "the vert",
+        "category_id": "breakfast",
+        "matched_keyword": "the vert",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "céréales",
+      "expected": {
+        "normalized": "cereale",
+        "category_id": "breakfast",
+        "matched_keyword": "cereale",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "confiture de fraises",
+      "expected": {
+        "normalized": "confiture fraise",
+        "category_id": "breakfast",
+        "matched_keyword": "confiture",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "sucre",
+      "expected": {
+        "normalized": "sucre",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "sucre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "farine",
+      "expected": {
+        "normalized": "farine",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "farine",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chocolat noir",
+      "expected": {
+        "normalized": "chocolat noir",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "chocolat noir",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "biscuits",
+      "expected": {
+        "normalized": "biscuit",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "biscuit",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chips",
+      "expected": {
+        "normalized": "chip",
+        "category_id": "snacks",
+        "matched_keyword": "chip",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bonbons",
+      "expected": {
+        "normalized": "bonbon",
+        "category_id": "snacks",
+        "matched_keyword": "bonbon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "cacahuètes",
+      "expected": {
+        "normalized": "cacahuete",
+        "category_id": "snacks",
+        "matched_keyword": "cacahuete",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau gazeuse",
+      "expected": {
+        "normalized": "eau gazeuse",
+        "category_id": "beverages",
+        "matched_keyword": "eau gazeuse",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "6 x 1,5 l eau",
+      "expected": {
+        "normalized": "eau",
+        "category_id": "beverages",
+        "matched_keyword": "eau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus de pomme",
+      "expected": {
+        "normalized": "jus pomme",
+        "category_id": "beverages",
+        "matched_keyword": "jus pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "sirop de menthe",
+      "expected": {
+        "normalized": "sirop menthe",
+        "category_id": "beverages",
+        "matched_keyword": "sirop menthe",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bières",
+      "expected": {
+        "normalized": "biere",
+        "category_id": "alcohol",
+        "matched_keyword": "biere",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "vin rouge",
+      "expected": {
+        "normalized": "vin rouge",
+        "category_id": "alcohol",
+        "matched_keyword": "vin rouge",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "champagne",
+      "expected": {
+        "normalized": "champagne",
+        "category_id": "alcohol",
+        "matched_keyword": "champagne",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "glace vanille",
+      "expected": {
+        "normalized": "glace vanille",
+        "category_id": "frozen",
+        "matched_keyword": "glace",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "frites",
+      "expected": {
+        "normalized": "frite",
+        "category_id": "frozen",
+        "matched_keyword": "frite",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "couches",
+      "expected": {
+        "normalized": "couche",
+        "category_id": "baby",
+        "matched_keyword": "couche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "petits pots",
+      "expected": {
+        "normalized": "petit pot",
+        "category_id": "baby",
+        "matched_keyword": "petit pot",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "dentifrice",
+      "expected": {
+        "normalized": "dentifrice",
+        "category_id": "hygiene",
+        "matched_keyword": "dentifrice",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "gel douche",
+      "expected": {
+        "normalized": "gel douche",
+        "category_id": "hygiene",
+        "matched_keyword": "gel douche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "papier toilette",
+      "expected": {
+        "normalized": "papier toilette",
+        "category_id": "hygiene",
+        "matched_keyword": "papier toilette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lessive",
+      "expected": {
+        "normalized": "lessive",
+        "category_id": "household",
+        "matched_keyword": "lessive",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "liquide vaisselle",
+      "expected": {
+        "normalized": "liquide vaisselle",
+        "category_id": "household",
+        "matched_keyword": "liquide vaisselle",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "sacs poubelle",
+      "expected": {
+        "normalized": "sac poubelle",
+        "category_id": "household",
+        "matched_keyword": "sac poubelle",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "éponges",
+      "expected": {
+        "normalized": "eponge",
+        "category_id": "household",
+        "matched_keyword": "eponge",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "croquettes",
+      "expected": {
+        "normalized": "croquette",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "litière",
+      "expected": {
+        "normalized": "litiere",
+        "category_id": "pets",
+        "matched_keyword": "litiere",
+        "match": "keyword"
+      }
+    }
+  ]
+}

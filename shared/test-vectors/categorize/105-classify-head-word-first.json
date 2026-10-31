@@ -1,0 +1,88 @@
+{
+  "id": "105-classify-head-word-first",
+  "description": "Plusieurs mots simples de catégories différentes : le premier mot l'emporte.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "yaourt fraise",
+      "expected": {
+        "normalized": "yaourt fraise",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "fraise yaourt",
+      "expected": {
+        "normalized": "fraise yaourt",
+        "category_id": "produce",
+        "matched_keyword": "fraise",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "compote pomme",
+      "expected": {
+        "normalized": "compote pomme",
+        "category_id": "dairy",
+        "matched_keyword": "compote",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "biscuit chocolat",
+      "expected": {
+        "normalized": "biscuit chocolat",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "biscuit",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "glace chocolat",
+      "expected": {
+        "normalized": "glace chocolat",
+        "category_id": "frozen",
+        "matched_keyword": "glace",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "saucisse lentilles",
+      "expected": {
+        "normalized": "saucisse lentille",
+        "category_id": "butcher",
+        "matched_keyword": "saucisse",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thon tomate",
+      "expected": {
+        "normalized": "thon tomate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "thon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "tarte pomme",
+      "expected": {
+        "normalized": "tarte pomme",
+        "category_id": "bakery",
+        "matched_keyword": "tarte",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jambon fromage",
+      "expected": {
+        "normalized": "jambon fromage",
+        "category_id": "deli",
+        "matched_keyword": "jambon",
+        "match": "keyword"
+      }
+    }
+  ]
+}

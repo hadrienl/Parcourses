@@ -1,0 +1,97 @@
+{
+  "id": "103-classify-overrides",
+  "description": "Modificateurs qui l'emportent sur la tête (surgelé, congelé, en conserve).",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "petits pois surgelés",
+      "expected": {
+        "normalized": "petit pois surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override"
+      }
+    },
+    {
+      "input": "épinards surgelés",
+      "expected": {
+        "normalized": "epinard surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override"
+      }
+    },
+    {
+      "input": "haricots verts surgelés",
+      "expected": {
+        "normalized": "haricot vert surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override"
+      }
+    },
+    {
+      "input": "framboises congelées",
+      "expected": {
+        "normalized": "framboise congelee",
+        "category_id": "frozen",
+        "matched_keyword": "congelee",
+        "match": "override"
+      }
+    },
+    {
+      "input": "pizza surgelée",
+      "expected": {
+        "normalized": "pizza surgelee",
+        "category_id": "frozen",
+        "matched_keyword": "surgelee",
+        "match": "override"
+      }
+    },
+    {
+      "input": "surgelés",
+      "expected": {
+        "normalized": "surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override"
+      }
+    },
+    {
+      "input": "champignons en conserve",
+      "expected": {
+        "normalized": "champignon conserve",
+        "category_id": "savory-grocery",
+        "matched_keyword": "conserve",
+        "match": "override"
+      }
+    },
+    {
+      "input": "haricots verts",
+      "expected": {
+        "normalized": "haricot vert",
+        "category_id": "produce",
+        "matched_keyword": "haricot vert",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "conserve de tomates",
+      "expected": {
+        "normalized": "conserve tomate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "conserve",
+        "match": "override"
+      }
+    },
+    {
+      "input": "frites",
+      "expected": {
+        "normalized": "frite",
+        "category_id": "frozen",
+        "matched_keyword": "frite",
+        "match": "keyword"
+      }
+    }
+  ]
+}

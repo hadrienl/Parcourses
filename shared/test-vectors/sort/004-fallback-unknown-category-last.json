@@ -1,0 +1,86 @@
+{
+  "id": "004-fallback-unknown-category-last",
+  "description": "Sans catégorie ou catégorie inconnue : rang maximal, en fin de liste.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": null,
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": null,
+        "category_id": null,
+        "normalized_name": "truc"
+      },
+      {
+        "id": "i-02",
+        "product_id": null,
+        "category_id": "frozen",
+        "normalized_name": "glace"
+      },
+      {
+        "id": "i-03",
+        "product_id": null,
+        "category_id": "does-not-exist",
+        "normalized_name": "machin"
+      },
+      {
+        "id": "i-04",
+        "product_id": null,
+        "category_id": "other",
+        "normalized_name": "bidule"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "fallback",
+    "order": [
+      "i-02",
+      "i-04",
+      "i-03",
+      "i-01"
+    ],
+    "cost": null
+  }
+}

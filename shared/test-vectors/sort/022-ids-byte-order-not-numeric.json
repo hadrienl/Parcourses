@@ -1,0 +1,96 @@
+{
+  "id": "022-ids-byte-order-not-numeric",
+  "description": "Égalité départagée par ordre des octets ASCII : i-1-0 < i-10 < i-9 (pas d'ordre numérique).",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-x",
+          "weight_q": 2000
+        },
+        {
+          "product_id": "p-y",
+          "weight_q": 2000
+        },
+        {
+          "product_id": "p-z",
+          "weight_q": 2000
+        }
+      ],
+      "edges": []
+    },
+    "items": [
+      {
+        "id": "i-9",
+        "product_id": "p-x",
+        "category_id": "dairy",
+        "normalized_name": "a"
+      },
+      {
+        "id": "i-10",
+        "product_id": "p-y",
+        "category_id": "dairy",
+        "normalized_name": "b"
+      },
+      {
+        "id": "i-1-0",
+        "product_id": "p-z",
+        "category_id": "dairy",
+        "normalized_name": "c"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-1-0",
+      "i-10",
+      "i-9"
+    ],
+    "cost": 6333
+  }
+}

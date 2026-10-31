@@ -1,0 +1,76 @@
+{
+  "id": "029-empty-list",
+  "description": "Liste vide : ordre vide, coût nul.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-01",
+          "weight_q": 4000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-02",
+          "b": "p-03",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-01",
+          "b": "p-02",
+          "weight_q": 3000
+        }
+      ]
+    },
+    "items": [],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [],
+    "cost": 0
+  }
+}

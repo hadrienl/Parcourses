@@ -1,0 +1,27 @@
+{
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1.0.13"
+  },
+  "tasks": {
+    "test": "deno test --allow-read reference/ generator/",
+    "generate": "deno run --allow-read --allow-write generator/generate.ts",
+    "check": "deno run --allow-read generator/generate.ts --check",
+    "ci": "deno fmt --check && deno lint && deno task test && deno task check"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "exclude": [
+      "test-vectors/",
+      "categories/"
+    ]
+  },
+  "lint": {
+    "exclude": [
+      "test-vectors/",
+      "categories/"
+    ]
+  },
+  "lock": {
+    "frozen": true
+  }
+}

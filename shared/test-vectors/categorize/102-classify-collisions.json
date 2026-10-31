@@ -1,0 +1,421 @@
+{
+  "id": "102-classify-collisions",
+  "description": "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…). « bouquet de roses » → alcohol est une collision connue et assumée (rosé).",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "pâtes",
+      "expected": {
+        "normalized": "pate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâté",
+      "expected": {
+        "normalized": "pate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâté de campagne",
+      "expected": {
+        "normalized": "pate campagne",
+        "category_id": "deli",
+        "matched_keyword": "pate campagne",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâté en croûte",
+      "expected": {
+        "normalized": "pate croute",
+        "category_id": "deli",
+        "matched_keyword": "pate croute",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâte feuilletée",
+      "expected": {
+        "normalized": "pate feuilletee",
+        "category_id": "deli",
+        "matched_keyword": "pate feuilletee",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâte à tartiner",
+      "expected": {
+        "normalized": "pate tartiner",
+        "category_id": "breakfast",
+        "matched_keyword": "pate tartiner",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus d'orange",
+      "expected": {
+        "normalized": "jus orange",
+        "category_id": "beverages",
+        "matched_keyword": "jus orange",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "oranges",
+      "expected": {
+        "normalized": "orange",
+        "category_id": "produce",
+        "matched_keyword": "orange",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème",
+      "expected": {
+        "normalized": "creme",
+        "category_id": "dairy",
+        "matched_keyword": "creme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème fraîche",
+      "expected": {
+        "normalized": "creme fraiche",
+        "category_id": "dairy",
+        "matched_keyword": "creme fraiche",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème solaire",
+      "expected": {
+        "normalized": "creme solaire",
+        "category_id": "hygiene",
+        "matched_keyword": "creme solaire",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème de marrons",
+      "expected": {
+        "normalized": "creme marron",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "creme marron",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait de coco",
+      "expected": {
+        "normalized": "lait coco",
+        "category_id": "world-food",
+        "matched_keyword": "lait coco",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait bébé",
+      "expected": {
+        "normalized": "lait bebe",
+        "category_id": "baby",
+        "matched_keyword": "lait bebe",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait d'amande",
+      "expected": {
+        "normalized": "lait amande",
+        "category_id": "dairy",
+        "matched_keyword": "lait amande",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "petits pois",
+      "expected": {
+        "normalized": "petit pois",
+        "category_id": "savory-grocery",
+        "matched_keyword": "petit pois",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "noix de coco",
+      "expected": {
+        "normalized": "noix coco",
+        "category_id": "produce",
+        "matched_keyword": "noix coco",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "noix",
+      "expected": {
+        "normalized": "noix",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "noix",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thon frais",
+      "expected": {
+        "normalized": "thon frais",
+        "category_id": "seafood",
+        "matched_keyword": "thon frais",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "thon",
+      "expected": {
+        "normalized": "thon",
+        "category_id": "savory-grocery",
+        "matched_keyword": "thon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pomme de terre",
+      "expected": {
+        "normalized": "pomme terre",
+        "category_id": "produce",
+        "matched_keyword": "pomme terre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pomme",
+      "expected": {
+        "normalized": "pomme",
+        "category_id": "produce",
+        "matched_keyword": "pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "rosé",
+      "expected": {
+        "normalized": "rose",
+        "category_id": "alcohol",
+        "matched_keyword": "rose",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau de javel",
+      "expected": {
+        "normalized": "eau javel",
+        "category_id": "household",
+        "matched_keyword": "eau javel",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau micellaire",
+      "expected": {
+        "normalized": "eau micellaire",
+        "category_id": "hygiene",
+        "matched_keyword": "eau micellaire",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau",
+      "expected": {
+        "normalized": "eau",
+        "category_id": "beverages",
+        "matched_keyword": "eau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "sauce tomate",
+      "expected": {
+        "normalized": "sauce tomate",
+        "category_id": "savory-grocery",
+        "matched_keyword": "sauce tomate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "tomate",
+      "expected": {
+        "normalized": "tomate",
+        "category_id": "produce",
+        "matched_keyword": "tomate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "brosse à dents",
+      "expected": {
+        "normalized": "brosse dent",
+        "category_id": "hygiene",
+        "matched_keyword": "brosse dent",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "papier aluminium",
+      "expected": {
+        "normalized": "papier aluminium",
+        "category_id": "household",
+        "matched_keyword": "papier aluminium",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "poisson pané",
+      "expected": {
+        "normalized": "poisson pane",
+        "category_id": "frozen",
+        "matched_keyword": "poisson pane",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "poisson",
+      "expected": {
+        "normalized": "poisson",
+        "category_id": "seafood",
+        "matched_keyword": "poisson",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pain au chocolat",
+      "expected": {
+        "normalized": "pain chocolat",
+        "category_id": "bakery",
+        "matched_keyword": "pain chocolat",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chocolat",
+      "expected": {
+        "normalized": "chocolat",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "chocolat",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chocolat en poudre",
+      "expected": {
+        "normalized": "chocolat poudre",
+        "category_id": "breakfast",
+        "matched_keyword": "chocolat poudre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "fromage blanc",
+      "expected": {
+        "normalized": "fromage blanc",
+        "category_id": "dairy",
+        "matched_keyword": "fromage blanc",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "fromage",
+      "expected": {
+        "normalized": "fromage",
+        "category_id": "cheese",
+        "matched_keyword": "fromage",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus",
+      "expected": {
+        "normalized": "jus",
+        "category_id": "beverages",
+        "matched_keyword": "jus",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "2 paquets de pâtes Barilla",
+      "expected": {
+        "normalized": "pate barilla",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "beurre de cacahuète",
+      "expected": {
+        "normalized": "beurre cacahuete",
+        "category_id": "breakfast",
+        "matched_keyword": "beurre cacahuete",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "beurre",
+      "expected": {
+        "normalized": "beurre",
+        "category_id": "dairy",
+        "matched_keyword": "beurre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâte à tarte",
+      "expected": {
+        "normalized": "pate tarte",
+        "category_id": "deli",
+        "matched_keyword": "pate tarte",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lingettes",
+      "expected": {
+        "normalized": "lingette",
+        "category_id": "household",
+        "matched_keyword": "lingette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lingettes bébé",
+      "expected": {
+        "normalized": "lingette bebe",
+        "category_id": "baby",
+        "matched_keyword": "lingette bebe",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bouquet de roses",
+      "expected": {
+        "normalized": "bouquet rose",
+        "category_id": "alcohol",
+        "matched_keyword": "rose",
+        "match": "keyword"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2148 @@
+{
+  "id": "032-large-80-items-recompute-with-previous",
+  "description": "80 articles, recalcul depuis le produit 40 avec un ordre précédent partiel et mélangé. Graine 4242.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 900,
+      "entries": [
+        {
+          "product_id": "p-01",
+          "weight_q": 5000
+        },
+        {
+          "product_id": "p-02",
+          "weight_q": 2500
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-60",
+          "b": "p-62",
+          "weight_q": 2697
+        },
+        {
+          "a": "p-95",
+          "b": "p-96",
+          "weight_q": 4404
+        },
+        {
+          "a": "p-47",
+          "b": "p-49",
+          "weight_q": 2628
+        },
+        {
+          "a": "p-93",
+          "b": "p-95",
+          "weight_q": 2240
+        },
+        {
+          "a": "p-57",
+          "b": "p-59",
+          "weight_q": 2305
+        },
+        {
+          "a": "p-112",
+          "b": "p-113",
+          "weight_q": 4290
+        },
+        {
+          "a": "p-68",
+          "b": "p-69",
+          "weight_q": 3714
+        },
+        {
+          "a": "p-21",
+          "b": "p-22",
+          "weight_q": 3158
+        },
+        {
+          "a": "p-89",
+          "b": "p-91",
+          "weight_q": 2180
+        },
+        {
+          "a": "p-79",
+          "b": "p-68",
+          "weight_q": 1064
+        },
+        {
+          "a": "p-02",
+          "b": "p-04",
+          "weight_q": 1752
+        },
+        {
+          "a": "p-11",
+          "b": "p-13",
+          "weight_q": 1424
+        },
+        {
+          "a": "p-77",
+          "b": "p-78",
+          "weight_q": 3356
+        },
+        {
+          "a": "p-29",
+          "b": "p-22",
+          "weight_q": 1096
+        },
+        {
+          "a": "p-61",
+          "b": "p-63",
+          "weight_q": 2504
+        },
+        {
+          "a": "p-75",
+          "b": "p-76",
+          "weight_q": 3682
+        },
+        {
+          "a": "p-54",
+          "b": "p-56",
+          "weight_q": 2462
+        },
+        {
+          "a": "p-24",
+          "b": "p-25",
+          "weight_q": 3760
+        },
+        {
+          "a": "p-90",
+          "b": "p-92",
+          "weight_q": 2457
+        },
+        {
+          "a": "p-18",
+          "b": "p-19",
+          "weight_q": 3220
+        },
+        {
+          "a": "p-88",
+          "b": "p-90",
+          "weight_q": 1684
+        },
+        {
+          "a": "p-86",
+          "b": "p-39",
+          "weight_q": 1135
+        },
+        {
+          "a": "p-34",
+          "b": "p-35",
+          "weight_q": 3852
+        },
+        {
+          "a": "p-19",
+          "b": "p-16",
+          "weight_q": 1291
+        },
+        {
+          "a": "p-12",
+          "b": "p-14",
+          "weight_q": 2315
+        },
+        {
+          "a": "p-11",
+          "b": "p-12",
+          "weight_q": 3847
+        },
+        {
+          "a": "p-33",
+          "b": "p-35",
+          "weight_q": 2157
+        },
+        {
+          "a": "p-12",
+          "b": "p-13",
+          "weight_q": 4477
+        },
+        {
+          "a": "p-33",
+          "b": "p-03",
+          "weight_q": 1281
+        },
+        {
+          "a": "p-73",
+          "b": "p-37",
+          "weight_q": 1058
+        },
+        {
+          "a": "p-82",
+          "b": "p-84",
+          "weight_q": 2423
+        },
+        {
+          "a": "p-28",
+          "b": "p-29",
+          "weight_q": 3454
+        },
+        {
+          "a": "p-53",
+          "b": "p-55",
+          "weight_q": 2101
+        },
+        {
+          "a": "p-26",
+          "b": "p-14",
+          "weight_q": 1275
+        },
+        {
+          "a": "p-20",
+          "b": "p-21",
+          "weight_q": 3057
+        },
+        {
+          "a": "p-66",
+          "b": "p-67",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-08",
+          "b": "p-09",
+          "weight_q": 3818
+        },
+        {
+          "a": "p-86",
+          "b": "p-88",
+          "weight_q": 2483
+        },
+        {
+          "a": "p-16",
+          "b": "p-17",
+          "weight_q": 3643
+        },
+        {
+          "a": "p-79",
+          "b": "p-17",
+          "weight_q": 1222
+        },
+        {
+          "a": "p-97",
+          "b": "p-99",
+          "weight_q": 1995
+        },
+        {
+          "a": "p-77",
+          "b": "p-71",
+          "weight_q": 1394
+        },
+        {
+          "a": "p-49",
+          "b": "p-50",
+          "weight_q": 3993
+        },
+        {
+          "a": "p-81",
+          "b": "p-83",
+          "weight_q": 1742
+        },
+        {
+          "a": "p-87",
+          "b": "p-89",
+          "weight_q": 1388
+        },
+        {
+          "a": "p-105",
+          "b": "p-107",
+          "weight_q": 1781
+        },
+        {
+          "a": "p-90",
+          "b": "p-43",
+          "weight_q": 1211
+        },
+        {
+          "a": "p-35",
+          "b": "p-37",
+          "weight_q": 1289
+        },
+        {
+          "a": "p-71",
+          "b": "p-14",
+          "weight_q": 1248
+        },
+        {
+          "a": "p-85",
+          "b": "p-64",
+          "weight_q": 1040
+        },
+        {
+          "a": "p-66",
+          "b": "p-68",
+          "weight_q": 1635
+        },
+        {
+          "a": "p-21",
+          "b": "p-23",
+          "weight_q": 1338
+        },
+        {
+          "a": "p-97",
+          "b": "p-98",
+          "weight_q": 4124
+        },
+        {
+          "a": "p-88",
+          "b": "p-75",
+          "weight_q": 1019
+        },
+        {
+          "a": "p-14",
+          "b": "p-16",
+          "weight_q": 1818
+        },
+        {
+          "a": "p-39",
+          "b": "p-40",
+          "weight_q": 4094
+        },
+        {
+          "a": "p-59",
+          "b": "p-60",
+          "weight_q": 3210
+        },
+        {
+          "a": "p-23",
+          "b": "p-24",
+          "weight_q": 3453
+        },
+        {
+          "a": "p-36",
+          "b": "p-38",
+          "weight_q": 1596
+        },
+        {
+          "a": "p-82",
+          "b": "p-54",
+          "weight_q": 1177
+        },
+        {
+          "a": "p-105",
+          "b": "p-106",
+          "weight_q": 4418
+        },
+        {
+          "a": "p-46",
+          "b": "p-48",
+          "weight_q": 2534
+        },
+        {
+          "a": "p-100",
+          "b": "p-69",
+          "weight_q": 1025
+        },
+        {
+          "a": "p-109",
+          "b": "p-110",
+          "weight_q": 3796
+        },
+        {
+          "a": "p-86",
+          "b": "p-42",
+          "weight_q": 1368
+        },
+        {
+          "a": "p-81",
+          "b": "p-73",
+          "weight_q": 1338
+        },
+        {
+          "a": "p-37",
+          "b": "p-38",
+          "weight_q": 3346
+        },
+        {
+          "a": "p-85",
+          "b": "p-86",
+          "weight_q": 3131
+        },
+        {
+          "a": "p-47",
+          "b": "p-29",
+          "weight_q": 1005
+        },
+        {
+          "a": "p-71",
+          "b": "p-24",
+          "weight_q": 1234
+        },
+        {
+          "a": "p-70",
+          "b": "p-72",
+          "weight_q": 1488
+        },
+        {
+          "a": "p-71",
+          "b": "p-73",
+          "weight_q": 1745
+        },
+        {
+          "a": "p-10",
+          "b": "p-11",
+          "weight_q": 3654
+        },
+        {
+          "a": "p-66",
+          "b": "p-42",
+          "weight_q": 1270
+        },
+        {
+          "a": "p-62",
+          "b": "p-63",
+          "weight_q": 3444
+        },
+        {
+          "a": "p-56",
+          "b": "p-58",
+          "weight_q": 1725
+        },
+        {
+          "a": "p-117",
+          "b": "p-118",
+          "weight_q": 3008
+        },
+        {
+          "a": "p-31",
+          "b": "p-33",
+          "weight_q": 1613
+        },
+        {
+          "a": "p-30",
+          "b": "p-31",
+          "weight_q": 3463
+        },
+        {
+          "a": "p-96",
+          "b": "p-97",
+          "weight_q": 4051
+        },
+        {
+          "a": "p-91",
+          "b": "p-93",
+          "weight_q": 1878
+        },
+        {
+          "a": "p-55",
+          "b": "p-57",
+          "weight_q": 2250
+        },
+        {
+          "a": "p-104",
+          "b": "p-40",
+          "weight_q": 1052
+        },
+        {
+          "a": "p-113",
+          "b": "p-115",
+          "weight_q": 2588
+        },
+        {
+          "a": "p-19",
+          "b": "p-21",
+          "weight_q": 2614
+        },
+        {
+          "a": "p-32",
+          "b": "p-33",
+          "weight_q": 4109
+        },
+        {
+          "a": "p-104",
+          "b": "p-106",
+          "weight_q": 1952
+        },
+        {
+          "a": "p-17",
+          "b": "p-18",
+          "weight_q": 4078
+        },
+        {
+          "a": "p-90",
+          "b": "p-20",
+          "weight_q": 1299
+        },
+        {
+          "a": "p-38",
+          "b": "p-18",
+          "weight_q": 1341
+        },
+        {
+          "a": "p-42",
+          "b": "p-44",
+          "weight_q": 1299
+        },
+        {
+          "a": "p-08",
+          "b": "p-10",
+          "weight_q": 2428
+        },
+        {
+          "a": "p-102",
+          "b": "p-103",
+          "weight_q": 3015
+        },
+        {
+          "a": "p-02",
+          "b": "p-03",
+          "weight_q": 3109
+        },
+        {
+          "a": "p-111",
+          "b": "p-113",
+          "weight_q": 1658
+        },
+        {
+          "a": "p-119",
+          "b": "p-120",
+          "weight_q": 3974
+        },
+        {
+          "a": "p-75",
+          "b": "p-18",
+          "weight_q": 1050
+        },
+        {
+          "a": "p-26",
+          "b": "p-28",
+          "weight_q": 1319
+        },
+        {
+          "a": "p-04",
+          "b": "p-06",
+          "weight_q": 1771
+        },
+        {
+          "a": "p-111",
+          "b": "p-42",
+          "weight_q": 1305
+        },
+        {
+          "a": "p-24",
+          "b": "p-26",
+          "weight_q": 2065
+        },
+        {
+          "a": "p-116",
+          "b": "p-117",
+          "weight_q": 3803
+        },
+        {
+          "a": "p-17",
+          "b": "p-09",
+          "weight_q": 1211
+        },
+        {
+          "a": "p-76",
+          "b": "p-41",
+          "weight_q": 1296
+        },
+        {
+          "a": "p-53",
+          "b": "p-54",
+          "weight_q": 3089
+        },
+        {
+          "a": "p-56",
+          "b": "p-57",
+          "weight_q": 4005
+        },
+        {
+          "a": "p-73",
+          "b": "p-75",
+          "weight_q": 2650
+        },
+        {
+          "a": "p-83",
+          "b": "p-84",
+          "weight_q": 3536
+        },
+        {
+          "a": "p-101",
+          "b": "p-102",
+          "weight_q": 3402
+        },
+        {
+          "a": "p-48",
+          "b": "p-49",
+          "weight_q": 4453
+        },
+        {
+          "a": "p-84",
+          "b": "p-85",
+          "weight_q": 3766
+        },
+        {
+          "a": "p-95",
+          "b": "p-61",
+          "weight_q": 1256
+        },
+        {
+          "a": "p-01",
+          "b": "p-02",
+          "weight_q": 3426
+        },
+        {
+          "a": "p-29",
+          "b": "p-15",
+          "weight_q": 1043
+        },
+        {
+          "a": "p-74",
+          "b": "p-75",
+          "weight_q": 3790
+        },
+        {
+          "a": "p-92",
+          "b": "p-94",
+          "weight_q": 1237
+        },
+        {
+          "a": "p-110",
+          "b": "p-112",
+          "weight_q": 1582
+        },
+        {
+          "a": "p-45",
+          "b": "p-46",
+          "weight_q": 3685
+        },
+        {
+          "a": "p-90",
+          "b": "p-75",
+          "weight_q": 1125
+        },
+        {
+          "a": "p-87",
+          "b": "p-65",
+          "weight_q": 1130
+        },
+        {
+          "a": "p-29",
+          "b": "p-31",
+          "weight_q": 1919
+        },
+        {
+          "a": "p-27",
+          "b": "p-07",
+          "weight_q": 1139
+        },
+        {
+          "a": "p-09",
+          "b": "p-10",
+          "weight_q": 4350
+        },
+        {
+          "a": "p-25",
+          "b": "p-27",
+          "weight_q": 2508
+        },
+        {
+          "a": "p-65",
+          "b": "p-67",
+          "weight_q": 2686
+        },
+        {
+          "a": "p-73",
+          "b": "p-45",
+          "weight_q": 1017
+        },
+        {
+          "a": "p-49",
+          "b": "p-38",
+          "weight_q": 1337
+        },
+        {
+          "a": "p-48",
+          "b": "p-50",
+          "weight_q": 2624
+        },
+        {
+          "a": "p-75",
+          "b": "p-77",
+          "weight_q": 2214
+        },
+        {
+          "a": "p-44",
+          "b": "p-45",
+          "weight_q": 3406
+        },
+        {
+          "a": "p-68",
+          "b": "p-70",
+          "weight_q": 1870
+        },
+        {
+          "a": "p-30",
+          "b": "p-32",
+          "weight_q": 1287
+        },
+        {
+          "a": "p-70",
+          "b": "p-57",
+          "weight_q": 1378
+        },
+        {
+          "a": "p-41",
+          "b": "p-43",
+          "weight_q": 1759
+        },
+        {
+          "a": "p-106",
+          "b": "p-63",
+          "weight_q": 1186
+        },
+        {
+          "a": "p-65",
+          "b": "p-66",
+          "weight_q": 4205
+        },
+        {
+          "a": "p-42",
+          "b": "p-43",
+          "weight_q": 3706
+        },
+        {
+          "a": "p-26",
+          "b": "p-27",
+          "weight_q": 3187
+        },
+        {
+          "a": "p-77",
+          "b": "p-18",
+          "weight_q": 1274
+        },
+        {
+          "a": "p-107",
+          "b": "p-81",
+          "weight_q": 1243
+        },
+        {
+          "a": "p-74",
+          "b": "p-26",
+          "weight_q": 1096
+        },
+        {
+          "a": "p-14",
+          "b": "p-15",
+          "weight_q": 3912
+        },
+        {
+          "a": "p-64",
+          "b": "p-29",
+          "weight_q": 1211
+        },
+        {
+          "a": "p-56",
+          "b": "p-19",
+          "weight_q": 1170
+        },
+        {
+          "a": "p-57",
+          "b": "p-14",
+          "weight_q": 1169
+        },
+        {
+          "a": "p-64",
+          "b": "p-66",
+          "weight_q": 2678
+        },
+        {
+          "a": "p-79",
+          "b": "p-46",
+          "weight_q": 1389
+        },
+        {
+          "a": "p-79",
+          "b": "p-81",
+          "weight_q": 1429
+        },
+        {
+          "a": "p-96",
+          "b": "p-98",
+          "weight_q": 2432
+        },
+        {
+          "a": "p-79",
+          "b": "p-80",
+          "weight_q": 3854
+        },
+        {
+          "a": "p-40",
+          "b": "p-42",
+          "weight_q": 2087
+        },
+        {
+          "a": "p-03",
+          "b": "p-05",
+          "weight_q": 2237
+        },
+        {
+          "a": "p-71",
+          "b": "p-72",
+          "weight_q": 3094
+        },
+        {
+          "a": "p-100",
+          "b": "p-101",
+          "weight_q": 3199
+        },
+        {
+          "a": "p-103",
+          "b": "p-105",
+          "weight_q": 1901
+        },
+        {
+          "a": "p-34",
+          "b": "p-36",
+          "weight_q": 1605
+        },
+        {
+          "a": "p-60",
+          "b": "p-61",
+          "weight_q": 3625
+        },
+        {
+          "a": "p-76",
+          "b": "p-77",
+          "weight_q": 3772
+        },
+        {
+          "a": "p-104",
+          "b": "p-83",
+          "weight_q": 1089
+        },
+        {
+          "a": "p-119",
+          "b": "p-83",
+          "weight_q": 1186
+        },
+        {
+          "a": "p-63",
+          "b": "p-65",
+          "weight_q": 1835
+        },
+        {
+          "a": "p-51",
+          "b": "p-52",
+          "weight_q": 3483
+        },
+        {
+          "a": "p-116",
+          "b": "p-118",
+          "weight_q": 1342
+        },
+        {
+          "a": "p-91",
+          "b": "p-37",
+          "weight_q": 1139
+        },
+        {
+          "a": "p-64",
+          "b": "p-45",
+          "weight_q": 1087
+        },
+        {
+          "a": "p-17",
+          "b": "p-19",
+          "weight_q": 2492
+        },
+        {
+          "a": "p-108",
+          "b": "p-03",
+          "weight_q": 1325
+        },
+        {
+          "a": "p-59",
+          "b": "p-61",
+          "weight_q": 1700
+        },
+        {
+          "a": "p-118",
+          "b": "p-119",
+          "weight_q": 3447
+        },
+        {
+          "a": "p-03",
+          "b": "p-04",
+          "weight_q": 4115
+        },
+        {
+          "a": "p-80",
+          "b": "p-82",
+          "weight_q": 1376
+        },
+        {
+          "a": "p-33",
+          "b": "p-34",
+          "weight_q": 3083
+        },
+        {
+          "a": "p-115",
+          "b": "p-117",
+          "weight_q": 1499
+        },
+        {
+          "a": "p-91",
+          "b": "p-04",
+          "weight_q": 1257
+        },
+        {
+          "a": "p-73",
+          "b": "p-74",
+          "weight_q": 3186
+        },
+        {
+          "a": "p-67",
+          "b": "p-68",
+          "weight_q": 3194
+        },
+        {
+          "a": "p-61",
+          "b": "p-30",
+          "weight_q": 1339
+        },
+        {
+          "a": "p-63",
+          "b": "p-64",
+          "weight_q": 4227
+        },
+        {
+          "a": "p-58",
+          "b": "p-59",
+          "weight_q": 3097
+        },
+        {
+          "a": "p-99",
+          "b": "p-101",
+          "weight_q": 2297
+        },
+        {
+          "a": "p-39",
+          "b": "p-41",
+          "weight_q": 2124
+        },
+        {
+          "a": "p-57",
+          "b": "p-58",
+          "weight_q": 3204
+        },
+        {
+          "a": "p-07",
+          "b": "p-08",
+          "weight_q": 3818
+        },
+        {
+          "a": "p-65",
+          "b": "p-36",
+          "weight_q": 1140
+        },
+        {
+          "a": "p-83",
+          "b": "p-85",
+          "weight_q": 1215
+        },
+        {
+          "a": "p-55",
+          "b": "p-56",
+          "weight_q": 3038
+        },
+        {
+          "a": "p-103",
+          "b": "p-104",
+          "weight_q": 4312
+        },
+        {
+          "a": "p-61",
+          "b": "p-57",
+          "weight_q": 1090
+        },
+        {
+          "a": "p-52",
+          "b": "p-53",
+          "weight_q": 3559
+        },
+        {
+          "a": "p-04",
+          "b": "p-05",
+          "weight_q": 3233
+        },
+        {
+          "a": "p-20",
+          "b": "p-22",
+          "weight_q": 2572
+        },
+        {
+          "a": "p-95",
+          "b": "p-97",
+          "weight_q": 2156
+        },
+        {
+          "a": "p-15",
+          "b": "p-17",
+          "weight_q": 1717
+        },
+        {
+          "a": "p-86",
+          "b": "p-87",
+          "weight_q": 3567
+        },
+        {
+          "a": "p-06",
+          "b": "p-07",
+          "weight_q": 3903
+        },
+        {
+          "a": "p-92",
+          "b": "p-35",
+          "weight_q": 1339
+        },
+        {
+          "a": "p-87",
+          "b": "p-88",
+          "weight_q": 3243
+        },
+        {
+          "a": "p-40",
+          "b": "p-41",
+          "weight_q": 3989
+        },
+        {
+          "a": "p-93",
+          "b": "p-94",
+          "weight_q": 4211
+        },
+        {
+          "a": "p-05",
+          "b": "p-07",
+          "weight_q": 2558
+        },
+        {
+          "a": "p-87",
+          "b": "p-57",
+          "weight_q": 1271
+        },
+        {
+          "a": "p-108",
+          "b": "p-109",
+          "weight_q": 3034
+        },
+        {
+          "a": "p-98",
+          "b": "p-99",
+          "weight_q": 3027
+        },
+        {
+          "a": "p-62",
+          "b": "p-64",
+          "weight_q": 1987
+        },
+        {
+          "a": "p-78",
+          "b": "p-50",
+          "weight_q": 1373
+        },
+        {
+          "a": "p-100",
+          "b": "p-102",
+          "weight_q": 1245
+        },
+        {
+          "a": "p-79",
+          "b": "p-40",
+          "weight_q": 1271
+        },
+        {
+          "a": "p-50",
+          "b": "p-51",
+          "weight_q": 3943
+        },
+        {
+          "a": "p-16",
+          "b": "p-18",
+          "weight_q": 1546
+        },
+        {
+          "a": "p-13",
+          "b": "p-15",
+          "weight_q": 2656
+        },
+        {
+          "a": "p-99",
+          "b": "p-100",
+          "weight_q": 3182
+        },
+        {
+          "a": "p-25",
+          "b": "p-18",
+          "weight_q": 1157
+        },
+        {
+          "a": "p-84",
+          "b": "p-86",
+          "weight_q": 2602
+        },
+        {
+          "a": "p-91",
+          "b": "p-92",
+          "weight_q": 3497
+        },
+        {
+          "a": "p-32",
+          "b": "p-34",
+          "weight_q": 2022
+        },
+        {
+          "a": "p-106",
+          "b": "p-05",
+          "weight_q": 1108
+        },
+        {
+          "a": "p-48",
+          "b": "p-04",
+          "weight_q": 1172
+        },
+        {
+          "a": "p-106",
+          "b": "p-108",
+          "weight_q": 1567
+        },
+        {
+          "a": "p-63",
+          "b": "p-50",
+          "weight_q": 1187
+        },
+        {
+          "a": "p-70",
+          "b": "p-71",
+          "weight_q": 3198
+        },
+        {
+          "a": "p-16",
+          "b": "p-10",
+          "weight_q": 1176
+        },
+        {
+          "a": "p-50",
+          "b": "p-52",
+          "weight_q": 2676
+        },
+        {
+          "a": "p-51",
+          "b": "p-53",
+          "weight_q": 2668
+        },
+        {
+          "a": "p-79",
+          "b": "p-12",
+          "weight_q": 1326
+        },
+        {
+          "a": "p-37",
+          "b": "p-39",
+          "weight_q": 1682
+        },
+        {
+          "a": "p-106",
+          "b": "p-66",
+          "weight_q": 1108
+        },
+        {
+          "a": "p-39",
+          "b": "p-34",
+          "weight_q": 1064
+        },
+        {
+          "a": "p-78",
+          "b": "p-79",
+          "weight_q": 3861
+        },
+        {
+          "a": "p-78",
+          "b": "p-80",
+          "weight_q": 2698
+        },
+        {
+          "a": "p-35",
+          "b": "p-16",
+          "weight_q": 1214
+        },
+        {
+          "a": "p-38",
+          "b": "p-40",
+          "weight_q": 2153
+        },
+        {
+          "a": "p-61",
+          "b": "p-62",
+          "weight_q": 4050
+        },
+        {
+          "a": "p-98",
+          "b": "p-100",
+          "weight_q": 1918
+        },
+        {
+          "a": "p-09",
+          "b": "p-11",
+          "weight_q": 1560
+        },
+        {
+          "a": "p-27",
+          "b": "p-28",
+          "weight_q": 3383
+        },
+        {
+          "a": "p-10",
+          "b": "p-12",
+          "weight_q": 2319
+        },
+        {
+          "a": "p-104",
+          "b": "p-105",
+          "weight_q": 3680
+        },
+        {
+          "a": "p-88",
+          "b": "p-89",
+          "weight_q": 4476
+        },
+        {
+          "a": "p-49",
+          "b": "p-51",
+          "weight_q": 1378
+        },
+        {
+          "a": "p-52",
+          "b": "p-54",
+          "weight_q": 1386
+        },
+        {
+          "a": "p-108",
+          "b": "p-110",
+          "weight_q": 1296
+        },
+        {
+          "a": "p-43",
+          "b": "p-45",
+          "weight_q": 2692
+        },
+        {
+          "a": "p-94",
+          "b": "p-33",
+          "weight_q": 1096
+        },
+        {
+          "a": "p-83",
+          "b": "p-71",
+          "weight_q": 1385
+        },
+        {
+          "a": "p-07",
+          "b": "p-09",
+          "weight_q": 1661
+        },
+        {
+          "a": "p-105",
+          "b": "p-34",
+          "weight_q": 1171
+        },
+        {
+          "a": "p-111",
+          "b": "p-87",
+          "weight_q": 1308
+        },
+        {
+          "a": "p-13",
+          "b": "p-14",
+          "weight_q": 3988
+        },
+        {
+          "a": "p-22",
+          "b": "p-23",
+          "weight_q": 3881
+        },
+        {
+          "a": "p-94",
+          "b": "p-96",
+          "weight_q": 1312
+        },
+        {
+          "a": "p-112",
+          "b": "p-114",
+          "weight_q": 1399
+        },
+        {
+          "a": "p-114",
+          "b": "p-115",
+          "weight_q": 4215
+        },
+        {
+          "a": "p-77",
+          "b": "p-79",
+          "weight_q": 2099
+        },
+        {
+          "a": "p-88",
+          "b": "p-06",
+          "weight_q": 1220
+        },
+        {
+          "a": "p-21",
+          "b": "p-07",
+          "weight_q": 1354
+        },
+        {
+          "a": "p-15",
+          "b": "p-16",
+          "weight_q": 4302
+        },
+        {
+          "a": "p-64",
+          "b": "p-65",
+          "weight_q": 4408
+        },
+        {
+          "a": "p-82",
+          "b": "p-02",
+          "weight_q": 1300
+        },
+        {
+          "a": "p-80",
+          "b": "p-81",
+          "weight_q": 4476
+        },
+        {
+          "a": "p-106",
+          "b": "p-10",
+          "weight_q": 1127
+        },
+        {
+          "a": "p-110",
+          "b": "p-111",
+          "weight_q": 3297
+        },
+        {
+          "a": "p-117",
+          "b": "p-119",
+          "weight_q": 2266
+        },
+        {
+          "a": "p-41",
+          "b": "p-13",
+          "weight_q": 1030
+        },
+        {
+          "a": "p-72",
+          "b": "p-73",
+          "weight_q": 3527
+        },
+        {
+          "a": "p-45",
+          "b": "p-47",
+          "weight_q": 1653
+        },
+        {
+          "a": "p-44",
+          "b": "p-46",
+          "weight_q": 1288
+        },
+        {
+          "a": "p-107",
+          "b": "p-109",
+          "weight_q": 1797
+        },
+        {
+          "a": "p-85",
+          "b": "p-87",
+          "weight_q": 2330
+        },
+        {
+          "a": "p-114",
+          "b": "p-58",
+          "weight_q": 1053
+        },
+        {
+          "a": "p-94",
+          "b": "p-95",
+          "weight_q": 4416
+        },
+        {
+          "a": "p-106",
+          "b": "p-107",
+          "weight_q": 3906
+        },
+        {
+          "a": "p-29",
+          "b": "p-30",
+          "weight_q": 4375
+        },
+        {
+          "a": "p-101",
+          "b": "p-87",
+          "weight_q": 1279
+        },
+        {
+          "a": "p-35",
+          "b": "p-22",
+          "weight_q": 1284
+        },
+        {
+          "a": "p-41",
+          "b": "p-42",
+          "weight_q": 4418
+        },
+        {
+          "a": "p-100",
+          "b": "p-07",
+          "weight_q": 1312
+        },
+        {
+          "a": "p-73",
+          "b": "p-26",
+          "weight_q": 1216
+        },
+        {
+          "a": "p-47",
+          "b": "p-48",
+          "weight_q": 4298
+        },
+        {
+          "a": "p-90",
+          "b": "p-69",
+          "weight_q": 1380
+        },
+        {
+          "a": "p-05",
+          "b": "p-06",
+          "weight_q": 3233
+        },
+        {
+          "a": "p-101",
+          "b": "p-103",
+          "weight_q": 2242
+        },
+        {
+          "a": "p-114",
+          "b": "p-116",
+          "weight_q": 1585
+        },
+        {
+          "a": "p-76",
+          "b": "p-78",
+          "weight_q": 1301
+        },
+        {
+          "a": "p-22",
+          "b": "p-24",
+          "weight_q": 1748
+        },
+        {
+          "a": "p-25",
+          "b": "p-26",
+          "weight_q": 3303
+        },
+        {
+          "a": "p-113",
+          "b": "p-114",
+          "weight_q": 4425
+        },
+        {
+          "a": "p-35",
+          "b": "p-36",
+          "weight_q": 3489
+        },
+        {
+          "a": "p-52",
+          "b": "p-06",
+          "weight_q": 1240
+        },
+        {
+          "a": "p-54",
+          "b": "p-55",
+          "weight_q": 4003
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-039-f94348c9",
+        "product_id": "p-61",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 61"
+      },
+      {
+        "id": "i-032-ed24e69c",
+        "product_id": "p-46",
+        "category_id": "dairy",
+        "normalized_name": "produit 46"
+      },
+      {
+        "id": "i-018-6b0056e7",
+        "product_id": "p-53",
+        "category_id": "dairy",
+        "normalized_name": "produit 53"
+      },
+      {
+        "id": "i-045-5ff87ba1",
+        "product_id": "p-91",
+        "category_id": "beverages",
+        "normalized_name": "produit 91"
+      },
+      {
+        "id": "i-057-0c7078ae",
+        "product_id": "p-83",
+        "category_id": "beverages",
+        "normalized_name": "produit 83"
+      },
+      {
+        "id": "i-041-37e9bbc0",
+        "product_id": "p-113",
+        "category_id": "frozen",
+        "normalized_name": "produit 113"
+      },
+      {
+        "id": "i-042-b0858fbf",
+        "product_id": "p-35",
+        "category_id": "bakery",
+        "normalized_name": "produit 35"
+      },
+      {
+        "id": "i-075-3a30b93d",
+        "product_id": "p-89",
+        "category_id": "beverages",
+        "normalized_name": "produit 89"
+      },
+      {
+        "id": "i-071-f9517f31",
+        "product_id": "p-08",
+        "category_id": "produce",
+        "normalized_name": "produit 8"
+      },
+      {
+        "id": "i-072-094cd4be",
+        "product_id": "p-60",
+        "category_id": "dairy",
+        "normalized_name": "produit 60"
+      },
+      {
+        "id": "i-030-882cf468",
+        "product_id": "p-74",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 74"
+      },
+      {
+        "id": "i-015-ce2d87ca",
+        "product_id": "p-98",
+        "category_id": "beverages",
+        "normalized_name": "produit 98"
+      },
+      {
+        "id": "i-022-7e17dc12",
+        "product_id": "p-40",
+        "category_id": "bakery",
+        "normalized_name": "produit 40"
+      },
+      {
+        "id": "i-027-89ef0175",
+        "product_id": null,
+        "category_id": "savory-grocery",
+        "normalized_name": "saisie 63"
+      },
+      {
+        "id": "i-049-61da0a8c",
+        "product_id": "p-96",
+        "category_id": "beverages",
+        "normalized_name": "produit 96"
+      },
+      {
+        "id": "i-007-2c2b86ba",
+        "product_id": "p-33",
+        "category_id": "bakery",
+        "normalized_name": "produit 33"
+      },
+      {
+        "id": "i-008-94ab03af",
+        "product_id": "p-112",
+        "category_id": "frozen",
+        "normalized_name": "produit 112"
+      },
+      {
+        "id": "i-063-959e416a",
+        "product_id": "p-111",
+        "category_id": "frozen",
+        "normalized_name": "produit 111"
+      },
+      {
+        "id": "i-038-4333b667",
+        "product_id": "p-12",
+        "category_id": "produce",
+        "normalized_name": "produit 12"
+      },
+      {
+        "id": "i-076-cbaa4f5d",
+        "product_id": "p-90",
+        "category_id": "beverages",
+        "normalized_name": "produit 90"
+      },
+      {
+        "id": "i-067-67096037",
+        "product_id": "p-11",
+        "category_id": "produce",
+        "normalized_name": "produit 11"
+      },
+      {
+        "id": "i-037-99b67de2",
+        "product_id": "p-69",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 69"
+      },
+      {
+        "id": "i-006-bb2eaee3",
+        "product_id": "p-99",
+        "category_id": "beverages",
+        "normalized_name": "produit 99"
+      },
+      {
+        "id": "i-009-e1765907",
+        "product_id": null,
+        "category_id": "dairy",
+        "normalized_name": "saisie 52"
+      },
+      {
+        "id": "i-068-8425fb05",
+        "product_id": "p-115",
+        "category_id": "frozen",
+        "normalized_name": "produit 115"
+      },
+      {
+        "id": "i-046-3960abe2",
+        "product_id": "p-14",
+        "category_id": "produce",
+        "normalized_name": "produit 14"
+      },
+      {
+        "id": "i-050-08bbbc70",
+        "product_id": null,
+        "category_id": null,
+        "normalized_name": "saisie 119"
+      },
+      {
+        "id": "i-011-c6a3b016",
+        "product_id": "p-50",
+        "category_id": "dairy",
+        "normalized_name": "produit 50"
+      },
+      {
+        "id": "i-044-e80de93e",
+        "product_id": "p-84",
+        "category_id": "beverages",
+        "normalized_name": "produit 84"
+      },
+      {
+        "id": "i-017-4369d032",
+        "product_id": "p-42",
+        "category_id": "dairy",
+        "normalized_name": "produit 42"
+      },
+      {
+        "id": "i-054-2b94a404",
+        "product_id": "p-65",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 65"
+      },
+      {
+        "id": "i-028-f41b2ed1",
+        "product_id": "p-57",
+        "category_id": "dairy",
+        "normalized_name": "produit 57"
+      },
+      {
+        "id": "i-036-d2c8a2bb",
+        "product_id": "p-47",
+        "category_id": "dairy",
+        "normalized_name": "produit 47"
+      },
+      {
+        "id": "i-023-3c002e64",
+        "product_id": "p-110",
+        "category_id": "frozen",
+        "normalized_name": "produit 110"
+      },
+      {
+        "id": "i-060-e1a31152",
+        "product_id": "p-30",
+        "category_id": "bakery",
+        "normalized_name": "produit 30"
+      },
+      {
+        "id": "i-040-ef8e1cee",
+        "product_id": "p-78",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 78"
+      },
+      {
+        "id": "i-061-205bd90d",
+        "product_id": "p-49",
+        "category_id": "dairy",
+        "normalized_name": "produit 49"
+      },
+      {
+        "id": "i-066-e4540d63",
+        "product_id": "p-27",
+        "category_id": "bakery",
+        "normalized_name": "produit 27"
+      },
+      {
+        "id": "i-064-2fab1935",
+        "product_id": "p-120",
+        "category_id": "frozen",
+        "normalized_name": "produit 120"
+      },
+      {
+        "id": "i-048-66ee0c0f",
+        "product_id": "p-05",
+        "category_id": "produce",
+        "normalized_name": "produit 5"
+      },
+      {
+        "id": "i-058-35c78adc",
+        "product_id": "p-54",
+        "category_id": "dairy",
+        "normalized_name": "produit 54"
+      },
+      {
+        "id": "i-051-ebd82a59",
+        "product_id": "p-45",
+        "category_id": "dairy",
+        "normalized_name": "produit 45"
+      },
+      {
+        "id": "i-031-568280aa",
+        "product_id": "p-62",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 62"
+      },
+      {
+        "id": "i-033-798f00e0",
+        "product_id": "p-17",
+        "category_id": "produce",
+        "normalized_name": "produit 17"
+      },
+      {
+        "id": "i-069-688718c6",
+        "product_id": "p-82",
+        "category_id": "beverages",
+        "normalized_name": "produit 82"
+      },
+      {
+        "id": "i-043-5916d410",
+        "product_id": "p-101",
+        "category_id": "frozen",
+        "normalized_name": "produit 101"
+      },
+      {
+        "id": "i-019-b00c3171",
+        "product_id": "p-73",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 73"
+      },
+      {
+        "id": "i-052-844f3056",
+        "product_id": "p-20",
+        "category_id": "produce",
+        "normalized_name": "produit 20"
+      },
+      {
+        "id": "i-003-9f7f4e1d",
+        "product_id": "p-118",
+        "category_id": "frozen",
+        "normalized_name": "produit 118"
+      },
+      {
+        "id": "i-029-cf843bf1",
+        "product_id": "p-116",
+        "category_id": "frozen",
+        "normalized_name": "produit 116"
+      },
+      {
+        "id": "i-dup-0",
+        "product_id": "p-115",
+        "category_id": "frozen",
+        "normalized_name": "produit 115"
+      },
+      {
+        "id": "i-062-2a4cc80b",
+        "product_id": "p-114",
+        "category_id": "frozen",
+        "normalized_name": "produit 114"
+      },
+      {
+        "id": "i-065-4e5d8315",
+        "product_id": "p-59",
+        "category_id": "dairy",
+        "normalized_name": "produit 59"
+      },
+      {
+        "id": "i-010-89097682",
+        "product_id": "p-04",
+        "category_id": "produce",
+        "normalized_name": "produit 4"
+      },
+      {
+        "id": "i-013-91c8a7e3",
+        "product_id": "p-97",
+        "category_id": "beverages",
+        "normalized_name": "produit 97"
+      },
+      {
+        "id": "i-059-7b1bf882",
+        "product_id": "p-16",
+        "category_id": "produce",
+        "normalized_name": "produit 16"
+      },
+      {
+        "id": "i-025-7280202b",
+        "product_id": "p-28",
+        "category_id": "bakery",
+        "normalized_name": "produit 28"
+      },
+      {
+        "id": "i-016-ba719e5f",
+        "product_id": "p-18",
+        "category_id": "produce",
+        "normalized_name": "produit 18"
+      },
+      {
+        "id": "i-074-1729cbbe",
+        "product_id": "p-38",
+        "category_id": "bakery",
+        "normalized_name": "produit 38"
+      },
+      {
+        "id": "i-001-19051fc3",
+        "product_id": null,
+        "category_id": "beverages",
+        "normalized_name": "saisie 95"
+      },
+      {
+        "id": "i-014-3e9f1c2a",
+        "product_id": "p-44",
+        "category_id": "dairy",
+        "normalized_name": "produit 44"
+      },
+      {
+        "id": "i-070-d1d06fec",
+        "product_id": "p-07",
+        "category_id": "produce",
+        "normalized_name": "produit 7"
+      },
+      {
+        "id": "i-dup-1",
+        "product_id": "p-57",
+        "category_id": "dairy",
+        "normalized_name": "produit 57"
+      },
+      {
+        "id": "i-002-c15ee89e",
+        "product_id": null,
+        "category_id": "produce",
+        "normalized_name": "saisie 2"
+      },
+      {
+        "id": "i-012-c4a8905d",
+        "product_id": "p-37",
+        "category_id": "bakery",
+        "normalized_name": "produit 37"
+      },
+      {
+        "id": "i-056-f96b6f3d",
+        "product_id": "p-51",
+        "category_id": "dairy",
+        "normalized_name": "produit 51"
+      },
+      {
+        "id": "i-024-62f11701",
+        "product_id": "p-75",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 75"
+      },
+      {
+        "id": "i-035-5fae9c77",
+        "product_id": "p-32",
+        "category_id": "bakery",
+        "normalized_name": "produit 32"
+      },
+      {
+        "id": "i-000-2c928713",
+        "product_id": "p-22",
+        "category_id": "bakery",
+        "normalized_name": "produit 22"
+      },
+      {
+        "id": "i-020-7b12d1a1",
+        "product_id": "p-100",
+        "category_id": "beverages",
+        "normalized_name": "produit 100"
+      },
+      {
+        "id": "i-055-79958405",
+        "product_id": "p-76",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 76"
+      },
+      {
+        "id": "i-021-2fac1b66",
+        "product_id": "p-85",
+        "category_id": "beverages",
+        "normalized_name": "produit 85"
+      },
+      {
+        "id": "i-004-66afbb5c",
+        "product_id": "p-64",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 64"
+      },
+      {
+        "id": "i-053-1cee444d",
+        "product_id": "p-25",
+        "category_id": "bakery",
+        "normalized_name": "produit 25"
+      },
+      {
+        "id": "i-034-27461cec",
+        "product_id": "p-23",
+        "category_id": "bakery",
+        "normalized_name": "produit 23"
+      },
+      {
+        "id": "i-dup-2",
+        "product_id": "p-33",
+        "category_id": "bakery",
+        "normalized_name": "produit 33"
+      },
+      {
+        "id": "i-073-97f0102c",
+        "product_id": null,
+        "category_id": null,
+        "normalized_name": "saisie 70"
+      },
+      {
+        "id": "i-005-adfc84b3",
+        "product_id": "p-72",
+        "category_id": "savory-grocery",
+        "normalized_name": "produit 72"
+      },
+      {
+        "id": "i-026-ea3cb22a",
+        "product_id": "p-94",
+        "category_id": "beverages",
+        "normalized_name": "produit 94"
+      },
+      {
+        "id": "i-047-92ce8534",
+        "product_id": "p-109",
+        "category_id": "frozen",
+        "normalized_name": "produit 109"
+      }
+    ],
+    "start": {
+      "product_id": "p-40"
+    },
+    "previous_order": [
+      "i-018-6b0056e7",
+      "i-070-d1d06fec",
+      "i-dup-2",
+      "i-015-ce2d87ca",
+      "i-057-0c7078ae",
+      "i-040-ef8e1cee",
+      "i-032-ed24e69c",
+      "i-062-2a4cc80b",
+      "i-dup-1",
+      "i-024-62f11701",
+      "i-066-e4540d63",
+      "i-017-4369d032",
+      "i-023-3c002e64",
+      "i-034-27461cec",
+      "i-002-c15ee89e",
+      "i-010-89097682",
+      "i-030-882cf468",
+      "i-073-97f0102c",
+      "i-044-e80de93e",
+      "i-058-35c78adc",
+      "i-076-cbaa4f5d",
+      "i-053-1cee444d",
+      "i-022-7e17dc12",
+      "i-055-79958405",
+      "i-054-2b94a404",
+      "i-029-cf843bf1",
+      "i-021-2fac1b66",
+      "i-026-ea3cb22a",
+      "i-071-f9517f31",
+      "i-061-205bd90d",
+      "i-060-e1a31152",
+      "i-003-9f7f4e1d",
+      "i-074-1729cbbe",
+      "i-004-66afbb5c",
+      "i-068-8425fb05",
+      "i-047-92ce8534",
+      "i-036-d2c8a2bb",
+      "i-067-67096037",
+      "i-011-c6a3b016",
+      "i-049-61da0a8c",
+      "i-046-3960abe2",
+      "i-035-5fae9c77",
+      "i-008-94ab03af",
+      "i-013-91c8a7e3",
+      "i-042-b0858fbf",
+      "i-056-f96b6f3d",
+      "i-019-b00c3171",
+      "i-009-e1765907",
+      "i-001-19051fc3",
+      "i-052-844f3056",
+      "i-006-bb2eaee3",
+      "i-050-08bbbc70",
+      "i-025-7280202b",
+      "i-020-7b12d1a1",
+      "i-072-094cd4be",
+      "i-051-ebd82a59",
+      "i-048-66ee0c0f",
+      "i-041-37e9bbc0",
+      "i-075-3a30b93d",
+      "i-039-f94348c9",
+      "i-005-adfc84b3",
+      "i-063-959e416a",
+      "i-012-c4a8905d",
+      "i-033-798f00e0",
+      "i-031-568280aa",
+      "i-007-2c2b86ba",
+      "i-016-ba719e5f",
+      "i-069-688718c6",
+      "i-059-7b1bf882",
+      "i-028-f41b2ed1"
+    ]
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-022-7e17dc12",
+      "i-074-1729cbbe",
+      "i-012-c4a8905d",
+      "i-042-b0858fbf",
+      "i-007-2c2b86ba",
+      "i-dup-2",
+      "i-035-5fae9c77",
+      "i-060-e1a31152",
+      "i-025-7280202b",
+      "i-066-e4540d63",
+      "i-010-89097682",
+      "i-048-66ee0c0f",
+      "i-070-d1d06fec",
+      "i-071-f9517f31",
+      "i-067-67096037",
+      "i-038-4333b667",
+      "i-046-3960abe2",
+      "i-dup-1",
+      "i-028-f41b2ed1",
+      "i-065-4e5d8315",
+      "i-072-094cd4be",
+      "i-039-f94348c9",
+      "i-031-568280aa",
+      "i-054-2b94a404",
+      "i-004-66afbb5c",
+      "i-021-2fac1b66",
+      "i-044-e80de93e",
+      "i-057-0c7078ae",
+      "i-064-2fab1935",
+      "i-003-9f7f4e1d",
+      "i-029-cf843bf1",
+      "i-062-2a4cc80b",
+      "i-068-8425fb05",
+      "i-dup-0",
+      "i-041-37e9bbc0",
+      "i-008-94ab03af",
+      "i-047-92ce8534",
+      "i-023-3c002e64",
+      "i-063-959e416a",
+      "i-017-4369d032",
+      "i-014-3e9f1c2a",
+      "i-051-ebd82a59",
+      "i-032-ed24e69c",
+      "i-036-d2c8a2bb",
+      "i-061-205bd90d",
+      "i-011-c6a3b016",
+      "i-056-f96b6f3d",
+      "i-018-6b0056e7",
+      "i-058-35c78adc",
+      "i-069-688718c6",
+      "i-040-ef8e1cee",
+      "i-055-79958405",
+      "i-005-adfc84b3",
+      "i-019-b00c3171",
+      "i-030-882cf468",
+      "i-024-62f11701",
+      "i-075-3a30b93d",
+      "i-045-5ff87ba1",
+      "i-026-ea3cb22a",
+      "i-049-61da0a8c",
+      "i-013-91c8a7e3",
+      "i-015-ce2d87ca",
+      "i-006-bb2eaee3",
+      "i-043-5916d410",
+      "i-020-7b12d1a1",
+      "i-037-99b67de2",
+      "i-076-cbaa4f5d",
+      "i-052-844f3056",
+      "i-000-2c928713",
+      "i-034-27461cec",
+      "i-053-1cee444d",
+      "i-016-ba719e5f",
+      "i-033-798f00e0",
+      "i-059-7b1bf882",
+      "i-002-c15ee89e",
+      "i-009-e1765907",
+      "i-027-89ef0175",
+      "i-001-19051fc3",
+      "i-050-08bbbc70",
+      "i-073-97f0102c"
+    ],
+    "cost": 43253
+  }
+}

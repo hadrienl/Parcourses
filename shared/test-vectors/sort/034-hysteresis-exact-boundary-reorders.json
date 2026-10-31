@@ -1,0 +1,94 @@
+{
+  "id": "034-hysteresis-exact-boundary-reorders",
+  "description": "Gain d'exactement 10 % (900 × 100 == 1000 × 90) : l'inégalité est stricte, on réordonne.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-a",
+          "weight_q": 1500
+        },
+        {
+          "product_id": "p-b",
+          "weight_q": 1000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-a",
+          "b": "p-b",
+          "weight_q": 1000
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-a",
+        "product_id": "p-a",
+        "category_id": "dairy",
+        "normalized_name": "a"
+      },
+      {
+        "id": "i-b",
+        "product_id": "p-b",
+        "category_id": "dairy",
+        "normalized_name": "b"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": [
+      "i-b",
+      "i-a"
+    ]
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-a",
+      "i-b"
+    ],
+    "cost": 900
+  }
+}

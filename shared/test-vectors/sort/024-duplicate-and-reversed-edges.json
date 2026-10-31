@@ -1,0 +1,114 @@
+{
+  "id": "024-duplicate-and-reversed-edges",
+  "description": "Arêtes en double (a,b) et (b,a) et boucles : on garde le coût minimal, les boucles sont ignorées.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory-grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-01",
+          "weight_q": 4000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-02",
+          "b": "p-01",
+          "weight_q": 500
+        },
+        {
+          "a": "p-01",
+          "b": "p-02",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-03",
+          "b": "p-03",
+          "weight_q": 9000
+        },
+        {
+          "a": "p-03",
+          "b": "p-02",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-01",
+          "b": "p-03",
+          "weight_q": 100
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-03",
+        "product_id": "p-03",
+        "category_id": "savory-grocery",
+        "normalized_name": "article 3"
+      },
+      {
+        "id": "i-02",
+        "product_id": "p-02",
+        "category_id": "savory-grocery",
+        "normalized_name": "article 2"
+      },
+      {
+        "id": "i-01",
+        "product_id": "p-01",
+        "category_id": "savory-grocery",
+        "normalized_name": "article 1"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-01",
+      "i-02",
+      "i-03"
+    ],
+    "cost": 700
+  }
+}

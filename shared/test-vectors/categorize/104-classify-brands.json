@@ -1,0 +1,214 @@
+{
+  "id": "104-classify-brands",
+  "description": "Marques : utiles seules, mais moins prioritaires qu'un nom de produit.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "Nutella",
+      "expected": {
+        "normalized": "nutella",
+        "category_id": "breakfast",
+        "matched_keyword": "nutella",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "coca",
+      "expected": {
+        "normalized": "coca",
+        "category_id": "beverages",
+        "matched_keyword": "coca",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Coca-Cola",
+      "expected": {
+        "normalized": "coca cola",
+        "category_id": "beverages",
+        "matched_keyword": "coca cola",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "pampers",
+      "expected": {
+        "normalized": "pamper",
+        "category_id": "baby",
+        "matched_keyword": "pamper",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "whiskas",
+      "expected": {
+        "normalized": "whiska",
+        "category_id": "pets",
+        "matched_keyword": "whiska",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "sopalin",
+      "expected": {
+        "normalized": "sopalin",
+        "category_id": "household",
+        "matched_keyword": "sopalin",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Evian",
+      "expected": {
+        "normalized": "evian",
+        "category_id": "beverages",
+        "matched_keyword": "evian",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Kinder Bueno",
+      "expected": {
+        "normalized": "kinder bueno",
+        "category_id": "snacks",
+        "matched_keyword": "kinder bueno",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Babybel",
+      "expected": {
+        "normalized": "babybel",
+        "category_id": "cheese",
+        "matched_keyword": "babybel",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Ricard",
+      "expected": {
+        "normalized": "ricard",
+        "category_id": "alcohol",
+        "matched_keyword": "ricard",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Danette",
+      "expected": {
+        "normalized": "danette",
+        "category_id": "dairy",
+        "matched_keyword": "danette",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Pringles",
+      "expected": {
+        "normalized": "pringle",
+        "category_id": "snacks",
+        "matched_keyword": "pringle",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Nesquik",
+      "expected": {
+        "normalized": "nesquik",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquik",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Colgate",
+      "expected": {
+        "normalized": "colgate",
+        "category_id": "hygiene",
+        "matched_keyword": "colgate",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Ariel",
+      "expected": {
+        "normalized": "ariel",
+        "category_id": "household",
+        "matched_keyword": "ariel",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Haribo",
+      "expected": {
+        "normalized": "haribo",
+        "category_id": "snacks",
+        "matched_keyword": "haribo",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "Felix",
+      "expected": {
+        "normalized": "felix",
+        "category_id": "pets",
+        "matched_keyword": "felix",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "biscuits Oreo",
+      "expected": {
+        "normalized": "biscuit oreo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "biscuit",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Oreo",
+      "expected": {
+        "normalized": "oreo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "oreo",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "chips Pringles",
+      "expected": {
+        "normalized": "chip pringle",
+        "category_id": "snacks",
+        "matched_keyword": "chip",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Evian eau gazeuse",
+      "expected": {
+        "normalized": "evian eau gazeuse",
+        "category_id": "beverages",
+        "matched_keyword": "eau gazeuse",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "dentifrice Signal",
+      "expected": {
+        "normalized": "dentifrice signal",
+        "category_id": "hygiene",
+        "matched_keyword": "dentifrice",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "Picard",
+      "expected": {
+        "normalized": "picard",
+        "category_id": "frozen",
+        "matched_keyword": "picard",
+        "match": "brand"
+      }
+    }
+  ]
+}
