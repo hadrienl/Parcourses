@@ -1,0 +1,70 @@
+{
+  "id": "106-classify-other",
+  "description": "Saisies non reconnues : catégorie « other ».",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "truc",
+      "expected": {
+        "normalized": "truc",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "cadeau mamie",
+      "expected": {
+        "normalized": "cadeau mamie",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "???",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "2 kg",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "xyzzy",
+      "expected": {
+        "normalized": "xyzzy",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "piles de journaux",
+      "expected": {
+        "normalized": "pile journal",
+        "category_id": "household",
+        "matched_keyword": "pile",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "rendez-vous dentiste",
+      "expected": {
+        "normalized": "rendez vou dentiste",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    }
+  ]
+}

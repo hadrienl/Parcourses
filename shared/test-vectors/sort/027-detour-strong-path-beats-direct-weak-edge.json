@@ -1,0 +1,109 @@
+{
+  "id": "027-detour-strong-path-beats-direct-weak-edge",
+  "description": "Une arête directe faible coûte plus que deux arêtes fortes via un produit hors liste.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory_grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-a",
+          "weight_q": 4000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-a",
+          "b": "p-c",
+          "weight_q": 0
+        },
+        {
+          "a": "p-a",
+          "b": "p-x",
+          "weight_q": 9000
+        },
+        {
+          "a": "p-x",
+          "b": "p-c",
+          "weight_q": 9000
+        },
+        {
+          "a": "p-a",
+          "b": "p-b",
+          "weight_q": 2000
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": "p-a",
+        "category_id": "dairy",
+        "normalized_name": "a"
+      },
+      {
+        "id": "i-02",
+        "product_id": "p-b",
+        "category_id": "dairy",
+        "normalized_name": "b"
+      },
+      {
+        "id": "i-03",
+        "product_id": "p-c",
+        "category_id": "dairy",
+        "normalized_name": "c"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-01",
+      "i-03",
+      "i-02"
+    ],
+    "cost": 933
+  }
+}

@@ -1,0 +1,232 @@
+{
+  "id": "002-normalize-quantities-units",
+  "description": "Retrait des nombres, unités et mots vides.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "2 kg de pommes",
+      "expected": {
+        "normalized": "pomme",
+        "category_id": "produce",
+        "matched_keyword": "pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "2kg pommes",
+      "expected": {
+        "normalized": "pomme",
+        "category_id": "produce",
+        "matched_keyword": "pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "1 l de lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "1L lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "6 x 1,5 l eau",
+      "expected": {
+        "normalized": "eau",
+        "category_id": "beverages",
+        "matched_keyword": "eau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau x6",
+      "expected": {
+        "normalized": "eau",
+        "category_id": "beverages",
+        "matched_keyword": "eau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "500 g de farine",
+      "expected": {
+        "normalized": "farine",
+        "category_id": "sweet_grocery",
+        "matched_keyword": "farine",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "500g farine",
+      "expected": {
+        "normalized": "farine",
+        "category_id": "sweet_grocery",
+        "matched_keyword": "farine",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "33 cl coca",
+      "expected": {
+        "normalized": "coca",
+        "category_id": "beverages",
+        "matched_keyword": "coca",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "un paquet de pâtes",
+      "expected": {
+        "normalized": "pate",
+        "category_id": "savory_grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "2 paquets de pâtes Barilla",
+      "expected": {
+        "normalized": "pate barilla",
+        "category_id": "savory_grocery",
+        "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "une boîte de thon",
+      "expected": {
+        "normalized": "thon",
+        "category_id": "savory_grocery",
+        "matched_keyword": "thon",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "3 bouteilles de vin",
+      "expected": {
+        "normalized": "vin",
+        "category_id": "alcohol",
+        "matched_keyword": "vin",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "1 lot de 4 yaourts",
+      "expected": {
+        "normalized": "yaourt",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pack de bière",
+      "expected": {
+        "normalized": "biere",
+        "category_id": "alcohol",
+        "matched_keyword": "biere",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "des œufs",
+      "expected": {
+        "normalized": "oeuf",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "du pain",
+      "expected": {
+        "normalized": "pain",
+        "category_id": "bakery",
+        "matched_keyword": "pain",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "de la crème",
+      "expected": {
+        "normalized": "creme",
+        "category_id": "dairy",
+        "matched_keyword": "creme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "le beurre et la confiture",
+      "expected": {
+        "normalized": "beurre confiture",
+        "category_id": "dairy",
+        "matched_keyword": "beurre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pomme de terre",
+      "expected": {
+        "normalized": "pomme terre",
+        "category_id": "produce",
+        "matched_keyword": "pomme terre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "crème pour le change",
+      "expected": {
+        "normalized": "creme change",
+        "category_id": "baby",
+        "matched_keyword": "creme change",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "1 douzaine d'œufs",
+      "expected": {
+        "normalized": "oeuf",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "12 œufs",
+      "expected": {
+        "normalized": "oeuf",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lait 1er âge",
+      "expected": {
+        "normalized": "lait 1er age",
+        "category_id": "baby",
+        "matched_keyword": "lait 1er age",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "10",
+      "expected": {
+        "normalized": "",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    }
+  ]
+}

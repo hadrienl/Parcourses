@@ -1,0 +1,75 @@
+{
+  "id": "008-recompute-after-check",
+  "description": "Exemple de #5 : après la coche du lait, le beurre (voisin) passe en tête.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "c-dairy",
+        "rank": 3
+      },
+      {
+        "id": "c-fruit",
+        "rank": 1
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 820,
+      "entries": [
+        {
+          "product_id": "p-apple",
+          "weight_q": 4000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-apple",
+          "b": "p-milk",
+          "weight_q": 1500
+        },
+        {
+          "a": "p-butter",
+          "b": "p-milk",
+          "weight_q": 3200
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": "p-butter",
+        "category_id": "c-dairy",
+        "normalized_name": "beurre"
+      },
+      {
+        "id": "i-02",
+        "product_id": null,
+        "category_id": "c-fruit",
+        "normalized_name": "fraise"
+      }
+    ],
+    "start": {
+      "product_id": "p-milk"
+    },
+    "previous_order": [
+      "i-02",
+      "i-01"
+    ]
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-01",
+      "i-02"
+    ],
+    "cost": 3638
+  }
+}

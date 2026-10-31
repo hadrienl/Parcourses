@@ -1,0 +1,110 @@
+{
+  "id": "018-transitive-neighbours",
+  "description": "Lait et beurre jamais cochés à la suite, mais tous deux à côté du yaourt (absent de la liste).",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory_grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-apple",
+          "weight_q": 3000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-milk",
+          "b": "p-yogurt",
+          "weight_q": 5000
+        },
+        {
+          "a": "p-butter",
+          "b": "p-yogurt",
+          "weight_q": 5000
+        },
+        {
+          "a": "p-apple",
+          "b": "p-milk",
+          "weight_q": 2000
+        },
+        {
+          "a": "p-apple",
+          "b": "p-water",
+          "weight_q": 2500
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": "p-water",
+        "category_id": "beverages",
+        "normalized_name": "eau"
+      },
+      {
+        "id": "i-02",
+        "product_id": "p-butter",
+        "category_id": "dairy",
+        "normalized_name": "beurre"
+      },
+      {
+        "id": "i-03",
+        "product_id": "p-milk",
+        "category_id": "dairy",
+        "normalized_name": "lait"
+      }
+    ],
+    "start": {
+      "product_id": "p-apple",
+      "category_id": "produce"
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-01",
+      "i-03",
+      "i-02"
+    ],
+    "cost": 1235
+  }
+}

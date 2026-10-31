@@ -1,0 +1,118 @@
+{
+  "id": "016-disconnected-graph",
+  "description": "Deux composantes non reliées : le passage de l'une à l'autre se fait par les catégories.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory_grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 700,
+      "entries": [
+        {
+          "product_id": "p-apple",
+          "weight_q": 3000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-apple",
+          "b": "p-pear",
+          "weight_q": 4000
+        },
+        {
+          "a": "p-ice",
+          "b": "p-peas",
+          "weight_q": 4000
+        },
+        {
+          "a": "p-milk",
+          "b": "p-pear",
+          "weight_q": 2000
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": "p-peas",
+        "category_id": "frozen",
+        "normalized_name": "petit pois"
+      },
+      {
+        "id": "i-02",
+        "product_id": "p-apple",
+        "category_id": "produce",
+        "normalized_name": "pomme"
+      },
+      {
+        "id": "i-03",
+        "product_id": "p-ice",
+        "category_id": "frozen",
+        "normalized_name": "glace"
+      },
+      {
+        "id": "i-04",
+        "product_id": "p-milk",
+        "category_id": "dairy",
+        "normalized_name": "lait"
+      },
+      {
+        "id": "i-05",
+        "product_id": "p-pear",
+        "category_id": "produce",
+        "normalized_name": "poire"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-02",
+      "i-05",
+      "i-04",
+      "i-01",
+      "i-03"
+    ],
+    "cost": 19983
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "id": "022-ids-compared-lowercase",
+  "description": "Identifiants en casse mixte : comparés en minuscules (i-B < i-c), mêmes produits quelle que soit la casse.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory_grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "P-A",
+          "weight_q": 2000
+        },
+        {
+          "product_id": "p-b",
+          "weight_q": 2000
+        },
+        {
+          "product_id": "p-C",
+          "weight_q": 2000
+        }
+      ],
+      "edges": []
+    },
+    "items": [
+      {
+        "id": "i-c",
+        "product_id": "p-a",
+        "category_id": "dairy",
+        "normalized_name": "a"
+      },
+      {
+        "id": "I-A",
+        "product_id": "P-B",
+        "category_id": "dairy",
+        "normalized_name": "b"
+      },
+      {
+        "id": "i-B",
+        "product_id": "p-c",
+        "category_id": "dairy",
+        "normalized_name": "c"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": null
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "I-A",
+      "i-B",
+      "i-c"
+    ],
+    "cost": 6333
+  }
+}

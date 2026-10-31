@@ -1,0 +1,250 @@
+{
+  "id": "003-normalize-plurals",
+  "description": "Singulier par règles simples et exceptions.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "pommes",
+      "expected": {
+        "normalized": "pomme",
+        "category_id": "produce",
+        "matched_keyword": "pomme",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "choux",
+      "expected": {
+        "normalized": "chou",
+        "category_id": "produce",
+        "matched_keyword": "chou",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "gâteaux",
+      "expected": {
+        "normalized": "gateau",
+        "category_id": "sweet_grocery",
+        "matched_keyword": "gateau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "poireaux",
+      "expected": {
+        "normalized": "poireau",
+        "category_id": "produce",
+        "matched_keyword": "poireau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "cheveux",
+      "expected": {
+        "normalized": "cheveu",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "journaux",
+      "expected": {
+        "normalized": "journal",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "animaux",
+      "expected": {
+        "normalized": "animal",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "bocaux",
+      "expected": {
+        "normalized": "bocal",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "ananas",
+      "expected": {
+        "normalized": "ananas",
+        "category_id": "produce",
+        "matched_keyword": "ananas",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "radis",
+      "expected": {
+        "normalized": "radis",
+        "category_id": "produce",
+        "matched_keyword": "radis",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "petits pois",
+      "expected": {
+        "normalized": "petit pois",
+        "category_id": "savory_grocery",
+        "matched_keyword": "petit pois",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "jus",
+      "expected": {
+        "normalized": "jus",
+        "category_id": "beverages",
+        "matched_keyword": "jus",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "riz",
+      "expected": {
+        "normalized": "riz",
+        "category_id": "savory_grocery",
+        "matched_keyword": "riz",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "maïs",
+      "expected": {
+        "normalized": "mais",
+        "category_id": "savory_grocery",
+        "matched_keyword": "mais",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "cassis",
+      "expected": {
+        "normalized": "cassis",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "anchois",
+      "expected": {
+        "normalized": "anchois",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "frais",
+      "expected": {
+        "normalized": "frais",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "gras",
+      "expected": {
+        "normalized": "gras",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "noix",
+      "expected": {
+        "normalized": "noix",
+        "category_id": "sweet_grocery",
+        "matched_keyword": "noix",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bus",
+      "expected": {
+        "normalized": "bus",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none"
+      }
+    },
+    {
+      "input": "ail",
+      "expected": {
+        "normalized": "ail",
+        "category_id": "produce",
+        "matched_keyword": "ail",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "céréales",
+      "expected": {
+        "normalized": "cereale",
+        "category_id": "breakfast",
+        "matched_keyword": "cereale",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lentilles",
+      "expected": {
+        "normalized": "lentille",
+        "category_id": "savory_grocery",
+        "matched_keyword": "lentille",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "frites",
+      "expected": {
+        "normalized": "frite",
+        "category_id": "frozen",
+        "matched_keyword": "frite",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "chips",
+      "expected": {
+        "normalized": "chip",
+        "category_id": "snacks",
+        "matched_keyword": "chip",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "couscous",
+      "expected": {
+        "normalized": "couscous",
+        "category_id": "savory_grocery",
+        "matched_keyword": "couscous",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "tournedos",
+      "expected": {
+        "normalized": "tournedos",
+        "category_id": "butcher",
+        "matched_keyword": "tournedos",
+        "match": "keyword"
+      }
+    }
+  ]
+}

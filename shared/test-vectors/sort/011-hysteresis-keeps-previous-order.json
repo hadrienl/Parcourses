@@ -1,0 +1,113 @@
+{
+  "id": "011-hysteresis-keeps-previous-order",
+  "description": "Le nouvel ordre gagne moins de 10 % : on garde l'ordre précédent.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [
+      {
+        "id": "produce",
+        "rank": 10
+      },
+      {
+        "id": "bakery",
+        "rank": 20
+      },
+      {
+        "id": "dairy",
+        "rank": 70
+      },
+      {
+        "id": "savory_grocery",
+        "rank": 80
+      },
+      {
+        "id": "beverages",
+        "rank": 130
+      },
+      {
+        "id": "frozen",
+        "rank": 150
+      },
+      {
+        "id": "other",
+        "rank": 999
+      }
+    ],
+    "snapshot": {
+      "confidence_q": 800,
+      "entries": [
+        {
+          "product_id": "p-01",
+          "weight_q": 4000
+        }
+      ],
+      "edges": [
+        {
+          "a": "p-01",
+          "b": "p-02",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-02",
+          "b": "p-03",
+          "weight_q": 3000
+        },
+        {
+          "a": "p-02",
+          "b": "p-04",
+          "weight_q": 2800
+        },
+        {
+          "a": "p-03",
+          "b": "p-04",
+          "weight_q": 3000
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "i-02",
+        "product_id": "p-02",
+        "category_id": "savory_grocery",
+        "normalized_name": "article 2"
+      },
+      {
+        "id": "i-03",
+        "product_id": "p-03",
+        "category_id": "savory_grocery",
+        "normalized_name": "article 3"
+      },
+      {
+        "id": "i-04",
+        "product_id": "p-04",
+        "category_id": "savory_grocery",
+        "normalized_name": "article 4"
+      }
+    ],
+    "start": {
+      "entry": true
+    },
+    "previous_order": [
+      "i-02",
+      "i-04",
+      "i-03"
+    ]
+  },
+  "expected": {
+    "mode": "learned",
+    "order": [
+      "i-02",
+      "i-04",
+      "i-03"
+    ],
+    "cost": 963
+  }
+}
