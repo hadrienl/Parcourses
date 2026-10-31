@@ -20,5 +20,8 @@
       "test-vectors/",
       "categories/"
     ]
+  },
+  "lock": {
+    "frozen": true
   }
 }
