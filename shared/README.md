@@ -71,13 +71,14 @@ résultat est écrit dans le JSON, les apps n'ont jamais besoin du générateur.
     "start": { "product_id": "p-milk" },
     "previous_order": ["i-02", "i-01"]
   },
-  "expected": { "mode": "learned", "order": ["i-01", "i-02"], "cost": 3638 }
+  "expected": { "mode": "learned", "order": ["i-01", "i-02"], "cost": 3438 }
 }
 ```
 
-- `snapshot` peut valoir `null` (magasin inconnu) ; `previous_order` peut valoir `null`.
-- `start` vaut `{ "entry": true }` (entrée du magasin) ou
-  `{ "product_id": "…" | null, "category_id"?: "…" | null }` (dernier article coché).
+- `snapshot` peut valoir `null` (magasin inconnu) ; `previous_order` peut valoir `null`, et un
+  tableau vide `[]` est traité exactement comme `null`.
+- `start` vaut `{ "entry": true }` (entrée du magasin) ou `{ "product_id": "…" }` (format de #5).
+  C'est **l'app** qui le résout : le dernier article coché **ayant un produit**, sinon l'entrée.
 - `expected.cost` est le coût entier du chemin retenu, départ compris ; il vaut `null` en mode
   `fallback`.
 - Arêtes, entrées, catégories et articles peuvent arriver dans n'importe quel ordre : le résultat
@@ -90,32 +91,63 @@ reproduire :
 
 1. **Entiers uniquement**, `INF = 2^40`, addition saturée.
    `edge_cost(w) = floor(COST_SCALE × 1000 / (1000 + w))`.
-2. **Identifiants** comparés en minuscules, octet par octet en UTF-8 ; produits et articles sont
-   appariés sans tenir compte de la casse. Deux articles de même identifiant (casse ignorée) sont
-   refusés.
+2. **Identifiants** (articles, produits, catégories, ordre précédent) : ASCII `[0-9a-z_-]+`
+   uniquement, **validés à l'entrée** (sinon erreur). Le tiret bas est admis pour les identifiants
+   de catégories de #7 (`savory_grocery`). Ils se comparent donc octet par octet, sans conversion de
+   casse. Sont aussi refusés : articles ou catégories en double, `weight_q < 0`.
 3. **Graphe** : arêtes non orientées ; boucles `a == b` ignorées ; en cas de doublon (y compris
    `(a,b)` et `(b,a)`), on garde le **coût minimal**. L'entrée est un nœud virtuel avec des arcs
    **sortants uniquement** : un chemin ne traverse jamais l'entrée.
 4. **Distance** `d(x,y) = min(graph_dist, cat_cost)`. `graph_dist` vaut 0 entre deux articles du
-   même produit, `INF` si l'un n'a pas de produit. `cat_cost` utilise le rang de la catégorie ; une
-   catégorie absente ou inconnue prend le **rang maximal** de `categories` (0 si la liste est vide).
-   Un départ sans catégorie (entrée, ou dernier coché sans `category_id`) utilise
-   `UNKNOWN_BASE + CAT_STEP × rank(y)`.
+   même produit, `INF` si l'un n'a pas de produit. `cat_cost` utilise l'**indice ordinal** de la
+   catégorie : `input.categories` est trié par `(rank, id)` puis numéroté `0..m-1`. **`rank` n'est
+   qu'une clé d'ordre**, son échelle (10, 20… 999) n'entre jamais dans les coûts. Une catégorie
+   absente ou inconnue prend l'indice de `other` s'il est présent dans la liste, sinon `m-1` (0 si
+   la liste est vide). Le départ n'a pas de catégorie :
+   `cat_cost(départ, y) = UNKNOWN_BASE + CAT_STEP ×
+   idx(y)`, que ce soit l'entrée ou un produit.
 5. **Ordre canonique** : les articles sont d'abord triés par identifiant ; l'indice 0 est le départ.
 6. **Glouton** depuis le départ ; à égalité, plus petit identifiant d'article.
 7. **2-opt** de #5 §2.6, première amélioration, boucles `i = 1..n-2`, `k = i+1..n-1` sur les indices
    du chemin (départ compris), au plus `TWO_OPT_MAX_PASSES` passes (0 = glouton seul).
-8. **Hystérésis** (si `previous_order` n'est pas `null`) : ordre précédent restreint aux articles
-   présents (identifiants inconnus et répétitions ignorés) ; les nouveaux articles, par identifiant
-   croissant, sont insérés un à un à la position de moindre surcoût (à égalité, la plus en tête ; la
-   fin de liste compte comme position). On garde ce chemin si
+8. **Hystérésis** (si `previous_order` n'est ni `null` ni vide) : ordre précédent restreint aux
+   articles présents (identifiants inconnus et répétitions ignorés) ; les nouveaux articles, par
+   identifiant croissant, sont insérés un à un à la position de moindre surcoût (à égalité, la plus
+   en tête ; la fin de liste compte comme position). On garde ce chemin si
    `cost(nouveau) × 100 > cost(précédent) × (100 − REORDER_MIN_GAIN_PCT)`.
 9. **Repli** si `snapshot` est `null` ou `confidence_q < CONF_THRESHOLD_Q` : tri par
-   `(rang, normalized_name en octets UTF-8, identifiant)`.
+   `(indice ordinal, normalized_name en octets UTF-8, identifiant)`.
+
+### Périmètre MVP : #5 l'emporte sur #7 §4
+
+Pour le MVP, l'algorithme est celui de #5 : graphe produit, puis repli par catégorie via `cat_cost`.
+Le **niveau 2** de #7 §4 (graphe par catégorie du magasin, positions apprises
+`store_category_positions`) et le **mélange** `pos(c) = w · pos_apprise + (1 − w) · pos_générique`
+avec `w = n/(n+3)` sont **reportés après le MVP**. Ils n'apparaissent ni dans la référence ni dans
+les vecteurs.
+
+## Portage (Swift, Kotlin)
+
+Règles impératives pour obtenir les mêmes octets que la référence :
+
+- **Comparaisons** : identifiants et `normalized_name` comparés sur les octets UTF-8
+  (`Array(s.utf8)` en Swift, `s.encodeToByteArray()` en Kotlin), jamais avec `compareTo` sensible à
+  la locale, `localizedCompare` ou un `Collator`.
+- **Minuscules** : en Kotlin, `lowercase()` (qui utilise `Locale.ROOT`), jamais
+  `toLowerCase(Locale.getDefault())` (le « I » turc). En Swift, `lowercased()` sans locale.
+- **Diacritiques et filtrage** : en Swift, travailler sur `unicodeScalars` après
+  `decomposedStringWithCanonicalMapping` (retirer les scalaires U+0300 à U+036F, puis ne garder que
+  `a-z0-9`), pas sur les `Character` (graphèmes) qui fusionnent lettre et accent. En Kotlin,
+  `Normalizer.normalize(s, Normalizer.Form.NFD)`.
+- **Regex des diacritiques** : écrire la classe avec des échappements, `[\u0300-\u036f]`, jamais
+  avec les caractères combinants littéraux (invisibles, et souvent recomposés par les éditeurs).
+- **Entiers** : `Int64` / `Long` partout ; pas de `Double`, même transitoire.
+- **Tables** : jamais d'itération sur un `Dictionary` / `HashMap` / `Set` non trié.
 
 ## Catégories (`categories/`)
 
-- `categories.json` : 19 catégories et `other` (rang 999), rangs espacés de 10 (#7 §1).
+- `categories.json` : 19 catégories et `other` (rang 999), rangs espacés de 10 (#7 §1). Ces rangs ne
+  servent qu'à ordonner : le tri utilise l'indice ordinal (voir « Règles normatives du tri »).
 - `normalization.json` : ligatures, unités, mots vides, pluriels en `-aux` → `-al`, exceptions.
 - `keywords.fr.json` : `keywords` (`k` forme normalisée, `c` catégorie, `brand` facultatif) et
   `overrides` (modificateurs comme « surgelé »). Les clés sont **déjà normalisées** :
@@ -128,10 +160,13 @@ reproduire :
 2. NFD puis retrait des marques U+0300–U+036F.
 3. Tout ce qui n'est pas `[a-z0-9]` devient espace ; espaces compactés et rognés. → c'est
    `normalizeText`, la forme utilisée pour `normalized_name`.
-4. Retrait des mots vides, des unités, des nombres, des nombres collés à une unité (`2kg`) et de
-   `x6`.
+4. Retrait des mots vides, des unités, des nombres, des nombres collés à une unité (`2kg`) et des
+   quantités composées `^[0-9]*x[0-9]+[a-z]*$` (`x6`, `6x33cl`).
 5. Singulier de chaque mot : exception → inchangé ; liste `plural_al` → `-al` ; `-eux/-aux/-oux` →
-   sans `x` ; sinon `-s` final retiré si le mot a plus de 3 lettres.
+   sans `x` ; sinon `-s` final retiré si le mot a plus de 3 lettres (`sans` est une exception).
+
+Collision connue et assumée : « bouquet de roses » → `rose` → `alcohol` (rosé), figée dans
+`102-classify-collisions`.
 
 ### Classification
 
