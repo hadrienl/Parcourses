@@ -1,0 +1,84 @@
+# CI du socle Supabase (issue #8) : migrations, idempotence, lint, tests pgTAP, contrat des types.
+name: supabase
+
+on:
+  pull_request:
+    paths:
+      - "supabase/**"
+      - "scripts/**"
+      - "shared/contract/**"
+      - ".sqlfluff"
+      - ".sqlfluffignore"
+      - ".github/workflows/supabase.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "scripts/**"
+      - "shared/contract/**"
+      - ".github/workflows/supabase.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          # Version épinglée : la sortie de gen types dépend de la CLI.
+          version: 2.121.0
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Lint SQL statique
+        run: |
+          pip install --quiet sqlfluff==3.4.2
+          sqlfluff lint supabase/
+
+      - name: Démarrage
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
+
+      - name: Migrations et seeds depuis zéro
+        run: supabase db reset
+
+      - name: Idempotence des migrations
+        run: |
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$f"
+            docker exec -i supabase_db_parcourses psql -U postgres -v ON_ERROR_STOP=1 -q < "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Lint de la base
+        run: supabase db lint -s public --level warning --fail-on warning
+
+      - name: Advisors
+        run: supabase db advisors --local --level warn --fail-on warn
+
+      - name: Tests pgTAP
+        run: supabase test db
+
+      - name: Types et contrat à jour
+        run: |
+          supabase gen types typescript --local > supabase/types/database.ts
+          git diff --exit-code supabase/types/database.ts
+          deno run --allow-read scripts/check-contract.ts
+
+      - name: Arrêt
+        if: always()
+        run: supabase stop --no-backup

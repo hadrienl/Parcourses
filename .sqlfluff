@@ -1,0 +1,11 @@
+# Lint SQL statique (issue #8) : règles minimales, erreurs de syntaxe d'abord.
+[sqlfluff]
+dialect = postgres
+templater = raw
+max_line_length = 0
+# Règles retenues : syntaxe, mots-clés en minuscules, alias explicites, pas de virgule finale (alignement libre).
+rules = CP01, AL01, CV03
+large_file_skip_byte_limit = 0
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
