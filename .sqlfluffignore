@@ -1,0 +1,3 @@
+# Les tests pgTAP contiennent des méta-commandes psql (\ir, \gset) que sqlfluff ne sait pas analyser.
+supabase/tests/
+supabase/types/
