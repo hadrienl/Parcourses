@@ -8,7 +8,7 @@ import org.gradle.kotlin.dsl.getByType
 
 // Valeurs communes à tous les modules (issue #10, §13).
 internal object ParcoursesSdk {
-    const val COMPILE = 36
+    const val COMPILE = 37
     const val TARGET = 36
     const val MIN = 26
     const val JVM_TARGET = 17

@@ -1,12 +1,12 @@
 # Versions figées, vérifiées le 31 octobre 2026 (issue #10, §1).
 # Toute montée de version passe par une PR dédiée.
-# compileSdk 36 : Compose BOM 2026.06.01 et core-ktx 1.18.0 sont les plus récents compatibles (les suivants exigent 37).
+# compileSdk 37 (targetSdk 36) : imposé par Compose 1.12 (BOM 2026.09.00) et core 1.19 (#10, §13).
 [versions]
 agp = "9.5.0"
 kotlin = "2.4.21"
-composeBom = "2026.06.01"
+composeBom = "2026.09.00"
 activityCompose = "1.13.0"
-coreKtx = "1.18.0"
+coreKtx = "1.19.1"
 lifecycle = "2.11.0"
 spotless = "8.10.4"
 ktlint = "1.8.0"
