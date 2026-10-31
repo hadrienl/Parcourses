@@ -94,6 +94,22 @@
       "aisleNode": 22,
       "reorderScope": "groupe de rayon ; la ligne touchée ne bouge pas",
       "learnedTagMs": 3000
+    },
+    "categoryIcon": {
+      "source": "design/icons/categories/<id>.svg",
+      "grid": 24,
+      "stroke": 1.5,
+      "cap": "round",
+      "join": "round",
+      "renderSize": 20,
+      "node": {
+        "size": 28,
+        "ring": 1.5,
+        "color": "aisle.<id> sur le trait et l'anneau uniquement"
+      },
+      "a11y": "icône décorative (masquée), le libellé du rayon est toujours affiché",
+      "ios": "jeu de symboles personnalisés (.svg template, mode monochrome) dans Assets.xcassets, Image(\"cat.<id>\")",
+      "android": "vector drawables res/drawable/ic_cat_<id>.xml, tint = couleur du rayon"
     }
   },
   "variants": {
