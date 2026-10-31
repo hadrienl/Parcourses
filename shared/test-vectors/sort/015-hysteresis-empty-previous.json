@@ -1,6 +1,6 @@
 {
   "id": "015-hysteresis-empty-previous",
-  "description": "Ordre précédent vide : tous les articles passent par l'insertion, puis comparaison.",
+  "description": "Ordre précédent vide : traité comme null (pas d'hystérésis).",
   "format_version": 1,
   "input": {
     "params": {

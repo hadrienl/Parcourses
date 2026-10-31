@@ -4,10 +4,11 @@
 // - uniquement des entiers ; les valeurs restent sous 2^53, donc exactes en `number` ;
 // - divisions entières tronquées (toutes les valeurs sont positives) ;
 // - INF = 2^40, addition saturée à INF ;
-// - identifiants comparés en minuscules, octet par octet en UTF-8 (`compareIds`) ;
+// - identifiants ASCII [0-9a-z_-] validés à l'entrée, comparés octet par octet ;
+// - catégories réduites à leur indice ordinal (`rank` n'est qu'une clé d'ordre) ;
 // - aucune itération sur une table de hachage non triée.
 
-import { compareBytes, compareIds } from "./ids.ts";
+import { assertId, compareBytes, compareIds } from "./ids.ts";
 
 export const INF = 2 ** 40;
 
@@ -50,7 +51,7 @@ export interface Item {
 /** Départ : l'entrée du magasin, ou le dernier article coché. */
 export type Start =
   | { entry: true }
-  | { product_id: string | null; category_id?: string | null };
+  | { product_id: string };
 
 export interface SortInput {
   params: SortParams;
@@ -80,17 +81,17 @@ export function edgeCost(weightQ: number, params: SortParams): number {
 }
 
 /**
- * Rang d'une catégorie. Une catégorie absente ou inconnue prend le rang maximal
- * de la table (« Autres »), ou 0 si la table est vide.
+ * Indice ordinal d'une catégorie : la liste fournie est triée par (rank, id) et numérotée
+ * 0..m-1. `rank` n'est qu'une clé d'ordre, son échelle n'intervient pas dans les coûts.
+ * Une catégorie absente ou inconnue prend l'indice de `other` s'il est présent, sinon m-1
+ * (0 si la liste est vide).
  */
-function rankResolver(categories: Category[]): (id: string | null | undefined) => number {
-  const ranks = new Map<string, number>();
-  let max = 0;
-  for (const c of categories) {
-    ranks.set(c.id, c.rank);
-    if (c.rank > max) max = c.rank;
-  }
-  return (id) => (id != null && ranks.has(id) ? ranks.get(id)! : max);
+export function rankResolver(categories: Category[]): (id: string | null | undefined) => number {
+  const sorted = [...categories].sort((x, y) => x.rank - y.rank || compareIds(x.id, y.id));
+  const index = new Map<string, number>();
+  sorted.forEach((c, i) => index.set(c.id, i));
+  const unknown = index.get("other") ?? Math.max(0, sorted.length - 1);
+  return (id) => (id != null && index.has(id) ? index.get(id)! : unknown);
 }
 
 /** Repli : tri par (rang de catégorie, nom normalisé, identifiant). */
@@ -128,8 +129,8 @@ function buildGraph(snapshot: Snapshot, params: SortParams): Graph {
     if (old === undefined || c < old) m.set(b, c);
   };
   for (const e of snapshot.edges) {
-    const a = e.a.toLowerCase();
-    const b = e.b.toLowerCase();
+    const a = e.a;
+    const b = e.b;
     if (a === b) continue;
     const c = edgeCost(e.weight_q, params);
     put(a, b, c);
@@ -141,7 +142,7 @@ function buildGraph(snapshot: Snapshot, params: SortParams): Graph {
   }
   const entryBest = new Map<string, number>();
   for (const e of snapshot.entries) {
-    const p = e.product_id.toLowerCase();
+    const p = e.product_id;
     const c = edgeCost(e.weight_q, params);
     const old = entryBest.get(p);
     if (old === undefined || c < old) entryBest.set(p, c);
@@ -201,15 +202,13 @@ function buildMatrix(input: SortInput, items: Item[]): number[][] {
   if ("entry" in start) {
     nodes.push({ product: ENTRY, rank: null });
   } else {
-    const cat = start.category_id;
-    nodes.push({
-      product: start.product_id == null ? null : start.product_id.toLowerCase(),
-      rank: cat == null ? null : rank(cat),
-    });
+    // Le départ est un produit (dernier coché qui en a un, résolu par l'app) : sans
+    // catégorie connue, il se comporte comme l'entrée pour le repli par catégorie.
+    nodes.push({ product: start.product_id, rank: null });
   }
   for (const it of items) {
     nodes.push({
-      product: it.product_id == null ? null : it.product_id.toLowerCase(),
+      product: it.product_id,
       rank: rank(it.category_id),
     });
   }
@@ -304,11 +303,11 @@ function twoOpt(D: number[][], path: number[], maxPasses: number): number[] {
  */
 function previousPath(D: number[][], ids: string[], previous: string[]): number[] {
   const index = new Map<string, number>();
-  for (let j = 1; j < ids.length; j++) index.set(ids[j].toLowerCase(), j);
+  for (let j = 1; j < ids.length; j++) index.set(ids[j], j);
   const path = [0];
   const seen = new Set<number>();
   for (const id of previous) {
-    const j = index.get(id.toLowerCase());
+    const j = index.get(id);
     if (j === undefined || seen.has(j)) continue;
     seen.add(j);
     path.push(j);
@@ -333,16 +332,11 @@ function previousPath(D: number[][], ids: string[], previous: string[]): number[
   return path;
 }
 
-/** Point d'entrée : fonction pure et déterministe. */
-export function sortItems(input: SortInput): SortOutput {
+function sortLearned(input: SortInput): SortOutput & {
+  candidates?: { optimized: string[]; previous: string[] | null };
+} {
   const { params, snapshot, categories } = input;
-  // Identifiants uniques exigés : ils servent au départage.
-  const seen = new Set<string>();
-  for (const it of input.items) {
-    const k = it.id.toLowerCase();
-    if (seen.has(k)) throw new Error(`identifiant d'article en double : ${it.id}`);
-    seen.add(k);
-  }
+  validate(input);
   if (snapshot === null || snapshot.confidence_q < params.CONF_THRESHOLD_Q) {
     return { mode: "fallback", order: fallbackOrder(input.items, categories), cost: null };
   }
@@ -351,12 +345,70 @@ export function sortItems(input: SortInput): SortOutput {
   const ids = ["", ...items.map((i) => i.id)];
   const D = buildMatrix(input, items);
 
-  let path = twoOpt(D, nearestNeighbour(D, ids), params.TWO_OPT_MAX_PASSES);
-  if (input.previous_order !== null) {
-    const prev = previousPath(D, ids, input.previous_order);
-    if (pathCost(D, path) * 100 > pathCost(D, prev) * (100 - params.REORDER_MIN_GAIN_PCT)) {
-      path = prev;
+  const optimized = twoOpt(D, nearestNeighbour(D, ids), params.TWO_OPT_MAX_PASSES);
+  let path = optimized;
+  let previous: number[] | null = null;
+  // Un ordre précédent vide équivaut à null : pas d'hystérésis.
+  if (input.previous_order !== null && input.previous_order.length > 0) {
+    previous = previousPath(D, ids, input.previous_order);
+    if (pathCost(D, path) * 100 > pathCost(D, previous) * (100 - params.REORDER_MIN_GAIN_PCT)) {
+      path = previous;
     }
   }
-  return { mode: "learned", order: path.slice(1).map((j) => ids[j]), cost: pathCost(D, path) };
+  const toIds = (p: number[]) => p.slice(1).map((j) => ids[j]);
+  return {
+    mode: "learned",
+    order: toIds(path),
+    cost: pathCost(D, path),
+    candidates: { optimized: toIds(optimized), previous: previous && toIds(previous) },
+  };
+}
+
+/** Comme `sortItems`, mais expose aussi les deux candidats (tests de propriétés). */
+export function sortItemsDetailed(input: SortInput): SortOutput & {
+  candidates?: { optimized: string[]; previous: string[] | null };
+} {
+  return sortLearned(input);
+}
+
+/** Point d'entrée : fonction pure et déterministe. */
+export function sortItems(input: SortInput): SortOutput {
+  const { mode, order, cost } = sortLearned(input);
+  return { mode, order, cost };
+}
+
+/** Validation des entrées : on refuse plutôt que de deviner. */
+function validate(input: SortInput): void {
+  const seenCat = new Set<string>();
+  for (const c of input.categories) {
+    assertId(c.id, "catégorie");
+    if (seenCat.has(c.id)) throw new Error(`catégorie en double : ${c.id}`);
+    seenCat.add(c.id);
+  }
+  const seen = new Set<string>();
+  for (const it of input.items) {
+    assertId(it.id, "article");
+    if (seen.has(it.id)) throw new Error(`identifiant d'article en double : ${it.id}`);
+    seen.add(it.id);
+    if (it.product_id !== null) assertId(it.product_id, "produit");
+    if (it.category_id !== null) assertId(it.category_id, "catégorie d'article");
+  }
+  if (!("entry" in input.start)) assertId(input.start.product_id, "produit de départ");
+  for (const id of input.previous_order ?? []) assertId(id, "ordre précédent");
+  const s = input.snapshot;
+  if (s !== null) {
+    for (const e of s.edges) {
+      assertId(e.a, "arête");
+      assertId(e.b, "arête");
+      if (!Number.isSafeInteger(e.weight_q) || e.weight_q < 0) {
+        throw new Error(`weight_q invalide : ${e.a}-${e.b} ${e.weight_q}`);
+      }
+    }
+    for (const e of s.entries) {
+      assertId(e.product_id, "entrée");
+      if (!Number.isSafeInteger(e.weight_q) || e.weight_q < 0) {
+        throw new Error(`weight_q invalide : entrée ${e.product_id} ${e.weight_q}`);
+      }
+    }
+  }
 }

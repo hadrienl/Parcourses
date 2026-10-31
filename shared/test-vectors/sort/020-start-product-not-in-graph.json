@@ -1,6 +1,6 @@
 {
   "id": "020-start-product-not-in-graph",
-  "description": "Le dernier coché n'est pas dans le graphe et n'a pas de catégorie : départ comme l'entrée.",
+  "description": "Le dernier coché est un produit absent du graphe : seul le repli par catégorie joue, comme depuis l'entrée.",
   "format_version": 1,
   "input": {
     "params": {
@@ -99,6 +99,6 @@
       "i-03",
       "i-04"
     ],
-    "cost": 19500
+    "cost": 4100
   }
 }

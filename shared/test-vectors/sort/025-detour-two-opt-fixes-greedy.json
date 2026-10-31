@@ -118,8 +118,7 @@
       }
     ],
     "start": {
-      "product_id": "p-05",
-      "category_id": "savory_grocery"
+      "product_id": "p-05"
     },
     "previous_order": null
   },

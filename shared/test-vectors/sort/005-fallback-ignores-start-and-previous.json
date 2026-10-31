@@ -75,8 +75,7 @@
       }
     ],
     "start": {
-      "product_id": "p-water",
-      "category_id": "beverages"
+      "product_id": "p-water"
     },
     "previous_order": [
       "i-05",

@@ -195,7 +195,7 @@ export function sortCases(): SortCase[] {
     input: input({
       snapshot: null,
       items: mixed,
-      start: { product_id: "p-water", category_id: "beverages" },
+      start: { product_id: "p-water" },
       previous_order: ["i-05", "i-04", "i-03", "i-02", "i-01"],
     }),
     expectOrder: ["i-02", "i-04", "i-01", "i-03", "i-05"],
@@ -240,14 +240,14 @@ export function sortCases(): SortCase[] {
     input: input({
       snapshot: corridor(8),
       items: corridorItems([1, 2, 3, 4, 5, 7, 8]),
-      start: { product_id: pid(6), category_id: "savory_grocery" },
+      start: { product_id: pid(6) },
     }),
     expectOrder: [5, 4, 3, 2, 1, 7, 8].map(iid),
   });
   add({
-    id: "010-recompute-start-free-text",
+    id: "010-recompute-start-after-free-text",
     description:
-      "Dernière coche sans produit mais avec catégorie : le départ ne joue que par la catégorie.",
+      "La dernière coche était une saisie libre : l'app repart du dernier coché qui a un produit (p-02).",
     input: input({
       snapshot: corridor(4),
       items: [
@@ -255,8 +255,9 @@ export function sortCases(): SortCase[] {
         item("i-02", pid(2), "dairy", "lait"),
         item("i-03", null, "frozen", "glace"),
       ],
-      start: { product_id: null, category_id: "frozen" },
+      start: { product_id: pid(2) },
     }),
+    expectOrder: ["i-01", "i-02", "i-03"],
   });
 
   // --- Hystérésis -------------------------------------------------------------
@@ -300,6 +301,7 @@ export function sortCases(): SortCase[] {
       items: corridorItems([1, 2, 3, 4]),
       previous_order: [iid(2), iid(4), iid(3)],
     }),
+    expectOrder: ["i-01", "i-02", "i-04", "i-03"],
   });
   add({
     id: "014-hysteresis-previous-with-unknown-ids",
@@ -313,13 +315,13 @@ export function sortCases(): SortCase[] {
   });
   add({
     id: "015-hysteresis-empty-previous",
-    description:
-      "Ordre précédent vide : tous les articles passent par l'insertion, puis comparaison.",
+    description: "Ordre précédent vide : traité comme null (pas d'hystérésis).",
     input: input({
       snapshot: corridor(5),
       items: corridorItems([3, 1, 5, 2, 4]),
       previous_order: [],
     }),
+    expectOrder: [1, 2, 3, 4, 5].map(iid),
   });
 
   // --- Graphe partiel -----------------------------------------------------------
@@ -360,6 +362,7 @@ export function sortCases(): SortCase[] {
         item("i-05", pid(2), "produce", "poire"),
       ],
     }),
+    expectOrder: ["i-01", "i-05", "i-03", "i-02", "i-04"],
   });
   add({
     id: "018-transitive-neighbours",
@@ -381,7 +384,7 @@ export function sortCases(): SortCase[] {
         item("i-02", "p-butter", "dairy", "beurre"),
         item("i-03", "p-milk", "dairy", "lait"),
       ],
-      start: { product_id: "p-apple", category_id: "produce" },
+      start: { product_id: "p-apple" },
     }),
     expectOrder: ["i-01", "i-03", "i-02"],
   });
@@ -398,16 +401,18 @@ export function sortCases(): SortCase[] {
         item("i-05", pid(2), "produce", "poire"),
       ],
     }),
+    expectOrder: ["i-01", "i-05", "i-04", "i-03", "i-02"],
   });
   add({
     id: "020-start-product-not-in-graph",
     description:
-      "Le dernier coché n'est pas dans le graphe et n'a pas de catégorie : départ comme l'entrée.",
+      "Le dernier coché est un produit absent du graphe : seul le repli par catégorie joue, comme depuis l'entrée.",
     input: input({
       snapshot: corridor(4),
       items: corridorItems([4, 2, 3]),
       start: { product_id: "p-unknown" },
     }),
+    expectOrder: ["i-02", "i-03", "i-04"],
   });
 
   // --- Égalités ---------------------------------------------------------------------
@@ -434,25 +439,26 @@ export function sortCases(): SortCase[] {
     expectOrder: ["i-a", "i-b", "i-c"],
   });
   add({
-    id: "022-ids-compared-lowercase",
+    id: "022-ids-byte-order-not-numeric",
     description:
-      "Identifiants en casse mixte : comparés en minuscules (i-B < i-c), mêmes produits quelle que soit la casse.",
+      "Égalité départagée par ordre des octets ASCII : i-1-0 < i-10 < i-9 (pas d'ordre numérique).",
     input: input({
       snapshot: {
         confidence_q: 800,
-        entries: [{ product_id: "P-A", weight_q: 2000 }, { product_id: "p-b", weight_q: 2000 }, {
-          product_id: "p-C",
-          weight_q: 2000,
-        }],
+        entries: [
+          { product_id: "p-x", weight_q: 2000 },
+          { product_id: "p-y", weight_q: 2000 },
+          { product_id: "p-z", weight_q: 2000 },
+        ],
         edges: [],
       },
       items: [
-        item("i-c", "p-a", "dairy", "a"),
-        item("I-A", "P-B", "dairy", "b"),
-        item("i-B", "p-c", "dairy", "c"),
+        item("i-9", "p-x", "dairy", "a"),
+        item("i-10", "p-y", "dairy", "b"),
+        item("i-1-0", "p-z", "dairy", "c"),
       ],
     }),
-    expectOrder: ["I-A", "i-B", "i-c"],
+    expectOrder: ["i-1-0", "i-10", "i-9"],
   });
   add({
     id: "023-duplicate-products-adjacent",
@@ -499,7 +505,7 @@ export function sortCases(): SortCase[] {
     input: input({
       snapshot: line,
       items: corridorItems([6, 3, 9]),
-      start: { product_id: pid(5), category_id: "savory_grocery" },
+      start: { product_id: pid(5) },
     }),
     expectOrder: [3, 6, 9].map(iid),
   });
@@ -509,7 +515,7 @@ export function sortCases(): SortCase[] {
     input: input({
       snapshot: line,
       items: corridorItems([6, 3, 9]),
-      start: { product_id: pid(5), category_id: "savory_grocery" },
+      start: { product_id: pid(5) },
       params: { TWO_OPT_MAX_PASSES: 0 },
     }),
     expectOrder: [6, 3, 9].map(iid),
@@ -559,6 +565,30 @@ export function sortCases(): SortCase[] {
     expectOrder: [iid(2)],
   });
 
+  // --- Hystérésis : bornes exactes -------------------------------------------------
+  // Entrée → A coûte 400 (w 1500), entrée → B 500 (w 1000), A–B 500 (w 1000).
+  // Nouveau chemin A, B = 900 ; précédent B, A = 1000 : 900 × 100 == 1000 × 90.
+  const boundary = (wA: number): Snapshot => ({
+    confidence_q: 800,
+    entries: [{ product_id: "p-a", weight_q: wA }, { product_id: "p-b", weight_q: 1000 }],
+    edges: [{ a: "p-a", b: "p-b", weight_q: 1000 }],
+  });
+  const abItems = [item("i-a", "p-a", "dairy", "a"), item("i-b", "p-b", "dairy", "b")];
+  add({
+    id: "034-hysteresis-exact-boundary-reorders",
+    description:
+      "Gain d'exactement 10 % (900 × 100 == 1000 × 90) : l'inégalité est stricte, on réordonne.",
+    input: input({ snapshot: boundary(1500), items: abItems, previous_order: ["i-b", "i-a"] }),
+    expectOrder: ["i-a", "i-b"],
+  });
+  add({
+    id: "035-hysteresis-just-above-boundary-keeps",
+    description:
+      "Gain juste sous 10 % (901 × 100 > 1000 × 90, entrée → A coûte 401) : on garde l'ordre précédent.",
+    input: input({ snapshot: boundary(1493), items: abItems, previous_order: ["i-b", "i-a"] }),
+    expectOrder: ["i-b", "i-a"],
+  });
+
   // --- Grande taille ---------------------------------------------------------------
   {
     const { rng, snapshot } = syntheticStore(20261031, 120, { dropPct: 30 });
@@ -572,7 +602,7 @@ export function sortCases(): SortCase[] {
   {
     const { rng, snapshot } = syntheticStore(4242, 120, { dropPct: 10 });
     const items = largeItems(rng, 77, 120);
-    const start = { product_id: pid(40), category_id: "dairy" };
+    const start = { product_id: pid(40) };
     const previous = rng.shuffle(items.map((i) => i.id)).slice(0, 70);
     add({
       id: "032-large-80-items-recompute-with-previous",

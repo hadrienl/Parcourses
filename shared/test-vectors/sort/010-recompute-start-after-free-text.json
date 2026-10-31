@@ -1,6 +1,6 @@
 {
-  "id": "010-recompute-start-free-text",
-  "description": "Dernière coche sans produit mais avec catégorie : le départ ne joue que par la catégorie.",
+  "id": "010-recompute-start-after-free-text",
+  "description": "La dernière coche était une saisie libre : l'app repart du dernier coché qui a un produit (p-02).",
   "format_version": 1,
   "input": {
     "params": {
@@ -88,18 +88,17 @@
       }
     ],
     "start": {
-      "product_id": null,
-      "category_id": "frozen"
+      "product_id": "p-02"
     },
     "previous_order": null
   },
   "expected": {
     "mode": "learned",
     "order": [
-      "i-03",
+      "i-01",
       "i-02",
-      "i-01"
+      "i-03"
     ],
-    "cost": 22250
+    "cost": 4100
   }
 }

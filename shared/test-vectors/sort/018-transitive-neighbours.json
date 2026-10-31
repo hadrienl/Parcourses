@@ -93,8 +93,7 @@
       }
     ],
     "start": {
-      "product_id": "p-apple",
-      "category_id": "produce"
+      "product_id": "p-apple"
     },
     "previous_order": null
   },

@@ -1,14 +1,29 @@
-// Comparaison normative des identifiants et des noms (#5 §2.6) :
-// minuscules, puis ordre lexicographique des octets UTF-8.
+// Identifiants (#5 §2.6, précisé en revue de #16) : ASCII `[0-9a-z_-]` uniquement, validés à
+// l'entrée. Ils sont donc déjà en minuscules et l'ordre des octets UTF-8 est l'ordre ASCII.
+// `normalized_name`, lui, peut contenir n'importe quel caractère : il est comparé octet par
+// octet en UTF-8 (`compareBytes`), jamais avec une comparaison sensible à la locale.
 
 const encoder = new TextEncoder();
+const ID = /^[0-9a-z_-]+$/;
 
-/** Compare deux chaînes octet par octet en UTF-8, après passage en minuscules. */
-export function compareIds(a: string, b: string): number {
-  return compareBytes(a.toLowerCase(), b.toLowerCase());
+/** Vrai si l'identifiant respecte le format imposé. */
+export function isValidId(id: unknown): id is string {
+  return typeof id === "string" && ID.test(id);
 }
 
-/** Compare deux chaînes octet par octet en UTF-8 (sans changement de casse). */
+/** Lève une erreur si l'identifiant est invalide. */
+export function assertId(id: unknown, what: string): asserts id is string {
+  if (!isValidId(id)) {
+    throw new Error(`${what} invalide (attendu [0-9a-z_-]+) : ${JSON.stringify(id)}`);
+  }
+}
+
+/** Ordre des identifiants : octets ASCII. */
+export function compareIds(a: string, b: string): number {
+  return compareBytes(a, b);
+}
+
+/** Compare deux chaînes octet par octet en UTF-8. */
 export function compareBytes(a: string, b: string): number {
   if (a === b) return 0;
   const x = encoder.encode(a);
