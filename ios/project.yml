@@ -1,0 +1,91 @@
+# Projet généré par XcodeGen : `xcodegen generate` dans ios/.
+name: Parcourses
+options:
+  bundleIdPrefix: app.parcourses
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+packages:
+  Domain:
+    path: Packages/Domain
+  SortEngine:
+    path: Packages/SortEngine
+targets:
+  Parcourses:
+    type: application
+    platform: iOS
+    sources: [Parcourses, Shared]
+    dependencies:
+      - package: Domain
+      - package: SortEngine
+      - target: ParcoursesWidgets
+    entitlements:
+      path: Parcourses/Parcourses.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
+    info:
+      path: Parcourses/Info.plist
+      properties:
+        CFBundleDisplayName: Parcourses
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        SupabaseURL: $(SUPABASE_URL)
+        SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSSupportsLiveActivities: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.parcourses
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+  ParcoursesWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [ParcoursesWidgets, Shared]
+    entitlements:
+      path: ParcoursesWidgets/ParcoursesWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(APP_GROUP_ID)
+    info:
+      path: ParcoursesWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Parcourses
+        AppGroupIdentifier: $(APP_GROUP_ID)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.parcourses.widgets
+  ParcoursesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [ParcoursesTests]
+    dependencies:
+      - target: Parcourses
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  ParcoursesUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ParcoursesUITests]
+    dependencies:
+      - target: Parcourses
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Parcourses:
+    build:
+      targets:
+        Parcourses: all
+    test:
+      gather_coverage_data: true
+      targets: [ParcoursesTests, ParcoursesUITests]

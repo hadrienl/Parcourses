@@ -1,0 +1,3 @@
+#include "Base.xcconfig"
+// Clés cloud, jamais commitées (voir Cloud.xcconfig.example).
+#include? "Cloud.xcconfig"
