@@ -62,7 +62,7 @@ create trigger list_items_set_updated_at
   before update on public.list_items
   for each row execute function public.set_updated_at();
 
--- Une visite ne peut pas commencer dans le futur (dérive d'horloge tolérée : 5 min).
+-- Une visite ne peut ni commencer ni se clore dans le futur (dérive d'horloge tolérée : 5 min).
 create or replace function public.guard_visit()
 returns trigger
 language plpgsql
@@ -72,13 +72,16 @@ begin
   if new.started_at > now() + interval '5 minutes' then
     raise exception 'started_at is in the future' using errcode = 'check_violation';
   end if;
+  if new.ended_at > now() + interval '5 minutes' then
+    raise exception 'ended_at is in the future' using errcode = 'check_violation';
+  end if;
   return new;
 end;
 $$;
 
 drop trigger if exists visits_guard on public.visits;
 create trigger visits_guard
-  before insert on public.visits
+  before insert or update of ended_at on public.visits
   for each row execute function public.guard_visit();
 
 -- Coches : checked_at borné par la visite et l'heure courante, 500 coches au plus.

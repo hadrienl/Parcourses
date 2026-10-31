@@ -61,7 +61,12 @@ create policy visits_select on public.visits for select to authenticated
   using (user_id = (select auth.uid()));
 drop policy if exists visits_insert on public.visits;
 create policy visits_insert on public.visits for insert to authenticated
-  with check (user_id = (select auth.uid()) and ended_at is null and processed_at is null);
+  with check (
+    user_id = (select auth.uid())
+    and ended_at is null
+    and processed_at is null
+    and (list_id is null or list_id in (select l.id from public.lists as l where l.owner_id = (select auth.uid())))
+  );
 drop policy if exists visits_update on public.visits;
 create policy visits_update on public.visits for update to authenticated
   using (user_id = (select auth.uid()) and ended_at is null and processed_at is null)
