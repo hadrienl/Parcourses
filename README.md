@@ -9,3 +9,16 @@ Les plans de rayons ne sont pas publics. Parcourses les apprend donc par crowdso
 - **Pilote** : quelques supermarchés du Gers
 
 Le suivi se fait dans les [issues](https://github.com/hadrienl/Parcourses/issues).
+
+## Backend local
+
+Prérequis : Docker, [Supabase CLI](https://supabase.com/docs/guides/cli) 2.121+, Deno 2.
+
+```sh
+supabase start          # ports 563xx (API : http://127.0.0.1:56321)
+supabase db reset       # migrations + seeds (catégories, produits, magasins du Gers)
+supabase test db        # tests pgTAP
+supabase db lint -s public --level warning
+```
+
+Voir [docs/data-model.md](docs/data-model.md) pour le schéma, la RLS et les privilèges.
