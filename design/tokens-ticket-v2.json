@@ -1,0 +1,59 @@
+{
+  "$description": "Parcourses, direction B « Ticket » v2 : trois variantes (proposition, non validée). Noms communs iOS/Android. Contrastes calculés WCAG 2.2 sur la surface de la variante.",
+  "shared": {
+    "typography": {
+      "mono":    { "family": "JetBrains Mono → repli SF Mono / Roboto Mono", "ios": "Font.system(.body, design:.monospaced)", "compose": "FontFamily.Monospace (police embarquée JetBrains Mono)" },
+      "total":   { "size": 52, "weight": 800, "tracking": -0.03, "use": "compteur « RESTE 7 »" },
+      "title":   { "size": 26, "weight": 800, "case": "upper", "tracking": 0.04 },
+      "itemNext":{ "size": 20, "weight": 700 },
+      "item":    { "size": 17, "weight": 500 },
+      "aisle":   { "size": 12, "weight": 700, "case": "upper", "tracking": 0.12 },
+      "$note": "Toutes les tailles suivent Dynamic Type (jusqu'à AX5) et l'échelle Android 200 %. En AX, les pointillés de prix disparaissent et le nom passe sur 2 lignes."
+    },
+    "size": { "rowMin": 56, "touchMin": { "ios": 44, "android": 48 }, "checkBox": 28, "primaryAction": 56, "perforation": 6, "zigzag": 8 },
+    "space": { "xs": 8, "s": 12, "m": 16, "l": 24, "xl": 32 },
+    "motion": {
+      "check":   { "ios": "spring(response:0.25, dampingFraction:0.8)", "compose": "MotionScheme.standard().fastSpatialSpec()", "ms": 250 },
+      "reorder": { "ios": "spring(response:0.4, dampingFraction:1.0)", "compose": "animateItem(spring(1f, StiffnessMediumLow))", "ms": 400, "delayAfterCheckMs": 600 },
+      "undoBannerMs": 4000,
+      "reduced": { "all": "fondu 150 ms, aucun déplacement, pas d'impression ni de déchirure" }
+    },
+    "haptics": { "check": { "ios": ".success", "android": "CONFIRM" }, "uncheck": { "ios": ".impact(.light)", "android": "REJECT" } },
+    "material": {
+      "ios26": "glassEffect(.regular) sur la barre basse (saisie / Terminer) et la pastille magasin ; le ticket (contenu) reste opaque",
+      "ios18": ".regularMaterial + filet 0,5 pt",
+      "android": "HorizontalFloatingToolbar + FAB ; couleur dynamique : seul `accent` suit le schéma dynamique, le papier reste celui de la marque"
+    }
+  },
+  "variants": {
+    "thermique": {
+      "$intent": "Ticket chaleureux : papier thermique crème, mono expressive, un accent tomate, tampons et perforations.",
+      "color": {
+        "light": { "paper": "#F6F0E1", "paperEdge": "#E7DDC6", "ink": "#1F1A14", "inkMuted": "#5E5546", "accent": "#C2301A", "onAccent": "#FFFFFF", "stamp": "#C2301A", "checked": "#5E5546" },
+        "dark":  { "paper": "#1B1812", "paperEdge": "#2B261D", "ink": "#F2EAD8", "inkMuted": "#B3A88F", "accent": "#FF7A5C", "onAccent": "#2A0A03", "stamp": "#FF7A5C", "checked": "#B3A88F" },
+        "$contrast": "ink/paper clair 15,2:1 ; inkMuted 6,4:1 ; accent 5,2:1 ; sombre : accent 6,8:1, inkMuted 7,9:1"
+      },
+      "signature": { "check": "tampon « PRIS » qui s'imprime en 250 ms (échelle 1,4→1, rotation -8°)", "edges": "perforations rondes de 6 pt en haut et en bas", "radius": 4 }
+    },
+    "fanfare": {
+      "$intent": "Ticket ludique : le ticket s'imprime à l'ouverture, se déchire à chaque coche, pictos de rayon au trait.",
+      "color": {
+        "light": { "paper": "#FFFDF7", "paperEdge": "#ECE7DA", "ink": "#18181B", "inkMuted": "#55525E", "accent": "#5B3FD6", "onAccent": "#FFFFFF", "highlight": "#FFD84D", "checked": "#55525E" },
+        "dark":  { "paper": "#15131C", "paperEdge": "#25222F", "ink": "#EEEAF7", "inkMuted": "#ABA5BD", "accent": "#B4A2FF", "onAccent": "#1A0F4A", "highlight": "#5A4A00", "checked": "#ABA5BD" },
+        "$contrast": "accent/paper clair 7,1:1 ; ink sur highlight 13:1 ; sombre accent 8,2:1"
+      },
+      "signature": { "open": "le ticket descend ligne à ligne, 40 ms par ligne (max 400 ms)", "check": "la ligne se détache par un bord dentelé puis se replie (300 ms)", "illustration": "pictos de rayon au trait 1,5 pt, couleur ink", "radius": 6 }
+    },
+    "ticketFile": {
+      "$intent": "Hybride B × A : la structure du ticket, avec le fil du trajet qui court dans la marge et colore chaque rayon.",
+      "color": {
+        "light": { "paper": "#FBF7F0", "paperEdge": "#EAE2D3", "ink": "#1A1C22", "inkMuted": "#545866", "accent": "#2340C8", "onAccent": "#FFFFFF", "thread": "#2340C8", "threadIdle": "#D5CEC0", "checked": "#545866",
+                   "aisle": { "fresh": "#1F7A44", "dairy": "#2A6FB0", "grocery": "#A3520A", "hygiene": "#8A3FA0" } },
+        "dark":  { "paper": "#12141A", "paperEdge": "#232631", "ink": "#ECEEF4", "inkMuted": "#A6ABBA", "accent": "#8FA6FF", "onAccent": "#0B1550", "thread": "#8FA6FF", "threadIdle": "#353A48", "checked": "#A6ABBA",
+                   "aisle": { "fresh": "#6FD39A", "dairy": "#86BEF2", "grocery": "#F2B06A", "hygiene": "#E0A3F0" } },
+        "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte"
+      },
+      "signature": { "thread": "fil de 3 pt dans une gouttière de 28 pt ; il avance d'une perle à chaque coche", "check": "la perle se remplit, la ligne est barrée", "radius": 8 }
+    }
+  }
+}

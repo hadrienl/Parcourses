@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket v2</title>
+<!-- Maquette de conception (issue #6) : trois variantes de la direction B « Ticket ». Pas de code applicatif. -->
+<style>
+:root{--bg:#EDEAE4;--fg:#1B1B1B;--muted:#5A5650;--card:#FFFFFF;--line:#D9D4CA}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31}}
+:root[data-theme="dark"]{--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:1280px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:clamp(28px,5vw,44px);margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:28px;margin:56px 0 4px}
+h3{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:28px 0 10px}
+.lead{color:var(--muted);max-width:760px}
+.intent{max-width:760px;font-size:17px}
+.toolbar{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;display:flex;gap:8px;flex-wrap:wrap}
+.toolbar button{min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
+.row{display:flex;gap:20px;overflow-x:auto;padding:4px 2px 16px;scroll-snap-type:x mandatory}
+.cap{font-size:13px;color:var(--muted);margin-top:8px;max-width:300px}
+figure{margin:0;scroll-snap-align:start;flex:none}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+.tablewrap{overflow-x:auto}
+.reco{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:20px}
+.spec{font-size:14px;color:var(--muted);max-width:900px}
+.spec li{margin:4px 0}
+
+/* ===== Téléphone ===== */
+.phone{width:300px;height:620px;border-radius:44px;padding:10px;background:#0b0b0b;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.phone.android{border-radius:34px}
+.screen{width:100%;height:100%;border-radius:36px;overflow:hidden;position:relative;background:var(--desk);color:var(--ink);font-family:"JetBrains Mono","SF Mono",ui-monospace,Menlo,"Roboto Mono",monospace}
+.android .screen{border-radius:26px}
+.status{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font:600 13px -apple-system,system-ui,sans-serif;color:var(--ink)}
+.island{width:96px;height:28px;background:#000;border-radius:16px}
+.android .island{width:12px;height:12px;border-radius:50%}
+
+/* Thèmes : variables par variante × mode */
+.v-thermique.light{--desk:#D9CFB8;--paper:#F6F0E1;--edge:#E7DDC6;--ink:#1F1A14;--muted:#5E5546;--accent:#C2301A;--on:#fff}
+.v-thermique.dark {--desk:#0C0B08;--paper:#1B1812;--edge:#2B261D;--ink:#F2EAD8;--muted:#B3A88F;--accent:#FF7A5C;--on:#2A0A03}
+.v-fanfare.light {--desk:#E7E3F5;--paper:#FFFDF7;--edge:#ECE7DA;--ink:#18181B;--muted:#55525E;--accent:#5B3FD6;--on:#fff;--hl:#FFD84D}
+.v-fanfare.dark  {--desk:#0A0910;--paper:#15131C;--edge:#25222F;--ink:#EEEAF7;--muted:#ABA5BD;--accent:#B4A2FF;--on:#1A0F4A;--hl:#5A4A00}
+.v-file.light    {--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#fff;--idle:#D5CEC0;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0}
+.v-file.dark     {--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0}
+/* Couleur dynamique Android simulée (Material You, fond d'écran vert) : seul l'accent change */
+.dyn.light{--accent:#2F6A3F}.dyn.dark{--accent:#94D6A4;--on:#003916}
+
+/* ===== Ticket ===== */
+.ticket{position:absolute;left:12px;right:12px;top:44px;bottom:0;background:var(--paper);padding:18px 16px 120px;overflow:hidden}
+.v-thermique .ticket{border-radius:4px 4px 0 0;
+  -webkit-mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x;mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x}
+.v-fanfare .ticket{-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/16px 100%;mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/16px 51% repeat-x,linear-gradient(#000 0 0) bottom/100% 50% no-repeat}
+.v-file .ticket{border-radius:8px 8px 0 0;padding-left:44px}
+.head{text-align:center;border-bottom:2px dashed var(--muted);padding-bottom:10px;margin-bottom:8px}
+.head .store{font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
+.head .meta{font-size:11px;color:var(--muted)}
+.total{display:flex;justify-content:space-between;align-items:flex-end;margin:6px 0 10px}
+.total b{font-size:46px;line-height:1;letter-spacing:-.03em}
+.total span{font-size:11px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.aisle{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:10px 0 2px;display:flex;align-items:center;gap:6px}
+.item{min-height:48px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:500;position:relative}
+.item .name{flex:1;display:flex;align-items:baseline;gap:4px}
+.item .name::after{content:"";flex:1;border-bottom:1px dotted var(--muted);transform:translateY(-4px)}
+.item .qty{color:var(--muted);font-size:13px}
+.box{width:28px;height:28px;border:2px solid var(--ink);border-radius:4px;flex:none;display:grid;place-items:center}
+.v-fanfare .box{border-radius:50%}
+.done .name{text-decoration:line-through;color:var(--muted)}
+.done .box{background:var(--ink);color:var(--paper)}
+.next{font-size:19px;font-weight:800}
+.v-fanfare .next .name{background:linear-gradient(transparent 55%,var(--hl) 55%)}
+
+/* Fil (hybride) */
+.v-file .thread{position:absolute;left:24px;top:120px;bottom:0;width:3px;background:var(--idle)}
+.v-file .thread i{position:absolute;inset:0 0 auto 0;height:var(--p,40%);background:var(--accent);transition:height .35s}
+.v-file .item::before{content:"";position:absolute;left:-26px;width:14px;height:14px;border-radius:50%;border:3px solid var(--idle);background:var(--paper)}
+.v-file .item.done::before{background:var(--accent);border-color:var(--accent)}
+.v-file .item.next::before{border-color:var(--accent);width:18px;height:18px;left:-28px}
+.v-file .aisle .chip{display:inline-block;width:10px;height:10px;border-radius:2px}
+.v-file .aisle{color:var(--c)}
+
+/* Tampon (thermique) */
+.stamp{position:absolute;right:4px;top:50%;font-weight:900;font-size:13px;letter-spacing:.1em;color:var(--accent);border:2px solid var(--accent);padding:1px 6px;border-radius:3px;transform:translateY(-50%) rotate(-8deg)}
+
+/* Barre basse */
+.bar{position:absolute;left:16px;right:16px;bottom:22px;height:56px;border-radius:28px;display:flex;align-items:center;gap:8px;padding:0 6px 0 18px;font:500 15px -apple-system,system-ui,sans-serif;color:var(--ink)}
+.glass26{background:color-mix(in srgb,var(--paper) 45%,transparent);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 0 0 .5px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18)}
+.mat18{background:color-mix(in srgb,var(--paper) 82%,#888 0%);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:.5px solid var(--muted);border-radius:0;left:0;right:0;bottom:0;height:78px;padding-bottom:20px}
+.bar .grow{flex:1;color:var(--muted)}
+.cta{min-height:44px;min-width:44px;padding:0 16px;border-radius:22px;background:var(--accent);color:var(--on);font-weight:700;display:grid;place-items:center;border:0}
+/* Android : toolbar flottante + FAB */
+.m3bar{position:absolute;left:16px;bottom:18px;height:64px;border-radius:32px;background:var(--edge);display:flex;align-items:center;gap:4px;padding:0 8px;color:var(--ink);font:500 14px Roboto,system-ui,sans-serif}
+.m3bar span{min-width:48px;height:48px;border-radius:24px;display:grid;place-items:center}
+.m3bar span.on{background:var(--accent);color:var(--on);padding:0 14px}
+.fab{position:absolute;right:16px;bottom:18px;width:64px;height:64px;border-radius:20px;background:var(--accent);color:var(--on);display:grid;place-items:center;font-size:30px;font-family:Roboto,system-ui,sans-serif}
+.v-fanfare .fab{border-radius:50% 50% 50% 50%/60% 60% 40% 40%}
+.snack{position:absolute;left:16px;right:16px;bottom:96px;min-height:48px;border-radius:12px;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 16px;font:500 14px Roboto,system-ui,sans-serif}
+.snack b{color:var(--accent);filter:invert(0);min-height:48px;display:grid;place-items:center;padding:0 10px}
+.undo26{position:absolute;left:50%;transform:translateX(-50%);bottom:90px;min-height:44px;padding:0 16px;border-radius:22px;display:flex;align-items:center;gap:10px;font:500 14px -apple-system,system-ui,sans-serif;color:var(--ink)}
+
+/* Choix du magasin */
+.stores .opt{border:2px solid var(--edge);border-radius:8px;padding:10px 12px;margin:8px 0;min-height:64px}
+.stores .opt.sel{border-color:var(--accent)}
+.stores .opt b{display:block;font-size:14px}
+.stores .opt small{color:var(--muted);font-size:11px}
+.meter{height:6px;background:var(--edge);border-radius:3px;margin-top:6px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+.v-thermique .meter{background:repeating-linear-gradient(90deg,var(--edge) 0 6px,transparent 6px 8px)}
+
+/* Dynamic Type AX */
+.ax .item{font-size:22px;min-height:64px}.ax .item .name::after{display:none}.ax .aisle{font-size:15px}.ax .total b{font-size:52px}.ax .item .name{flex-wrap:wrap}
+
+/* ===== Animations de coche ===== */
+@keyframes stampIn{0%,40%{opacity:0;transform:translateY(-50%) rotate(-8deg) scale(1.6)}55%{opacity:1;transform:translateY(-50%) rotate(-8deg) scale(.95)}65%,90%{transform:translateY(-50%) rotate(-8deg) scale(1);opacity:1}100%{opacity:0}}
+@keyframes boxFill{0%,40%{background:transparent;color:transparent}50%,90%{background:var(--ink);color:var(--paper)}100%{background:transparent;color:transparent}}
+@keyframes strike{0%,45%{text-decoration-color:transparent}55%,90%{text-decoration:line-through;text-decoration-color:currentColor}100%{text-decoration-color:transparent}}
+.anim .stamp{animation:stampIn 3s infinite}
+.anim .box{animation:boxFill 3s infinite}
+.anim .name{text-decoration:line-through;animation:strike 3s infinite}
+@keyframes tear{0%,35%{transform:none;opacity:1;clip-path:none}50%{transform:translateX(6px) rotate(1.5deg)}70%,90%{transform:translateX(120%) rotate(6deg);opacity:0}100%{transform:none;opacity:1}}
+.tear{animation:tear 3s infinite}
+.tear::after{content:"";position:absolute;left:-16px;right:-16px;bottom:-1px;height:6px;background:conic-gradient(from 135deg at top,var(--muted) 0 90deg,transparent 0) 0 0/8px 6px repeat-x;opacity:.5}
+@keyframes print{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
+.printing .ticket{animation:print 1.6s steps(12) infinite alternate}
+@keyframes bead{0%,40%{background:var(--paper)}55%,90%{background:var(--accent)}100%{background:var(--paper)}}
+@keyframes threadGo{0%,40%{height:30%}60%,90%{height:44%}100%{height:30%}}
+.anim.v-file .item.target::before{animation:bead 3s infinite}
+.anim.v-file .thread i{animation:threadGo 3s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<div class="toolbar" role="group" aria-label="Thème de la page">
+  <button data-t="light">Page claire</button><button data-t="dark">Page sombre</button><button data-t="">Système</button>
+</div>
+<h1>Ticket v2 : trois variantes</h1>
+<p class="lead">Issue #6. La direction B plaît, mais elle paraît austère. Voici trois façons de la réchauffer sans perdre ce qui la rend bonne : une lecture mono très rapide, des filets nets et un gros chiffre « RESTE ». Chaque variante montre la liste, le mode courses avec la coche animée et le choix du magasin, en clair et en sombre, sur iOS (Liquid Glass et repli iOS 18) et sur Android (Material 3 Expressive, couleur dynamique et repli). Les tokens sont dans <code>design/tokens-ticket-v2.json</code>.</p>
+
+<div id="variants"></div>
+
+<h2>Comparaison</h2>
+<div class="tablewrap"><table>
+<tr><th></th><th>B1 · Thermique</th><th>B2 · Fanfare</th><th>B3 · Ticket filé</th></tr>
+<tr><th>Intention</th><td>Chaleur et matière : on tient un vrai ticket</td><td>Jeu et mouvement : le ticket vit</td><td>Sens : le ticket montre le trajet</td></tr>
+<tr><th>Lisibilité en rayon</th><td>★★★ Très haute, sobre</td><td>★★☆ Les animations sont réservées aux écrans calmes</td><td>★★★ Le fil indique « où j'en suis »</td></tr>
+<tr><th>Valorise l'algorithme de tri</th><td>★☆☆ Implicite</td><td>★☆☆ Implicite</td><td>★★★ Explicite : le fil avance à chaque coche</td></tr>
+<tr><th>Fatigue au 50ᵉ usage</th><td>Faible</td><td>Moyenne : la déchirure peut lasser (on la désactive après 3 coches rapides)</td><td>Faible</td></tr>
+<tr><th>Coût d'implémentation</th><td>Bas (masques, police mono)</td><td>Élevé (impression, déchirure, illustrations)</td><td>Moyen (gouttière du fil partagée avec A)</td></tr>
+<tr><th>Couleur dynamique Android</th><td>Accent seul</td><td>Accent seul, jaune fixe</td><td>Accent + fil ; couleurs de rayon fixes</td></tr>
+</table></div>
+
+<h2>Specs d'interaction communes</h2>
+<ul class="spec">
+<li><b>Coche</b> : appui sur toute la ligne (≥ 48 pt de haut) ou glisser vers la droite. Ressort de 250 ms, haptique <i>success</i> / <i>CONFIRM</i>. VoiceOver et TalkBack annoncent « Lait, pris. 6 restants ». L'état coché se lit sans couleur : case pleine et texte barré.</li>
+<li><b>Annulation</b> : bannière en verre sur iOS et Snackbar sur Android, pendant 4 s. Un nouvel appui sur la ligne annule aussi.</li>
+<li><b>Réordonnancement</b> : 600 ms après la coche, la ligne touchée reste en place et les autres glissent (400 ms, sans rebond).</li>
+<li><b>Mouvement réduit</b> : un fondu de 150 ms, sans tampon, sans impression ni déchirure. Avec <i>Réduire la transparence</i>, la barre devient opaque (<code>paperEdge</code>) avec un filet.</li>
+<li><b>Dynamic Type AX / police à 200 %</b> : les pointillés de prix disparaissent, le nom passe sur deux lignes et le total reste en haut. Voir l'écran « AX » de chaque variante.</li>
+</ul>
+
+<div class="reco">
+<h2 style="margin-top:0">Recommandation : B3 « Ticket filé », avec la matière de B1</h2>
+<p><b>Je recommande B3.</b> C'est la seule variante où l'esthétique sert la promesse du produit. Le fil qui avance dans la marge du ticket rend visible ce que l'app fait de spécial : l'ordre du trajet. La structure mono de B, rapide à lire, reste intacte.</p>
+<ul>
+<li><b>Ce qui la rend moins austère</b> : une couleur par rayon, toujours doublée d'un libellé, et un accent cobalt sur le fil.</li>
+<li><b>Ce que je reprendrais de B1</b> : le papier crème, les perforations en haut du ticket et le tampon « PRIS » sur l'écran de fin. C'est un écran calme, donc le tampon n'y gêne pas la lecture.</li>
+<li><b>Ce que j'écarte de B2</b> : l'impression à l'ouverture et la déchirure à chaque coche. C'est charmant en démo, mais ça fatigue en rayon et ça coûte cher sur deux plateformes. Je garderais seulement l'impression du ticket récapitulatif en fin de courses.</li>
+</ul>
+<p><b>Questions ouvertes</b> : 1) Les couleurs de rayon sont-elles fixées par catégorie, ou choisies par magasin ? 2) Faut-il embarquer JetBrains Mono, ou utiliser SF Mono et Roboto Mono, qui sont gratuites ? 3) Le tampon « PRIS » doit-il rester sur la ligne cochée, ou seulement apparaître brièvement ?</p>
+</div>
+</main>
+
+<script>
+// Rendu des maquettes : gabarits HTML statiques (pas de logique applicative).
+const V = [
+ {id:'thermique',name:'B1 · Thermique',intent:"Un ticket chaleureux : papier thermique crème, perforations, mono expressive et un seul accent tomate. À la coche, un tampon « PRIS » s'imprime puis s'efface. C'est la plus proche de B, en plus chaleureuse."},
+ {id:'fanfare',name:'B2 · Fanfare',intent:"Un ticket ludique : il s'imprime ligne à ligne à l'ouverture, chaque article coché se détache sur un bord dentelé, la prochaine ligne est surlignée au feutre jaune et chaque rayon a son picto au trait."},
+ {id:'file',name:'B3 · Ticket filé',intent:"Un hybride B × A : on garde la structure du ticket, et le fil du trajet court dans la marge. Il avance d'une perle à chaque coche, et chaque rayon a sa couleur, doublée de son libellé."}
+];
+const ic={frais:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21c5 0 8-4 8-9-4 0-8 2-8 9Zm0 0c-5 0-8-4-8-9 4 0 8 2 8 9Zm0-9V4"/></svg>',
+ cremerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3h8v4l2 3v11H6V10l2-3Z"/></svg>',
+ epicerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="6" width="14" height="15" rx="2"/><path d="M8 3h8v3"/></svg>'};
+const aisles=[['Fruits & légumes','frais','--a1',[['Tomates','×6'],['Basilic','1']]],['Crèmerie','cremerie','--a2',[['Lait demi-écrémé','×2'],['Comté','200 g']]],['Épicerie','epicerie','--a3',[['Pâtes','×1'],['Café moulu','×1']]]];
+const v=(o)=>o;
+function aisleHead(a,vid){
+  const pic = vid==='fanfare'?ic[a[1]]:vid==='file'?`<span class="chip" style="background:var(${a[2]})"></span>`:'';
+  return `<div class="aisle" style="--c:var(${a[2]})">${pic}${a[0]}</div>`;
+}
+function item(n,q,cls=''){return `<div class="item ${cls}" role="checkbox" aria-checked="${cls.includes('done')}"><span class="box" aria-hidden="true">✓</span><span class="name">${n}</span><span class="qty">${q}</span></div>`}
+function listBody(vid,mode){
+  let h='', k=0;
+  aisles.forEach((a,ai)=>{h+=aisleHead(a,vid);a[3].forEach(([n,q])=>{
+    let c='';
+    if(mode==='shop'){ if(k<1)c='done'; else if(k===1)c='next target'+(vid==='fanfare'?' tear':''); }
+    let extra = (mode==='shop'&&k===1&&vid==='thermique')?'<span class="stamp">PRIS</span>':'';
+    h+=item(n,q,c).replace('</div>',extra+'</div>');k++;});});
+  return h;
+}
+function head(vid,mode){
+  const store='Super U · Rennes Cleunay';
+  return `<div class="head"><div class="store">${mode==='shop'?store:'Ma liste'}</div><div class="meta">${mode==='shop'?'31/10/2026 · 18:42 · trajet connu à 82 %':'6 articles · partagée avec Léa'}</div></div>
+  <div class="total"><span>${mode==='shop'?'Reste':'Articles'}</span><b>${mode==='shop'?'05':'06'}</b></div>`;
+}
+function iosBar(mode,mat){
+  const cls=mat==='26'?'bar glass26':'bar mat18';
+  return mode==='shop'?`<div class="${cls}"><span class="grow">Super U · Cleunay ▾</span><button class="cta">Terminer</button></div>`
+       :`<div class="${cls}"><span class="grow">＋ Ajouter un article</span><button class="cta" aria-label="Commencer les courses">Go</button></div>`;
+}
+function m3Bar(mode){
+  return `<div class="m3bar"><span class="${mode==='list'?'on':''}">☰${mode==='list'?' Liste':''}</span><span class="${mode==='shop'?'on':''}">🛒${mode==='shop'?' Courses':''}</span><span>⚙</span></div><div class="fab" aria-label="${mode==='shop'?'Terminer':'Ajouter'}">${mode==='shop'?'✓':'+'}</div>`;
+}
+function storesBody(vid){
+  return `<div class="head"><div class="store">Où êtes-vous ?</div><div class="meta">Position utilisée une fois, jamais enregistrée</div></div>
+  <div class="stores">
+   <div class="opt sel"><b>Super U · Cleunay</b><small>350 m · cartographié à 82 %</small><div class="meter"><i style="width:82%"></i></div></div>
+   <div class="opt"><b>Carrefour City · Colombier</b><small>900 m · en apprentissage, 24 %</small><div class="meter"><i style="width:24%"></i></div></div>
+   <div class="opt"><b>Biocoop · Bréquigny</b><small>1,4 km · nouveau, aidez-nous à l'apprendre</small><div class="meter"><i style="width:3%"></i></div></div>
+  </div>`;
+}
+function phone({vid,theme,plat,mode,mat='26',dyn=false,ax=false,cap}){
+  const body = mode==='store'?storesBody(vid):head(vid,mode)+listBody(vid,mode);
+  const thread = vid==='file'&&mode!=='store'?`<div class="thread"><i style="--p:${mode==='shop'?'30%':'0%'}"></i></div>`:'';
+  const bottom = plat==='ios'
+     ? (mode==='store'?`<div class="${mat==='26'?'bar glass26':'bar mat18'}"><span class="grow">Autre magasin…</span><button class="cta">Choisir</button></div>`:iosBar(mode,mat))
+     : (mode==='store'?`<div class="m3bar"><span>✕</span><span>⌕</span></div><div class="fab" aria-label="Choisir">→</div>`:m3Bar(mode));
+  const undo = mode==='shop'?(plat==='ios'?`<div class="undo26 ${mat==='26'?'glass26':'mat18'}" style="${mat==='18'?'position:absolute;left:50%;right:auto;height:44px;bottom:96px;border-radius:22px;border:0;padding:0 16px':''}">Tomates prises · <b style="color:var(--accent)">Annuler</b></div>`:`<div class="snack">Tomates prises<b>Annuler</b></div>`):'';
+  const anim = mode==='shop'?'anim':'';
+  const printing = vid==='fanfare'&&mode==='list'&&theme==='light'?'printing':'';
+  return `<figure><div class="phone ${plat}"><div class="screen v-${vid} ${theme} ${dyn?'dyn':''} ${anim} ${printing} ${ax?'ax':''}">
+   <div class="status"><span>18:42</span><span class="island"></span><span>5G ▮</span></div>
+   <div class="ticket">${thread}${body}</div>${undo}${bottom}</div></div><figcaption class="cap">${cap}</figcaption></figure>`;
+}
+let out='';
+V.forEach(x=>{
+  out+=`<section id="${x.id}"><h2>${x.name}</h2><p class="intent">${x.intent}</p>`;
+  out+=`<h3>iOS 26 · Liquid Glass</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'list',cap:'Liste, clair. Barre de saisie en verre.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',cap:'Mode courses, clair. La coche est animée en boucle, avec la bannière « Annuler » en verre.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'shop',cap:'Mode courses, sombre.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'store',cap:'Choix du magasin, sombre. On montre honnêtement ce que l\'app sait de chaque magasin.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',ax:true,cap:'Dynamic Type AX3 : les pointillés disparaissent et les noms passent à la ligne.'})+`</div>`;
+  out+=`<h3>Repli iOS 18 · .regularMaterial</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',mat:'18',cap:'Barre ancrée en bas, en matériau classique.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'list',mat:'18',cap:'Liste, sombre, iOS 18.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'store',mat:'18',cap:'Choix du magasin, iOS 18.'})+`</div>`;
+  out+=`<h3>Android 16 · Material 3 Expressive</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'android',mode:'list',cap:'Liste, palette Parcourses. Toolbar flottante et FAB.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'shop',cap:'Mode courses, sombre. Snackbar « Annuler ».'})+
+    phone({vid:x.id,theme:'light',plat:'android',mode:'shop',dyn:true,cap:'Couleur dynamique : seul l\'accent suit le fond d\'écran, le papier reste celui de la marque.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'store',dyn:true,cap:'Choix du magasin, sombre, couleur dynamique.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'list',ax:true,cap:'Police à 200 %.'})+`</div></section>`;
+});
+document.getElementById('variants').innerHTML=out;
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const t=b.dataset.t;t?document.documentElement.dataset.theme=t:delete document.documentElement.dataset.theme});
+</script>
+</body>
+</html>
