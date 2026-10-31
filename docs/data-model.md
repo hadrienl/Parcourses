@@ -57,6 +57,17 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 - `visits.started_at` ≤ `now()` + 5 min ; `ended_at` ≥ `started_at`.
 - Arêtes non orientées : `product_a < product_b`.
 
+## Contrat hors ligne des coches (apps iOS et Android)
+
+À appliquer à l'identique par les deux apps (tickets iOS 9.x et Android Ax).
+
+1. Chaque coche reçoit un UUID généré sur l'appareil et l'heure de l'appareil (`checked_at`). Elle entre dans une file locale persistante.
+2. La file est envoyée par `insert ... on conflict (id) do nothing` (PostgREST : `Prefer: resolution=ignore-duplicates`). Un renvoi après une perte de réseau ne crée donc pas de doublon.
+3. **Pour clore une visite**, l'app vide d'abord la file de coches de cette visite, puis envoie `ended_at`. La clôture reste en file tant que des coches de la visite n'ont pas été acceptées.
+4. Après la clôture, la RLS refuse toute nouvelle coche dans la visite. Si l'envoi d'une coche renvoie **`42501`** (HTTP 403 côté PostgREST), l'app la considère comme **reçue** : elle la retire de la file sans réessayer et la journalise localement.
+5. Une coche refusée par une contrainte (`23514` : heure hors bornes, plafond de 500) est aussi retirée de la file, car la renvoyer ne changerait rien.
+6. Toute autre erreur (réseau, 5xx, 401 pour une session expirée) laisse la coche en file pour le prochain essai.
+
 ## Magasins
 
 - Référentiel OpenStreetMap (`shop=supermarket`), identifié par le couple `(osm_type, osm_id)`.
