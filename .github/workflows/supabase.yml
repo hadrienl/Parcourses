@@ -7,6 +7,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/contract/**"
+      - "shared/reference/**"
       - ".sqlfluff"
       - ".sqlfluffignore"
       - ".github/workflows/supabase.yml"
@@ -72,6 +73,9 @@ jobs:
 
       - name: Tests pgTAP
         run: supabase test db
+
+      - name: Bout en bout (visites → instantané → tri de référence)
+        run: deno test --allow-run --allow-read --allow-env supabase/tests/e2e/
 
       - name: Types et contrat à jour
         run: |
