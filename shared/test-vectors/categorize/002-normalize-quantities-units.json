@@ -227,6 +227,42 @@
         "matched_keyword": null,
         "match": "none"
       }
+    },
+    {
+      "input": "6x33cl coca",
+      "expected": {
+        "normalized": "coca",
+        "category_id": "beverages",
+        "matched_keyword": "coca",
+        "match": "brand"
+      }
+    },
+    {
+      "input": "4x125g yaourts",
+      "expected": {
+        "normalized": "yaourt",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "eau x12",
+      "expected": {
+        "normalized": "eau",
+        "category_id": "beverages",
+        "matched_keyword": "eau",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pain sans gluten",
+      "expected": {
+        "normalized": "pain sans gluten",
+        "category_id": "bakery",
+        "matched_keyword": "pain",
+        "match": "keyword"
+      }
     }
   ]
 }

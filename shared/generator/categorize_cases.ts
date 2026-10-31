@@ -87,6 +87,10 @@ export function categorizeGroups(): CategorizeGroup[] {
         N("12 œufs", "oeuf"),
         N("lait 1er âge", "lait 1er age"),
         N("10", ""),
+        N("6x33cl coca", "coca"),
+        N("4x125g yaourts", "yaourt"),
+        N("eau x12", "eau"),
+        N("pain sans gluten", "pain sans gluten"),
       ],
     },
     {
@@ -199,7 +203,8 @@ export function categorizeGroups(): CategorizeGroup[] {
     },
     {
       id: "102-classify-collisions",
-      description: "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…).",
+      description:
+        "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…). « bouquet de roses » → alcohol est une collision connue et assumée (rosé).",
       cases: lines(`
         pâtes => savory_grocery
         pâté => savory_grocery
@@ -241,6 +246,12 @@ export function categorizeGroups(): CategorizeGroup[] {
         fromage => cheese
         jus => beverages
         2 paquets de pâtes Barilla => savory_grocery
+        beurre de cacahuète => breakfast
+        beurre => dairy
+        pâte à tarte => deli
+        lingettes => household
+        lingettes bébé => baby
+        bouquet de roses => alcohol
       `),
     },
     {

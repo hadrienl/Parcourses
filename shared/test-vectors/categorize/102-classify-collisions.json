@@ -1,6 +1,6 @@
 {
   "id": "102-classify-collisions",
-  "description": "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…).",
+  "description": "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…). « bouquet de roses » → alcohol est une collision connue et assumée (rosé).",
   "format_version": 1,
   "cases": [
     {
@@ -360,6 +360,60 @@
         "normalized": "pate barilla",
         "category_id": "savory_grocery",
         "matched_keyword": "pate",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "beurre de cacahuète",
+      "expected": {
+        "normalized": "beurre cacahuete",
+        "category_id": "breakfast",
+        "matched_keyword": "beurre cacahuete",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "beurre",
+      "expected": {
+        "normalized": "beurre",
+        "category_id": "dairy",
+        "matched_keyword": "beurre",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "pâte à tarte",
+      "expected": {
+        "normalized": "pate tarte",
+        "category_id": "deli",
+        "matched_keyword": "pate tarte",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lingettes",
+      "expected": {
+        "normalized": "lingette",
+        "category_id": "household",
+        "matched_keyword": "lingette",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "lingettes bébé",
+      "expected": {
+        "normalized": "lingette bebe",
+        "category_id": "baby",
+        "matched_keyword": "lingette bebe",
+        "match": "keyword"
+      }
+    },
+    {
+      "input": "bouquet de roses",
+      "expected": {
+        "normalized": "bouquet rose",
+        "category_id": "alcohol",
+        "matched_keyword": "rose",
         "match": "keyword"
       }
     }

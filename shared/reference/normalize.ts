@@ -34,10 +34,11 @@ export function singularize(token: string, r: NormalizationRules = DEFAULT): str
   return token;
 }
 
-/** Vrai si le mot est une quantité : nombre, nombre collé à une unité (2kg), x6. */
+/** Vrai si le mot est une quantité : nombre, nombre collé à une unité (2kg), x6, 6x33cl. */
 function isQuantity(token: string, r: NormalizationRules): boolean {
   if (r.units.includes(token)) return true;
-  if (/^x[0-9]+$/.test(token)) return true;
+  // Quantités composées : x6, 6x33cl, 4x125g.
+  if (/^[0-9]*x[0-9]+[a-z]*$/.test(token)) return true;
   const m = /^[0-9]+([a-z]*)$/.exec(token);
   return m !== null && (m[1] === "" || r.units.includes(m[1]));
 }
