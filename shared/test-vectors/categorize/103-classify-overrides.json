@@ -61,7 +61,7 @@
       "input": "champignons en conserve",
       "expected": {
         "normalized": "champignon conserve",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "conserve",
         "match": "override"
       }
@@ -79,7 +79,7 @@
       "input": "conserve de tomates",
       "expected": {
         "normalized": "conserve tomate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "conserve",
         "match": "override"
       }

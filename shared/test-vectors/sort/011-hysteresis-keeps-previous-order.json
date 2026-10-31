@@ -25,7 +25,7 @@
         "rank": 70
       },
       {
-        "id": "savory_grocery",
+        "id": "savory-grocery",
         "rank": 80
       },
       {
@@ -76,19 +76,19 @@
       {
         "id": "i-02",
         "product_id": "p-02",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "article 2"
       },
       {
         "id": "i-03",
         "product_id": "p-03",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "article 3"
       },
       {
         "id": "i-04",
         "product_id": "p-04",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "article 4"
       }
     ],

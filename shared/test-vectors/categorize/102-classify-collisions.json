@@ -7,7 +7,7 @@
       "input": "pâtes",
       "expected": {
         "normalized": "pate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -16,7 +16,7 @@
       "input": "pâté",
       "expected": {
         "normalized": "pate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -106,7 +106,7 @@
       "input": "crème de marrons",
       "expected": {
         "normalized": "creme marron",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "creme marron",
         "match": "keyword"
       }
@@ -124,7 +124,7 @@
       "input": "lait de coco",
       "expected": {
         "normalized": "lait coco",
-        "category_id": "world_food",
+        "category_id": "world-food",
         "matched_keyword": "lait coco",
         "match": "keyword"
       }
@@ -151,7 +151,7 @@
       "input": "petits pois",
       "expected": {
         "normalized": "petit pois",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "petit pois",
         "match": "keyword"
       }
@@ -169,7 +169,7 @@
       "input": "noix",
       "expected": {
         "normalized": "noix",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "noix",
         "match": "keyword"
       }
@@ -187,7 +187,7 @@
       "input": "thon",
       "expected": {
         "normalized": "thon",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "thon",
         "match": "keyword"
       }
@@ -250,7 +250,7 @@
       "input": "sauce tomate",
       "expected": {
         "normalized": "sauce tomate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "sauce tomate",
         "match": "keyword"
       }
@@ -313,7 +313,7 @@
       "input": "chocolat",
       "expected": {
         "normalized": "chocolat",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "chocolat",
         "match": "keyword"
       }
@@ -358,7 +358,7 @@
       "input": "2 paquets de pâtes Barilla",
       "expected": {
         "normalized": "pate barilla",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }

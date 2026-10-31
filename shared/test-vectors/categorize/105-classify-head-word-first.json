@@ -34,7 +34,7 @@
       "input": "biscuit chocolat",
       "expected": {
         "normalized": "biscuit chocolat",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "biscuit",
         "match": "keyword"
       }
@@ -61,7 +61,7 @@
       "input": "thon tomate",
       "expected": {
         "normalized": "thon tomate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "thon",
         "match": "keyword"
       }

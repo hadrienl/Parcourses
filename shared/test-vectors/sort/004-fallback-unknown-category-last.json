@@ -25,7 +25,7 @@
         "rank": 70
       },
       {
-        "id": "savory_grocery",
+        "id": "savory-grocery",
         "rank": 80
       },
       {
@@ -58,7 +58,7 @@
       {
         "id": "i-03",
         "product_id": null,
-        "category_id": "does_not_exist",
+        "category_id": "does-not-exist",
         "normalized_name": "machin"
       },
       {

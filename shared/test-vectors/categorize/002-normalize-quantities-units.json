@@ -61,7 +61,7 @@
       "input": "500 g de farine",
       "expected": {
         "normalized": "farine",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "farine",
         "match": "keyword"
       }
@@ -70,7 +70,7 @@
       "input": "500g farine",
       "expected": {
         "normalized": "farine",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "farine",
         "match": "keyword"
       }
@@ -88,7 +88,7 @@
       "input": "un paquet de pâtes",
       "expected": {
         "normalized": "pate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -97,7 +97,7 @@
       "input": "2 paquets de pâtes Barilla",
       "expected": {
         "normalized": "pate barilla",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -106,7 +106,7 @@
       "input": "une boîte de thon",
       "expected": {
         "normalized": "thon",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "thon",
         "match": "keyword"
       }

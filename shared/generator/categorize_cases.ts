@@ -160,22 +160,22 @@ export function categorizeGroups(): CategorizeGroup[] {
         yaourts nature => dairy
         12 œufs => dairy
         crème fraîche épaisse => dairy
-        pâtes => savory_grocery
-        riz basmati => savory_grocery
-        huile d'olive => savory_grocery
-        moutarde => savory_grocery
-        thon => savory_grocery
-        sauce soja => world_food
-        tortillas => world_food
-        lait de coco => world_food
+        pâtes => savory-grocery
+        riz basmati => savory-grocery
+        huile d'olive => savory-grocery
+        moutarde => savory-grocery
+        thon => savory-grocery
+        sauce soja => world-food
+        tortillas => world-food
+        lait de coco => world-food
         café => breakfast
         thé vert => breakfast
         céréales => breakfast
         confiture de fraises => breakfast
-        sucre => sweet_grocery
-        farine => sweet_grocery
-        chocolat noir => sweet_grocery
-        biscuits => sweet_grocery
+        sucre => sweet-grocery
+        farine => sweet-grocery
+        chocolat noir => sweet-grocery
+        biscuits => sweet-grocery
         chips => snacks
         bonbons => snacks
         cacahuètes => snacks
@@ -206,8 +206,8 @@ export function categorizeGroups(): CategorizeGroup[] {
       description:
         "Collisions et expressions multi-mots prioritaires (pâtes/pâté, jus d'orange…). « bouquet de roses » → alcohol est une collision connue et assumée (rosé).",
       cases: lines(`
-        pâtes => savory_grocery
-        pâté => savory_grocery
+        pâtes => savory-grocery
+        pâté => savory-grocery
         pâté de campagne => deli
         pâté en croûte => deli
         pâte feuilletée => deli
@@ -217,35 +217,35 @@ export function categorizeGroups(): CategorizeGroup[] {
         crème => dairy
         crème fraîche => dairy
         crème solaire => hygiene
-        crème de marrons => sweet_grocery
+        crème de marrons => sweet-grocery
         lait => dairy
-        lait de coco => world_food
+        lait de coco => world-food
         lait bébé => baby
         lait d'amande => dairy
-        petits pois => savory_grocery
+        petits pois => savory-grocery
         noix de coco => produce
-        noix => sweet_grocery
+        noix => sweet-grocery
         thon frais => seafood
-        thon => savory_grocery
+        thon => savory-grocery
         pomme de terre => produce
         pomme => produce
         rosé => alcohol
         eau de javel => household
         eau micellaire => hygiene
         eau => beverages
-        sauce tomate => savory_grocery
+        sauce tomate => savory-grocery
         tomate => produce
         brosse à dents => hygiene
         papier aluminium => household
         poisson pané => frozen
         poisson => seafood
         pain au chocolat => bakery
-        chocolat => sweet_grocery
+        chocolat => sweet-grocery
         chocolat en poudre => breakfast
         fromage blanc => dairy
         fromage => cheese
         jus => beverages
-        2 paquets de pâtes Barilla => savory_grocery
+        2 paquets de pâtes Barilla => savory-grocery
         beurre de cacahuète => breakfast
         beurre => dairy
         pâte à tarte => deli
@@ -264,9 +264,9 @@ export function categorizeGroups(): CategorizeGroup[] {
         framboises congelées => frozen
         pizza surgelée => frozen
         surgelés => frozen
-        champignons en conserve => savory_grocery
+        champignons en conserve => savory-grocery
         haricots verts => produce
-        conserve de tomates => savory_grocery
+        conserve de tomates => savory-grocery
         frites => frozen
       `),
     },
@@ -291,8 +291,8 @@ export function categorizeGroups(): CategorizeGroup[] {
         Ariel => household
         Haribo => snacks
         Felix => pets
-        biscuits Oreo => sweet_grocery
-        Oreo => sweet_grocery
+        biscuits Oreo => sweet-grocery
+        Oreo => sweet-grocery
         chips Pringles => snacks
         Evian eau gazeuse => beverages
         dentifrice Signal => hygiene
@@ -306,10 +306,10 @@ export function categorizeGroups(): CategorizeGroup[] {
         yaourt fraise => dairy
         fraise yaourt => produce
         compote pomme => dairy
-        biscuit chocolat => sweet_grocery
+        biscuit chocolat => sweet-grocery
         glace chocolat => frozen
         saucisse lentilles => butcher
-        thon tomate => savory_grocery
+        thon tomate => savory-grocery
         tarte pomme => bakery
         jambon fromage => deli
       `),

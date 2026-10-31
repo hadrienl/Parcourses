@@ -70,7 +70,7 @@
       "input": "pâtes/riz",
       "expected": {
         "normalized": "pate riz",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -160,7 +160,7 @@
       "input": "maïs",
       "expected": {
         "normalized": "mais",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "mais",
         "match": "keyword"
       }
@@ -196,7 +196,7 @@
       "input": "pâté",
       "expected": {
         "normalized": "pate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }

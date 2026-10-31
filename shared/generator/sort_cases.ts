@@ -17,7 +17,7 @@ const CATS = [
   { id: "produce", rank: 10 },
   { id: "bakery", rank: 20 },
   { id: "dairy", rank: 70 },
-  { id: "savory_grocery", rank: 80 },
+  { id: "savory-grocery", rank: 80 },
   { id: "beverages", rank: 130 },
   { id: "frozen", rank: 150 },
   { id: "other", rank: 999 },
@@ -62,7 +62,7 @@ function corridor(n: number, weight = 3000, entryAt = 1, confidence = 800): Snap
 }
 
 const corridorItems = (ns: number[]) =>
-  ns.map((n) => item(iid(n), pid(n), "savory_grocery", `article ${n}`));
+  ns.map((n) => item(iid(n), pid(n), "savory-grocery", `article ${n}`));
 
 /** Petit magasin laitier de l'exemple de #5. */
 const dairySnapshot: Snapshot = {
@@ -183,7 +183,7 @@ export function sortCases(): SortCase[] {
       items: [
         item("i-01", null, null, "truc"),
         item("i-02", null, "frozen", "glace"),
-        item("i-03", null, "does_not_exist", "machin"),
+        item("i-03", null, "does-not-exist", "machin"),
         item("i-04", null, "other", "bidule"),
       ],
     }),

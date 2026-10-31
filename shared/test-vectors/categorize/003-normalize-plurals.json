@@ -25,7 +25,7 @@
       "input": "gâteaux",
       "expected": {
         "normalized": "gateau",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "gateau",
         "match": "keyword"
       }
@@ -97,7 +97,7 @@
       "input": "petits pois",
       "expected": {
         "normalized": "petit pois",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "petit pois",
         "match": "keyword"
       }
@@ -115,7 +115,7 @@
       "input": "riz",
       "expected": {
         "normalized": "riz",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "riz",
         "match": "keyword"
       }
@@ -124,7 +124,7 @@
       "input": "maïs",
       "expected": {
         "normalized": "mais",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "mais",
         "match": "keyword"
       }
@@ -169,7 +169,7 @@
       "input": "noix",
       "expected": {
         "normalized": "noix",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "noix",
         "match": "keyword"
       }
@@ -205,7 +205,7 @@
       "input": "lentilles",
       "expected": {
         "normalized": "lentille",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "lentille",
         "match": "keyword"
       }
@@ -232,7 +232,7 @@
       "input": "couscous",
       "expected": {
         "normalized": "couscous",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "couscous",
         "match": "keyword"
       }

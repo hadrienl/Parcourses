@@ -25,7 +25,7 @@
         "rank": 70
       },
       {
-        "id": "savory_grocery",
+        "id": "savory-grocery",
         "rank": 80
       },
       {
@@ -1274,13 +1274,13 @@
       {
         "id": "i-033-0e51aa52",
         "product_id": "p-73",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 73"
       },
       {
         "id": "i-001-d75aa3d4",
         "product_id": "p-62",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 62"
       },
       {
@@ -1292,7 +1292,7 @@
       {
         "id": "i-028-f4d8994f",
         "product_id": "p-77",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 77"
       },
       {
@@ -1364,7 +1364,7 @@
       {
         "id": "i-016-52f1d082",
         "product_id": "p-61",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 61"
       },
       {
@@ -1418,7 +1418,7 @@
       {
         "id": "i-037-7102c166",
         "product_id": "p-69",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 69"
       },
       {
@@ -1460,13 +1460,13 @@
       {
         "id": "i-061-9ee7ee58",
         "product_id": "p-65",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 65"
       },
       {
         "id": "i-051-e811908e",
         "product_id": "p-76",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 76"
       },
       {
@@ -1478,13 +1478,13 @@
       {
         "id": "i-048-e79ef1fc",
         "product_id": "p-75",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 75"
       },
       {
         "id": "i-041-70a043ae",
         "product_id": "p-71",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 71"
       },
       {
@@ -1496,7 +1496,7 @@
       {
         "id": "i-009-5556efdd",
         "product_id": null,
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "saisie 80"
       },
       {
@@ -1550,19 +1550,19 @@
       {
         "id": "i-018-84a2284b",
         "product_id": "p-70",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 70"
       },
       {
         "id": "i-072-fa3591ad",
         "product_id": null,
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "saisie 66"
       },
       {
         "id": "i-046-054cbc8b",
         "product_id": "p-64",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 64"
       },
       {
@@ -1610,7 +1610,7 @@
       {
         "id": "i-011-c2e707b3",
         "product_id": "p-67",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "produit 67"
       },
       {
@@ -1682,7 +1682,7 @@
       {
         "id": "i-035-6ff1a518",
         "product_id": null,
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "saisie 72"
       },
       {

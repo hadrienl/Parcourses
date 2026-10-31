@@ -160,7 +160,7 @@
       "input": "biscuits Oreo",
       "expected": {
         "normalized": "biscuit oreo",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "biscuit",
         "match": "keyword"
       }
@@ -169,7 +169,7 @@
       "input": "Oreo",
       "expected": {
         "normalized": "oreo",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "oreo",
         "match": "brand"
       }

@@ -91,10 +91,11 @@ reproduire :
 
 1. **Entiers uniquement**, `INF = 2^40`, addition saturée.
    `edge_cost(w) = floor(COST_SCALE × 1000 / (1000 + w))`.
-2. **Identifiants** (articles, produits, catégories, ordre précédent) : ASCII `[0-9a-z_-]+`
-   uniquement, **validés à l'entrée** (sinon erreur). Le tiret bas est admis pour les identifiants
-   de catégories de #7 (`savory_grocery`). Ils se comparent donc octet par octet, sans conversion de
-   casse. Sont aussi refusés : articles ou catégories en double, `weight_q < 0`.
+2. **Identifiants** (articles, produits, catégories, ordre précédent) : ASCII `[0-9a-z-]+`
+   uniquement, **validés à l'entrée** (sinon erreur). Les identifiants de catégories de #7
+   s'écrivent donc avec un tiret (`savory-grocery`, `world-food`, `sweet-grocery`). Ils se comparent
+   donc octet par octet, sans conversion de casse. Sont aussi refusés : articles ou catégories en
+   double, `weight_q < 0`.
 3. **Graphe** : arêtes non orientées ; boucles `a == b` ignorées ; en cas de doublon (y compris
    `(a,b)` et `(b,a)`), on garde le **coût minimal**. L'entrée est un nœud virtuel avec des arcs
    **sortants uniquement** : un chemin ne traverse jamais l'entrée.
@@ -133,7 +134,7 @@ Règles impératives pour obtenir les mêmes octets que la référence :
 - **Comparaisons** : identifiants et `normalized_name` comparés sur les octets UTF-8
   (`Array(s.utf8)` en Swift, `s.encodeToByteArray()` en Kotlin), jamais avec `compareTo` sensible à
   la locale, `localizedCompare` ou un `Collator`.
-- **Minuscules** : en Kotlin, `lowercase()` (qui utilise `Locale.ROOT`), jamais
+- **Minuscules** : en Kotlin, `lowercase(Locale.ROOT)` (ou `lowercase()`, équivalent), jamais
   `toLowerCase(Locale.getDefault())` (le « I » turc). En Swift, `lowercased()` sans locale.
 - **Diacritiques et filtrage** : en Swift, travailler sur `unicodeScalars` après
   `decomposedStringWithCanonicalMapping` (retirer les scalaires U+0300 à U+036F, puis ne garder que

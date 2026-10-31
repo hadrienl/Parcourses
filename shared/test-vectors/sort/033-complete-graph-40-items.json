@@ -25,7 +25,7 @@
         "rank": 70
       },
       {
-        "id": "savory_grocery",
+        "id": "savory-grocery",
         "rank": 80
       },
       {
@@ -3990,13 +3990,13 @@
       {
         "id": "i-27",
         "product_id": "p-27",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 27"
       },
       {
         "id": "i-21",
         "product_id": "p-21",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 21"
       },
       {
@@ -4014,7 +4014,7 @@
       {
         "id": "i-25",
         "product_id": "p-25",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 25"
       },
       {
@@ -4104,7 +4104,7 @@
       {
         "id": "i-23",
         "product_id": "p-23",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 23"
       },
       {
@@ -4146,7 +4146,7 @@
       {
         "id": "i-24",
         "product_id": "p-24",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 24"
       },
       {
@@ -4188,13 +4188,13 @@
       {
         "id": "i-22",
         "product_id": "p-22",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 22"
       },
       {
         "id": "i-26",
         "product_id": "p-26",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "normalized_name": "p 26"
       }
     ],

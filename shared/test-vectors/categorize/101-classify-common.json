@@ -277,7 +277,7 @@
       "input": "pâtes",
       "expected": {
         "normalized": "pate",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "pate",
         "match": "keyword"
       }
@@ -286,7 +286,7 @@
       "input": "riz basmati",
       "expected": {
         "normalized": "riz basmati",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "riz basmati",
         "match": "keyword"
       }
@@ -295,7 +295,7 @@
       "input": "huile d'olive",
       "expected": {
         "normalized": "huile olive",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "huile olive",
         "match": "keyword"
       }
@@ -304,7 +304,7 @@
       "input": "moutarde",
       "expected": {
         "normalized": "moutarde",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "moutarde",
         "match": "keyword"
       }
@@ -313,7 +313,7 @@
       "input": "thon",
       "expected": {
         "normalized": "thon",
-        "category_id": "savory_grocery",
+        "category_id": "savory-grocery",
         "matched_keyword": "thon",
         "match": "keyword"
       }
@@ -322,7 +322,7 @@
       "input": "sauce soja",
       "expected": {
         "normalized": "sauce soja",
-        "category_id": "world_food",
+        "category_id": "world-food",
         "matched_keyword": "sauce soja",
         "match": "keyword"
       }
@@ -331,7 +331,7 @@
       "input": "tortillas",
       "expected": {
         "normalized": "tortilla",
-        "category_id": "world_food",
+        "category_id": "world-food",
         "matched_keyword": "tortilla",
         "match": "keyword"
       }
@@ -340,7 +340,7 @@
       "input": "lait de coco",
       "expected": {
         "normalized": "lait coco",
-        "category_id": "world_food",
+        "category_id": "world-food",
         "matched_keyword": "lait coco",
         "match": "keyword"
       }
@@ -385,7 +385,7 @@
       "input": "sucre",
       "expected": {
         "normalized": "sucre",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "sucre",
         "match": "keyword"
       }
@@ -394,7 +394,7 @@
       "input": "farine",
       "expected": {
         "normalized": "farine",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "farine",
         "match": "keyword"
       }
@@ -403,7 +403,7 @@
       "input": "chocolat noir",
       "expected": {
         "normalized": "chocolat noir",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "chocolat noir",
         "match": "keyword"
       }
@@ -412,7 +412,7 @@
       "input": "biscuits",
       "expected": {
         "normalized": "biscuit",
-        "category_id": "sweet_grocery",
+        "category_id": "sweet-grocery",
         "matched_keyword": "biscuit",
         "match": "keyword"
       }

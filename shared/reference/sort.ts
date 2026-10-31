@@ -4,7 +4,7 @@
 // - uniquement des entiers ; les valeurs restent sous 2^53, donc exactes en `number` ;
 // - divisions entières tronquées (toutes les valeurs sont positives) ;
 // - INF = 2^40, addition saturée à INF ;
-// - identifiants ASCII [0-9a-z_-] validés à l'entrée, comparés octet par octet ;
+// - identifiants ASCII [0-9a-z-] validés à l'entrée, comparés octet par octet ;
 // - catégories réduites à leur indice ordinal (`rank` n'est qu'une clé d'ordre) ;
 // - aucune itération sur une table de hachage non triée.
 
