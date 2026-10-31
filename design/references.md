@@ -2,7 +2,7 @@
 
 > Veille du 31 octobre 2026 pour le designer produit. Toutes les pages citées ont été ouvertes.
 > **Limites d'accès** :
-> - **Dribbble** (`/search/grocery-list-app`) a renvoyé une page sans contenu exploitable.
+> - **Dribbble** n'était pas lisible lors de la première passe. Il a été parcouru ensuite dans un navigateur : voir la section 4 bis.
 > - **Behance** et **Mobbin** ont renvoyé une erreur 403.
 > - **Page Flows** est partiellement lisible, avec un lien Login et un essai payant.
 > - **Tide Guide** a renvoyé une erreur TLS.
@@ -185,6 +185,30 @@ Sources : [design.google](https://design.google/library/expressive-material-desi
 13. **[Apple Newsroom, Liquid Glass](https://www.apple.com/newsroom/2025/06/apple-introduces-a-delightful-and-elegant-new-software-design/)**
     - *Retenir* : des contrôles qui s'effacent devant le contenu et se transforment au besoin.
     - *Ne pas copier* : des contrôles qui disparaissent en mode courses (voir NN/g).
+
+---
+
+## 4 bis. Dribbble (parcouru le 31/10/2026)
+
+Recherches : `grocery list`, `shopping list app`, `liquid glass app`, `material 3 expressive`, `checklist animation`, `indoor navigation app`, sur l'année écoulée.
+
+**Constat général** : la grande majorité des shots « grocery » sont des apps de **livraison** ou de **nutrition et IA** (cartes produits, macros, chatbots). Presque aucun ne traite la **liste en magasin**, et aucun l'apprentissage du trajet. C'est un espace visuel libre pour Parcourses.
+
+| Shot | Ce qu'on en retient | À ne pas copier |
+| --- | --- | --- |
+| [Automated In-Store Grocery List Map](https://dribbble.com/shots/4767092-The-Daily-Hack-7-Automated-In-Store-Grocery-List-Map) (Andrea Eppy, 2018) | Le concept le plus proche de Parcourses : un tracé en pointillés numéroté sur un plan de rayons, un bandeau « prochain article, allée 6 » façon GPS, et la liste en sheet avec l'allée sous chaque article. | Il suppose un plan de magasin connu, alors que nous ne l'avons pas. Notre « carte » doit être abstraite : un fil, une séquence, pas un plan d'allées. |
+| [grocery list preview / interaction](https://dribbble.com/shots/25577935-grocery-list-preview-interaction) (proskü.a) | Des listes en cartes avec des **produits en vignettes détourées** façon stickers, une note manuscrite épinglée, une grande typographie noire et des filtres en pastilles (Épinglées, Récentes, Partagées). Une liste chaleureuse et tangible. | Une composition décorative illisible en mode courses. À réserver à l'écran des listes, à la maison. |
+| [MeterStats 2 – Liquid Glass App UI](https://dribbble.com/shots/27463566-MeterStats-2-Liquid-Glass-App-UI) (Alexander Käßner) | Des cartes opaques **sous** une couche de verre limitée aux contrôles (bouton flottant, sélecteur de lieu en menu glass, navigation). Couleur d'accent franche (orange et violet) et chiffres très expressifs. L'auteur précise que les cartes sont « réglées pour fonctionner avec la couche de verre d'iOS 26 ». | — Bon exemple de la règle « verre sur les contrôles, contenu opaque ». |
+| [Reservations, Material 3 Expressive](https://dribbble.com/shots/25913303-Mobile-App-Concept-Reservations-Material-3-Expressive) (Dan) | Carte de lieu en surface tonale sur une carte géographique, créneaux en pastilles arrondies, couleur tonale douce (vert sauge et jaune). Une bonne base pour l'écran **choix du magasin** sur Android. | Le rendu reste sage pour de l'« expressive ». Pousser davantage les formes et la typographie. |
+| [Continente : liste et localisateur de magasins](https://dribbble.com/shots/3885899-Interface-Continente-s-grocery-list-and-store-locator) | Une enseigne qui associe la liste et le choix du magasin : le précédent le plus direct pour notre flux. | Non ouvert en détail, à regarder. |
+
+**Pistes pour Parcourses tirées de ces shots :**
+
+- **Le « fil » comme signature visuelle** : un trait continu qui relie les articles dans l'ordre du trajet et se « tend » à chaque coche. C'est l'équivalent abstrait du tracé de la Daily Hack 7, sans plan.
+- **Un bandeau « prochain article »** en haut ou dans la Live Activity, façon guidage GPS.
+- **Des vignettes produits en stickers** à la maison, et des **lignes textuelles sobres** en magasin : deux densités pour deux moments.
+
+**Non couverts** : Mobbin et Behance (connexion requise ou 403), Material Design Awards.
 
 ---
 
