@@ -1,0 +1,34 @@
+# Socle partagé : tests de la référence et vérification des vecteurs commités.
+name: shared
+
+on:
+  pull_request:
+    paths:
+      - "shared/**"
+      - ".github/workflows/shared.yml"
+  push:
+    branches: [main]
+    paths:
+      - "shared/**"
+      - ".github/workflows/shared.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shared
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Format et lint
+        run: deno fmt --check && deno lint
+      - name: Tests de la référence
+        run: deno task test
+      - name: Vecteurs régénérés identiques aux vecteurs commités
+        run: deno task check
