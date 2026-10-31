@@ -25,13 +25,13 @@ struct PlaceholderEntry: TimelineEntry {
 }
 
 struct PlaceholderProvider: TimelineProvider {
-  func placeholder(in context: Context) -> PlaceholderEntry { PlaceholderEntry(date: .now) }
+  func placeholder(in _: Context) -> PlaceholderEntry { PlaceholderEntry(date: .now) }
 
-  func getSnapshot(in context: Context, completion: @escaping (PlaceholderEntry) -> Void) {
+  func getSnapshot(in _: Context, completion: @escaping (PlaceholderEntry) -> Void) {
     completion(PlaceholderEntry(date: .now))
   }
 
-  func getTimeline(in context: Context, completion: @escaping (Timeline<PlaceholderEntry>) -> Void) {
+  func getTimeline(in _: Context, completion: @escaping (Timeline<PlaceholderEntry>) -> Void) {
     completion(Timeline(entries: [PlaceholderEntry(date: .now)], policy: .never))
   }
 }

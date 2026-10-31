@@ -63,7 +63,7 @@ jobs:
           xcrun simctl list runtimes | grep -q "iOS 18" || xcodebuild -downloadPlatform iOS -buildVersion 18.6
       - name: XcodeGen (version épinglée, vérifiée par SHA-256)
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/xcodegen.zip" \
+          curl --proto "=https" --tlsv1.2 -sSfL -o "$RUNNER_TEMP/xcodegen.zip" \
             "https://github.com/yonaskolb/XcodeGen/releases/download/$XCODEGEN_VERSION/xcodegen.zip"
           echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
           unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
