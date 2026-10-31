@@ -1,0 +1,168 @@
+# `shared/` : socle commun iOS, Android et serveur
+
+Ce dossier contient tout ce que les trois implémentations doivent partager **à l'identique** :
+
+| Chemin                                            | Contenu                                                             | Conception |
+| ------------------------------------------------- | ------------------------------------------------------------------- | ---------- |
+| `reference/sort.ts`                               | Implémentation de référence du tri d'une liste sur l'appareil       | #5 §2      |
+| `reference/normalize.ts`, `reference/classify.ts` | Normalisation des libellés et classification par mots-clés          | #7 §2      |
+| `categories/`                                     | Catégories et rangs, règles de normalisation, dictionnaire français | #7 §1, §3  |
+| `test-vectors/sort/`                              | Vecteurs de tri, exécutés par iOS et Android                        | #5 §4      |
+| `test-vectors/categorize/`                        | Vecteurs de normalisation et de classification                      | #7 §6      |
+| `generator/`                                      | Cas de test et générateur des vecteurs                              |            |
+
+La référence est écrite en TypeScript pour Deno, comme les Edge Functions. Elle n'est pas embarquée
+dans les apps : Swift et Kotlin réimplémentent l'algorithme et doivent passer **tous** les vecteurs
+(ordre **et** coût).
+
+## Commandes
+
+Depuis `shared/` (Deno 2.x) :
+
+```sh
+deno task test       # tests de la référence : vecteurs relus du disque, propriétés, dictionnaire
+deno task generate   # régénère test-vectors/sort/*.json et test-vectors/categorize/*.json
+deno task check      # échoue si les vecteurs commités diffèrent de ceux régénérés
+deno task ci         # fmt + lint + test + check (ce que lance .github/workflows/shared.yml)
+```
+
+### Régénérer les vecteurs
+
+1. Modifier un cas dans `generator/sort_cases.ts` ou `generator/categorize_cases.ts`, ou
+   l'implémentation de référence, ou le dictionnaire.
+2. `deno task generate`. Le générateur vérifie au passage les **intentions** écrites à la main
+   (`expectOrder`, catégorie ou forme normalisée attendue) et échoue si la référence s'en écarte.
+3. Relire le diff de `test-vectors/` : tout changement d'ordre attendu doit être justifié dans la PR
+   (#5 §3, « revue obligatoire du diff »).
+
+Les cas de grande taille sont tirés au hasard avec une graine fixe (`generator/prng.ts`) ; le
+résultat est écrit dans le JSON, les apps n'ont jamais besoin du générateur.
+
+## Format d'un vecteur de tri (`test-vectors/sort/*.json`)
+
+```json
+{
+  "id": "008-recompute-after-check",
+  "description": "…",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "CONF_THRESHOLD_Q": 500,
+      "COST_SCALE": 1000,
+      "UNKNOWN_BASE": 3000,
+      "CAT_STEP": 200,
+      "TWO_OPT_MAX_PASSES": 20,
+      "REORDER_MIN_GAIN_PCT": 10
+    },
+    "categories": [{ "id": "c-dairy", "rank": 3 }],
+    "snapshot": {
+      "confidence_q": 820,
+      "entries": [{ "product_id": "p-apple", "weight_q": 4000 }],
+      "edges": [{ "a": "p-butter", "b": "p-milk", "weight_q": 3200 }]
+    },
+    "items": [
+      {
+        "id": "i-01",
+        "product_id": "p-butter",
+        "category_id": "c-dairy",
+        "normalized_name": "beurre"
+      }
+    ],
+    "start": { "product_id": "p-milk" },
+    "previous_order": ["i-02", "i-01"]
+  },
+  "expected": { "mode": "learned", "order": ["i-01", "i-02"], "cost": 3638 }
+}
+```
+
+- `snapshot` peut valoir `null` (magasin inconnu) ; `previous_order` peut valoir `null`.
+- `start` vaut `{ "entry": true }` (entrée du magasin) ou
+  `{ "product_id": "…" | null, "category_id"?: "…" | null }` (dernier article coché).
+- `expected.cost` est le coût entier du chemin retenu, départ compris ; il vaut `null` en mode
+  `fallback`.
+- Arêtes, entrées, catégories et articles peuvent arriver dans n'importe quel ordre : le résultat
+  n'en dépend pas (les tests le vérifient en les mélangeant).
+
+### Règles normatives du tri
+
+Celles de #5 §2.6, plus les précisions suivantes, que la référence fixe et que les apps doivent
+reproduire :
+
+1. **Entiers uniquement**, `INF = 2^40`, addition saturée.
+   `edge_cost(w) = floor(COST_SCALE × 1000 / (1000 + w))`.
+2. **Identifiants** comparés en minuscules, octet par octet en UTF-8 ; produits et articles sont
+   appariés sans tenir compte de la casse. Deux articles de même identifiant (casse ignorée) sont
+   refusés.
+3. **Graphe** : arêtes non orientées ; boucles `a == b` ignorées ; en cas de doublon (y compris
+   `(a,b)` et `(b,a)`), on garde le **coût minimal**. L'entrée est un nœud virtuel avec des arcs
+   **sortants uniquement** : un chemin ne traverse jamais l'entrée.
+4. **Distance** `d(x,y) = min(graph_dist, cat_cost)`. `graph_dist` vaut 0 entre deux articles du
+   même produit, `INF` si l'un n'a pas de produit. `cat_cost` utilise le rang de la catégorie ; une
+   catégorie absente ou inconnue prend le **rang maximal** de `categories` (0 si la liste est vide).
+   Un départ sans catégorie (entrée, ou dernier coché sans `category_id`) utilise
+   `UNKNOWN_BASE + CAT_STEP × rank(y)`.
+5. **Ordre canonique** : les articles sont d'abord triés par identifiant ; l'indice 0 est le départ.
+6. **Glouton** depuis le départ ; à égalité, plus petit identifiant d'article.
+7. **2-opt** de #5 §2.6, première amélioration, boucles `i = 1..n-2`, `k = i+1..n-1` sur les indices
+   du chemin (départ compris), au plus `TWO_OPT_MAX_PASSES` passes (0 = glouton seul).
+8. **Hystérésis** (si `previous_order` n'est pas `null`) : ordre précédent restreint aux articles
+   présents (identifiants inconnus et répétitions ignorés) ; les nouveaux articles, par identifiant
+   croissant, sont insérés un à un à la position de moindre surcoût (à égalité, la plus en tête ; la
+   fin de liste compte comme position). On garde ce chemin si
+   `cost(nouveau) × 100 > cost(précédent) × (100 − REORDER_MIN_GAIN_PCT)`.
+9. **Repli** si `snapshot` est `null` ou `confidence_q < CONF_THRESHOLD_Q` : tri par
+   `(rang, normalized_name en octets UTF-8, identifiant)`.
+
+## Catégories (`categories/`)
+
+- `categories.json` : 19 catégories et `other` (rang 999), rangs espacés de 10 (#7 §1).
+- `normalization.json` : ligatures, unités, mots vides, pluriels en `-aux` → `-al`, exceptions.
+- `keywords.fr.json` : `keywords` (`k` forme normalisée, `c` catégorie, `brand` facultatif) et
+  `overrides` (modificateurs comme « surgelé »). Les clés sont **déjà normalisées** :
+  `normalize(k) == k` est vérifié en CI, ainsi que l'absence de doublon et l'existence des
+  catégories.
+
+### Normalisation
+
+1. Minuscules (indépendantes de la locale), puis ligatures (`œ → oe`, `æ → ae`, `ß → ss`).
+2. NFD puis retrait des marques U+0300–U+036F.
+3. Tout ce qui n'est pas `[a-z0-9]` devient espace ; espaces compactés et rognés. → c'est
+   `normalizeText`, la forme utilisée pour `normalized_name`.
+4. Retrait des mots vides, des unités, des nombres, des nombres collés à une unité (`2kg`) et de
+   `x6`.
+5. Singulier de chaque mot : exception → inchangé ; liste `plural_al` → `-al` ; `-eux/-aux/-oux` →
+   sans `x` ; sinon `-s` final retiré si le mot a plus de 3 lettres.
+
+### Classification
+
+Sur les mots de la forme normalisée, de gauche à droite :
+
+1. **Modificateur** (`overrides`), n-gramme le plus long puis le plus à gauche →
+   `match: "override"`.
+2. **Expression multi-mots** du dictionnaire, la plus longue puis la plus à gauche.
+3. **Mot simple** : le premier nom de produit ; sinon la première marque (`match: "brand"`).
+4. Sinon `{ "category_id": "other", "matched_keyword": null, "match": "none" }`.
+
+## Format d'un vecteur de classification (`test-vectors/categorize/*.json`)
+
+```json
+{
+  "id": "102-classify-collisions",
+  "description": "…",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "pâté de campagne",
+      "expected": {
+        "normalized": "pate campagne",
+        "category_id": "deli",
+        "matched_keyword": "pate campagne",
+        "match": "keyword"
+      }
+    }
+  ]
+}
+```
+
+Les fichiers `0xx-normalize-*` ciblent la normalisation, les `1xx-classify-*` la classification ;
+tous ont le même format et chaque plateforme vérifie les quatre champs.
