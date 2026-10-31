@@ -1,0 +1,21 @@
+.DS_Store
+
+# Supabase CLI
+supabase/.branches
+supabase/.temp
+
+# iOS
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Android
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+
+# Claude
+.claude/worktrees/
+.claude/settings.local.json
