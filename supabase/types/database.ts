@@ -187,16 +187,36 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"store_stats": {
+                },"store_graph_snapshots": {
                   Row: {
-                    "confidence": number,"last_visit_at": string | null,"store_id": string,"updated_at": string,"visits_count": number
+                    "algo_version": number,"checked_at": string,"etag": string,"generated_at": string,"payload": NonNullable<Json>,"payload_bytes": number,"snapshot_version": number,"store_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "confidence"?: number,"last_visit_at"?: string | null,"store_id": string,"updated_at"?: string,"visits_count"?: number
+                    "algo_version": number,"checked_at": string,"etag": string,"generated_at": string,"payload": NonNullable<Json>,"payload_bytes": number,"snapshot_version": number,"store_id": string
                   }
                   Update: {
-                    "confidence"?: number,"last_visit_at"?: string | null,"store_id"?: string,"updated_at"?: string,"visits_count"?: number
+                    "algo_version"?: number,"checked_at"?: string,"etag"?: string,"generated_at"?: string,"payload"?: NonNullable<Json>,"payload_bytes"?: number,"snapshot_version"?: number,"store_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "store_graph_snapshots_store_id_fkey"
+      columns: ["store_id"]
+isOneToOne: true
+      referencedRelation: "stores"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"store_stats": {
+                  Row: {
+                    "confidence": number,"confidence_q": number,"graph_changed_at": string | null,"last_visit_at": string | null,"store_id": string,"updated_at": string,"v_eff": number,"v_eff_at": string | null,"visits_count": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "confidence"?: number,"confidence_q"?: number,"graph_changed_at"?: string | null,"last_visit_at"?: string | null,"store_id": string,"updated_at"?: string,"v_eff"?: number,"v_eff_at"?: string | null,"visits_count"?: number
+                  }
+                  Update: {
+                    "confidence"?: number,"confidence_q"?: number,"graph_changed_at"?: string | null,"last_visit_at"?: string | null,"store_id"?: string,"updated_at"?: string,"v_eff"?: number,"v_eff_at"?: string | null,"visits_count"?: number
                   }
                   Relationships: [
                     {
@@ -223,14 +243,14 @@ isOneToOne: true
                   ]
                 },"visits": {
                   Row: {
-                    "ended_at": string | null,"id": string,"list_id": string | null,"list_was_sorted": boolean,"processed_at": string | null,"started_at": string,"store_id": string,"user_id": string
+                    "auto_closed": boolean,"ended_at": string | null,"id": string,"learn_outcome": string | null,"learn_weight": number | null,"list_id": string | null,"list_was_sorted": boolean,"process_attempts": number,"process_error": string | null,"processed_algo_version": number | null,"processed_at": string | null,"started_at": string,"store_id": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "ended_at"?: string | null,"id"?: string,"list_id"?: string | null,"list_was_sorted": boolean,"processed_at"?: string | null,"started_at"?: string,"store_id": string,"user_id"?: string
+                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted": boolean,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id": string,"user_id"?: string
                   }
                   Update: {
-                    "ended_at"?: string | null,"id"?: string,"list_id"?: string | null,"list_was_sorted"?: boolean,"processed_at"?: string | null,"started_at"?: string,"store_id"?: string,"user_id"?: string
+                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted"?: boolean,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -260,6 +280,9 @@ isOneToOne: false
                            },
 "normalize_label":
 { Args: { "label": string }; Returns: string
+                           },
+"store_graph_snapshot":
+{ Args: { "p_known_version"?: number,"p_store_id": string }; Returns: Json
                            }
           }
           Enums: {
