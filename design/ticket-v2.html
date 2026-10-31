@@ -39,10 +39,10 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .android .island{width:12px;height:12px;border-radius:50%}
 
 /* Thèmes : variables par variante × mode */
-.v-thermique.light{--desk:#D9CFB8;--paper:#F6F0E1;--edge:#E7DDC6;--ink:#1F1A14;--muted:#5E5546;--accent:#C2301A;--on:#fff}
-.v-thermique.dark {--desk:#0C0B08;--paper:#1B1812;--edge:#2B261D;--ink:#F2EAD8;--muted:#B3A88F;--accent:#FF7A5C;--on:#2A0A03}
-.v-fanfare.light {--desk:#E7E3F5;--paper:#FFFDF7;--edge:#ECE7DA;--ink:#18181B;--muted:#55525E;--accent:#5B3FD6;--on:#fff;--hl:#FFD84D}
-.v-fanfare.dark  {--desk:#0A0910;--paper:#15131C;--edge:#25222F;--ink:#EEEAF7;--muted:#ABA5BD;--accent:#B4A2FF;--on:#1A0F4A;--hl:#5A4A00}
+.v-thermique.light{--a1:#3F6B1E;--a2:#1F5E8A;--a3:#C2301A;--idle:#CFC3A8;--desk:#D9CFB8;--paper:#F6F0E1;--edge:#E7DDC6;--ink:#1F1A14;--muted:#5E5546;--accent:#C2301A;--on:#fff}
+.v-thermique.dark {--a1:#A8D67A;--a2:#8CC4F0;--a3:#FF7A5C;--idle:#3E372B;--desk:#0C0B08;--paper:#1B1812;--edge:#2B261D;--ink:#F2EAD8;--muted:#B3A88F;--accent:#FF7A5C;--on:#2A0A03}
+.v-fanfare.light {--a1:#0F7A6A;--a2:#5B3FD6;--a3:#B0306A;--idle:#DCD6E8;--desk:#E7E3F5;--paper:#FFFDF7;--edge:#ECE7DA;--ink:#18181B;--muted:#55525E;--accent:#5B3FD6;--on:#fff;--hl:#FFD84D}
+.v-fanfare.dark  {--a1:#6FE0CC;--a2:#B4A2FF;--a3:#FF94C2;--idle:#34304A;--desk:#0A0910;--paper:#15131C;--edge:#25222F;--ink:#EEEAF7;--muted:#ABA5BD;--accent:#B4A2FF;--on:#1A0F4A;--hl:#5A4A00}
 .v-file.light    {--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#fff;--idle:#D5CEC0;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0}
 .v-file.dark     {--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0}
 /* Couleur dynamique Android simulée (Material You, fond d'écran vert) : seul l'accent change */
@@ -53,7 +53,8 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .v-thermique .ticket{border-radius:4px 4px 0 0;
   -webkit-mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x;mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x}
 .v-fanfare .ticket{-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/16px 100%;mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/16px 51% repeat-x,linear-gradient(#000 0 0) bottom/100% 50% no-repeat}
-.v-file .ticket{border-radius:8px 8px 0 0;padding-left:44px}
+.v-file .ticket{border-radius:8px 8px 0 0}
+.ticket{padding-left:44px}.ticket.st{padding-left:16px}
 .head{text-align:center;border-bottom:2px dashed var(--muted);padding-bottom:10px;margin-bottom:8px}
 .head .store{font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
 .head .meta{font-size:11px;color:var(--muted)}
@@ -73,13 +74,24 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .v-fanfare .next .name{background:linear-gradient(transparent 55%,var(--hl) 55%)}
 
 /* Fil (hybride) */
-.v-file .thread{position:absolute;left:24px;top:120px;bottom:0;width:3px;background:var(--idle)}
-.v-file .thread i{position:absolute;inset:0 0 auto 0;height:var(--p,40%);background:var(--accent);transition:height .35s}
-.v-file .item::before{content:"";position:absolute;left:-26px;width:14px;height:14px;border-radius:50%;border:3px solid var(--idle);background:var(--paper)}
-.v-file .item.done::before{background:var(--accent);border-color:var(--accent)}
-.v-file .item.next::before{border-color:var(--accent);width:18px;height:18px;left:-28px}
-.v-file .aisle .chip{display:inline-block;width:10px;height:10px;border-radius:2px}
-.v-file .aisle{color:var(--c)}
+.thread{position:absolute;left:24px;top:120px;bottom:0;width:3px;background:var(--idle)}
+.thread i{position:absolute;inset:0 0 auto 0;height:var(--p,40%);background:var(--accent);transition:height .35s}
+.item::before{content:"";position:absolute;left:-26px;width:14px;height:14px;border-radius:50%;border:3px solid var(--idle);background:var(--paper)}
+.item.done::before{background:var(--accent);border-color:var(--accent)}
+.item.next::before{border-color:var(--accent);width:18px;height:18px;left:-28px}
+.aisle .chip{display:inline-block;width:10px;height:10px;border-radius:2px}
+.aisle{color:var(--c);height:22px;margin:10px 0 2px;position:relative}
+.aisle::before{content:"";position:absolute;left:-30px;width:22px;height:22px;border-radius:6px;background:var(--c)}
+.v-thermique .item::before{border-style:dotted}
+.v-thermique .thread{background:repeating-linear-gradient(var(--idle) 0 6px,transparent 6px 10px)}
+.v-fanfare .item.next::before{background:var(--hl)}
+.v-fanfare .aisle::before{border-radius:50%}
+.v-thermique .aisle::before{border-radius:2px;transform:rotate(-8deg)}
+.grp{position:relative;background:var(--paper)}
+@keyframes up{0%,45%{transform:none}60%,100%{transform:translateY(-130px)}}
+@keyframes down{0%,45%{transform:none}60%,100%{transform:translateY(130px)}}
+.reorder .g2{animation:down 6s infinite}.reorder .g3{animation:up 6s infinite}
+.tag{font-size:10px;color:var(--accent);margin-left:auto;letter-spacing:.06em;text-transform:none}
 
 /* Tampon (thermique) */
 .stamp{position:absolute;right:4px;top:50%;font-weight:900;font-size:13px;letter-spacing:.1em;color:var(--accent);border:2px solid var(--accent);padding:1px 6px;border-radius:3px;transform:translateY(-50%) rotate(-8deg)}
@@ -126,8 +138,8 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .printing .ticket{animation:print 1.6s steps(12) infinite alternate}
 @keyframes bead{0%,40%{background:var(--paper)}55%,90%{background:var(--accent)}100%{background:var(--paper)}}
 @keyframes threadGo{0%,40%{height:30%}60%,90%{height:44%}100%{height:30%}}
-.anim.v-file .item.target::before{animation:bead 3s infinite}
-.anim.v-file .thread i{animation:threadGo 3s infinite}
+.anim .item.target::before{animation:bead 3s infinite}
+.anim .thread i{animation:threadGo 3s infinite}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -137,16 +149,17 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
   <button data-t="light">Page claire</button><button data-t="dark">Page sombre</button><button data-t="">Système</button>
 </div>
 <h1>Ticket v2 : trois variantes</h1>
+<p class="lead"><b>Révision :</b> les trois variantes partagent maintenant la même structure, celle de A « Le Fil ». La liste est groupée par rayon dans l'ordre du trajet, et le fil du parcours la traverse de rayon en rayon. Il avance à chaque coche, et l'ordre des rayons se réorganise sous vos yeux : en mode courses, l'Épicerie remonte avant la Crèmerie. Le ticket n'est plus que l'habillage : matière, typographie, perforations, tampons. B3 sert de base, B1 et B2 en déclinent le ton.</p>
 <p class="lead">Issue #6. La direction B plaît, mais elle paraît austère. Voici trois façons de la réchauffer sans perdre ce qui la rend bonne : une lecture mono très rapide, des filets nets et un gros chiffre « RESTE ». Chaque variante montre la liste, le mode courses avec la coche animée et le choix du magasin, en clair et en sombre, sur iOS (Liquid Glass et repli iOS 18) et sur Android (Material 3 Expressive, couleur dynamique et repli). Les tokens sont dans <code>design/tokens-ticket-v2.json</code>.</p>
 
 <div id="variants"></div>
 
 <h2>Comparaison</h2>
 <div class="tablewrap"><table>
-<tr><th></th><th>B1 · Thermique</th><th>B2 · Fanfare</th><th>B3 · Ticket filé</th></tr>
+<tr><th></th><th>B1 · Thermique (ton)</th><th>B2 · Fanfare (ton)</th><th>B3 · Ticket filé (base)</th></tr>
 <tr><th>Intention</th><td>Chaleur et matière : on tient un vrai ticket</td><td>Jeu et mouvement : le ticket vit</td><td>Sens : le ticket montre le trajet</td></tr>
 <tr><th>Lisibilité en rayon</th><td>★★★ Très haute, sobre</td><td>★★☆ Les animations sont réservées aux écrans calmes</td><td>★★★ Le fil indique « où j'en suis »</td></tr>
-<tr><th>Valorise l'algorithme de tri</th><td>★☆☆ Implicite</td><td>★☆☆ Implicite</td><td>★★★ Explicite : le fil avance à chaque coche</td></tr>
+<tr><th>Structure</th><td colspan="3">Identique pour les trois, celle de A : la liste groupée par rayon dans l'ordre du trajet, le fil qui avance à chaque coche et les rayons qui se réordonnent en direct</td></tr>
 <tr><th>Fatigue au 50ᵉ usage</th><td>Faible</td><td>Moyenne : la déchirure peut lasser (on la désactive après 3 coches rapides)</td><td>Faible</td></tr>
 <tr><th>Coût d'implémentation</th><td>Bas (masques, police mono)</td><td>Élevé (impression, déchirure, illustrations)</td><td>Moyen (gouttière du fil partagée avec A)</td></tr>
 <tr><th>Couleur dynamique Android</th><td>Accent seul</td><td>Accent seul, jaune fixe</td><td>Accent + fil ; couleurs de rayon fixes</td></tr>
@@ -162,41 +175,42 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 </ul>
 
 <div class="reco">
-<h2 style="margin-top:0">Recommandation : B3 « Ticket filé », avec la matière de B1</h2>
-<p><b>Je recommande B3.</b> C'est la seule variante où l'esthétique sert la promesse du produit. Le fil qui avance dans la marge du ticket rend visible ce que l'app fait de spécial : l'ordre du trajet. La structure mono de B, rapide à lire, reste intacte.</p>
+<h2 style="margin-top:0">Recommandation : la base B3 dans le ton B1</h2>
+<p><b>Je recommande de garder la structure B3 et de l'habiller avec la matière de B1.</b> La structure est celle de A : les groupes par rayon, le fil qui avance et l'ordre qui se réorganise. C'est ce qui rend la promesse du produit visible. Le ton B1 apporte la chaleur qui manquait à B sans gêner la lecture : papier crème, fil pointillé façon perforation, petits tampons de rayon et tampon « PRIS ».</p>
 <ul>
-<li><b>Ce qui la rend moins austère</b> : une couleur par rayon, toujours doublée d'un libellé, et un accent cobalt sur le fil.</li>
-<li><b>Ce que je reprendrais de B1</b> : le papier crème, les perforations en haut du ticket et le tampon « PRIS » sur l'écran de fin. C'est un écran calme, donc le tampon n'y gêne pas la lecture.</li>
-<li><b>Ce que j'écarte de B2</b> : l'impression à l'ouverture et la déchirure à chaque coche. C'est charmant en démo, mais ça fatigue en rayon et ça coûte cher sur deux plateformes. Je garderais seulement l'impression du ticket récapitulatif en fin de courses.</li>
+<li><b>B3 seule</b> fonctionne, mais elle reste plus neutre. C'est le bon repli si le crème rend mal sous les néons.</li>
+<li><b>B2</b> : je garde seulement l'impression du ticket récapitulatif en fin de courses. La déchirure à chaque coche fatigue en rayon.</li>
+<li><b>Le réordonnancement</b> se joue à l'échelle du rayon. Le groupe qui change de place glisse en 400 ms, 600 ms après la coche, la ligne touchée ne bouge jamais, et l'étiquette « ↑ appris » reste affichée 3 s.</li>
 </ul>
-<p><b>Questions ouvertes</b> : 1) Les couleurs de rayon sont-elles fixées par catégorie, ou choisies par magasin ? 2) Faut-il embarquer JetBrains Mono, ou utiliser SF Mono et Roboto Mono, qui sont gratuites ? 3) Le tampon « PRIS » doit-il rester sur la ligne cochée, ou seulement apparaître brièvement ?</p>
+<p><b>Questions ouvertes</b> : 1) Les couleurs de rayon sont-elles fixées par catégorie ou par magasin ? 2) Police mono embarquée ou police système ? 3) Le tampon « PRIS » est-il persistant ou bref ?</p>
 </div>
 </main>
 
 <script>
 // Rendu des maquettes : gabarits HTML statiques (pas de logique applicative).
-const V = [
- {id:'thermique',name:'B1 · Thermique',intent:"Un ticket chaleureux : papier thermique crème, perforations, mono expressive et un seul accent tomate. À la coche, un tampon « PRIS » s'imprime puis s'efface. C'est la plus proche de B, en plus chaleureuse."},
- {id:'fanfare',name:'B2 · Fanfare',intent:"Un ticket ludique : il s'imprime ligne à ligne à l'ouverture, chaque article coché se détache sur un bord dentelé, la prochaine ligne est surlignée au feutre jaune et chaque rayon a son picto au trait."},
- {id:'file',name:'B3 · Ticket filé',intent:"Un hybride B × A : on garde la structure du ticket, et le fil du trajet court dans la marge. Il avance d'une perle à chaque coche, et chaque rayon a sa couleur, doublée de son libellé."}
+const V0 = [
+ {id:'thermique',name:'B1 · Thermique (ton chaleureux)',intent:"Le ton chaleureux posé sur la base B3 : même fil et mêmes groupes de rayon, sur un papier thermique crème. Le fil est pointillé comme une perforation, les rayons sont marqués par de petits tampons inclinés, et à la coche un tampon « PRIS » s'imprime."},
+ {id:'fanfare',name:'B2 · Fanfare (ton ludique)',intent:"Le ton ludique posé sur la base B3 : même fil et mêmes groupes de rayon. Le ticket s'imprime à l'ouverture, les rayons ont des pastilles rondes et des pictos au trait, la prochaine perle et la prochaine ligne sont surlignées en jaune, et l'article coché se détache."},
+ {id:'file',name:'B3 · Ticket filé (base)',intent:"La base : la structure de A « Le Fil » habillée en ticket. Les rayons sont groupés dans l'ordre du trajet et reliés par le fil, qui avance d'une perle à chaque coche. Quand le trajet appris change, les rayons se réordonnent : le groupe glisse et une étiquette « ↑ appris » explique pourquoi. Chaque rayon a sa couleur, doublée de son libellé."}
 ];
+const V=[V0[2],V0[0],V0[1]];
 const ic={frais:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21c5 0 8-4 8-9-4 0-8 2-8 9Zm0 0c-5 0-8-4-8-9 4 0 8 2 8 9Zm0-9V4"/></svg>',
  cremerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3h8v4l2 3v11H6V10l2-3Z"/></svg>',
  epicerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="6" width="14" height="15" rx="2"/><path d="M8 3h8v3"/></svg>'};
 const aisles=[['Fruits & légumes','frais','--a1',[['Tomates','×6'],['Basilic','1']]],['Crèmerie','cremerie','--a2',[['Lait demi-écrémé','×2'],['Comté','200 g']]],['Épicerie','epicerie','--a3',[['Pâtes','×1'],['Café moulu','×1']]]];
 const v=(o)=>o;
 function aisleHead(a,vid){
-  const pic = vid==='fanfare'?ic[a[1]]:vid==='file'?`<span class="chip" style="background:var(${a[2]})"></span>`:'';
+  const pic = vid==='fanfare'?ic[a[1]]:'';
   return `<div class="aisle" style="--c:var(${a[2]})">${pic}${a[0]}</div>`;
 }
 function item(n,q,cls=''){return `<div class="item ${cls}" role="checkbox" aria-checked="${cls.includes('done')}"><span class="box" aria-hidden="true">✓</span><span class="name">${n}</span><span class="qty">${q}</span></div>`}
 function listBody(vid,mode){
   let h='', k=0;
-  aisles.forEach((a,ai)=>{h+=aisleHead(a,vid);a[3].forEach(([n,q])=>{
+  aisles.forEach((a,ai)=>{h+=`<div class="grp g${ai+1}">`+aisleHead(a,vid).replace('</div>',ai===2&&mode==='shop'?'<span class="tag">↑ appris</span></div>':'</div>');a[3].forEach(([n,q])=>{
     let c='';
     if(mode==='shop'){ if(k<1)c='done'; else if(k===1)c='next target'+(vid==='fanfare'?' tear':''); }
     let extra = (mode==='shop'&&k===1&&vid==='thermique')?'<span class="stamp">PRIS</span>':'';
-    h+=item(n,q,c).replace('</div>',extra+'</div>');k++;});});
+    h+=item(n,q,c).replace('</div>',extra+'</div>');k++;});h+='</div>';});
   return h;
 }
 function head(vid,mode){
@@ -222,16 +236,16 @@ function storesBody(vid){
 }
 function phone({vid,theme,plat,mode,mat='26',dyn=false,ax=false,cap}){
   const body = mode==='store'?storesBody(vid):head(vid,mode)+listBody(vid,mode);
-  const thread = vid==='file'&&mode!=='store'?`<div class="thread"><i style="--p:${mode==='shop'?'30%':'0%'}"></i></div>`:'';
+  const thread = mode!=='store'?`<div class="thread"><i style="--p:${mode==='shop'?'30%':'0%'}"></i></div>`:'';
   const bottom = plat==='ios'
      ? (mode==='store'?`<div class="${mat==='26'?'bar glass26':'bar mat18'}"><span class="grow">Autre magasin…</span><button class="cta">Choisir</button></div>`:iosBar(mode,mat))
      : (mode==='store'?`<div class="m3bar"><span>✕</span><span>⌕</span></div><div class="fab" aria-label="Choisir">→</div>`:m3Bar(mode));
   const undo = mode==='shop'?(plat==='ios'?`<div class="undo26 ${mat==='26'?'glass26':'mat18'}" style="${mat==='18'?'position:absolute;left:50%;right:auto;height:44px;bottom:96px;border-radius:22px;border:0;padding:0 16px':''}">Tomates prises · <b style="color:var(--accent)">Annuler</b></div>`:`<div class="snack">Tomates prises<b>Annuler</b></div>`):'';
-  const anim = mode==='shop'?'anim':'';
+  const anim = mode==='shop'?'anim'+(ax?'':' reorder'):'';
   const printing = vid==='fanfare'&&mode==='list'&&theme==='light'?'printing':'';
   return `<figure><div class="phone ${plat}"><div class="screen v-${vid} ${theme} ${dyn?'dyn':''} ${anim} ${printing} ${ax?'ax':''}">
    <div class="status"><span>18:42</span><span class="island"></span><span>5G ▮</span></div>
-   <div class="ticket">${thread}${body}</div>${undo}${bottom}</div></div><figcaption class="cap">${cap}</figcaption></figure>`;
+   <div class="ticket ${mode==='store'?'st':''}">${thread}${body}</div>${undo}${bottom}</div></div><figcaption class="cap">${cap}</figcaption></figure>`;
 }
 let out='';
 V.forEach(x=>{
