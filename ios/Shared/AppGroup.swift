@@ -4,6 +4,12 @@ import Foundation
 enum AppGroup {
   /// Identifiant lu dans l'Info.plist, renseigné par `APP_GROUP_ID` (xcconfig).
   static var identifier: String {
-    Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String ?? "group.app.parcourses"
+    guard
+      let id = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+      !id.isEmpty
+    else {
+      preconditionFailure("AppGroupIdentifier absent de l'Info.plist : vérifier APP_GROUP_ID.")
+    }
+    return id
   }
 }

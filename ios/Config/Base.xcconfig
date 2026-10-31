@@ -13,3 +13,4 @@ APP_GROUP_ID = group.app.parcourses
 SUPABASE_URL =
 SUPABASE_PUBLISHABLE_KEY =
 #include? "Local.xcconfig"
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
