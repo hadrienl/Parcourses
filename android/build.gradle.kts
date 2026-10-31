@@ -20,3 +20,18 @@ spotless {
         ktlint(libs.versions.ktlint.get())
     }
 }
+
+// Verrouillage des dépendances : chaque module a son gradle.lockfile.
+// Mise à jour : ./gradlew resolveAndLockAll --write-locks
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+    tasks.register("resolveAndLockAll") {
+        notCompatibleWithConfigurationCache("Résout toutes les configurations pour écrire les verrous.")
+        doFirst { require(gradle.startParameter.isWriteDependencyLocks) { "Lancer avec --write-locks" } }
+        doLast {
+            configurations.filter { it.isCanBeResolved }.forEach { it.incoming.resolutionResult.root }
+        }
+    }
+}

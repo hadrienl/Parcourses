@@ -29,3 +29,8 @@ gradlePlugin {
         }
     }
 }
+
+// build-logic est verrouillé aussi : son classpath (AGP, Kotlin, detekt) entre dans le build.
+dependencyLocking {
+    lockAllConfigurations()
+}
