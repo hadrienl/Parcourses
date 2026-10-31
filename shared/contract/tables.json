@@ -1,0 +1,84 @@
+{
+  "categories": [
+    "default_rank",
+    "id",
+    "name",
+    "slug"
+  ],
+  "checks": [
+    "category_id",
+    "checked_at",
+    "id",
+    "ignored",
+    "product_id",
+    "visit_id"
+  ],
+  "list_items": [
+    "checked_at",
+    "created_at",
+    "id",
+    "label",
+    "list_id",
+    "product_id",
+    "quantity",
+    "updated_at"
+  ],
+  "lists": [
+    "created_at",
+    "id",
+    "name",
+    "owner_id",
+    "updated_at"
+  ],
+  "products": [
+    "category_id",
+    "created_at",
+    "id",
+    "name",
+    "normalized_name",
+    "off_code"
+  ],
+  "store_edges": [
+    "last_seen_at",
+    "observations",
+    "product_a",
+    "product_b",
+    "store_id",
+    "weight"
+  ],
+  "store_entries": [
+    "last_seen_at",
+    "observations",
+    "product_id",
+    "store_id",
+    "weight"
+  ],
+  "store_stats": [
+    "confidence",
+    "last_visit_at",
+    "store_id",
+    "updated_at",
+    "visits_count"
+  ],
+  "stores": [
+    "address",
+    "chain",
+    "created_at",
+    "id",
+    "location",
+    "name",
+    "osm_id",
+    "osm_seen_at",
+    "osm_type"
+  ],
+  "visits": [
+    "ended_at",
+    "id",
+    "list_id",
+    "list_was_sorted",
+    "processed_at",
+    "started_at",
+    "store_id",
+    "user_id"
+  ]
+}
