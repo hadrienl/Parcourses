@@ -28,6 +28,8 @@ allprojects {
         lockAllConfigurations()
     }
     tasks.register("resolveAndLockAll") {
+        group = "dependency locking"
+        description = "Résout toutes les configurations pour écrire les gradle.lockfile."
         notCompatibleWithConfigurationCache("Résout toutes les configurations pour écrire les verrous.")
         doFirst { require(gradle.startParameter.isWriteDependencyLocks) { "Lancer avec --write-locks" } }
         doLast {
