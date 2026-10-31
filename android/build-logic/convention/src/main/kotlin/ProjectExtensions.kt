@@ -8,7 +8,7 @@ import org.gradle.kotlin.dsl.getByType
 
 // Valeurs communes à tous les modules (issue #10, §13).
 internal object ParcoursesSdk {
-    const val COMPILE = 37
+    const val COMPILE = 36
     const val TARGET = 36
     const val MIN = 26
     const val JVM_TARGET = 17
@@ -25,7 +25,9 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension) {
         warningsAsErrors = false
         abortOnError = true
         checkDependencies = true
-        error += setOf("ContentDescription", "ClickableViewAccessibility", "HardcodedDebugMode")
+        // Catégories Accessibility et Security en erreur (#10, §12) ; baseline vide au départ.
+        error += setOf("Accessibility", "Security")
+        baseline = rootProject.file("config/lint/lint-baseline.xml")
     }
     configureDetekt()
 }
