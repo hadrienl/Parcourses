@@ -7,10 +7,15 @@ revoke all on all functions in schema public from public, anon, authenticated;
 alter default privileges in schema public revoke all on tables from anon, authenticated;
 alter default privileges in schema public revoke all on sequences from anon, authenticated;
 alter default privileges in schema public revoke all on functions from public, anon, authenticated;
--- Les rôles qui créent des objets en migration (postgres, supabase_admin).
+-- Privilèges par défaut du rôle postgres, qui exécute toutes les migrations du projet.
+-- supabase_admin n'est pas traité : postgres n'a pas le droit de modifier ses privilèges
+-- par défaut (42501), et il ne crée aucun objet dans public (les extensions vont dans extensions).
 alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
 alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
 alter default privileges for role postgres in schema public revoke all on functions from public, anon, authenticated;
+-- L'EXECUTE accordé à PUBLIC est un privilège par défaut global : la révocation
+-- « in schema » ne le retire pas, il faut aussi la forme sans schéma.
+alter default privileges for role postgres revoke execute on functions from public;
 
 -- Connaissance partagée : lecture seule.
 grant select on public.categories, public.products, public.stores,
@@ -35,8 +40,6 @@ grant update (ended_at) on public.visits to authenticated;
 grant select on public.checks to authenticated;
 grant insert (id, visit_id, product_id, category_id, checked_at) on public.checks to authenticated;
 
--- Fonctions utilitaires utilisables par les clients connectés.
+-- Fonction utilitaire utilisable par les clients connectés.
+-- Les fonctions trigger n'ont pas besoin d'EXECUTE : il n'est vérifié qu'à la création du trigger.
 grant execute on function public.normalize_label(text) to authenticated, service_role;
-grant execute on function public.set_updated_at() to authenticated, service_role;
-grant execute on function public.guard_visit() to authenticated, service_role;
-grant execute on function public.guard_check() to authenticated, service_role;
