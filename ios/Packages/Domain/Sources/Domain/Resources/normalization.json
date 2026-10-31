@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "locale": "fr",
+  "ligatures": { "œ": "oe", "æ": "ae", "ß": "ss" },
+  "units": ["g", "gr", "kg", "mg", "l", "cl", "ml", "dl", "x", "lot", "lots", "paquet", "paquets", "boite", "boites", "bouteille", "bouteilles", "pack", "packs", "sachet", "sachets", "barquette", "barquettes", "brique", "briques", "canette", "canettes", "douzaine", "douzaines", "kilo", "kilos", "litre", "litres", "gramme", "grammes"],
+  "stopwords": ["de", "du", "des", "la", "le", "les", "l", "d", "un", "une", "au", "aux", "en", "pour", "et", "a", "avec"],
+  "plural_al": ["animaux", "bocaux", "canaux", "chevaux", "journaux", "maux", "metaux", "vegetaux"],
+  "plural_exceptions": ["ananas", "anchois", "anis", "bas", "bois", "bras", "brebis", "cassis", "cervelas", "choix", "couscous", "croix", "doux", "fils", "frais", "gras", "gros", "hachis", "jus", "lys", "mais", "noix", "os", "panais", "pastis", "pois", "prix", "radis", "riz", "roux", "salsifis", "sans", "souris", "tapis", "tournedos"]
+}
