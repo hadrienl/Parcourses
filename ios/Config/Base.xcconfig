@@ -1,0 +1,15 @@
+// Réglages communs à toutes les cibles.
+IPHONEOS_DEPLOYMENT_TARGET = 18.0
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY = YES
+TARGETED_DEVICE_FAMILY = 1
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+APP_GROUP_ID = group.app.parcourses
+// Environnement Supabase : surchargé par Local.xcconfig ou Cloud.xcconfig.
+SUPABASE_URL =
+SUPABASE_PUBLISHABLE_KEY =
+#include? "Local.xcconfig"
