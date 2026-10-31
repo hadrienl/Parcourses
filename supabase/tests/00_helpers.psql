@@ -1,0 +1,71 @@
+-- Helpers de test (sans dépendance externe), inclus par chaque fichier via \ir.
+-- Extension .psql : pg_prove ne l'exécute pas comme un fichier de test.
+create extension if not exists pgtap with schema extensions;
+create schema if not exists tests;
+
+-- Crée un utilisateur dans auth.users et renvoie son id.
+create or replace function tests.create_user(p_email text, p_is_anonymous boolean default false)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_id uuid := gen_random_uuid();
+begin
+  insert into auth.users (id, instance_id, aud, role, email, is_anonymous, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+  values (v_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+          case when p_is_anonymous then null else p_email end, p_is_anonymous, '{}', '{}', now(), now());
+  return v_id;
+end;
+$$;
+
+-- Joue le rôle authenticated avec les claims JWT de l'utilisateur (jusqu'à la fin de la transaction).
+create or replace function tests.authenticate_as(p_user uuid)
+returns void
+language plpgsql
+as $$
+declare
+  v_anon boolean;
+begin
+  -- Repasse par postgres pour lire auth.users, même si un autre utilisateur est actif.
+  perform set_config('role', 'postgres', true);
+  select coalesce(u.is_anonymous, false) into v_anon from auth.users as u where u.id = p_user;
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', p_user, 'role', 'authenticated', 'is_anonymous', v_anon)::text, true);
+  perform set_config('role', 'authenticated', true);
+end;
+$$;
+
+-- Joue le rôle anon.
+create or replace function tests.authenticate_as_anon()
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+  perform set_config('role', 'anon', true);
+end;
+$$;
+
+-- Revient au rôle postgres.
+create or replace function tests.clear_authentication()
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', null, true);
+  perform set_config('role', 'postgres', true);
+end;
+$$;
+
+-- Plan d'exécution d'une requête, ligne par ligne.
+create or replace function tests.explain(p_query text)
+returns setof text
+language plpgsql
+as $$
+begin
+  return query execute 'explain ' || p_query;
+end;
+$$;
+
+grant usage on schema tests to anon, authenticated;
+grant execute on all functions in schema tests to anon, authenticated;
