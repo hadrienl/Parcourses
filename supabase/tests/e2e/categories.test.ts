@@ -2,11 +2,10 @@
 // Les scénarios de migration tournent dans une transaction annulée.
 
 import categories from "../../../shared/categories/categories.json" with { type: "json" };
+import { latestCategoriesMigration } from "../../../scripts/categories-migration.ts";
 import { psql } from "./psql.ts";
 
-const migration = await Deno.readTextFile(
-  new URL("../../migrations/20261101120001_align_categories.sql", import.meta.url),
-);
+const { sql: migration } = latestCategoriesMigration();
 
 function assertEquals(actual: string, expected: string, message: string) {
   if (actual !== expected) throw new Error(`${message}\nattendu : ${expected}\nobtenu : ${actual}`);
@@ -68,15 +67,18 @@ rollback;
   assertEquals(out, "frozen|frozen|0", "les références doivent suivre vers frozen");
 });
 
-Deno.test("slug inconnu : la migration échoue au lieu de perdre des références", async () => {
-  let message = "";
-  try {
-    await psql(`begin;
+Deno.test("slug inconnu : la migration avertit et garde la ligne et ses références", async () => {
+  const product = "00000000-0000-0000-0000-00000000a006";
+  const out = await psql(`
+begin;
+\\o /dev/null
 insert into public.categories (slug, name, default_rank) values ('inconnue', 'x', 1);
+insert into public.products (id, name, normalized_name, category_id)
+select '${product}', 'x', 'test categories inconnue', id from public.categories where slug = 'inconnue';
 ${migration}
-rollback;`);
-  } catch (e) {
-    message = String(e);
-  }
-  if (!message.includes("inconnue")) throw new Error(`échec attendu, obtenu : « ${message} »`);
+\\o
+select c.slug from public.products as p join public.categories as c on c.id = p.category_id where p.id = '${product}';
+rollback;
+`);
+  assertEquals(out, "inconnue", "la ligne inconnue et sa référence doivent rester");
 });

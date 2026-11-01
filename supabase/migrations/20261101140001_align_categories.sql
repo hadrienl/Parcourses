@@ -69,13 +69,14 @@ begin
   on conflict (slug) do update
     set name = excluded.name, default_rank = excluded.default_rank;
 
-  -- Une ligne inconnue n'a pas de destination sûre : on s'arrête plutôt que de perdre ses références.
+  -- Une ligne absente de cette liste peut venir d'une migration plus récente (rejeu) : on la garde,
+  -- avec ses références. Le contrôle strict est dans supabase/tests/e2e/categories.test.ts.
   select string_agg(c.slug, ', ') into v_unknown
   from public.categories as c
   where not exists (select 1 from jsonb_array_elements(v_shared) as e where e ->> 'slug' = c.slug);
 
   if v_unknown is not null then
-    raise exception 'catégories absentes de shared/categories : %', v_unknown;
+    raise warning 'catégories absentes de cette migration : %', v_unknown;
   end if;
 end;
 $migration$;
