@@ -110,4 +110,7 @@ nonisolated protocol RemoteGateway: Sendable {
 
   /// La position n'est ni conservée ni journalisée ici.
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow]
+
+  /// Repli sans position (refus de localisation) : RPC `search_stores`, par nom ou adresse.
+  func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow]
 }

@@ -240,6 +240,13 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
+    let parameters = SearchStoresParameters(q: query, maxResults: limit)
+    return try await authorized {
+      try await self.rest.rpc("search_stores", params: parameters).execute().value
+    }
+  }
+
   // MARK: - Outils
 
   private func loadCategories() async throws -> [CategoryRow] {
@@ -345,6 +352,16 @@ actor SupabaseGateway: RemoteGateway {
 
 private nonisolated struct IdentifierRow: Decodable, Sendable {
   let id: UUID
+}
+
+private nonisolated struct SearchStoresParameters: Encodable, Sendable {
+  let q: String
+  let maxResults: Int
+
+  enum CodingKeys: String, CodingKey {
+    case q
+    case maxResults = "max_results"
+  }
 }
 
 private nonisolated struct NearbyStoresParameters: Encodable, Sendable {

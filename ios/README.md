@@ -19,3 +19,10 @@ cd ios && xcodegen generate && open Parcourses.xcodeproj
 - `cp Config/Local.xcconfig.example Config/Local.xcconfig`, puis renseigner la clé locale.
 - `supabase start` à la racine, puis `scripts/integration-test.sh` depuis `ios/` : tests du gateway contre `127.0.0.1:56321`. Sans cet environnement (CI comprise), ces tests sont ignorés.
 - `Package.resolved` fige les dépendances transitives. Après une mise à jour de `supabase-swift`, le recopier depuis le `.xcodeproj`.
+
+## Vérifications locales du choix du magasin
+
+Ignorées sans ces variables (CI comprise) :
+
+- Captures des états : `TEST_RUNNER_PARCOURSES_CAPTURE_DIR=<dossier> xcodebuild test … -only-testing:ParcoursesTests/StorePickerCaptures`.
+- Vraie position : `xcrun simctl privacy <udid> grant location <bundle id>`, `xcrun simctl location <udid> set 43.646,0.586`, puis `TEST_RUNNER_PARCOURSES_LIVE_LOCATION=1 xcodebuild test … -only-testing:ParcoursesTests/SystemLocationProviderLiveTests`.
