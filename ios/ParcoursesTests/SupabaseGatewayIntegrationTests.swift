@@ -296,6 +296,14 @@ private actor SwitchableGateway: RemoteGateway {
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
     try await remote.searchStores(query: query, limit: limit)
   }
+  func storeOrganicAisle(id: UUID) async throws -> Bool? {
+    try check()
+    return try await remote.storeOrganicAisle(id: id)
+  }
+  func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse {
+    try check()
+    return try await remote.graphSnapshot(storeId: storeId, knownVersion: knownVersion)
+  }
 }
 
 private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
@@ -426,6 +434,56 @@ struct SyncEngineIntegrationTests {
     #expect(
       try setup.context.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.id == checkId })).first?.syncState
         == .failed)
+  }
+
+  /// Mode courses contre le vrai serveur : instantané, coche annulée, coche retenue, clôture.
+  /// `scripts/integration-test.sh` publie l'instantané du magasin, puis vérifie les lignes écrites.
+  @Test func aShoppingVisitReachesTheServerWithoutItsUndoneCheck() async throws {
+    let variable = ProcessInfo.processInfo.environment["PARCOURSES_IT_SNAPSHOT_STORE"]
+    let storeId = try #require(variable.flatMap(UUID.init(uuidString:)))
+    let setup = try await makeSetup()
+
+    #expect(try await setup.remote.graphSnapshot(storeId: UUID(), knownVersion: nil) == .none)
+    let cache = GraphSnapshotCache(graphs: SwiftDataGraphRepository(context: setup.context), gateway: setup.gateway)
+    let stores = SwiftDataStoreRepository(context: setup.context)
+    try stores.upsertStore(
+      id: storeId, name: "Magasin de test", chain: nil, address: nil, lastDistanceM: nil, organicAisle: false)
+
+    let list = try setup.lists.createList(name: "Courses", at: .now)
+    let analyzer = try EntryAnalyzer()
+    for label in ["lait bio", "tomates", "pommes"] {
+      let entry = analyzer.analyze(label)
+      try setup.lists.addItem(
+        listId: list.id, label: entry.label, normalizedName: entry.normalizedName, quantity: nil, productId: nil,
+        categoryId: entry.categoryId, at: .now)
+    }
+    let session = ShoppingSession(
+      listId: list.id, storeId: storeId, lists: setup.lists, visits: setup.visits, stores: stores,
+      categories: SwiftDataCategoryRepository(context: setup.context), analyzer: analyzer, cache: cache,
+      settleDelay: .milliseconds(1), undoDelay: .milliseconds(50), sendMargin: .zero)
+    await session.start()
+    // Le serveur (`organic_aisle` vrai) l'emporte sur le cache.
+    #expect(try stores.store(id: storeId)?.organicAisle == true)
+    #expect(session.knowledge == .learned(72))
+    #expect(session.mode == .learned)
+    let version = try #require(cache.cached(storeId: storeId)?.version)
+    #expect(try await setup.remote.graphSnapshot(storeId: storeId, knownVersion: version) == .unchanged)
+    let visitId = try #require(session.visitId)
+
+    let rowNamed: (String) throws -> ShoppingRow = { label in
+      try #require(session.toBuy.first { $0.label == label })
+    }
+    session.toggle(try rowNamed("tomates"))
+    session.performUndo()
+    session.toggle(try rowNamed("lait bio"))
+    session.markNotFound(try rowNamed("pommes"))
+    try await Task.sleep(for: .milliseconds(200))
+    session.finish(keepRemaining: true)
+    await setup.engine.drain()
+
+    #expect(try pending(setup).isEmpty)
+    #expect(try await setup.remote.visitAccess(id: visitId) == .closed)
+    #expect(try setup.visits.checks(visitId: visitId).map(\.categoryId) == ["dairy"])
   }
 
   @Test func aChangedAccountPausesWithoutWriting() async throws {

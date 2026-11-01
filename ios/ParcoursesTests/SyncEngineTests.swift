@@ -36,6 +36,8 @@ private nonisolated final class MemoryCursors: SyncCursors, @unchecked Sendable 
 
 /// Doublure : journal des appels et erreurs programmées par nom d'appel.
 private actor ScriptedGateway: RemoteGateway {
+  func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
+  func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   var calls: [String] = []
   var failures: [String: [RemoteError]] = [:]
   var permanent: [String: RemoteError] = [:]

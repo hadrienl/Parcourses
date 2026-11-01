@@ -60,23 +60,49 @@ protocol StoreRepository {
   /// Magasins déjà utilisés, du plus récent au plus ancien.
   func recentStores(limit: Int) throws -> [Store]
   /// `lastDistanceM` : l'app passe toujours `nil`, aucune distance à l'utilisateur n'est conservée.
-  func upsertStore(id: UUID, name: String, chain: String?, address: String?, lastDistanceM: Double?) throws
+  /// `organicAisle` à `nil` : inconnu ici, la valeur en cache est conservée.
+  func upsertStore(
+    id: UUID, name: String, chain: String?, address: String?, lastDistanceM: Double?, organicAisle: Bool?
+  ) throws
+  /// Valeur du serveur, plus fraîche que le cache. Sans effet si le magasin n'est pas en cache.
+  func updateOrganicAisle(id: UUID, organicAisle: Bool) throws
   func markUsed(id: UUID, at date: Date) throws
 }
 
 /// Visites et coches.
 protocol VisitRepository {
   func visit(id: UUID) throws -> Visit?
-  /// Visite non close la plus récente, pour la reprise au lancement.
+  /// Visite ouverte, unique : voir `startVisit`. Sert à la reprise au lancement.
   func openVisit() throws -> Visit?
+  /// Une seule visite reste ouverte : même liste et même magasin, la visite existante est renvoyée ; sinon elle
+  /// est d'abord close.
   @discardableResult
   func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit
+  /// `sendAfter` : durée pendant laquelle la coche reste annulable sans jamais partir au serveur.
   @discardableResult
-  func addCheck(visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date) throws -> Check
+  func addCheck(
+    visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
+  ) throws -> Check
+  /// Retire une coche pas encore partie, et renvoie `false` sans rien changer si elle a déjà été envoyée.
+  @discardableResult func removeCheck(id: UUID) throws -> Bool
+  /// Coche l'article et ajoute la coche dans une seule sauvegarde : l'un ne va pas sans l'autre.
+  @discardableResult
+  func checkItem(
+    visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
+  ) throws -> Check
+  /// Décoche l'article et retire la coche si elle n'est pas partie, dans une seule sauvegarde.
+  func uncheckItem(itemId: UUID, checkId: UUID?, at date: Date) throws
   /// Coches d'une visite, dans l'ordre chronologique.
   func checks(visitId: UUID) throws -> [Check]
   /// Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche, elle est supprimée et jamais envoyée (#9 §5.5) : renvoie alors `false`.
   @discardableResult func closeVisit(id: UUID, at date: Date) throws -> Bool
+}
+
+extension VisitRepository {
+  @discardableResult
+  func addCheck(visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date) throws -> Check {
+    try addCheck(visitId: visitId, itemId: itemId, subject: subject, checkedAt: checkedAt, sendAfter: 0)
+  }
 }
 
 /// Instantanés du graphe. Le contenu vient toujours du serveur.

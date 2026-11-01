@@ -43,6 +43,8 @@ private final class FakeLocation: LocationProvider {
 }
 
 private actor FakeGateway: RemoteGateway {
+  func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
+  func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   func visitAccess(id: UUID) async throws -> VisitAccess { .notVisible }
   struct NearbyCall: Equatable {
     let lat: Double
@@ -352,7 +354,7 @@ private func makeStores() throws -> SwiftDataStoreRepository {
   @Test func networkFailureIsOfflineWithRecents() async throws {
     let stores = try makeStores()
     let id = UUID()
-    try stores.upsertStore(id: id, name: "Récent", chain: nil, address: nil, lastDistanceM: nil)
+    try stores.upsertStore(id: id, name: "Récent", chain: nil, address: nil, lastDistanceM: nil, organicAisle: false)
     try stores.markUsed(id: id, at: .now)
     let picker = try model(FakeLocation(.precise), FakeGateway(nearby: .failure(.network)), stores: stores)
     await picker.load()
@@ -584,7 +586,7 @@ struct StorePickerCaptures {
     let stores = try makeStores()
     for recent in recents {
       let id = UUID()
-      try stores.upsertStore(id: id, name: recent, chain: nil, address: "Auch", lastDistanceM: nil)
+      try stores.upsertStore(id: id, name: recent, chain: nil, address: "Auch", lastDistanceM: nil, organicAisle: false)
       try stores.markUsed(id: id, at: .now)
     }
     let model = StorePickerModel(location: location, gateway: gateway, stores: stores, debounce: .zero) { _ in }

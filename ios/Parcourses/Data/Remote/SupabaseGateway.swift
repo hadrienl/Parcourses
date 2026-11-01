@@ -282,6 +282,21 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func storeOrganicAisle(id: UUID) async throws -> Bool? {
+    try await authorized {
+      let rows: [StoreOrganicAisleRow] =
+        try await self.rest.from("stores").select("organic_aisle").eq("id", value: id).execute().value
+      return rows.first?.organicAisle
+    }
+  }
+
+  func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse {
+    let parameters = GraphSnapshotParameters(storeId: storeId, knownVersion: knownVersion)
+    return try await authorized {
+      GraphSnapshotResponse.parse(try await self.rest.rpc("store_graph_snapshot", params: parameters).execute().data)
+    }
+  }
+
   // MARK: - Outils
 
   private func loadCategories() async throws -> [CategoryRow] {
@@ -399,6 +414,24 @@ private nonisolated struct VisitEndRow: Decodable, Sendable {
 
   enum CodingKeys: String, CodingKey {
     case endedAt = "ended_at"
+  }
+}
+
+private nonisolated struct StoreOrganicAisleRow: Decodable, Sendable {
+  let organicAisle: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case organicAisle = "organic_aisle"
+  }
+}
+
+private nonisolated struct GraphSnapshotParameters: Encodable, Sendable {
+  let storeId: UUID
+  let knownVersion: Int64?
+
+  enum CodingKeys: String, CodingKey {
+    case storeId = "p_store_id"
+    case knownVersion = "p_known_version"
   }
 }
 

@@ -147,4 +147,10 @@ nonisolated protocol RemoteGateway: Sendable {
 
   /// Repli sans position (refus de localisation) : RPC `search_stores`, par nom ou adresse.
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow]
+
+  /// Rayon bio d'un magasin connu par son identifiant. `nil` si le serveur ne le connaît pas.
+  func storeOrganicAisle(id: UUID) async throws -> Bool?
+
+  /// Instantané du graphe d'un magasin, s'il diffère de `knownVersion`. Exige une session, jamais créée ici.
+  func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse
 }

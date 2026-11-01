@@ -76,16 +76,21 @@ extension ModelContext {
   }
 
   /// Entrée de création de la visite : différée à la première coche, une visite sans coche ne part jamais (#9 §5.5).
-  nonisolated func enqueueCreation(of visit: Visit, listId: UUID?, at date: Date) throws {
+  /// `notBefore` : voir `enqueueInsertion`.
+  nonisolated func enqueueCreation(of visit: Visit, listId: UUID?, at date: Date, notBefore: Date? = nil) throws {
     let row = VisitInsert(
       id: visit.id, storeId: visit.storeId, listId: listId, listWasSorted: visit.listWasSorted,
       startedAt: visit.startedAt)
-    try enqueueOutboxEntry(kind: .createVisit, entityId: visit.id, payload: OutboxCoding.encode(row), at: date)
+    let entry = try enqueueOutboxEntry(
+      kind: .createVisit, entityId: visit.id, payload: OutboxCoding.encode(row), at: date)
+    if let notBefore { entry.nextAttemptAt = notBefore }
   }
 
-  nonisolated func enqueueInsertion(of check: Check, at date: Date) throws {
-    try enqueueOutboxEntry(
+  /// `notBefore` retient l'envoi le temps de l'annulation : une coche partie est immuable sur le serveur.
+  nonisolated func enqueueInsertion(of check: Check, at date: Date, notBefore: Date? = nil) throws {
+    let entry = try enqueueOutboxEntry(
       kind: .insertChecks, entityId: check.id, payload: OutboxCoding.encode(CheckPayload(check)), at: date)
+    if let notBefore { entry.nextAttemptAt = notBefore }
   }
 
   nonisolated func enqueueClosure(ofVisit id: UUID, endedAt: Date, at date: Date) throws {

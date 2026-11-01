@@ -23,7 +23,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       ],
       "Visit": ["id", "storeId", "listId", "listWasSorted", "startedAt", "endedAt", "syncStateRaw", "endSyncStateRaw"],
       "Check": ["id", "visitId", "itemId", "productId", "categoryId", "checkedAt", "syncStateRaw"],
-      "Store": ["id", "name", "chain", "address", "lastDistanceM", "lastUsedAt"],
+      "Store": ["id", "name", "chain", "address", "lastDistanceM", "lastUsedAt", "organicAisle"],
       "GraphSnapshot": ["storeId", "snapshotVersion", "paramsVersion", "confidenceQ", "fetchedAt", "payload"],
       "Product": ["id", "name", "normalizedName", "categoryId"],
       "Category": ["id", "slug", "rank", "label", "remoteId"],
@@ -33,7 +33,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
         "syncStateRaw",
       ],
     ]
-    let schema = Schema(versionedSchema: SchemaV1.self)
+    let schema = Schema(versionedSchema: SchemaV2.self)
     let actual = Dictionary(
       uniqueKeysWithValues: schema.entities.map { ($0.name, Set($0.storedProperties.map(\.name))) })
     #expect(actual == expected)
@@ -41,7 +41,9 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
   @Test func migrationPlanStartsAtV1() {
     #expect(SchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
-    #expect(ParcoursesMigrationPlan.schemas.count == 1)
+    #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
+    #expect(ParcoursesMigrationPlan.schemas.count == 2)
+    #expect(ParcoursesMigrationPlan.stages.count == 1)
   }
 
   @Test func valuesSurviveReopeningTheStoreFile() throws {
@@ -257,11 +259,11 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let repository = SwiftDataStoreRepository(context: try makeContext())
     let (a, b, unused) = (UUID(), UUID(), UUID())
     for id in [a, b, unused] {
-      try repository.upsertStore(id: id, name: "M", chain: nil, address: nil, lastDistanceM: 10)
+      try repository.upsertStore(id: id, name: "M", chain: nil, address: nil, lastDistanceM: 10, organicAisle: false)
     }
     try repository.markUsed(id: a, at: t0)
     try repository.markUsed(id: b, at: t0.addingTimeInterval(1))
-    try repository.upsertStore(id: a, name: "Renommé", chain: "C", address: nil, lastDistanceM: 5)
+    try repository.upsertStore(id: a, name: "Renommé", chain: "C", address: nil, lastDistanceM: 5, organicAisle: false)
 
     #expect(try repository.recentStores(limit: 5).map(\.id) == [b, a])
     #expect(try repository.recentStores(limit: 1).map(\.id) == [b])

@@ -43,3 +43,8 @@ Ignorées sans ces variables (CI comprise) :
 
 - Captures des états : `TEST_RUNNER_PARCOURSES_CAPTURE_DIR=<dossier> xcodebuild test … -only-testing:ParcoursesTests/StorePickerCaptures`.
 - Vraie position : `xcrun simctl privacy <udid> grant location <bundle id>`, `xcrun simctl location <udid> set 43.646,0.586`, puis `TEST_RUNNER_PARCOURSES_LIVE_LOCATION=1 xcodebuild test … -only-testing:ParcoursesTests/SystemLocationProviderLiveTests`.
+
+## Vérifications du mode courses
+
+- Parcours et captures : `testShoppingJourney` et les tests d'en-tête de `ParcoursesUITests`, images dans le `.xcresult` (`xcrun xcresulttool export attachments`).
+- Serveur : `scripts/integration-test.sh` publie l'instantané d'un magasin de test, joue une visite, vérifie les lignes reçues en base (`SIMULATOR_UDID` pour réutiliser un simulateur), puis nettoie.

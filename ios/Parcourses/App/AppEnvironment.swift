@@ -12,11 +12,16 @@ final class AppEnvironment {
   private let entryAnalyzer: EntryAnalyzer
   /// `nil` sans configuration Supabase : l'app reste entièrement locale.
   let sync: SyncRuntime?
-  /// Pour le mode courses (9.9) : ses écritures réveillent déjà la file.
-  let visits: any VisitRepository
+  private let visits: any VisitRepository
+  private let stores: any StoreRepository
+  private let graphs: any GraphRepository
+  private let gateway: (any RemoteGateway)?
+  private let location: any LocationProvider
 
   init(container: ModelContainer, gateway: (any RemoteGateway)? = nil) throws {
     self.container = container
+    self.gateway = gateway
+    location = SystemLocationProvider()
     let context = container.mainContext
     let sync = try gateway.map { try SyncRuntime(gateway: $0, container: container) }
     self.sync = sync
@@ -27,6 +32,8 @@ final class AppEnvironment {
     lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue)
     visits = SwiftDataVisitRepository(context: context, onEnqueue: onEnqueue)
     products = SwiftDataProductRepository(context: context)
+    stores = SwiftDataStoreRepository(context: context)
+    graphs = SwiftDataGraphRepository(context: context)
     let categories = SwiftDataCategoryRepository(context: context)
     try categories.seedIfNeeded()
     self.categories = categories
@@ -34,8 +41,30 @@ final class AppEnvironment {
   }
 
   static func live(gateway: (any RemoteGateway)?) throws -> AppEnvironment {
-    try AppEnvironment(container: PersistenceStack.makeContainer(storage: storage()), gateway: gateway)
+    let container = try PersistenceStack.makeContainer(storage: storage())
+    #if DEBUG
+      try seedForUITests(container)
+    #endif
+    return try AppEnvironment(container: container, gateway: gateway)
   }
+
+  #if DEBUG
+    /// Tests UI : un magasin récent, et son instantané s'il est fourni.
+    private static func seedForUITests(_ container: ModelContainer) throws {
+      let variables = ProcessInfo.processInfo.environment
+      guard let name = variables["PARCOURSES_TEST_SEED_STORE"] else { return }
+      let context = container.mainContext
+      let id = UUID()
+      let stores = SwiftDataStoreRepository(context: context)
+      try stores.upsertStore(
+        id: id, name: name, chain: nil, address: "Auch", lastDistanceM: nil,
+        organicAisle: variables["PARCOURSES_TEST_SEED_ORGANIC"] != nil)
+      try stores.markUsed(id: id, at: .now)
+      guard let json = variables["PARCOURSES_TEST_SEED_SNAPSHOT"] else { return }
+      try SwiftDataGraphRepository(context: context).saveSnapshot(
+        storeId: id, snapshotVersion: 1, paramsVersion: 1, confidenceQ: 0, payload: Data(json.utf8), at: .now)
+    }
+  #endif
 
   func makeListsModel() -> ListsModel {
     ListsModel(lists: lists)
@@ -44,6 +73,42 @@ final class AppEnvironment {
   func makeListDetailModel(listId: UUID) -> ListDetailModel {
     ListDetailModel(
       listId: listId, lists: lists, products: products, categories: categories, analyzer: entryAnalyzer)
+  }
+
+  func makeStorePickerModel(onFinish: @escaping (StorePickerOutcome) -> Void) -> StorePickerModel {
+    StorePickerModel(location: location, gateway: gateway, stores: stores, onFinish: onFinish)
+  }
+
+  /// Visite ouverte à reprendre au lancement, en la vérifiant : sa liste a pu disparaître.
+  func resumeShopping() async -> ShoppingSession? {
+    guard let visit = try? visits.openVisit() else { return nil }
+    guard (try? lists.list(id: visit.listId)) != nil else {
+      try? visits.closeVisit(id: visit.id, at: .now)
+      return nil
+    }
+    let session = makeSession(listId: visit.listId, storeId: visit.storeId)
+    await session.resume(visit: visit)
+    return session
+  }
+
+  /// `storeId` à `nil` : ordre générique, sans visite (#9 §8).
+  func startShopping(listId: UUID, storeId: UUID?) async -> ShoppingSession {
+    let session = makeSession(listId: listId, storeId: storeId)
+    await session.start()
+    return session
+  }
+
+  private func makeSession(listId: UUID, storeId: UUID?) -> ShoppingSession {
+    var undoDelay = Duration.seconds(4)
+    #if DEBUG
+      // Tests UI : une capture d'écran sur un runner chargé dure plus longtemps que la bannière.
+      if let seconds = ProcessInfo.processInfo.environment["PARCOURSES_TEST_UNDO_SECONDS"].flatMap(Int.init) {
+        undoDelay = .seconds(seconds)
+      }
+    #endif
+    return ShoppingSession(
+      listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
+      analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay)
   }
 
   private static func storage() -> PersistenceStack.Storage {
@@ -70,6 +135,8 @@ struct AnalyzedEntry: Equatable {
   let label: String
   let normalizedName: String
   let categoryId: String
+  /// « bio » ou « biologique » dans le libellé : décide du rayon, jamais de la catégorie d'une coche (#28).
+  let organic: Bool
 }
 
 /// Réunit l'analyseur de saisie et le classifieur de `Domain`.
@@ -87,7 +154,13 @@ struct EntryAnalyzer {
     let classification = classifier.classify(entry.label)
     return AnalyzedEntry(
       quantity: entry.quantity, label: entry.label, normalizedName: classification.normalized,
-      categoryId: classification.categoryId)
+      categoryId: classification.categoryId, organic: classification.organic)
+  }
+
+  /// Résultat du classifieur pour un libellé déjà séparé de sa quantité.
+  func classify(label: String) -> (categoryId: String, organic: Bool) {
+    let classification = classifier.classify(label)
+    return (classification.categoryId, classification.organic)
   }
 
   /// Formes à chercher pour l'autocomplétion : le texte brut (« lai ») et le singulier (« laits » → « lait »).

@@ -4,9 +4,16 @@ import SwiftUI
 struct ListDetailView: View {
   @State private var model: ListDetailModel
   @FocusState private var inputIsFocused: Bool
+  private let onShop: () -> Void
 
-  init(model: ListDetailModel) {
+  init(
+    model: ListDetailModel,
+    onShop: @escaping () -> Void = {
+      // Sans navigation : aperçus et tests.
+    }
+  ) {
     _model = State(initialValue: model)
+    self.onShop = onShop
   }
 
   var body: some View {
@@ -33,6 +40,16 @@ struct ListDetailView: View {
     }
     .navigationTitle(model.name)
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        if !model.isMissing {
+          Button("Faire mes courses", systemImage: "cart", action: onShop)
+            .labelStyle(.titleAndIcon)
+            .disabled(model.isEmpty)
+            .accessibilityIdentifier("startShopping")
+        }
+      }
+    }
     .safeAreaInset(edge: .bottom) {
       if !model.isMissing { dock }
     }
