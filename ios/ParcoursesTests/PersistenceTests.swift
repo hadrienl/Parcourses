@@ -16,19 +16,21 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   /// Garde-fou : ces noms sont repris tels quels par Android. Un écart doit passer par `SYNC.md`.
   @Test func entityAndPropertyNamesMatchTheDesign() {
     let expected: [String: Set<String>] = [
-      "ShoppingList": ["id", "name", "createdAt", "updatedAt", "deletedAt", "syncState"],
+      "ShoppingList": ["id", "name", "createdAt", "updatedAt", "deletedAt", "syncStateRaw"],
       "ListItem": [
         "id", "listId", "label", "normalizedName", "quantity", "productId", "categoryId", "checkedAt", "notFoundAt",
-        "position", "updatedAt", "syncState",
+        "position", "updatedAt", "syncStateRaw",
       ],
-      "Visit": ["id", "storeId", "listId", "listWasSorted", "startedAt", "endedAt", "syncState", "endSyncState"],
-      "Check": ["id", "visitId", "itemId", "productId", "categoryId", "checkedAt", "syncState"],
+      "Visit": ["id", "storeId", "listId", "listWasSorted", "startedAt", "endedAt", "syncStateRaw", "endSyncStateRaw"],
+      "Check": ["id", "visitId", "itemId", "productId", "categoryId", "checkedAt", "syncStateRaw"],
       "Store": ["id", "name", "chain", "address", "lastDistanceM", "lastUsedAt"],
       "GraphSnapshot": ["storeId", "snapshotVersion", "paramsVersion", "confidenceQ", "fetchedAt", "payload"],
       "Product": ["id", "name", "normalizedName", "categoryId"],
       "Category": ["id", "slug", "rank", "label"],
+      "CategorySeedState": ["id", "version"],
       "OutboxEntry": [
-        "id", "kind", "entityId", "payload", "createdAt", "attempts", "nextAttemptAt", "lastError",
+        "id", "sequence", "kindRaw", "entityId", "payload", "createdAt", "attempts", "nextAttemptAt", "lastError",
+        "syncStateRaw",
       ],
     ]
     let schema = Schema(versionedSchema: SchemaV1.self)
@@ -42,24 +44,83 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(ParcoursesMigrationPlan.schemas.count == 1)
   }
 
-  @Test func dataSurvivesReopeningTheStoreFile() throws {
+  @Test func valuesSurviveReopeningTheStoreFile() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appending(path: "test.store")
+    let (entryId, storeId) = (UUID(), UUID())
+    // Au-delà de 2^53 : une perte de précision (Double) se verrait.
+    let bigVersion = Int64(1) << 60 + 1
+    let payload = Data([0, 255, 7])
 
     do {
-      let container = try PersistenceStack.makeContainer(storage: .file(url))
-      try SwiftDataListRepository(context: ModelContext(container)).createList(name: "Samedi", at: t0)
+      let context = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+      context.insert(ShoppingList(name: "Samedi", syncState: .failed))
+      context.insert(
+        OutboxEntry(id: entryId, sequence: bigVersion, kind: .closeVisit, entityId: UUID(), payload: payload))
+      context.insert(
+        GraphSnapshot(storeId: storeId, snapshotVersion: bigVersion, paramsVersion: 2, confidenceQ: 3, payload: payload)
+      )
+      try context.save()
     }
-    let container = try PersistenceStack.makeContainer(storage: .file(url))
-    let lists = try SwiftDataListRepository(context: ModelContext(container)).lists()
-    #expect(lists.map(\.name) == ["Samedi"])
+
+    let context = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+    #expect(try context.fetch(FetchDescriptor<ShoppingList>()).first?.syncState == .failed)
+    let entry = try #require(try context.fetch(FetchDescriptor<OutboxEntry>()).first)
+    #expect(entry.kind == .closeVisit)
+    #expect(entry.sequence == bigVersion)
+    #expect(entry.payload == payload)
+    let snapshot = try #require(try context.fetch(FetchDescriptor<GraphSnapshot>()).first)
+    #expect(snapshot.snapshotVersion == bigVersion)
+    #expect(snapshot.payload == payload)
+
+    // #Unique s'applique encore après réouverture.
+    context.insert(OutboxEntry(id: entryId, sequence: 9, kind: .deleteList, entityId: UUID(), payload: Data()))
+    try context.save()
+    let entries = try context.fetch(FetchDescriptor<OutboxEntry>())
+    #expect(entries.count == 1)
+    #expect(entries.first?.kind == .deleteList)
+  }
+
+  @Test func missingAppGroupThrowsInsteadOfCrashing() {
+    #expect(throws: PersistenceError.appGroupUnavailable("group.absent")) {
+      _ = try PersistenceStack.makeContainer(storage: .appGroup("group.absent"), groupContainerURL: { _ in nil })
+    }
+  }
+
+  @Test func predicatesOnRawEnumsWork() throws {
+    let context = try makeContext()
+    context.insert(ShoppingList(name: "A", syncState: .pending))
+    context.insert(ShoppingList(name: "B", syncState: .synced))
+    context.insert(OutboxEntry(sequence: 1, kind: .upsertItem, entityId: UUID(), payload: Data(), syncState: .failed))
+    try context.save()
+
+    let pending = SyncState.pending.rawValue
+    let failed = SyncState.failed.rawValue
+    let kind = OutboxKind.upsertItem.rawValue
+    let lists = try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.syncStateRaw == pending }))
+    #expect(lists.map(\.name) == ["A"])
+    let entries = FetchDescriptor<OutboxEntry>(
+      predicate: #Predicate { $0.kindRaw == kind && $0.syncStateRaw == failed })
+    #expect(try context.fetchCount(entries) == 1)
+  }
+
+  @Test func commitRollsBackWhenSaveFails() throws {
+    struct SaveFailure: Error {}
+    let context = try makeContext()
+    context.insert(ShoppingList(name: "Gardée"))
+    try context.save()
+    context.insert(ShoppingList(name: "Annulée"))
+
+    #expect(throws: SaveFailure.self) { try context.commit(using: { throw SaveFailure() }) }
+    #expect(!context.hasChanges)
+    #expect(try context.fetch(FetchDescriptor<ShoppingList>()).map(\.name) == ["Gardée"])
   }
 
   @Test func enumsRoundTrip() throws {
     let context = try makeContext()
-    context.insert(OutboxEntry(kind: .insertChecks, entityId: UUID(), payload: Data([1])))
+    context.insert(OutboxEntry(sequence: 1, kind: .insertChecks, entityId: UUID(), payload: Data([1])))
     context.insert(ShoppingList(name: "L", syncState: .failed))
     try context.save()
     #expect(try context.fetch(FetchDescriptor<OutboxEntry>()).first?.kind == .insertChecks)
@@ -76,6 +137,21 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let products = try context.fetch(FetchDescriptor<Product>())
     #expect(products.count == 1)
     #expect(products.first?.name == "Lait demi")
+  }
+}
+
+@MainActor
+@Suite struct OutboxTests {
+  @Test func sequenceIncreasesWithinASingleTransaction() throws {
+    let context = try makeContext()
+    let first = try context.enqueueOutboxEntry(kind: .upsertList, entityId: UUID(), payload: Data(), at: t0)
+    // Date antérieure : seul `sequence` fait foi.
+    let second = try context.enqueueOutboxEntry(
+      kind: .upsertItem, entityId: UUID(), payload: Data(), at: t0.addingTimeInterval(-60))
+    try context.save()
+    let third = try context.enqueueOutboxEntry(kind: .deleteItem, entityId: UUID(), payload: Data(), at: t0)
+
+    #expect([first.sequence, second.sequence, third.sequence] == [1, 2, 3])
   }
 }
 
@@ -145,6 +221,23 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     try repository.setChecked(itemId: item.id, checkedAt: nil, at: t0)
     #expect(item.checkedAt == nil)
+  }
+
+  @Test func deletedListRefusesWritesAndReadsEmpty() throws {
+    let repository = SwiftDataListRepository(context: try makeContext())
+    let list = try repository.createList(name: "L", at: t0)
+    let item = try addItem(repository, listId: list.id, label: "a")
+    let (listId, itemId) = (list.id, item.id)
+    try repository.deleteList(id: listId, at: t0)
+    let refused = RepositoryError.listDeleted(listId)
+
+    #expect(try repository.items(listId: listId).isEmpty)
+    #expect(throws: refused) { _ = try addItem(repository, listId: listId, label: "b") }
+    #expect(throws: refused) { try repository.renameList(id: listId, name: "M", at: t0) }
+    #expect(throws: refused) { try repository.deleteList(id: listId, at: t0) }
+    #expect(throws: refused) { try repository.setChecked(itemId: itemId, checkedAt: t0, at: t0) }
+    #expect(throws: refused) { try repository.setNotFound(itemId: itemId, notFoundAt: t0, at: t0) }
+    #expect(throws: refused) { try repository.deleteItem(id: itemId) }
   }
 
   @Test func deleteItemRemovesIt() throws {
@@ -221,6 +314,18 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(try repository.visit(id: id) == nil)
   }
 
+  @Test func closingTwiceKeepsTheFirstEndDate() throws {
+    let repository = SwiftDataVisitRepository(context: try makeContext())
+    let visit = try start(repository)
+    try repository.addCheck(visitId: visit.id, itemId: UUID(), subject: .category("other"), checkedAt: t0)
+    try repository.closeVisit(id: visit.id, at: t0)
+    visit.endSyncState = .synced
+
+    #expect(try repository.closeVisit(id: visit.id, at: t0.addingTimeInterval(60)))
+    #expect(visit.endedAt == t0)
+    #expect(visit.endSyncState == .synced)
+  }
+
   @Test func noCheckAfterClosing() throws {
     let repository = SwiftDataVisitRepository(context: try makeContext())
     let visit = try start(repository)
@@ -268,6 +373,13 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
 @MainActor
 @Suite struct CategorySeedTests {
+  private let other = ItemCategory(id: "other", rank: 999, labelFr: "Autre")
+  private let dairy = ItemCategory(id: "dairy", rank: 70, labelFr: "Crèmerie")
+
+  private func repository(_ context: ModelContext, _ seed: CategorySeed) -> SwiftDataCategoryRepository {
+    SwiftDataCategoryRepository(context: context, seedSource: { seed })
+  }
+
   @Test func seedCopiesDomainResourcesInOrder() throws {
     let repository = SwiftDataCategoryRepository(context: try makeContext())
     try repository.seedIfNeeded()
@@ -280,7 +392,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(seeded.allSatisfy { $0.slug == $0.id })
   }
 
-  @Test func seedIsIdempotentAndKeepsServerValues() throws {
+  @Test func runningTwiceAtTheSameVersionChangesNothing() throws {
     let repository = SwiftDataCategoryRepository(context: try makeContext())
     try repository.seedIfNeeded()
     let first = try #require(try repository.categories().first)
@@ -290,5 +402,64 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     #expect(try repository.categories().count == count)
     #expect(try repository.categories().first?.label == "Version serveur")
+  }
+
+  @Test func addedCategoryAppearsWhenVersionIncreases() throws {
+    let context = try makeContext()
+    try repository(context, CategorySeed(version: 1, categories: [dairy, other])).seedIfNeeded()
+    let bio = ItemCategory(id: "bio", rank: 75, labelFr: "Bio")
+    try repository(context, CategorySeed(version: 2, categories: [dairy, bio, other])).seedIfNeeded()
+
+    #expect(
+      try repository(context, CategorySeed(version: 2, categories: [])).categories().map(\.id)
+        == ["dairy", "bio", "other"])
+    #expect(try context.fetch(FetchDescriptor<CategorySeedState>()).map(\.version) == [2])
+  }
+
+  @Test func lowerOrEqualVersionIsIgnored() throws {
+    let context = try makeContext()
+    try repository(context, CategorySeed(version: 2, categories: [dairy, other])).seedIfNeeded()
+    try repository(context, CategorySeed(version: 2, categories: [other])).seedIfNeeded()
+    try repository(context, CategorySeed(version: 1, categories: [other])).seedIfNeeded()
+
+    #expect(try context.fetchCount(FetchDescriptor<SchemaV1.Category>()) == 2)
+  }
+
+  @Test func renamedIdRemapsEveryReferenceInOneSave() throws {
+    let context = try makeContext()
+    try repository(context, CategorySeed(version: 1, categories: [dairy, other])).seedIfNeeded()
+    let item = ListItem(listId: UUID(), label: "Lait", normalizedName: "lait", categoryId: "dairy", position: 0)
+    let product = Product(id: UUID(), name: "Lait", normalizedName: "lait", categoryId: "dairy")
+    let check = Check(visitId: UUID(), itemId: item.id, productId: nil, categoryId: "dairy")
+    let byProduct = Check(visitId: UUID(), itemId: item.id, productId: product.id, categoryId: nil)
+    context.insert(item)
+    context.insert(product)
+    context.insert(check)
+    context.insert(byProduct)
+    try context.save()
+
+    let renamed = ItemCategory(id: "milk", rank: 70, labelFr: "Lait")
+    try repository(context, CategorySeed(version: 2, categories: [renamed, other], renamedIds: ["dairy": "milk"]))
+      .seedIfNeeded()
+
+    #expect(!context.hasChanges)
+    #expect(try context.fetch(FetchDescriptor<SchemaV1.Category>()).map(\.id).sorted() == ["milk", "other"])
+    #expect(item.categoryId == "milk")
+    #expect(product.categoryId == "milk")
+    #expect(check.categoryId == "milk")
+    #expect(byProduct.categoryId == nil)
+  }
+
+  @Test func removedIdWithoutSuccessorFallsBackToOther() throws {
+    let context = try makeContext()
+    try repository(context, CategorySeed(version: 1, categories: [dairy, other])).seedIfNeeded()
+    let item = ListItem(listId: UUID(), label: "Lait", normalizedName: "lait", categoryId: "dairy", position: 0)
+    context.insert(item)
+    try context.save()
+
+    try repository(context, CategorySeed(version: 2, categories: [other])).seedIfNeeded()
+
+    #expect(item.categoryId == "other")
+    #expect(try context.fetch(FetchDescriptor<SchemaV1.Category>()).map(\.id) == ["other"])
   }
 }

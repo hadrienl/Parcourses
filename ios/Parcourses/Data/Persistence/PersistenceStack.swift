@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+/// Erreurs de construction du store.
+nonisolated enum PersistenceError: Error, Equatable {
+  /// App Group absent des entitlements : sans ce contrôle, SwiftData planterait.
+  case appGroupUnavailable(String)
+}
+
 /// Construction du `ModelContainer` de l'app.
 nonisolated enum PersistenceStack {
   /// Emplacement du store.
@@ -13,12 +19,18 @@ nonisolated enum PersistenceStack {
     case inMemory
   }
 
-  static func makeContainer(storage: Storage) throws -> ModelContainer {
+  static func makeContainer(
+    storage: Storage,
+    groupContainerURL: (String) -> URL? = {
+      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
+    }
+  ) throws -> ModelContainer {
     let schema = Schema(versionedSchema: SchemaV1.self)
     // Pas de CloudKit : la synchronisation passe par Supabase.
     let configuration: ModelConfiguration
     switch storage {
     case .appGroup(let identifier):
+      guard groupContainerURL(identifier) != nil else { throw PersistenceError.appGroupUnavailable(identifier) }
       configuration = ModelConfiguration(
         schema: schema, groupContainer: .identifier(identifier), cloudKitDatabase: .none)
     case .file(let url):

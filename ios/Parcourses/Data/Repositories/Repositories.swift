@@ -3,6 +3,8 @@ import Foundation
 /// Erreurs d'écriture des repositories.
 enum RepositoryError: Error, Equatable {
   case notFound(UUID)
+  /// Une liste supprimée, en attente d'envoi, n'accepte plus aucune écriture.
+  case listDeleted(UUID)
   /// Une coche ne s'ajoute pas à une visite déjà close.
   case visitClosed(UUID)
 }
@@ -23,7 +25,7 @@ protocol ListRepository {
   /// Suppression douce : la liste disparaît de `lists()` et reste en base jusqu'à l'envoi (9.7).
   func deleteList(id: UUID, at date: Date) throws
 
-  /// Articles d'une liste, triés par `position`.
+  /// Articles d'une liste, triés par `position`. Vide si la liste est supprimée.
   func items(listId: UUID) throws -> [ListItem]
   @discardableResult
   func addItem(
@@ -55,7 +57,7 @@ protocol VisitRepository {
   func addCheck(visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date) throws -> Check
   /// Coches d'une visite, dans l'ordre chronologique.
   func checks(visitId: UUID) throws -> [Check]
-  /// Clôt la visite. Sans aucune coche, elle est supprimée et jamais envoyée (#9 §5.5) : renvoie alors `false`.
+  /// Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche, elle est supprimée et jamais envoyée (#9 §5.5) : renvoie alors `false`.
   @discardableResult func closeVisit(id: UUID, at date: Date) throws -> Bool
 }
 
@@ -72,6 +74,6 @@ protocol GraphRepository {
 protocol CategoryRepository {
   /// Catégories triées par `(rank, id)`.
   func categories() throws -> [Category]
-  /// Amorce depuis `CategoryResources` si la table est vide : ne remplace jamais une version serveur.
+  /// Aligne la table sur `CategoryResources` si la version du fichier dépasse celle déjà appliquée.
   func seedIfNeeded() throws
 }

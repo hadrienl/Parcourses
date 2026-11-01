@@ -29,7 +29,7 @@ nonisolated enum SchemaV1: VersionedSchema {
   static var models: [any PersistentModel.Type] {
     [
       ShoppingList.self, ListItem.self, Visit.self, Check.self, Store.self,
-      GraphSnapshot.self, Product.self, Category.self, OutboxEntry.self,
+      GraphSnapshot.self, Product.self, Category.self, CategorySeedState.self, OutboxEntry.self,
     ]
   }
 
@@ -44,7 +44,13 @@ nonisolated enum SchemaV1: VersionedSchema {
     var updatedAt: Date
     /// Suppression douce, le temps que le `DELETE` parte au serveur.
     var deletedAt: Date?
-    var syncState: SyncState
+    /// Stocké en texte : un `#Predicate` sur un enum échoue sur iOS 18 (`unsupportedPredicate`).
+    var syncStateRaw: String
+
+    @Transient var syncState: SyncState {
+      get { SyncState(rawValue: syncStateRaw) ?? .pending }
+      set { syncStateRaw = newValue.rawValue }
+    }
 
     init(
       id: UUID = UUID(), name: String, createdAt: Date = .now, updatedAt: Date = .now, deletedAt: Date? = nil,
@@ -55,7 +61,7 @@ nonisolated enum SchemaV1: VersionedSchema {
       self.createdAt = createdAt
       self.updatedAt = updatedAt
       self.deletedAt = deletedAt
-      self.syncState = syncState
+      self.syncStateRaw = syncState.rawValue
     }
   }
 
@@ -77,7 +83,13 @@ nonisolated enum SchemaV1: VersionedSchema {
     var notFoundAt: Date?
     var position: Int
     var updatedAt: Date
-    var syncState: SyncState
+    /// Stocké en texte : un `#Predicate` sur un enum échoue sur iOS 18 (`unsupportedPredicate`).
+    var syncStateRaw: String
+
+    @Transient var syncState: SyncState {
+      get { SyncState(rawValue: syncStateRaw) ?? .pending }
+      set { syncStateRaw = newValue.rawValue }
+    }
 
     init(
       id: UUID = UUID(), listId: UUID, label: String, normalizedName: String, quantity: String? = nil,
@@ -95,7 +107,7 @@ nonisolated enum SchemaV1: VersionedSchema {
       self.notFoundAt = notFoundAt
       self.position = position
       self.updatedAt = updatedAt
-      self.syncState = syncState
+      self.syncStateRaw = syncState.rawValue
     }
   }
 
@@ -110,8 +122,19 @@ nonisolated enum SchemaV1: VersionedSchema {
     var listWasSorted: Bool
     var startedAt: Date
     var endedAt: Date?
-    var syncState: SyncState
-    var endSyncState: SyncState
+    /// Stocké en texte : un `#Predicate` sur un enum échoue sur iOS 18 (`unsupportedPredicate`).
+    var syncStateRaw: String
+    var endSyncStateRaw: String
+
+    @Transient var syncState: SyncState {
+      get { SyncState(rawValue: syncStateRaw) ?? .pending }
+      set { syncStateRaw = newValue.rawValue }
+    }
+
+    @Transient var endSyncState: SyncState {
+      get { SyncState(rawValue: endSyncStateRaw) ?? .pending }
+      set { endSyncStateRaw = newValue.rawValue }
+    }
 
     init(
       id: UUID = UUID(), storeId: UUID, listId: UUID, listWasSorted: Bool, startedAt: Date = .now,
@@ -123,8 +146,8 @@ nonisolated enum SchemaV1: VersionedSchema {
       self.listWasSorted = listWasSorted
       self.startedAt = startedAt
       self.endedAt = endedAt
-      self.syncState = syncState
-      self.endSyncState = endSyncState
+      self.syncStateRaw = syncState.rawValue
+      self.endSyncStateRaw = endSyncState.rawValue
     }
   }
 
@@ -141,7 +164,13 @@ nonisolated enum SchemaV1: VersionedSchema {
     var productId: UUID?
     var categoryId: String?
     var checkedAt: Date
-    var syncState: SyncState
+    /// Stocké en texte : un `#Predicate` sur un enum échoue sur iOS 18 (`unsupportedPredicate`).
+    var syncStateRaw: String
+
+    @Transient var syncState: SyncState {
+      get { SyncState(rawValue: syncStateRaw) ?? .pending }
+      set { syncStateRaw = newValue.rawValue }
+    }
 
     init(
       id: UUID = UUID(), visitId: UUID, itemId: UUID, productId: UUID?, categoryId: String?, checkedAt: Date = .now,
@@ -153,7 +182,7 @@ nonisolated enum SchemaV1: VersionedSchema {
       self.productId = productId
       self.categoryId = categoryId
       self.checkedAt = checkedAt
-      self.syncState = syncState
+      self.syncStateRaw = syncState.rawValue
     }
   }
 
@@ -244,33 +273,67 @@ nonisolated enum SchemaV1: VersionedSchema {
     }
   }
 
+  /// Version de `categories.json` déjà appliquée au store, écrite dans le même `save()` que les catégories.
+  @Model
+  nonisolated final class CategorySeedState {
+    #Unique<CategorySeedState>([\.id])
+
+    /// Ligne unique.
+    static let singletonId = "categories"
+
+    var id: String
+    var version: Int
+
+    init(id: String = CategorySeedState.singletonId, version: Int) {
+      self.id = id
+      self.version = version
+    }
+  }
+
   /// Entrée de la file d'envoi, locale. Le traitement arrive en 9.7.
   @Model
   nonisolated final class OutboxEntry {
     #Unique<OutboxEntry>([\.id])
-    #Index<OutboxEntry>([\.nextAttemptAt])
+    #Index<OutboxEntry>([\.nextAttemptAt], [\.sequence], [\.entityId])
 
     var id: UUID
-    var kind: OutboxKind
+    /// Ordre de traitement, alloué par `ModelContext.enqueueOutboxEntry` : `createdAt` ne le garantit pas.
+    var sequence: Int64
+    /// Stocké en texte, comme `syncStateRaw`.
+    var kindRaw: String
     var entityId: UUID
     var payload: Data
     var createdAt: Date
     var attempts: Int
     var nextAttemptAt: Date
     var lastError: String?
+    /// `failed` : erreur définitive, l'entrée n'est plus rejouée (#9 §5.3).
+    var syncStateRaw: String
+
+    /// `nil` si le type stocké est inconnu de cette version de l'app.
+    @Transient var kind: OutboxKind? {
+      OutboxKind(rawValue: kindRaw)
+    }
+
+    @Transient var syncState: SyncState {
+      get { SyncState(rawValue: syncStateRaw) ?? .pending }
+      set { syncStateRaw = newValue.rawValue }
+    }
 
     init(
-      id: UUID = UUID(), kind: OutboxKind, entityId: UUID, payload: Data, createdAt: Date = .now, attempts: Int = 0,
-      nextAttemptAt: Date = .now, lastError: String? = nil
+      id: UUID = UUID(), sequence: Int64, kind: OutboxKind, entityId: UUID, payload: Data, createdAt: Date = .now,
+      attempts: Int = 0, nextAttemptAt: Date = .now, lastError: String? = nil, syncState: SyncState = .pending
     ) {
       self.id = id
-      self.kind = kind
+      self.sequence = sequence
+      self.kindRaw = kind.rawValue
       self.entityId = entityId
       self.payload = payload
       self.createdAt = createdAt
       self.attempts = attempts
       self.nextAttemptAt = nextAttemptAt
       self.lastError = lastError
+      self.syncStateRaw = syncState.rawValue
     }
   }
 }
@@ -284,4 +347,5 @@ typealias Store = SchemaV1.Store
 typealias GraphSnapshot = SchemaV1.GraphSnapshot
 typealias Product = SchemaV1.Product
 typealias Category = SchemaV1.Category
+typealias CategorySeedState = SchemaV1.CategorySeedState
 typealias OutboxEntry = SchemaV1.OutboxEntry

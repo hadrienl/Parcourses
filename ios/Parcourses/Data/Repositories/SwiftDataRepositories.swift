@@ -4,7 +4,12 @@ import SwiftData
 
 extension ModelContext {
   /// Enregistre, ou annule toutes les modifications en attente en cas d'échec.
-  fileprivate func commit() throws {
+  func commit() throws {
+    try commit(using: save)
+  }
+
+  /// Variante à sauvegarde injectée : un store SwiftData sain n'échoue pas à la demande.
+  func commit(using save: () throws -> Void) throws {
     do {
       try save()
     } catch {
@@ -41,7 +46,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func renameList(id: UUID, name: String, at date: Date) throws {
-    guard let list = try list(id: id) else { throw RepositoryError.notFound(id) }
+    let list = try requireActiveList(id)
     list.name = name
     list.updatedAt = date
     list.syncState = .pending
@@ -49,7 +54,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func deleteList(id: UUID, at date: Date) throws {
-    guard let list = try list(id: id) else { throw RepositoryError.notFound(id) }
+    let list = try requireActiveList(id)
     list.deletedAt = date
     list.updatedAt = date
     list.syncState = .pending
@@ -57,7 +62,8 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func items(listId: UUID) throws -> [ListItem] {
-    try context.fetch(
+    guard try !isDeleted(listId) else { return [] }
+    return try context.fetch(
       FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }, sortBy: [SortDescriptor(\.position)]))
   }
 
@@ -65,7 +71,7 @@ final class SwiftDataListRepository: ListRepository {
     listId: UUID, label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String,
     at date: Date
   ) throws -> ListItem {
-    guard try list(id: listId) != nil else { throw RepositoryError.notFound(listId) }
+    _ = try requireActiveList(listId)
     let position = (try items(listId: listId).last?.position ?? -1) + 1
     let item = ListItem(
       listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
@@ -76,7 +82,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws {
-    let item = try requireItem(itemId)
+    let item = try requireWritableItem(itemId)
     item.checkedAt = checkedAt
     item.updatedAt = date
     item.syncState = .pending
@@ -84,7 +90,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws {
-    let item = try requireItem(itemId)
+    let item = try requireWritableItem(itemId)
     // Champ purement local (#9 question 4) : rien à renvoyer au serveur.
     item.notFoundAt = notFoundAt
     item.updatedAt = date
@@ -92,14 +98,28 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func deleteItem(id: UUID) throws {
-    context.delete(try requireItem(id))
+    context.delete(try requireWritableItem(id))
     try context.commit()
   }
 
-  private func requireItem(_ id: UUID) throws -> ListItem {
+  private func requireActiveList(_ id: UUID) throws -> ShoppingList {
+    guard let list = try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).first
+    else { throw RepositoryError.notFound(id) }
+    guard list.deletedAt == nil else { throw RepositoryError.listDeleted(id) }
+    return list
+  }
+
+  private func isDeleted(_ listId: UUID) throws -> Bool {
+    let descriptor = FetchDescriptor<ShoppingList>(
+      predicate: #Predicate { $0.id == listId && $0.deletedAt != nil })
+    return try context.fetchCount(descriptor) > 0
+  }
+
+  private func requireWritableItem(_ id: UUID) throws -> ListItem {
     guard let item = try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first else {
       throw RepositoryError.notFound(id)
     }
+    guard try !isDeleted(item.listId) else { throw RepositoryError.listDeleted(item.listId) }
     return item
   }
 }
@@ -188,6 +208,7 @@ final class SwiftDataVisitRepository: VisitRepository {
 
   func closeVisit(id: UUID, at date: Date) throws -> Bool {
     guard let visit = try visit(id: id) else { throw RepositoryError.notFound(id) }
+    guard visit.endedAt == nil else { return true }
     guard try !checks(visitId: id).isEmpty else {
       context.delete(visit)
       try context.commit()
@@ -239,11 +260,29 @@ final class SwiftDataGraphRepository: GraphRepository {
   }
 }
 
+/// Référentiel de catégories à appliquer au store.
+struct CategorySeed {
+  /// Identifiants renommés depuis les versions précédentes de `categories.json` (ancien → nouveau).
+  /// À compléter en même temps que le fichier, avec une hausse de sa `version`.
+  static let renamedIds: [String: String] = [:]
+
+  let version: Int
+  let categories: [ItemCategory]
+  var renamedIds: [String: String] = CategorySeed.renamedIds
+
+  /// Référentiel embarqué dans `Domain`.
+  static func bundled() throws -> CategorySeed {
+    CategorySeed(version: try CategoryResources.categoriesVersion(), categories: try CategoryResources.categories())
+  }
+}
+
 final class SwiftDataCategoryRepository: CategoryRepository {
   private let context: ModelContext
+  private let seedSource: @MainActor () throws -> CategorySeed
 
-  init(context: ModelContext) {
+  init(context: ModelContext, seedSource: @escaping @MainActor () throws -> CategorySeed = CategorySeed.bundled) {
     self.context = context
+    self.seedSource = seedSource
   }
 
   func categories() throws -> [Category] {
@@ -251,11 +290,48 @@ final class SwiftDataCategoryRepository: CategoryRepository {
   }
 
   func seedIfNeeded() throws {
-    guard try context.fetchCount(FetchDescriptor<Category>()) == 0 else { return }
-    for category in try CategoryResources.categories() {
-      // Le fichier embarqué n'a pas de slug distinct : l'identifiant de Domain en tient lieu.
-      context.insert(Category(id: category.id, slug: category.id, rank: category.rank, label: category.labelFr))
+    let seed = try seedSource()
+    let state = try context.fetch(FetchDescriptor<CategorySeedState>()).first
+    guard seed.version > (state?.version ?? 0) else { return }
+
+    var existing = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<Category>()).map { ($0.id, $0) })
+    for category in seed.categories {
+      if let row = existing.removeValue(forKey: category.id) {
+        row.rank = category.rank
+        row.label = category.labelFr
+      } else {
+        // Le fichier embarqué n'a pas de slug distinct : l'identifiant de Domain en tient lieu.
+        context.insert(Category(id: category.id, slug: category.id, rank: category.rank, label: category.labelFr))
+      }
+    }
+    // Ce qui reste n'est plus dans le fichier.
+    existing.values.forEach(context.delete)
+    try remapReferences(seed: seed)
+
+    if let state {
+      state.version = seed.version
+    } else {
+      context.insert(CategorySeedState(version: seed.version))
     }
     try context.commit()
+  }
+
+  /// Applique les renommages. Une référence vers un id disparu sans successeur passe en `other`,
+  /// pour qu'aucun article ne pointe vers une catégorie absente.
+  private func remapReferences(seed: CategorySeed) throws {
+    let known = Set(seed.categories.map(\.id))
+    func target(of id: String) -> String {
+      let renamed = seed.renamedIds[id] ?? id
+      return known.contains(renamed) ? renamed : CategoryClassifier.otherCategoryId
+    }
+    for item in try context.fetch(FetchDescriptor<ListItem>()) {
+      item.categoryId = target(of: item.categoryId)
+    }
+    for product in try context.fetch(FetchDescriptor<Product>()) {
+      if let id = product.categoryId { product.categoryId = target(of: id) }
+    }
+    for check in try context.fetch(FetchDescriptor<Check>()) {
+      if let id = check.categoryId { check.categoryId = target(of: id) }
+    }
   }
 }
