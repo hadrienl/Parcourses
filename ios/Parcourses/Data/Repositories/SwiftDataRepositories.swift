@@ -102,6 +102,11 @@ final class SwiftDataListRepository: ListRepository {
     try context.commit()
   }
 
+  func itemHistory() throws -> [ListItem] {
+    let active = Set(try lists().map(\.id))
+    return try context.fetch(FetchDescriptor<ListItem>()).filter { active.contains($0.listId) }
+  }
+
   private func requireActiveList(_ id: UUID) throws -> ShoppingList {
     guard let list = try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).first
     else { throw RepositoryError.notFound(id) }
@@ -121,6 +126,18 @@ final class SwiftDataListRepository: ListRepository {
     }
     guard try !isDeleted(item.listId) else { throw RepositoryError.listDeleted(item.listId) }
     return item
+  }
+}
+
+final class SwiftDataProductRepository: ProductRepository {
+  private let context: ModelContext
+
+  init(context: ModelContext) {
+    self.context = context
+  }
+
+  func products() throws -> [Product] {
+    try context.fetch(FetchDescriptor<Product>())
   }
 }
 

@@ -9,6 +9,16 @@ enum RepositoryError: Error, Equatable {
   case visitClosed(UUID)
 }
 
+extension RepositoryError: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .notFound: "Cet élément n'existe plus."
+    case .listDeleted: "Cette liste a été supprimée."
+    case .visitClosed: "Cette visite est déjà terminée."
+    }
+  }
+}
+
 /// Ce qu'une coche désigne : produit du catalogue ou catégorie (`productId` xor `categoryId`, #8 §2.6).
 enum CheckSubject: Equatable, Sendable {
   case product(UUID)
@@ -35,6 +45,13 @@ protocol ListRepository {
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws
   func deleteItem(id: UUID) throws
+  /// Articles de toutes les listes non supprimées, source de l'autocomplétion.
+  func itemHistory() throws -> [ListItem]
+}
+
+/// Cache local du catalogue de produits, vide tant que la descente (9.7) ne l'a pas rempli.
+protocol ProductRepository {
+  func products() throws -> [Product]
 }
 
 /// Cache local des magasins.

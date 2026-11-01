@@ -84,6 +84,17 @@ jobs:
           xcrun simctl list devices | grep "$udid"
           xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses \
             -destination "id=$udid" -derivedDataPath DerivedData -resultBundlePath TestResults.xcresult
+      - name: Bundle iPhone signable (un bundle mal formé empêche l'installation)
+        if: matrix.ios != '18'
+        # xcodebuild refuse la signature ad hoc pour iphoneos : on compile sans signer, puis on signe à la main.
+        run: |
+          xcodebuild build -project Parcourses.xcodeproj -scheme Parcourses -sdk iphoneos -configuration Release \
+            -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO
+          app=DerivedData/Build/Products/Release-iphoneos/Parcourses.app
+          # Bundles signés un à un : --deep seul ne rejette pas un bundle mal formé.
+          find "$app" \( -name '*.bundle' -o -name '*.appex' \) -print0 | xargs -0 -n1 codesign --force --sign -
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

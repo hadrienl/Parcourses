@@ -7,6 +7,22 @@ nonisolated enum PersistenceError: Error, Equatable {
   case appGroupUnavailable(String)
 }
 
+extension PersistenceError: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .appGroupUnavailable(let identifier): "L'App Group « \(identifier) » n'est pas disponible."
+    }
+  }
+
+  var recoverySuggestion: String? {
+    switch self {
+    case .appGroupUnavailable:
+      "L'app n'est pas signée avec cette capacité. Dans Xcode, vérifiez l'onglet Signing & Capabilities (équipe et "
+        + "App Groups), ou APP_GROUP_ID dans Config/Local.xcconfig, puis réinstallez l'app."
+    }
+  }
+}
+
 /// Construction du `ModelContainer` de l'app.
 nonisolated enum PersistenceStack {
   /// Emplacement du store.
