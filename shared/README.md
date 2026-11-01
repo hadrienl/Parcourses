@@ -6,9 +6,11 @@ Ce dossier contient tout ce que les trois implémentations doivent partager **à
 | ------------------------------------------------- | ------------------------------------------------------------------- | ---------- |
 | `reference/sort.ts`                               | Implémentation de référence du tri d'une liste sur l'appareil       | #5 §2      |
 | `reference/normalize.ts`, `reference/classify.ts` | Normalisation des libellés et classification par mots-clés          | #7 §2      |
+| `reference/effective_category.ts`                 | Rayon effectif d'un article selon le magasin (bio)                  | #28        |
 | `categories/`                                     | Catégories et rangs, règles de normalisation, dictionnaire français | #7 §1, §3  |
 | `test-vectors/sort/`                              | Vecteurs de tri, exécutés par iOS et Android                        | #5 §4      |
 | `test-vectors/categorize/`                        | Vecteurs de normalisation et de classification                      | #7 §6      |
+| `test-vectors/effective-category/`                | Vecteurs de résolution du rayon effectif                            | #28        |
 | `generator/`                                      | Cas de test et générateur des vecteurs                              |            |
 
 La référence est écrite en TypeScript pour Deno, comme les Edge Functions. Elle n'est pas embarquée
@@ -21,7 +23,7 @@ Depuis `shared/` (Deno 2.x) :
 
 ```sh
 deno task test       # tests de la référence : vecteurs relus du disque, propriétés, dictionnaire
-deno task generate   # régénère test-vectors/sort/*.json et test-vectors/categorize/*.json
+deno task generate   # régénère tous les fichiers de test-vectors/
 deno task check      # échoue si les vecteurs commités diffèrent de ceux régénérés
 deno task ci         # fmt + lint + test + check (ce que lance .github/workflows/shared.yml)
 ```
@@ -151,8 +153,10 @@ Règles impératives pour obtenir les mêmes octets que la référence :
 
 ## Catégories (`categories/`)
 
-- `categories.json` : 19 catégories et `other` (rang 999), rangs espacés de 10 (#7 §1). Ces rangs ne
-  servent qu'à ordonner : le tri utilise l'indice ordinal (voir « Règles normatives du tri »).
+- `categories.json` : 20 catégories et `other` (rang 999), rangs espacés de 10 (#7 §1), sauf `bio`
+  (rang 85, #28), placé après l'épicerie salée, rang générique retenu pour un rayon bio à part. Ces
+  rangs ne servent qu'à ordonner : le tri utilise l'indice ordinal (voir « Règles normatives du tri
+  »).
 - `normalization.json` : ligatures, unités, mots vides, pluriels en `-aux` → `-al`, exceptions.
 - `keywords.fr.json` : `keywords` (`k` forme normalisée, `c` catégorie, `brand` facultatif) et
   `overrides` (modificateurs comme « surgelé »). Les clés sont **déjà normalisées** :
@@ -175,13 +179,32 @@ Collision connue et assumée : « bouquet de roses » → `rose` → `alcohol` (
 
 ### Classification
 
-Sur les mots de la forme normalisée, de gauche à droite :
+Le mot exact `bio` est d'abord retiré des mots à chercher, et sa présence donne `organic = true`. Il
+**reste dans `normalized`** : `lait` et `lait bio` sont deux produits distincts dans le graphe.
+Puis, sur les mots restants, de gauche à droite :
 
 1. **Modificateur** (`overrides`), n-gramme le plus long puis le plus à gauche →
    `match: "override"`.
 2. **Expression multi-mots** du dictionnaire, la plus longue puis la plus à gauche.
 3. **Mot simple** : le premier nom de produit ; sinon la première marque (`match: "brand"`).
 4. Sinon `{ "category_id": "other", "matched_keyword": null, "match": "none" }`.
+
+Le résultat ne dépend jamais du magasin. Aucune clé du dictionnaire ne contient `bio`, et aucune ne
+classe en catégorie `bio` (vérifié en CI).
+
+### Rayon effectif (#28)
+
+La catégorie `bio` sert uniquement à l'affichage et au tri. L'app la calcule **sur l'appareil, avant
+d'appeler le tri** (`sort.ts` ne la connaît pas) :
+
+```
+effectiveCategory(categoryId, organic, storeOrganicAisle) =
+  organic && storeOrganicAisle ? "bio" : categoryId
+```
+
+`storeOrganicAisle` vient de `stores.organic_aisle`. Sans magasin choisi (mode liste), l'app passe
+`false` : les articles bio restent dans leur rayon habituel. Le `category_id` passé au tri est ce
+rayon effectif ; le `category_id` stocké avec l'article reste celui du classifieur.
 
 ## Format d'un vecteur de classification (`test-vectors/categorize/*.json`)
 
@@ -197,7 +220,8 @@ Sur les mots de la forme normalisée, de gauche à droite :
         "normalized": "pate campagne",
         "category_id": "deli",
         "matched_keyword": "pate campagne",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     }
   ]
@@ -205,4 +229,24 @@ Sur les mots de la forme normalisée, de gauche à droite :
 ```
 
 Les fichiers `0xx-normalize-*` ciblent la normalisation, les `1xx-classify-*` la classification ;
-tous ont le même format et chaque plateforme vérifie les quatre champs.
+tous ont le même format et chaque plateforme vérifie les cinq champs.
+
+## Format d'un vecteur de rayon effectif (`test-vectors/effective-category/*.json`)
+
+```json
+{
+  "id": "002-from-labels",
+  "description": "…",
+  "format_version": 1,
+  "cases": [
+    {
+      "label": "lait bio",
+      "input": { "category_id": "dairy", "organic": true, "store_organic_aisle": true },
+      "expected": { "effective_category": "bio" }
+    }
+  ]
+}
+```
+
+`label` est facultatif. S'il est présent, la plateforme vérifie aussi que le classifieur en déduit
+`category_id` et `organic`.

@@ -24,9 +24,13 @@ export interface Classification {
   category_id: string;
   matched_keyword: string | null;
   match: MatchKind;
+  /** Vrai si le libellé contient le mot « bio », quelle que soit la catégorie (#28). */
+  organic: boolean;
 }
 
 export const OTHER = "other";
+/** Mot retiré avant la recherche de mots-clés (#28). Il reste dans `normalized`. */
+export const ORGANIC_WORD = "bio";
 
 export class Classifier {
   private readonly keywords = new Map<string, KeywordEntry>();
@@ -48,12 +52,15 @@ export class Classifier {
 
   classify(raw: string): Classification {
     const normalized = normalize(raw);
-    const tokens = normalized === "" ? [] : normalized.split(" ");
+    const words = normalized === "" ? [] : normalized.split(" ");
+    const tokens = words.filter((w) => w !== ORGANIC_WORD);
+    const organic = tokens.length !== words.length;
     const result = (c: string, k: string | null, match: MatchKind): Classification => ({
       normalized,
       category_id: c,
       matched_keyword: k,
       match,
+      organic,
     });
 
     // Parcourt les n-grammes du plus long au plus court, de gauche à droite.

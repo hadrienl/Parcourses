@@ -9,7 +9,8 @@
         "normalized": "pomme",
         "category_id": "produce",
         "matched_keyword": "pomme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -18,7 +19,8 @@
         "normalized": "chou",
         "category_id": "produce",
         "matched_keyword": "chou",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -27,7 +29,8 @@
         "normalized": "gateau",
         "category_id": "sweet-grocery",
         "matched_keyword": "gateau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -36,7 +39,8 @@
         "normalized": "poireau",
         "category_id": "produce",
         "matched_keyword": "poireau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -45,7 +49,8 @@
         "normalized": "cheveu",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -54,7 +59,8 @@
         "normalized": "journal",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -63,7 +69,8 @@
         "normalized": "animal",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -72,7 +79,8 @@
         "normalized": "bocal",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -81,7 +89,8 @@
         "normalized": "ananas",
         "category_id": "produce",
         "matched_keyword": "ananas",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -90,7 +99,8 @@
         "normalized": "radis",
         "category_id": "produce",
         "matched_keyword": "radis",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -99,7 +109,8 @@
         "normalized": "petit pois",
         "category_id": "savory-grocery",
         "matched_keyword": "petit pois",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -108,7 +119,8 @@
         "normalized": "jus",
         "category_id": "beverages",
         "matched_keyword": "jus",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -117,7 +129,8 @@
         "normalized": "riz",
         "category_id": "savory-grocery",
         "matched_keyword": "riz",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -126,7 +139,8 @@
         "normalized": "mais",
         "category_id": "savory-grocery",
         "matched_keyword": "mais",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -135,7 +149,8 @@
         "normalized": "cassis",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -144,7 +159,8 @@
         "normalized": "anchois",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -153,7 +169,8 @@
         "normalized": "frais",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -162,7 +179,8 @@
         "normalized": "gras",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -171,7 +189,8 @@
         "normalized": "noix",
         "category_id": "sweet-grocery",
         "matched_keyword": "noix",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -180,7 +199,8 @@
         "normalized": "bus",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -189,7 +209,8 @@
         "normalized": "ail",
         "category_id": "produce",
         "matched_keyword": "ail",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -198,7 +219,8 @@
         "normalized": "cereale",
         "category_id": "breakfast",
         "matched_keyword": "cereale",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -207,7 +229,8 @@
         "normalized": "lentille",
         "category_id": "savory-grocery",
         "matched_keyword": "lentille",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -216,7 +239,8 @@
         "normalized": "frite",
         "category_id": "frozen",
         "matched_keyword": "frite",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -225,7 +249,8 @@
         "normalized": "chip",
         "category_id": "snacks",
         "matched_keyword": "chip",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -234,7 +259,8 @@
         "normalized": "couscous",
         "category_id": "savory-grocery",
         "matched_keyword": "couscous",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -243,7 +269,8 @@
         "normalized": "tournedos",
         "category_id": "butcher",
         "matched_keyword": "tournedos",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     }
   ]

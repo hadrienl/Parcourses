@@ -1,0 +1,127 @@
+{
+  "id": "107-classify-organic",
+  "description": "Le mot « bio » est retiré avant la recherche de mots-clés et devient un indicateur (#28). Il reste dans la forme normalisée : « lait » et « lait bio » sont deux produits distincts.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "lait",
+      "expected": {
+        "normalized": "lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "lait bio",
+      "expected": {
+        "normalized": "lait bio",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "Lait BIO",
+      "expected": {
+        "normalized": "lait bio",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "bio lait",
+      "expected": {
+        "normalized": "bio lait",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "2 l de lait bio",
+      "expected": {
+        "normalized": "lait bio",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "œufs bio",
+      "expected": {
+        "normalized": "oeuf bio",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "crème bio fraîche",
+      "expected": {
+        "normalized": "creme bio fraiche",
+        "category_id": "dairy",
+        "matched_keyword": "creme fraiche",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "petits pois bio surgelés",
+      "expected": {
+        "normalized": "petit pois bio surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override",
+        "organic": true
+      }
+    },
+    {
+      "input": "bio",
+      "expected": {
+        "normalized": "bio",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": true
+      }
+    },
+    {
+      "input": "truc bio",
+      "expected": {
+        "normalized": "truc bio",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": true
+      }
+    },
+    {
+      "input": "biscuit",
+      "expected": {
+        "normalized": "biscuit",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "biscuit",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "biologique",
+      "expected": {
+        "normalized": "biologique",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    }
+  ]
+}

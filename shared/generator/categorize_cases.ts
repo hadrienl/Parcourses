@@ -6,6 +6,8 @@ export interface CategorizeCase {
   input: string;
   n?: string;
   c?: string;
+  /** Indicateur « bio » attendu. */
+  o?: boolean;
 }
 
 export interface CategorizeGroup {
@@ -317,6 +319,30 @@ export function categorizeGroups(): CategorizeGroup[] {
       `),
     },
     {
+      id: "107-classify-organic",
+      description:
+        "Le mot « bio » est retiré avant la recherche de mots-clés et devient un indicateur (#28). " +
+        "Il reste dans la forme normalisée : « lait » et « lait bio » sont deux produits distincts.",
+      cases: [
+        { input: "lait", n: "lait", c: "dairy", o: false },
+        { input: "lait bio", n: "lait bio", c: "dairy", o: true },
+        { input: "Lait BIO", n: "lait bio", c: "dairy", o: true },
+        { input: "bio lait", n: "bio lait", c: "dairy", o: true },
+        { input: "2 l de lait bio", n: "lait bio", c: "dairy", o: true },
+        { input: "œufs bio", n: "oeuf bio", c: "dairy", o: true },
+        // Le mot retiré ne coupe pas une expression du dictionnaire.
+        { input: "crème bio fraîche", n: "creme bio fraiche", c: "dairy", o: true },
+        // Un modificateur l'emporte toujours sur la tête.
+        { input: "petits pois bio surgelés", c: "frozen", o: true },
+        // Seul, le mot ne classe rien.
+        { input: "bio", n: "bio", c: "other", o: true },
+        { input: "truc bio", n: "truc bio", c: "other", o: true },
+        // Correspondance sur le mot entier uniquement.
+        { input: "biscuit", n: "biscuit", c: "sweet-grocery", o: false },
+        { input: "biologique", n: "biologique", c: "other", o: false },
+      ],
+    },
+    {
       id: "106-classify-other",
       description: "Saisies non reconnues : catégorie « other ».",
       cases: lines(`
@@ -328,6 +354,67 @@ export function categorizeGroups(): CategorizeGroup[] {
         piles de journaux => household
         rendez-vous dentiste => other
       `),
+    },
+  ];
+}
+
+export interface EffectiveCategoryCase {
+  /** Libellé d'origine : `category_id` et `organic` en sont déduits par le classifieur. */
+  label?: string;
+  category_id?: string;
+  organic?: boolean;
+  store_organic_aisle: boolean;
+  /** Intention écrite à la main. */
+  expect: string;
+}
+
+export interface EffectiveCategoryGroup {
+  id: string;
+  description: string;
+  cases: EffectiveCategoryCase[];
+}
+
+export function effectiveCategoryGroups(): EffectiveCategoryGroup[] {
+  const table = (category_id: string, organic: boolean, store: boolean, expect: string) => ({
+    category_id,
+    organic,
+    store_organic_aisle: store,
+    expect,
+  });
+  const label = (label: string, store: boolean, expect: string) => ({
+    label,
+    store_organic_aisle: store,
+    expect,
+  });
+  return [
+    {
+      id: "001-truth-table",
+      description: "Rayon bio seulement si l'article est bio ET le magasin a un rayon bio à part.",
+      cases: [
+        table("dairy", false, false, "dairy"),
+        table("dairy", false, true, "dairy"),
+        table("dairy", true, false, "dairy"),
+        table("dairy", true, true, "bio"),
+        table("other", true, true, "bio"),
+        table("other", true, false, "other"),
+        table("frozen", true, true, "bio"),
+      ],
+    },
+    {
+      id: "002-from-labels",
+      description:
+        "Du libellé au rayon. Sans magasin choisi (mode liste), l'app passe false : l'article reste " +
+        "dans son rayon habituel.",
+      cases: [
+        label("lait", true, "dairy"),
+        label("lait", false, "dairy"),
+        label("lait bio", true, "bio"),
+        label("lait bio", false, "dairy"),
+        label("Courgettes bio", true, "bio"),
+        label("Courgettes bio", false, "produce"),
+        label("bio", true, "bio"),
+        label("bio", false, "other"),
+      ],
     },
   ];
 }
