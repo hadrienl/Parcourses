@@ -68,10 +68,14 @@ actor SupabaseGateway: RemoteGateway {
     try await mapped { try await self.resolveSession(captchaToken: captchaToken) }
   }
 
-  func acceptCurrentAccount() async throws {
+  func currentAccountId() async throws -> UUID {
+    try await mapped { try await self.resolveExistingSession() }
+  }
+
+  func verifySession() async throws {
     try await mapped {
-      let id = try await self.currentOrNewUser(captchaToken: nil)
-      try self.store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey)
+      _ = try await self.resolveExistingSession()
+      _ = try await self.client.auth.user()
     }
   }
 
@@ -87,7 +91,11 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   private func resolveExistingSession() async throws -> UUID {
-    guard client.auth.currentSession != nil else { throw RemoteError.unauthorized }
+    guard client.auth.currentSession != nil else {
+      // Keychain verrouillé : `currentSession` est nil alors que la session existe.
+      try store.verifyAvailable()
+      throw RemoteError.unauthorized
+    }
     let id = try await client.auth.session.user.id
     let known = try store.data(forKey: Self.lastAccountKey).flatMap { String(bytes: $0, encoding: .utf8) }
     if let known {
@@ -186,7 +194,13 @@ actor SupabaseGateway: RemoteGateway {
         rows.append(
           .init(id: check.id, visitId: check.visitId, target: .product(productId), checkedAt: check.checkedAt))
       case .category(let slug):
-        if map.remoteId(forSlug: slug) == nil { map = try await reloadCategoryMap() }
+        if map.shouldReload(forSlug: slug, now: .now) {
+          map = try await reloadCategoryMap()
+          if map.remoteId(forSlug: slug) == nil {
+            map.markMissing(slug, at: .now)
+            categoryMap = map
+          }
+        }
         guard let remoteId = map.remoteId(forSlug: slug) else { throw RemoteError.unknownCategory(slug) }
         rows.append(
           .init(id: check.id, visitId: check.visitId, target: .category(remoteId), checkedAt: check.checkedAt))
@@ -274,7 +288,7 @@ actor SupabaseGateway: RemoteGateway {
     let rows: [CategoryRow] =
       try await rest.from(CategoryRow.table).select(Self.selection(of: CategoryRow.self))
       .order("default_rank").execute().value
-    categoryMap = CategoryMap(rows: rows)
+    categoryMap = CategoryMap(rows: rows, missingSlugs: categoryMap?.missingSlugs ?? [:])
     return rows
   }
 
@@ -284,7 +298,8 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   private func reloadCategoryMap() async throws -> CategoryMap {
-    CategoryMap(rows: try await loadCategories())
+    let rows = try await loadCategories()
+    return categoryMap ?? CategoryMap(rows: rows)
   }
 
   private func fetchUpdated<Row: TableDTO>(_ type: Row.Type, updatedAfter: Date?) async throws -> [Row] {
@@ -346,17 +361,20 @@ actor SupabaseGateway: RemoteGateway {
     case let error as HTTPError: return .fromHTTP(status: error.response.statusCode)
     case let error as AuthError: return classify(error)
     case is URLError, is CancellationError: return .network
-    case is KeychainError: return .unauthorized
+    case let error as KeychainError:
+      let isLocked = error.status == errSecInteractionNotAllowed || error.status == errSecDataNotAvailable
+      return isLocked ? .keychainLocked : .unauthorized
     default: return .unexpected
     }
   }
 
   static func classify(_ error: AuthError) -> RemoteError {
     if isSessionGone(error) { return .unauthorized }
-    guard case .api(_, _, _, let response) = error else { return .unauthorized }
-    // Côté Auth, un 403 signifie une session refusée.
+    guard case .api(_, let code, _, let response) = error else { return .unauthorized }
+    // Côté Auth, 401 et 403 signifient une session refusée, jamais une donnée refusée.
     let status = response.statusCode
-    return status == 403 ? .unauthorized : RemoteError.fromHTTP(status: status)
+    if status == 401 || status == 403 || code == .userNotFound { return .unauthorized }
+    return .server(code: String(status))
   }
 
   /// La session ne reviendra pas : seul un nouveau compte anonyme permet de continuer.

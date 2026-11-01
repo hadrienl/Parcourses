@@ -88,7 +88,8 @@ private actor FakeGateway: RemoteGateway {
   }
 
   func ensureSession(captchaToken: String?) async throws -> UUID { UUID() }
-  func acceptCurrentAccount() async throws {}
+  func currentAccountId() async throws -> UUID { UUID() }
+  func verifySession() async throws { /* Sans objet ici. */  }
   func saveList(_ list: ListUpsert) async throws {}
   func deleteList(id: UUID) async throws {}
   func saveItem(_ item: ListItemUpsert) async throws {}

@@ -3,6 +3,7 @@ import Foundation
 import OSLog
 import Observation
 import SwiftData
+import UIKit
 
 /// Branche le moteur sur la vie de l'app : lancement, premier plan, réseau, arrière-plan (#9 §5.3).
 @Observable
@@ -62,6 +63,25 @@ final class SyncRuntime {
     await engine.drain(pull: true)
   }
 
+  /// Passage en arrière-plan : le temps accordé par le système sert à vider la file.
+  func enteredBackground() {
+    let engine = engine
+    let work = Task { await engine.drain() }
+    let activity = BackgroundActivity()
+    activity.begin { work.cancel() }
+    Task {
+      await work.value
+      activity.end()
+    }
+  }
+
+  /// Préalable à la purge locale (#39 §6).
+  func stopAndWait() async {
+    networkTask?.cancel()
+    networkTask = nil
+    await engine.stopAndWait()
+  }
+
   static func scheduleBackgroundRefresh() {
     let request = BGAppRefreshTaskRequest(identifier: backgroundTaskIdentifier)
     request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
@@ -71,5 +91,23 @@ final class SyncRuntime {
       // Simulateur, ou actualisation désactivée : la file partira au prochain lancement.
       logger.notice("Actualisation en arrière-plan non planifiée : \(String(describing: error), privacy: .private)")
     }
+  }
+}
+
+/// Temps d'exécution demandé au système, rendu une seule fois.
+private final class BackgroundActivity {
+  private var identifier = UIBackgroundTaskIdentifier.invalid
+
+  func begin(onExpiration: @escaping () -> Void) {
+    identifier = UIApplication.shared.beginBackgroundTask(withName: "sync") { [self] in
+      onExpiration()
+      end()
+    }
+  }
+
+  func end() {
+    guard identifier != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(identifier)
+    identifier = .invalid
   }
 }

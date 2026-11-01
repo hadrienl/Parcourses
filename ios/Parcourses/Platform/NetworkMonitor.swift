@@ -12,16 +12,20 @@ nonisolated final class NetworkMonitor: Sendable {
   /// Émet `true` à chaque retour du réseau. À n'écouter qu'une fois.
   func returns() -> AsyncStream<Void> {
     AsyncStream { continuation in
-      monitor.pathUpdateHandler = { [online] path in
-        let isOnline = path.status == .satisfied
-        let wasOnline = online.withLock { state in
-          defer { state = isOnline }
-          return state
-        }
-        if isOnline && !wasOnline { continuation.yield() }
+      monitor.pathUpdateHandler = { [self] path in
+        handle(path, continuation: continuation)
       }
       continuation.onTermination = { [monitor] _ in monitor.cancel() }
       monitor.start(queue: DispatchQueue(label: "app.parcourses.network"))
     }
+  }
+
+  private func handle(_ path: NWPath, continuation: AsyncStream<Void>.Continuation) {
+    let isOnline = path.status == .satisfied
+    let wasOnline = online.withLock { state in
+      defer { state = isOnline }
+      return state
+    }
+    if isOnline && !wasOnline { continuation.yield() }
   }
 }

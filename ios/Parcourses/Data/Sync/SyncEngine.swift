@@ -20,18 +20,20 @@ nonisolated enum SyncPause: Sendable, Equatable {
 nonisolated enum SyncRetryPolicy {
   /// `23503` : le parent peut encore arriver, mais pas indéfiniment.
   static let maxDependencyAttempts = 8
-  /// Catégorie inconnue : le serveur peut être en retard d'une migration. Environ 4 h d'essais effectifs.
-  static let maxUnknownCategoryAttempts = 48
+  /// Catégorie inconnue : le serveur peut être en retard d'une migration. Jamais abandonnée.
+  static let unknownCategoryDelay: TimeInterval = 3600
   static let minimumDelay: TimeInterval = 2
   static let maximumDelay: TimeInterval = 300
   /// Catalogue : une fois par jour (#9 §5.4).
   static let catalogInterval: TimeInterval = 86_400
   /// Descente après un envoi : l'envoi d'une coche ne doit pas relire les listes à chaque fois.
   static let pullAfterSendInterval: TimeInterval = 60
+  /// Une descente en échec ne se retente qu'une fois par minute, sans gêner l'envoi.
+  static let pullRetryInterval: TimeInterval = 60
 
   static func delay(attempt: Int, jitter: Double) -> TimeInterval {
     let exponent = min(max(attempt, 1) - 1, 16)
-    return min(maximumDelay, minimumDelay * pow(2, Double(exponent))) * jitter
+    return min(maximumDelay, minimumDelay * pow(2, Double(exponent)) * jitter)
   }
 }
 
@@ -52,7 +54,9 @@ actor SyncEngine {
   private static let logger = Logger(subsystem: "app.parcourses", category: "sync")
 
   private let gateway: any RemoteGateway
-  private let store: SyncStore
+  /// Créé au premier usage, sur l'exécuteur de l'acteur : construit depuis le MainActor, un `@ModelActor`
+  /// exécuterait son contexte sur le thread principal.
+  private lazy var store = SyncStore(modelContainer: container)
   private let container: ModelContainer
   private let classify: @Sendable (String) -> PulledItemClassification
   private let dependencies: Dependencies
@@ -70,7 +74,9 @@ actor SyncEngine {
   private var isPullRequested = false
   private var transientFailures = 0
   private var backoffUntil: Date?
+  private var pullBackoffUntil: Date?
   private var lastPull: Date?
+  private var isStopped = false
 
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
@@ -79,7 +85,6 @@ actor SyncEngine {
   ) {
     self.gateway = gateway
     self.container = container
-    self.store = SyncStore(modelContainer: container)
     self.cursors = cursors
     self.classify = classify
     self.dependencies = dependencies
@@ -89,6 +94,7 @@ actor SyncEngine {
   /// Une session valide est peut-être revenue, ou la reprise après changement de compte est décidée.
   func resume() {
     setPause(nil)
+    pullBackoffUntil = nil
     kick(pull: true)
   }
 
@@ -98,8 +104,33 @@ actor SyncEngine {
     pauseContinuation.yield(value)
   }
 
+  /// Arrête le moteur et attend la fin de la passe en cours : plus aucune écriture ensuite, jusqu'à `restart()`.
+  /// Préalable à la purge locale (#39 §6).
+  func stopAndWait() async {
+    isStopped = true
+    isRunRequested = false
+    isPullRequested = false
+    wake?.cancel()
+    wake = nil
+    if let runner {
+      runner.cancel()
+      await runner.value
+    }
+  }
+
+  func restart() {
+    isStopped = false
+    kick(pull: true)
+  }
+
+  /// Vrai si le contexte de synchronisation tourne sur le thread principal.
+  func storeIsOnMainThread() async -> Bool {
+    await store.isOnMainThread()
+  }
+
   /// Demande une passe. `pull` : lancement, premier plan, retour du réseau, arrière-plan ; lève aussi le délai.
   func kick(pull: Bool = false) {
+    guard !isStopped else { return }
     isRunRequested = true
     if pull {
       isPullRequested = true
@@ -127,26 +158,82 @@ actor SyncEngine {
       isPullRequested = false
       await pass(pull: pull)
     }
-    isRunRequested = false
     runner = nil
-    scheduleWake()
+    // Une demande arrivée pendant une annulation n'est pas perdue : la nouvelle tâche n'est pas annulée.
+    if isRunRequested, !isStopped {
+      runner = Task { await self.runLoop() }
+    } else {
+      isRunRequested = false
+      scheduleWake()
+    }
   }
 
   // MARK: - Passe
 
   private func pass(pull: Bool) async {
-    guard dependencies.isOnline() else { return }
-    // Session requise : seule une passe forcée (premier plan, réseau) vérifie si elle est revenue.
-    if pause == .accountChanged || (pause == .sessionRequired && !pull) { return }
-    if let backoffUntil, backoffUntil > dependencies.now() { return }
-    guard let sent = await sendQueue() else { return }
+    // Une descente demandée reste due si la passe s'arrête avant elle.
+    guard dependencies.isOnline(), pause != .accountChanged else {
+      if pull { isPullRequested = true }
+      return
+    }
+    if pause == .sessionRequired {
+      // Seule une passe forcée (premier plan, réseau) tente de retrouver une session.
+      guard pull else { return }
+      guard await restoreSession() else {
+        isPullRequested = true
+        return
+      }
+    }
+    if let backoffUntil, backoffUntil > dependencies.now() {
+      if pull { isPullRequested = true }
+      return
+    }
+    guard let sent = await sendQueue() else {
+      if pull { isPullRequested = true }
+      return
+    }
+    transientFailures = 0
+    backoffUntil = nil
     let now = dependencies.now()
     let isPullDue =
       sent > 0 && lastPull.map { now.timeIntervalSince($0) >= SyncRetryPolicy.pullAfterSendInterval } ?? true
-    if pull || isPullDue {
-      await pullAll(at: now)
+    guard pull || isPullDue else { return }
+    if let pullBackoffUntil, pullBackoffUntil > now {
+      isPullRequested = true
     } else {
-      transientFailures = 0
+      await pullAll(at: now)
+    }
+  }
+
+  private func restoreSession() async -> Bool {
+    do {
+      try await gateway.ensureSession(captchaToken: nil)
+      setPause(nil)
+      return true
+    } catch {
+      _ = stop(on: error)
+      return false
+    }
+  }
+
+  /// Classe une erreur de session ou de transport. Annulation : rien à retenir, aucun délai.
+  private func stop(on error: any Error) -> Next {
+    guard !Task.isCancelled else { return .stop }
+    switch error as? RemoteError {
+    case .accountChanged: setPause(.accountChanged)
+    case .unauthorized: setPause(.sessionRequired)
+    default: registerTransientFailure()
+    }
+    return .stop
+  }
+
+  /// `nil` si le serveur confirme la session. Une session perdue ne doit jamais produire de `failed`.
+  private func confirmSession() async -> Next? {
+    do {
+      try await gateway.verifySession()
+      return nil
+    } catch {
+      return stop(on: error)
     }
   }
 
@@ -165,6 +252,7 @@ actor SyncEngine {
           setPause(nil)
           sent += 1
         } catch {
+          if Task.isCancelled { return nil }
           // Charge utile illisible : la rejouer ne changerait rien.
           let remote = error as? RemoteError ?? (error is DecodingError ? .rejected(code: "payload") : .unexpected)
           switch try await handle(remote, for: work, singleChecks: &singleChecks) {
@@ -213,25 +301,25 @@ actor SyncEngine {
     _ error: RemoteError, for work: OutboxWork, singleChecks: inout Set<UUID>
   ) async throws -> Next {
     switch error {
-    case .accountChanged:
-      setPause(.accountChanged)
-      return .stop
+    case .accountChanged, .unauthorized, .network, .unexpected, .keychainLocked:
+      return stop(on: error)
 
-    case .unauthorized:
-      setPause(.sessionRequired)
-      return .stop
-
-    case .network, .server, .unexpected:
-      registerTransientFailure()
-      return .stop
+    case .server:
+      guard error.isCappedClientFailure else { return stop(on: error) }
+      return try await retryCapped(
+        error, work, limit: SyncRetryPolicy.maxDependencyAttempts, singleChecks: &singleChecks)
 
     case .dependencyMissing:
       return try await retryCapped(
         error, work, limit: SyncRetryPolicy.maxDependencyAttempts, singleChecks: &singleChecks)
 
     case .unknownCategory:
-      return try await retryCapped(
-        error, work, limit: SyncRetryPolicy.maxUnknownCategoryAttempts, singleChecks: &singleChecks)
+      if split(work, into: &singleChecks) { return .proceed }
+      let delay = SyncRetryPolicy.unknownCategoryDelay * dependencies.jitter()
+      try await store.postpone(
+        work, attempts: work.attempts + 1, until: dependencies.now().addingTimeInterval(delay),
+        reason: String(describing: error))
+      return .proceed
 
     case .forbidden:
       return try await handleForbidden(work)
@@ -247,8 +335,14 @@ actor SyncEngine {
     _ error: RemoteError, _ work: OutboxWork, limit: Int, singleChecks: inout Set<UUID>
   ) async throws -> Next {
     if split(work, into: &singleChecks) { return .proceed }
+    return try await capAttempts(error, work, limit: limit)
+  }
+
+  /// Compte un refus sur tout le lot : abandon au plafond, délai croissant sinon.
+  private func capAttempts(_ error: RemoteError, _ work: OutboxWork, limit: Int) async throws -> Next {
     let attempts = work.attempts + 1
     guard attempts < limit else {
+      if let stopped = await confirmSession() { return stopped }
       try await failDefinitively(work, reason: "\(error), plafond atteint")
       return .proceed
     }
@@ -285,6 +379,7 @@ actor SyncEngine {
         try await store.removeListFromCreation(work)
         return .proceed
       }
+      if let stopped = await confirmSession() { return stopped }
       try await store.failVisit(work.entityId, reason: "42501 sur une visite sans liste")
       return .proceed
 
@@ -292,6 +387,7 @@ actor SyncEngine {
       return try await handleForbiddenChecks(work)
 
     default:
+      if let stopped = await confirmSession() { return stopped }
       try await store.fail(work, reason: "42501")
       return .proceed
     }
@@ -305,27 +401,20 @@ actor SyncEngine {
     let access: VisitAccess
     do {
       access = try await gateway.visitAccess(id: first.visitId)
-    } catch RemoteError.accountChanged {
-      setPause(.accountChanged)
-      return .stop
-    } catch RemoteError.unauthorized {
-      setPause(.sessionRequired)
-      return .stop
     } catch {
-      registerTransientFailure()
-      return .stop
+      return stop(on: error)
     }
     switch access {
     case .closed:
       Self.logger.notice("Coche tardive considérée comme reçue : visite déjà close")
       try await store.complete(work)
     case .notVisible:
+      if let stopped = await confirmSession() { return stopped }
       try await store.failVisit(first.visitId, reason: "visite invisible pour ce compte")
     case .open:
-      // Inexplicable d'après la RLS : ni perdue tout de suite, ni rejouée sans fin.
-      var ignored: Set<UUID> = []
-      return try await retryCapped(
-        .forbidden, work, limit: SyncRetryPolicy.maxDependencyAttempts, singleChecks: &ignored)
+      // Inexplicable d'après la RLS : ni perdue tout de suite, ni rejouée sans fin. Le refus porte sur la
+      // visite, pas sur une ligne : découper le lot n'y changerait rien.
+      return try await capAttempts(.forbidden, work, limit: SyncRetryPolicy.maxDependencyAttempts)
     }
     return .proceed
   }
@@ -340,35 +429,46 @@ actor SyncEngine {
 
   private func pullAll(at now: Date) async {
     do {
+      let accountId = try await gateway.currentAccountId()
+      if cursors.accountId != accountId {
+        // Curseurs d'un autre compte : ils feraient sauter des lignes de celui-ci.
+        cursors.lists = nil
+        cursors.items = nil
+        cursors.accountId = accountId
+      }
       let lists = try await gateway.fetchLists(updatedAfter: cursors.lists)
       let items = try await gateway.fetchItems(updatedAfter: cursors.items)
-      let listsChanged = try await store.merge(lists: lists)
-      let itemsChanged = try await store.merge(items: items, classify: classify)
-      cursors.lists = lists.map(\.updatedAt).max() ?? cursors.lists
-      cursors.items = items.map(\.updatedAt).max() ?? cursors.items
+      let listsMerge = try await store.merge(lists: lists)
+      let itemsMerge = try await store.merge(items: items, classify: classify)
+      cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
+      cursors.items = Self.later(cursors.items, itemsMerge.cursor)
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
         try await store.applyCategories(try await gateway.fetchCategories())
         try await store.replaceProducts(try await gateway.fetchProducts())
         cursors.catalog = now
       }
       lastPull = now
+      pullBackoffUntil = nil
       setPause(nil)
-      transientFailures = 0
-      backoffUntil = nil
-      if listsChanged || itemsChanged {
+      if listsMerge.changed || itemsMerge.changed {
         await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
       }
-    } catch RemoteError.accountChanged {
-      setPause(.accountChanged)
-    } catch RemoteError.unauthorized {
-      setPause(.sessionRequired)
     } catch {
+      isPullRequested = true
+      guard !Task.isCancelled else { return }
       Self.logger.notice("Descente reportée : \(String(describing: error), privacy: .private)")
-      if (error as? RemoteError)?.isRetryable ?? true {
-        isPullRequested = true
-        registerTransientFailure()
+      switch error as? RemoteError {
+      case .accountChanged: setPause(.accountChanged)
+      case .unauthorized: setPause(.sessionRequired)
+      default:
+        // N'arrête pas l'envoi : seul un nouvel essai de descente attend.
+        pullBackoffUntil = now.addingTimeInterval(SyncRetryPolicy.pullRetryInterval)
       }
     }
+  }
+
+  private static func later(_ first: Date?, _ second: Date?) -> Date? {
+    [first, second].compactMap(\.self).max()
   }
 
   // MARK: - Réveil
@@ -376,19 +476,20 @@ actor SyncEngine {
   private func scheduleWake() {
     wake?.cancel()
     wake = nil
-    guard dependencies.isOnline(), pause == nil else { return }
+    guard dependencies.isOnline(), pause == nil, !isStopped else { return }
     let store = store
     let sleep = dependencies.sleep
     let now = dependencies.now
     let backoff = backoffUntil
+    let pullDate = isPullRequested ? (pullBackoffUntil ?? now()) : nil
     wake = Task { [weak self] in
-      guard let due = try? await store.nextDueDate(after: now()) else {
-        guard let backoff else { return }
-        try? await sleep(max(0, backoff.timeIntervalSince(now())))
-        if !Task.isCancelled { await self?.kick() }
-        return
-      }
-      let target = max(due, backoff ?? due)
+      // Une entrée déjà échue et libre compte : la passe a pu s'arrêter avant elle.
+      let date = now()
+      let isWorkable = (try? await store.nextWork(now: date)) != nil
+      let next = isWorkable ? date : (try? await store.nextDueDate(after: date)) ?? nil
+      var target = [next, pullDate].compactMap(\.self).min()
+      if let backoff { target = max(target ?? backoff, backoff) }
+      guard let target else { return }
       do { try await sleep(max(1, target.timeIntervalSince(now()))) } catch { return }
       await self?.kick()
     }

@@ -46,23 +46,35 @@ nonisolated struct CheckPayload: Codable, Sendable, Equatable {
   }
 }
 
-/// Dépendances entre entrées : une entrée attend toute entrée antérieure en attente qui partage une de ses clés
-/// (#9 §5.2). Une visite attend aussi sa liste : envoyée trop tôt, elle recevrait un `42501` trompeur.
+/// Ce qu'une entrée attend, et ce qu'elle retient tant qu'elle n'est pas partie.
+nonisolated struct OutboxDependency: Sendable, Equatable {
+  let waits: Set<String>
+  let blocks: Set<String>
+}
+
+/// Dépendances entre entrées (#9 §5.2). Une visite attend sa liste : envoyée trop tôt, elle recevrait un
+/// `42501` trompeur. Les coches n'attendent que la création de leur visite, et jamais les autres coches ; la
+/// clôture attend toutes les coches.
 nonisolated enum OutboxDependencies {
   /// `nil` si la charge utile est illisible.
-  static func keys(of entry: OutboxEntry) -> Set<String>? {
+  static func dependency(of entry: OutboxEntry) -> OutboxDependency? {
     switch entry.kind {
     case .upsertList, .deleteList:
-      return ["list:\(entry.entityId)"]
+      let key: Set = ["list:\(entry.entityId)"]
+      return OutboxDependency(waits: key, blocks: key)
     case .upsertItem, .deleteItem:
-      return listId(of: entry).map { ["list:\($0)"] }
+      guard let listId = listId(of: entry) else { return nil }
+      let key: Set = ["list:\(listId)"]
+      return OutboxDependency(waits: key, blocks: key)
     case .createVisit:
       guard let row = try? OutboxCoding.decode(VisitInsert.self, from: entry.payload) else { return nil }
-      return Set(["visit:\(row.id)"] + (row.listId.map { ["list:\($0)"] } ?? []))
+      return OutboxDependency(
+        waits: Set(row.listId.map { ["list:\($0)"] } ?? []), blocks: ["create:\(row.id)"])
     case .insertChecks:
-      return visitId(of: entry).map { ["visit:\($0)"] }
+      guard let visitId = visitId(of: entry) else { return nil }
+      return OutboxDependency(waits: ["create:\(visitId)"], blocks: ["check:\(visitId)"])
     case .closeVisit:
-      return ["visit:\(entry.entityId)"]
+      return OutboxDependency(waits: ["create:\(entry.entityId)", "check:\(entry.entityId)"], blocks: [])
     case nil:
       return nil
     }

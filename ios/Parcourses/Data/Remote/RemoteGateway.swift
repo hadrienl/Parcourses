@@ -21,18 +21,27 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   /// La session appartient à un autre compte que le dernier connu : les lignes existantes ne sont plus
   /// visibles, et un enregistrement « réussirait » sans rien écrire. La reprise se décide en 9.7.
   case accountChanged
-  /// Catégorie absente de la table serveur, même après relecture. Réessayable : le serveur peut être en
+  /// Catégorie absente de la table serveur, même après relecture. Jamais abandonnée : le serveur peut être en
   /// retard sur `shared/categories/`, et la coche ne doit pas être perdue.
   case unknownCategory(String)
+  /// Keychain verrouillé (arrière-plan avant le premier déverrouillage) : la session existe peut-être encore.
+  case keychainLocked
 
   /// `true` si l'élément doit rester dans la file.
   var isRetryable: Bool {
     switch self {
-    case .network, .unauthorized, .dependencyMissing, .server, .unexpected, .accountChanged, .unknownCategory:
+    case .network, .unauthorized, .dependencyMissing, .server, .unexpected, .accountChanged, .unknownCategory,
+      .keychainLocked:
       true
     case .forbidden, .constraint, .rejected:
       false
     }
+  }
+
+  /// 4xx sans code : ni réessai sans fin, ni abandon immédiat. 403, 408 et 429 restent passagers.
+  var isCappedClientFailure: Bool {
+    guard case .server(let code) = self, let status = Int(code) else { return false }
+    return (400..<500).contains(status) && ![403, 408, 429].contains(status)
   }
 
   /// Classe un code renvoyé par PostgREST (SQLSTATE ou `PGRSTxxx`).
@@ -54,8 +63,7 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   static func fromHTTP(status: Int) -> RemoteError {
     switch status {
     case 401: .unauthorized
-    case 403, 408, 429, 500...: .server(code: String(status))
-    default: .rejected(code: String(status))
+    default: .server(code: String(status))
     }
   }
 
@@ -71,15 +79,32 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
 /// Correspondance entre les identifiants partagés (`shared/categories/`, slug serveur) et l'`Int16` serveur,
 /// qui ne doit jamais être écrit en dur ni sortir du gateway.
 nonisolated struct CategoryMap: Sendable, Equatable {
+  /// Délai avant de relire la table pour un slug qu'elle ne connaissait pas.
+  static let missingSlugLifetime: TimeInterval = 3600
+
   private let idsBySlug: [String: Int16]
   private let slugsById: [Int16: String]
+  /// Cache négatif : sans lui, chaque coche d'un slug inconnu relirait la table.
+  private(set) var missingSlugs: [String: Date]
 
-  init(rows: [CategoryRow]) {
+  init(rows: [CategoryRow], missingSlugs: [String: Date] = [:]) {
+    self.missingSlugs = missingSlugs
     idsBySlug = Dictionary(rows.map { ($0.slug, $0.id) }) { first, _ in first }
     slugsById = Dictionary(rows.map { ($0.id, $0.slug) }) { first, _ in first }
   }
 
   func remoteId(forSlug slug: String) -> Int16? { idsBySlug[slug] }
+
+  func shouldReload(forSlug slug: String, now: Date) -> Bool {
+    guard idsBySlug[slug] == nil else { return false }
+    guard let date = missingSlugs[slug] else { return true }
+    return now.timeIntervalSince(date) >= Self.missingSlugLifetime
+  }
+
+  mutating func markMissing(_ slug: String, at date: Date) {
+    missingSlugs[slug] = date
+  }
+
   func slug(forRemoteId id: Int16) -> String? { slugsById[id] }
 }
 
@@ -98,8 +123,10 @@ nonisolated protocol RemoteGateway: Sendable {
   @discardableResult
   func ensureSession(captchaToken: String?) async throws -> UUID
 
-  /// Accepte le compte courant après `accountChanged`, une fois la reprise décidée par l'appelant.
-  func acceptCurrentAccount() async throws
+  /// Compte de la session existante, sans jamais en créer : `unauthorized` s'il n'y en a pas.
+  func currentAccountId() async throws -> UUID
+  /// Interroge le serveur : `unauthorized` si la session n'y est plus valable (compte supprimé ailleurs).
+  func verifySession() async throws
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws

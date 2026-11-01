@@ -37,7 +37,10 @@ struct ParcoursesApp: App {
     .onChange(of: scenePhase) { _, phase in
       switch phase {
       case .active: sync?.foreground()
-      case .background: if sync != nil { SyncRuntime.scheduleBackgroundRefresh() }
+      case .background:
+        guard let sync else { break }
+        sync.enteredBackground()
+        SyncRuntime.scheduleBackgroundRefresh()
       default: break
       }
     }

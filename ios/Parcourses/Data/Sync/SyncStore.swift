@@ -18,6 +18,22 @@ nonisolated struct PulledItemClassification: Sendable {
   let categoryId: String
 }
 
+/// Résultat d'une fusion descendante.
+nonisolated struct PullMerge: Sendable, Equatable {
+  var changed = false
+  /// Plus grande date sûre pour le curseur : jamais au-delà d'une ligne sautée.
+  private(set) var cursor: Date?
+  private var oldestSkipped: Date?
+
+  mutating func skip(_ date: Date) {
+    oldestSkipped = min(oldestSkipped ?? date, date)
+  }
+
+  mutating func finish(_ dates: [Date]) {
+    cursor = oldestSkipped ?? dates.max()
+  }
+}
+
 /// Accès SwiftData de la synchronisation, sur son propre contexte. N'alloue jamais de `sequence`.
 @ModelActor
 actor SyncStore {
@@ -32,7 +48,7 @@ actor SyncStore {
   func nextWork(now: Date, singleChecks: Set<UUID> = []) throws -> OutboxWork? {
     var blocked: Set<String> = []
     for entry in try pendingEntries() {
-      guard let kind = entry.kind, let keys = OutboxDependencies.keys(of: entry) else {
+      guard let kind = entry.kind, let dependency = OutboxDependencies.dependency(of: entry) else {
         // Écrite par une autre version de l'app : la rejouer ne changerait rien.
         entry.syncState = .failed
         entry.lastError = "entrée illisible"
@@ -40,8 +56,8 @@ actor SyncStore {
         Self.logger.error("Entrée de file illisible abandonnée")
         continue
       }
-      if !blocked.isDisjoint(with: keys) || entry.nextAttemptAt > now {
-        blocked.formUnion(keys)
+      if !blocked.isDisjoint(with: dependency.waits) || entry.nextAttemptAt > now {
+        blocked.formUnion(dependency.blocks)
         continue
       }
       if kind == .insertChecks, let visitId = OutboxDependencies.visitId(of: entry),
@@ -63,24 +79,38 @@ actor SyncStore {
     try pendingEntries().count
   }
 
+  /// Vrai si le contexte tourne sur le thread principal : ce serait une erreur de construction.
+  func isOnMainThread() -> Bool {
+    Thread.isMainThread
+  }
+
   /// Une entrée absente a été remplacée pendant l'envoi : rien à faire, sa remplaçante partira.
   func complete(_ work: OutboxWork) throws {
+    var entities: [UUID] = []
     for id in work.entryIds {
       guard let entry = try entry(id: id) else { continue }
-      let entityId = entry.entityId
+      entities.append(entry.entityId)
       modelContext.delete(entry)
-      try applyToEntity(kind: work.kind, entityId: entityId, state: .synced)
+    }
+    let pending = try pendingEntityIds()
+    for entityId in entities {
+      try applyToEntity(kind: work.kind, entityId: entityId, state: .synced, pending: pending)
     }
     try modelContext.save()
   }
 
   /// Erreur définitive : journalisée, plus jamais rejouée (#9 §5.3).
   func fail(_ work: OutboxWork, reason: String) throws {
+    var entities: [UUID] = []
     for id in work.entryIds {
       guard let entry = try entry(id: id) else { continue }
       entry.syncState = .failed
       entry.lastError = reason
-      try applyToEntity(kind: work.kind, entityId: entry.entityId, state: .failed)
+      entities.append(entry.entityId)
+    }
+    let pending = try pendingEntityIds()
+    for entityId in entities {
+      try applyToEntity(kind: work.kind, entityId: entityId, state: .failed, pending: pending)
     }
     try modelContext.save()
     Self.logger.error("Entrée abandonnée (\(work.kind.rawValue, privacy: .public)) : \(reason, privacy: .public)")
@@ -92,12 +122,14 @@ actor SyncStore {
       entry.syncState = .failed
       entry.lastError = reason
     }
-    for check in try modelContext.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.visitId == visitId })) {
+    // Ce qui est déjà arrivé au serveur le reste.
+    for check in try modelContext.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.visitId == visitId }))
+    where check.syncState == .pending {
       check.syncState = .failed
     }
     if let visit = try modelContext.fetch(FetchDescriptor<Visit>(predicate: #Predicate { $0.id == visitId })).first {
-      visit.syncState = .failed
-      visit.endSyncState = .failed
+      if visit.syncState == .pending { visit.syncState = .failed }
+      if visit.endSyncState == .pending { visit.endSyncState = .failed }
     }
     try modelContext.save()
     Self.logger.error("Visite abandonnée : \(reason, privacy: .public)")
@@ -125,17 +157,22 @@ actor SyncStore {
 
   // MARK: - Descente
 
-  /// Dernier écrit gagne, sauf entrée en attente : le local partira ensuite (#9 §5.4). Renvoie vrai si un
-  /// élément a changé.
-  func merge(lists rows: [ListRow]) throws -> Bool {
+  /// La ligne serveur s'applique dès qu'aucune entrée n'attend pour cet id : le local partira sinon ensuite
+  /// (#9 §5.4). Aucune comparaison de dates : horloge du serveur et de l'appareil ne se comparent pas.
+  func merge(lists rows: [ListRow]) throws -> PullMerge {
     let pending = try pendingEntityIds()
-    var changed = false
-    for row in rows where !pending.contains(row.id) {
+    var merge = PullMerge()
+    for row in rows {
       let id = row.id
+      if pending.contains(id) {
+        merge.skip(row.updatedAt)
+        continue
+      }
       if let local = try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).first
       {
-        guard local.deletedAt == nil, row.updatedAt >= local.updatedAt else { continue }
-        changed = changed || local.name != row.name
+        // Suppression déjà partie ou abandonnée : la ligne disparaîtra du serveur ou restera masquée.
+        guard local.deletedAt == nil else { continue }
+        merge.changed = merge.changed || local.name != row.name
         local.name = row.name
         local.updatedAt = row.updatedAt
         local.syncState = .synced
@@ -143,36 +180,47 @@ actor SyncStore {
         modelContext.insert(
           ShoppingList(
             id: row.id, name: row.name, createdAt: row.createdAt, updatedAt: row.updatedAt, syncState: .synced))
-        changed = true
+        merge.changed = true
       }
     }
     try modelContext.save()
-    return changed
+    merge.finish(rows.map(\.updatedAt))
+    return merge
   }
 
   /// `categoryId`, `notFoundAt` et `position` sont locaux : ils ne sont calculés qu'à la création ou si le
   /// libellé change.
   func merge(
     items rows: [ListItemRow], classify: @Sendable (String) -> PulledItemClassification
-  ) throws -> Bool {
+  ) throws -> PullMerge {
     let pending = try pendingEntityIds()
-    var changed = false
-    for row in rows where !pending.contains(row.id) {
+    var merge = PullMerge()
+    for row in rows {
       let id = row.id
       let listId = row.listId
-      let lists = try modelContext.fetch(
-        FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId && $0.deletedAt == nil }))
-      guard !lists.isEmpty else { continue }
+      if pending.contains(id) {
+        merge.skip(row.updatedAt)
+        continue
+      }
+      guard
+        let list = try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId }))
+          .first
+      else {
+        // Parent pas encore arrivé : le curseur reste en arrière pour relire cette ligne.
+        merge.skip(row.updatedAt)
+        continue
+      }
+      guard list.deletedAt == nil else { continue }
       if let local = try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first {
-        guard row.updatedAt >= local.updatedAt else { continue }
         if local.label != row.label {
           let classification = classify(row.label)
           local.label = row.label
           local.normalizedName = classification.normalizedName
           local.categoryId = try categoryId(productId: row.productId) ?? classification.categoryId
+          merge.changed = true
         }
-        changed =
-          changed || local.quantity != row.quantity || local.checkedAt != row.checkedAt
+        merge.changed =
+          merge.changed || local.quantity != row.quantity || local.checkedAt != row.checkedAt
           || local.productId != row.productId
         local.listId = row.listId
         local.quantity = row.quantity
@@ -192,11 +240,12 @@ actor SyncStore {
             quantity: row.quantity, productId: row.productId,
             categoryId: try categoryId(productId: row.productId) ?? classification.categoryId,
             checkedAt: row.checkedAt, position: position, updatedAt: row.updatedAt, syncState: .synced))
-        changed = true
+        merge.changed = true
       }
     }
     try modelContext.save()
-    return changed
+    merge.finish(rows.map(\.updatedAt))
+    return merge
   }
 
   /// `shared/categories/` fait foi : aucun id local n'est jamais supprimé ni ajouté ici.
@@ -259,17 +308,16 @@ actor SyncStore {
     var batch: [OutboxEntry] = []
     for entry in try pendingEntries() where entry.sequence >= first.sequence {
       guard OutboxDependencies.visitId(of: entry) == visitId else { continue }
-      guard entry.kind == .insertChecks, entry.nextAttemptAt <= now, batch.count < Self.maxChecksPerBatch else {
-        break
-      }
+      guard entry.kind == .insertChecks, entry.nextAttemptAt <= now else { continue }
+      guard batch.count < Self.maxChecksPerBatch else { break }
       batch.append(entry)
     }
     return work(of: batch, kind: .insertChecks)
   }
 
-  private func applyToEntity(kind: OutboxKind, entityId: UUID, state: SyncState) throws {
-    // Une entrée plus récente de la même entité garde celle-ci en attente.
-    let isStillPending = try pendingEntityIds().contains(entityId)
+  /// `pending` : une entrée plus récente de la même entité garde celle-ci en attente.
+  private func applyToEntity(kind: OutboxKind, entityId: UUID, state: SyncState, pending: Set<UUID>) throws {
+    let isStillPending = pending.contains(entityId)
     switch kind {
     case .upsertList:
       guard !isStillPending else { return }

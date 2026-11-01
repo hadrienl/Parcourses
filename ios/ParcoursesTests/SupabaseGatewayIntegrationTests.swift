@@ -146,20 +146,20 @@ struct SupabaseGatewayIntegrationTests {
     await #expect(throws: RemoteError.forbidden) { try await gateway.insertChecks([late]) }
   }
 
-  @Test func aChangedAccountIsReportedUntilAccepted() async throws {
+  @Test func aChangedAccountStaysReported() async throws {
     let service = UUID().uuidString
     let store = KeychainStore(service: "app.parcourses.tests.\(service)")
     defer { try? store.removeAll() }
     let gateway = try await makeGateway(service: service)
-    let id = try await gateway.ensureSession()
+    try await gateway.verifySession()
     try store.set(Data(UUID().uuidString.utf8), forKey: SupabaseGateway.lastAccountKey)
 
     await #expect(throws: RemoteError.accountChanged) { try await gateway.ensureSession() }
+    await #expect(throws: RemoteError.accountChanged) { try await gateway.currentAccountId() }
+    await #expect(throws: RemoteError.accountChanged) { try await gateway.verifySession() }
     await #expect(throws: RemoteError.accountChanged) {
       try await gateway.saveList(ListUpsert(id: UUID(), name: "Perdue"))
     }
-    try await gateway.acceptCurrentAccount()
-    #expect(try await gateway.ensureSession() == id)
   }
 
   @Test func anUnknownCategorySlugIsAnError() async throws {
@@ -234,7 +234,14 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     return try await remote.ensureSession(captchaToken: captchaToken)
   }
-  func acceptCurrentAccount() async throws { try await remote.acceptCurrentAccount() }
+  func currentAccountId() async throws -> UUID {
+    try check()
+    return try await remote.currentAccountId()
+  }
+  func verifySession() async throws {
+    try check()
+    try await remote.verifySession()
+  }
   func saveList(_ list: ListUpsert) async throws {
     try check()
     try await remote.saveList(list)
@@ -292,6 +299,7 @@ private actor SwitchableGateway: RemoteGateway {
 }
 
 private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
+  var accountId: UUID?
   var lists: Date?
   var items: Date?
   var catalog: Date?
