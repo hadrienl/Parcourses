@@ -66,20 +66,27 @@ public enum CategoryResources {
     let categories: [ItemCategory]
   }
 
-  /// Les 20 catégories, triées par `(rank, id)`.
-  public static func categories() throws -> [ItemCategory] {
+  // Lecture et décodage une seule fois par processus ; une erreur est mémorisée et relancée.
+  private static let cachedCategories = Result<[ItemCategory], any Error> {
     let file: CategoriesFile = try decode("categories")
     return file.categories.sorted { ($0.rank, $0.id) < ($1.rank, $1.id) }
   }
+  private static let cachedRules = Result<NormalizationRules, any Error> { try decode("normalization") }
+  private static let cachedKeywords = Result<KeywordDictionary, any Error> { try decode("keywords.fr") }
 
-  /// Règles de normalisation françaises.
-  public static func normalizationRules() throws -> NormalizationRules {
-    try decode("normalization")
+  /// Les 20 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
+  public static func categories() throws -> [ItemCategory] {
+    try cachedCategories.get()
   }
 
-  /// Dictionnaire de mots-clés français.
+  /// Règles de normalisation françaises. Lues une seule fois, puis servies depuis le cache.
+  public static func normalizationRules() throws -> NormalizationRules {
+    try cachedRules.get()
+  }
+
+  /// Dictionnaire de mots-clés français. Lu une seule fois, puis servi depuis le cache.
   public static func keywordDictionary() throws -> KeywordDictionary {
-    try decode("keywords.fr")
+    try cachedKeywords.get()
   }
 
   private static func decode<T: Decodable>(_ name: String) throws -> T {
