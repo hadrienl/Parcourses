@@ -74,7 +74,7 @@ public enum CategoryResources {
   private static let cachedRules = Result<NormalizationRules, any Error> { try decode("normalization") }
   private static let cachedKeywords = Result<KeywordDictionary, any Error> { try decode("keywords.fr") }
 
-  /// Les 20 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
+  /// Les 21 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
   public static func categories() throws -> [ItemCategory] {
     try cachedCategories.get()
   }
