@@ -3,7 +3,9 @@
 
 import type { Item, Snapshot, SortInput, SortParams, Start } from "../reference/sort.ts";
 import { DEFAULT_PARAMS } from "../reference/sort.ts";
+import { effectiveCategory } from "../reference/effective_category.ts";
 import { Prng } from "./prng.ts";
+import categoriesFile from "../categories/categories.json" with { type: "json" };
 
 export interface SortCase {
   id: string;
@@ -625,6 +627,38 @@ export function sortCases(): SortCase[] {
           ),
         ),
       }),
+    });
+  }
+  {
+    // Les 21 catégories réelles. Le rayon bio est résolu avant le tri (#28).
+    const categories = categoriesFile.categories.map(({ id, rank }) => ({ id, rank }));
+    const labels: [string, string, boolean, string][] = [
+      ["i-01", "dairy", true, "lait bio"],
+      ["i-02", "produce", true, "courgette bio"],
+      ["i-03", "dairy", false, "lait"],
+      ["i-04", "savory-grocery", false, "pate"],
+      ["i-06", "breakfast", false, "cafe"],
+      ["i-07", "produce", false, "pomme"],
+    ];
+    const organicItems = (storeOrganicAisle: boolean) =>
+      labels.map(([id, category, organic, name]) =>
+        item(id, null, effectiveCategory(category, organic, storeOrganicAisle), name)
+      );
+    add({
+      id: "036-organic-aisle-store",
+      description:
+        "21 catégories réelles, magasin avec rayon bio : les articles bio sont en `bio`, après l'épicerie salée.",
+      input: input({ snapshot: null, categories, items: organicItems(true) }),
+      expectMode: "fallback",
+      expectOrder: ["i-07", "i-03", "i-04", "i-02", "i-01", "i-06"],
+    });
+    add({
+      id: "037-no-organic-aisle-store",
+      description:
+        "21 catégories réelles, magasin sans rayon bio : les articles bio restent dans leur rayon habituel.",
+      input: input({ snapshot: null, categories, items: organicItems(false) }),
+      expectMode: "fallback",
+      expectOrder: ["i-02", "i-07", "i-03", "i-01", "i-04", "i-06"],
     });
   }
   return cases;

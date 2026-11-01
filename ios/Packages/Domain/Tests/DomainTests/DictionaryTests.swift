@@ -23,9 +23,19 @@ import Testing
   }
 }
 
+@Test func organicCategoryReceivesNoKeyword() throws {
+  let dictionary = try CategoryResources.keywordDictionary()
+  #expect(try CategoryResources.categories().contains { $0.id == organicCategoryId })
+  for entry in dictionary.keywords + dictionary.overrides {
+    #expect(entry.c != organicCategoryId, "\(entry.k)")
+    let words = entry.k.split(separator: " ")
+    #expect(!words.contains { CategoryClassifier.organicWords.contains(String($0)) }, "\(entry.k)")
+  }
+}
+
 @Test func categoriesAreSortedByRank() throws {
   let categories = try CategoryResources.categories()
-  #expect(categories.count == 20)
+  #expect(categories.count == 21)
   #expect(categories.last?.id == "other")
   #expect(categories.map(\.rank) == categories.map(\.rank).sorted())
 }
@@ -39,7 +49,8 @@ import Testing
 
 @Test func emptyLabelFallsBackToOther() {
   #expect(
-    classifier.classify("") == Classification(normalized: "", categoryId: "other", matchedKeyword: nil, match: .none))
+    classifier.classify("")
+      == Classification(normalized: "", categoryId: "other", matchedKeyword: nil, match: .none, organic: false))
 }
 
 @Test func categoriesVersionIsExposed() throws {

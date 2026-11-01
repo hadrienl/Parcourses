@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "categories": [
     { "id": "produce", "rank": 10, "label_fr": "Fruits et légumes" },
     { "id": "bakery", "rank": 20, "label_fr": "Boulangerie, pâtisserie" },
@@ -9,6 +9,7 @@
     { "id": "cheese", "rank": 60, "label_fr": "Fromages" },
     { "id": "dairy", "rank": 70, "label_fr": "Crèmerie, œufs, ultra-frais" },
     { "id": "savory-grocery", "rank": 80, "label_fr": "Épicerie salée" },
+    { "id": "bio", "rank": 85, "label_fr": "Bio" },
     { "id": "world-food", "rank": 90, "label_fr": "Produits du monde" },
     { "id": "breakfast", "rank": 100, "label_fr": "Petit-déjeuner" },
     { "id": "sweet-grocery", "rank": 110, "label_fr": "Épicerie sucrée, biscuits" },
