@@ -145,6 +145,49 @@ actor SyncStore {
     try modelContext.save()
   }
 
+  /// Note la première erreur serveur de chaque entrée et renvoie la plus ancienne.
+  func markServerFailure(_ work: OutboxWork, at now: Date, reason: String) throws -> Date {
+    var oldest = now
+    for id in work.entryIds {
+      guard let entry = try entry(id: id) else { continue }
+      let since = entry.serverFailingSince ?? now
+      entry.serverFailingSince = since
+      entry.lastError = reason
+      oldest = min(oldest, since)
+    }
+    try modelContext.save()
+    return oldest
+  }
+
+  /// Corrige la date envoyée, jamais la date locale. Vrai si au moins une date était trop loin dans le futur.
+  func correctClock(_ work: OutboxWork, clock: ServerClock) throws -> Bool {
+    var changed = false
+    for id in work.entryIds {
+      guard let entry = try entry(id: id) else { continue }
+      switch work.kind {
+      case .createVisit:
+        let row = try OutboxCoding.decode(VisitInsert.self, from: entry.payload)
+        guard let date = clock.corrected(row.startedAt) else { continue }
+        entry.payload = try OutboxCoding.encode(
+          VisitInsert(
+            id: row.id, storeId: row.storeId, listId: row.listId, listWasSorted: row.listWasSorted, startedAt: date))
+      case .insertChecks:
+        let row = try OutboxCoding.decode(CheckPayload.self, from: entry.payload)
+        guard let date = clock.corrected(row.checkedAt) else { continue }
+        entry.payload = try OutboxCoding.encode(row.with(checkedAt: date))
+      case .closeVisit:
+        let row = try OutboxCoding.decode(VisitClosePayload.self, from: entry.payload)
+        guard let date = clock.corrected(row.endedAt) else { continue }
+        entry.payload = try OutboxCoding.encode(VisitClosePayload(visitId: row.visitId, endedAt: date))
+      default:
+        continue
+      }
+      changed = true
+    }
+    if changed { try modelContext.save() }
+    return changed
+  }
+
   /// La liste de la visite n'existe plus côté serveur : la visite repart sans elle.
   func removeListFromCreation(_ work: OutboxWork) throws {
     guard let id = work.entryIds.first, let entry = try entry(id: id) else { return }

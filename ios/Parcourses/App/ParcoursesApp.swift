@@ -128,7 +128,8 @@ struct RootView: View {
     .sheet(item: $pickingFor, onDismiss: beginPendingShopping) { request in
       StorePickerView(
         model: environment.makeStorePickerModel { outcome in
-          pendingStart = PendingStart(listId: request.listId, outcome: outcome)
+          // Pas `request.listId` : la liste a pu changer d'identifiant pendant le choix.
+          pendingStart = PendingStart(listId: pickingFor?.listId ?? request.listId, outcome: outcome)
           pickingFor = nil
         })
     }
@@ -138,6 +139,16 @@ struct RootView: View {
         // Les écrans déjà ouverts relisent coches, ajouts et retraits.
         NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
       }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .syncDidRekeyData)) { notification in
+      guard let remap = IdentifierRemap(notification: notification) else { return }
+      path = path.map { route in
+        switch route {
+        case .list(let id): .list(remap[id])
+        }
+      }
+      pickingFor?.listId = remap[pickingFor?.listId ?? UUID()]
+      pendingStart?.listId = remap[pendingStart?.listId ?? UUID()]
     }
     .task {
       guard !didResume else { return }
@@ -162,11 +173,12 @@ struct RootView: View {
 }
 
 private struct PickerRequest: Identifiable {
-  let listId: UUID
-  var id: UUID { listId }
+  /// Distinct de `listId` : un changement d'identifiant de la liste ne doit pas rouvrir la sheet.
+  let id = UUID()
+  var listId: UUID
 }
 
 private struct PendingStart {
-  let listId: UUID
+  var listId: UUID
   let outcome: StorePickerOutcome
 }

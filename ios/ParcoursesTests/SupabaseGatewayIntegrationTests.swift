@@ -234,6 +234,18 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     return try await remote.ensureSession(captchaToken: captchaToken)
   }
+  func sessionAccountId() async throws -> UUID {
+    try check()
+    return try await remote.sessionAccountId()
+  }
+  func acknowledgeAccount(_ id: UUID) async throws {
+    try check()
+    try await remote.acknowledgeAccount(id)
+  }
+  func serverDate() async throws -> Date? {
+    try check()
+    return try await remote.serverDate()
+  }
   func currentAccountId() async throws -> UUID {
     try check()
     return try await remote.currentAccountId()
@@ -344,6 +356,11 @@ struct SyncEngineIntegrationTests {
       remote: remote, gateway: gateway, engine: engine, context: container.mainContext,
       lists: SwiftDataListRepository(context: container.mainContext),
       visits: SwiftDataVisitRepository(context: container.mainContext), container: container, service: service)
+  }
+
+  private func anyStoreId(_ gateway: SupabaseGateway) async throws -> UUID {
+    let stores = try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 5)
+    return try #require(stores.first).id
   }
 
   private func pending(_ setup: Setup) throws -> [OutboxEntry] {
@@ -486,25 +503,97 @@ struct SyncEngineIntegrationTests {
     #expect(try setup.visits.checks(visitId: visitId).map(\.categoryId) == ["dairy"])
   }
 
-  @Test func aChangedAccountPausesWithoutWriting() async throws {
+  /// Vraie perte de session : un nouveau compte anonyme reçoit tout, sous de nouveaux identifiants.
+  @Test func aLostSessionResendsEverythingToTheNewAccount() async throws {
     let service = UUID().uuidString
     let setup = try await makeSetup(service: service)
+    let storeId = try await anyStoreId(setup.remote)
     let list = try setup.lists.createList(name: "Avant", at: .now)
-    await setup.engine.drain()
-
-    let store = KeychainStore(service: "app.parcourses.tests.\(service)")
-    let current = try #require(try store.data(forKey: SupabaseGateway.lastAccountKey))
-    try store.set(Data(UUID().uuidString.utf8), forKey: SupabaseGateway.lastAccountKey)
-    try setup.lists.renameList(id: list.id, name: "Après", at: .now)
-    await setup.engine.drain()
-    #expect(await setup.engine.pause == .accountChanged)
-    #expect(try pending(setup).count == 1)
-
-    try store.set(current, forKey: SupabaseGateway.lastAccountKey)
-    await setup.engine.resume()
-    await setup.engine.drain()
+    let item = try setup.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: .now)
+    let visit = try setup.visits.startVisit(storeId: storeId, listId: list.id, listWasSorted: false, at: .now)
+    try setup.visits.addCheck(visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: .now)
+    try setup.visits.closeVisit(id: visit.id, at: .now)
+    await setup.engine.drain(pull: true)
     #expect(try pending(setup).isEmpty)
-    #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.name) == ["Après"])
+    let oldList = list.id
+    let oldAccount = try await setup.remote.currentAccountId()
+
+    // La session disparaît, le souvenir du compte reste.
+    let store = KeychainStore(service: "app.parcourses.tests.\(service)")
+    let known = try #require(try store.data(forKey: SupabaseGateway.lastAccountKey))
     try store.removeAll()
+    try store.set(known, forKey: SupabaseGateway.lastAccountKey)
+    await setup.engine.drain(pull: true)
+    await setup.engine.drain(pull: true)
+
+    #expect(try pending(setup).isEmpty)
+    #expect(try await setup.remote.currentAccountId() != oldAccount)
+    #expect(list.id != oldList && item.listId == list.id && visit.listId == list.id)
+    #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.id) == [list.id])
+    #expect(try await setup.remote.fetchItems(updatedAfter: nil).map(\.listId) == [list.id])
+    #expect(try await setup.remote.visitAccess(id: visit.id) == .closed)
+    try store.removeAll()
+  }
+
+  /// Téléphone en avance de 10 min : refus réel du serveur, corrigé par l'en-tête `Date`.
+  @Test func aFastPhoneReachesTheServer() async throws {
+    let setup = try await makeSetup()
+    #expect(abs(try #require(try await setup.remote.serverDate()).timeIntervalSinceNow) < 120)
+    let engine = SyncEngine(
+      gateway: setup.gateway, container: setup.container, cursors: ItCursors(),
+      classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(
+        now: { Date.now.addingTimeInterval(600) }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    let ahead = Date.now.addingTimeInterval(600)
+    let storeId = try await anyStoreId(setup.remote)
+    let list = try setup.lists.createList(name: "Avance", at: ahead)
+    let item = try setup.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: ahead)
+    let visit = try setup.visits.startVisit(storeId: storeId, listId: list.id, listWasSorted: false, at: ahead)
+    try setup.visits.addCheck(visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: ahead)
+    try setup.visits.closeVisit(id: visit.id, at: ahead)
+    await engine.drain()
+    #expect(try pending(setup).isEmpty)
+    // Contexte neuf : le contexte principal reçoit les écritures du moteur plus tard.
+    let sent = try #require(try ModelContext(setup.container).fetch(FetchDescriptor<Visit>()).first)
+    #expect(sent.syncState == .synced && sent.endSyncState == .synced)
+    #expect(try await setup.remote.visitAccess(id: visit.id) == .closed)
+  }
+
+  /// Erreur serveur réelle sur une seule ligne (`scripts/integration-test.sh` pose un déclencheur sur ce nom).
+  @Test func aRowFailingOnTheServerIsSetAside() async throws {
+    let setup = try await makeSetup()
+    let offset = Box(0.0)
+    let engine = SyncEngine(
+      gateway: setup.gateway, container: setup.container, cursors: ItCursors(),
+      classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(
+        now: { Date.now.addingTimeInterval(offset.value) }, jitter: { 1 },
+        sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    let bad = try setup.lists.createList(name: "IT-500", at: .now)
+    let good = try setup.lists.createList(name: "Saine", at: .now)
+    await engine.drain()
+    #expect(try await setup.remote.fetchLists(updatedAfter: nil).isEmpty)
+
+    offset.value = SyncRetryPolicy.serverFailureGrace + 1
+    await engine.kick(pull: true)
+    await engine.drain()
+    #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.id) == [good.id])
+    #expect(bad.syncState == .pending)
+    #expect(try pending(setup).map(\.entityId) == [bad.id])
+    #expect(try pending(setup).first?.attempts == 0)
+  }
+}
+
+private nonisolated final class Box<Value>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: Value
+  init(_ value: Value) { stored = value }
+  var value: Value {
+    get { lock.withLock { stored } }
+    set { lock.withLock { stored = newValue } }
   }
 }

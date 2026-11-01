@@ -19,7 +19,7 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   /// Réponse illisible, sans code ni statut exploitable. Réessayable : on ne sait pas si la ligne est passée.
   case unexpected
   /// La session appartient à un autre compte que le dernier connu : les lignes existantes ne sont plus
-  /// visibles, et un enregistrement « réussirait » sans rien écrire. La reprise se décide en 9.7.
+  /// visibles, et un enregistrement « réussirait » sans rien écrire. `SyncEngine` réidentifie alors les données.
   case accountChanged
   /// Catégorie absente de la table serveur, même après relecture. Jamais abandonnée : le serveur peut être en
   /// retard sur `shared/categories/`, et la coche ne doit pas être perdue.
@@ -124,6 +124,13 @@ nonisolated protocol RemoteGateway: Sendable {
   func currentAccountId() async throws -> UUID
   /// Interroge le serveur : `unauthorized` si la session n'y est plus valable (compte supprimé ailleurs).
   func verifySession() async throws
+  /// Compte de la session, même différent du dernier connu. Jamais de création : `unauthorized` sans session,
+  /// `keychainLocked` si le Keychain est verrouillé.
+  func sessionAccountId() async throws -> UUID
+  /// Les données locales ont été réidentifiées pour `id` : il devient le dernier compte connu.
+  func acknowledgeAccount(_ id: UUID) async throws
+  /// Heure du serveur (en-tête HTTP `Date`), `nil` si la réponse n'en porte pas de lisible.
+  func serverDate() async throws -> Date?
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws

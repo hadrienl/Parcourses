@@ -41,7 +41,7 @@ nonisolated enum PersistenceStack {
       FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
     }
   ) throws -> ModelContainer {
-    let schema = Schema(versionedSchema: SchemaV2.self)
+    let schema = Schema(versionedSchema: SchemaV3.self)
     // Pas de CloudKit : la synchronisation passe par Supabase.
     let configuration: ModelConfiguration
     switch storage {

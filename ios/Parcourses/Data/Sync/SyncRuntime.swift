@@ -14,9 +14,6 @@ final class SyncRuntime {
   private let engine: SyncEngine
   private let monitor: NetworkMonitor
   private var networkTask: Task<Void, Never>?
-  private var pauseTask: Task<Void, Never>?
-  /// État à afficher : l'écran de connexion observe cette propriété.
-  private(set) var pause: SyncPause?
 
   init(gateway: any RemoteGateway, container: ModelContainer) throws {
     let monitor = NetworkMonitor()
@@ -35,13 +32,10 @@ final class SyncRuntime {
     networkTask = Task {
       for await _ in returns { await engine.kick(pull: true) }
     }
-    pauseTask = Task { [weak self, updates = engine.pauseUpdates] in
-      for await pause in updates { self?.pause = pause }
-    }
     foreground()
   }
 
-  /// À appeler dès qu'une session valide est disponible, ou la reprise de compte décidée.
+  /// À appeler dès qu'une session valide est disponible.
   func sessionDidChange() {
     let engine = engine
     Task { await engine.resume() }
@@ -73,13 +67,6 @@ final class SyncRuntime {
       await work.value
       activity.end()
     }
-  }
-
-  /// Préalable à la purge locale (#39 §6).
-  func stopAndWait() async {
-    networkTask?.cancel()
-    networkTask = nil
-    await engine.stopAndWait()
   }
 
   static func scheduleBackgroundRefresh() {
