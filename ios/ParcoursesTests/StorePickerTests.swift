@@ -12,13 +12,15 @@ import UIKit
 private final class FakeLocation: LocationProvider {
   var authorization: LocationAuthorization
   var decision: LocationAuthorization?
-  var fix: LocationFix?
+  var result: LocationResult
+  /// Requête de position qui ne répond qu'à l'annulation.
+  var hangs = false
   var afterPrecision: LocationAuthorization = .approximate
   private(set) var fixRequests = 0
 
-  init(_ authorization: LocationAuthorization, fix: LocationFix? = FakeLocation.goodFix) {
+  init(_ authorization: LocationAuthorization, result: LocationResult = .fix(FakeLocation.goodFix)) {
     self.authorization = authorization
-    self.fix = fix
+    self.result = result
   }
 
   static let goodFix = LocationFix(latitude: 43.6, longitude: 0.5, horizontalAccuracy: 20, timestamp: .now)
@@ -28,9 +30,10 @@ private final class FakeLocation: LocationProvider {
     return authorization
   }
 
-  func currentFix() async -> LocationFix? {
+  func currentFix() async -> LocationResult {
     fixRequests += 1
-    return fix
+    if hangs { try? await Task.sleep(for: .seconds(60)) }
+    return result
   }
 
   func requestTemporaryPrecision() async -> LocationAuthorization {
@@ -50,22 +53,36 @@ private actor FakeGateway: RemoteGateway {
   private var found: Result<[StoreSearchRow], RemoteError>
   private(set) var nearbyCalls: [NearbyCall] = []
   private(set) var searches: [String] = []
+  private var searchDelays: [String: Duration] = [:]
+  private var nearbyDelay: Duration?
+
+  private var foundByQuery: [String: [StoreSearchRow]] = [:]
 
   init(
     nearby: Result<[NearbyStoreRow], RemoteError> = .success([]),
-    found: Result<[StoreSearchRow], RemoteError> = .success([])
+    found: Result<[StoreSearchRow], RemoteError> = .success([]),
+    nearbyDelay: Duration? = nil,
+    foundByQuery: [String: [StoreSearchRow]] = [:],
+    searchDelays: [String: Duration] = [:]
   ) {
     self.nearby = nearby
     self.found = found
+    self.nearbyDelay = nearbyDelay
+    self.foundByQuery = foundByQuery
+    self.searchDelays = searchDelays
   }
 
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] {
     nearbyCalls.append(NearbyCall(lat: lat, lng: lng, radiusM: radiusM))
+    if let nearbyDelay { try await Task.sleep(for: nearbyDelay) }
     return try nearby.get()
   }
 
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
     searches.append(query)
+    // La réponse ignore l'annulation, comme une réponse déjà reçue au moment où la saisie change.
+    if let delay = searchDelays[query] { try? await Task.sleep(for: delay) }
+    if let rows = foundByQuery[query] { return rows }
     return try found.get()
   }
 
@@ -111,66 +128,112 @@ private func makeStores() throws -> SwiftDataStoreRepository {
       latitude: 1, longitude: 2, horizontalAccuracy: accuracy, timestamp: Self.now.addingTimeInterval(-age))
   }
 
-  private func select(_ events: [FixSelection.Event], firstPoint: Bool = false) async -> LocationFix? {
+  private func select(_ events: [FixSelection.Event], approximate: Bool = false) async -> LocationResult {
     let stream = AsyncStream<FixSelection.Event> { continuation in
       for event in events { continuation.yield(event) }
       continuation.finish()
     }
-    return await FixSelection.select(from: stream, acceptsFirstPoint: firstPoint, now: { Self.now })
+    return await FixSelection.select(from: stream, isApproximate: approximate, now: { Self.now })
+  }
+
+  private func accuracy(_ result: LocationResult) -> Double? {
+    if case .fix(let fix) = result { return fix.horizontalAccuracy }
+    return nil
   }
 
   @Test func stopsAtFirstAccuratePoint() async {
     let result = await select([.point(fix(accuracy: 300)), .point(fix(accuracy: 80)), .point(fix(accuracy: 5))])
-    #expect(result?.horizontalAccuracy == 80)
+    #expect(accuracy(result) == 80)
   }
 
   @Test func deadlineReturnsBestPointSoFar() async {
     let result = await select([
       .point(fix(accuracy: 300)), .point(fix(accuracy: 150)), .point(fix(accuracy: 200)), .deadline,
     ])
-    #expect(result?.horizontalAccuracy == 150)
+    #expect(accuracy(result) == 150)
   }
 
-  @Test func deadlineWithoutPointReturnsNil() async {
-    #expect(await select([.deadline]) == nil)
+  @Test func deadlineWithoutPointIsUnavailable() async {
+    #expect(await select([.deadline]) == .unavailable)
   }
 
-  @Test func staleAndInvalidPointsAreIgnored() async {
-    #expect(await select([.point(fix(accuracy: 10, age: 600)), .point(fix(accuracy: -1)), .deadline]) == nil)
+  @Test func invalidPointIsIgnored() async {
+    #expect(await select([.point(fix(accuracy: -1)), .deadline]) == .unavailable)
   }
 
-  @Test func approximateAuthorizationAcceptsFirstPoint() async {
-    let result = await select([.point(fix(accuracy: 3000))], firstPoint: true)
-    #expect(result?.horizontalAccuracy == 3000)
+  /// Utilisateur immobile : le seul point reçu est vieux. Il est gardé pour la liste, marqué périmé.
+  @Test func precisionKeepsStalePointMarked() async {
+    let result = await select([.point(fix(accuracy: 10, age: 600)), .deadline])
+    guard case .fix(let fix) = result else {
+      Issue.record("résultat \(result)")
+      return
+    }
+    #expect(fix.isStale)
+  }
+
+  @Test func freshPointBeatsMoreAccurateStalePoint() async {
+    let result = await select([.point(fix(accuracy: 10, age: 600)), .point(fix(accuracy: 300)), .deadline])
+    #expect(accuracy(result) == 300)
+  }
+
+  @Test func stalePointDoesNotEndThePreciseRequest() async {
+    let result = await select([.point(fix(accuracy: 10, age: 600)), .point(fix(accuracy: 50))])
+    #expect(accuracy(result) == 50)
+  }
+
+  @Test func approximateAcceptsFirstPointEvenTenMinutesOld() async {
+    let result = await select([.point(fix(accuracy: 3000, age: 600))], approximate: true)
+    guard case .fix(let fix) = result else {
+      Issue.record("résultat \(result)")
+      return
+    }
+    #expect(fix.horizontalAccuracy == 3000)
+    #expect(!fix.isStale)
+  }
+
+  @Test func revokedAuthorizationEndsAtOnce() async {
+    #expect(await select([.point(fix(accuracy: 300)), .denied, .point(fix(accuracy: 5))]) == .denied)
   }
 }
 
 // MARK: - Règles
 
 @Suite struct StoreRankingTests {
+  private func fix(accuracy: Double, stale: Bool = false) -> LocationFix {
+    LocationFix(latitude: 0, longitude: 0, horizontalAccuracy: accuracy, timestamp: .now, isStale: stale)
+  }
+
   @Test(arguments: [
     ([100.0, 400.0], 20.0, true),
     ([100.0], 20.0, true),
-    ([149.0, 199.0], 20.0, true),
-    ([150.0, 900.0], 20.0, false),  // pas à moins de 150 m
-    ([100.0, 120.0], 20.0, false),  // pas nettement plus proche
-    ([100.0, 400.0], 150.0, false),  // point trop imprécis pour trancher
+    ([100.0, 150.0], 20.0, true),  // écart de 50 m exactement
+    ([100.0, 149.9], 20.0, false),
+    ([100.0, 200.0], 100.0, true),  // l'écart suit la précision : 100 m exactement
+    ([100.0, 199.9], 100.0, false),
+    ([100.0, 400.0], 100.1, false),  // point trop imprécis
+    ([149.9, 400.0], 20.0, true),
+    ([150.0, 900.0], 20.0, false),  // 150 m exactement : hors proposition
   ])
   func proposal(distances: [Double], accuracy: Double, proposed: Bool) {
     let stores = distances.map { candidate($0) }
-    #expect(StoreRanking.proposal(in: stores, accuracyM: accuracy)?.id == (proposed ? stores[0].id : nil))
+    #expect(StoreRanking.proposal(in: stores, fix: fix(accuracy: accuracy))?.id == (proposed ? stores[0].id : nil))
+  }
+
+  @Test func proposalSortsDefensively() {
+    let far = candidate(400)
+    let near = candidate(100)
+    #expect(StoreRanking.proposal(in: [far, near], fix: fix(accuracy: 20))?.id == near.id)
+  }
+
+  @Test func stalePointNeverProposes() {
+    #expect(StoreRanking.proposal(in: [candidate(10)], fix: fix(accuracy: 5, stale: true)) == nil)
   }
 
   @Test func distanceIsRounded() {
     #expect(StoreDistance.text(metres: 123) == "120 m")
+    #expect(StoreDistance.text(metres: 994) == "990 m")
+    #expect(StoreDistance.text(metres: 996).hasPrefix("1,0"))
     #expect(StoreDistance.text(metres: 2460).hasPrefix("2,5"))
-  }
-
-  /// La saisie ne sort jamais de sa valeur citée.
-  @Test func searchFilterQuotesInput() {
-    let filter = StoreSearch.filter(query: #"a"b,%_*"#, seenAfter: "T")
-    #expect(filter.contains(#"name.ilike."*a\"b,\\%\\_*""#))
-    #expect(filter.hasSuffix("or(osm_seen_at.is.null,osm_seen_at.gt.T))"))
   }
 }
 
@@ -179,10 +242,13 @@ private func makeStores() throws -> SwiftDataStoreRepository {
 @Suite struct StorePickerModelTests {
   private func model(
     _ location: FakeLocation, _ gateway: (any RemoteGateway)?, stores: (any StoreRepository)? = nil,
+    debounce: Duration = .zero, timeout: Duration = .seconds(10),
     onFinish: @escaping (StorePickerOutcome) -> Void = { _ in }
   ) throws -> StorePickerModel {
     StorePickerModel(
-      location: location, gateway: gateway, stores: try stores ?? makeStores(), debounce: .zero, onFinish: onFinish)
+      location: location, gateway: gateway, stores: try stores ?? makeStores(), debounce: debounce,
+      requestTimeout: timeout,
+      onFinish: onFinish)
   }
 
   @Test func preciseProposesClearlyNearestStoreWithin3km() async throws {
@@ -238,17 +304,12 @@ private func makeStores() throws -> SwiftDataStoreRepository {
   }
 
   @Test func refusedPrecisionKeepsApproximateList() async throws {
-    let picker = try model(FakeLocation(.approximate), FakeGateway(nearby: .success([row("A", 60)])))
+    let store = row("A", 60)
+    let picker = try model(FakeLocation(.approximate), FakeGateway(nearby: .success([store])))
     await picker.load()
     await picker.requestPrecision()
-    #expect(
-      picker.state
-        == .approximate([StoreCandidate(id: stateId(picker), name: "A", chain: nil, address: nil, distanceM: nil)]))
-  }
-
-  private func stateId(_ picker: StorePickerModel) -> UUID {
-    if case .approximate(let stores) = picker.state, let first = stores.first { return first.id }
-    return UUID()
+    let expected = StoreCandidate(id: store.id, name: "A", chain: nil, address: nil, distanceM: nil)
+    #expect(picker.state == .approximate([expected]))
   }
 
   @Test func deniedNeverReadsPositionNorCallsNearby() async throws {
@@ -275,7 +336,9 @@ private func makeStores() throws -> SwiftDataStoreRepository {
     let picker = try model(location, FakeGateway(nearby: .success([row("A", 60)])))
     await picker.load()
     location.authorization = .precise
-    await picker.refreshAfterForeground()
+    picker.refreshAfterForeground()
+    #expect(picker.state == .loading)
+    while picker.state == .loading { await Task.yield() }
     guard case .precise = picker.state else {
       Issue.record("état \(picker.state)")
       return
@@ -306,7 +369,7 @@ private func makeStores() throws -> SwiftDataStoreRepository {
   }
 
   @Test func noPointIsLocationUnavailable() async throws {
-    let picker = try model(FakeLocation(.precise, fix: nil), FakeGateway())
+    let picker = try model(FakeLocation(.precise, result: .unavailable), FakeGateway())
     await picker.load()
     #expect(picker.state == .locationUnavailable)
     #expect(picker.offersSearch)
@@ -358,6 +421,131 @@ private func makeStores() throws -> SwiftDataStoreRepository {
       picker.search
         == .results([StoreCandidate(id: found.id, name: "Leclerc", chain: nil, address: "Auch", distanceM: nil)]))
     #expect(await gateway.searches == ["Auc"])
+  }
+
+  @Test func staleFixListsStoresWithoutProposing() async throws {
+    var stale = FakeLocation.goodFix
+    stale.isStale = true
+    let picker = try model(
+      FakeLocation(.precise, result: .fix(stale)), FakeGateway(nearby: .success([row("A", 10)])))
+    await picker.load()
+    guard case .precise(nil, let others) = picker.state else {
+      Issue.record("état \(picker.state)")
+      return
+    }
+    #expect(others.map(\.name) == ["A"])
+  }
+
+  @Test func slowNearbyTimesOutAsOffline() async throws {
+    let gateway = FakeGateway(nearby: .success([row("A", 60)]), nearbyDelay: .seconds(30))
+    let picker = try model(FakeLocation(.precise), gateway, timeout: .milliseconds(50))
+    await picker.load()
+    #expect(picker.state == .offline)
+  }
+
+  @Test func unauthorizedIsARetryableServiceError() async throws {
+    let picker = try model(FakeLocation(.precise), FakeGateway(nearby: .failure(.unauthorized)))
+    await picker.load()
+    #expect(picker.state == .serviceError)
+  }
+
+  @Test func deniedDuringRequestShowsDenied() async throws {
+    let location = FakeLocation(.precise, result: .denied)
+    let gateway = FakeGateway()
+    let picker = try model(location, gateway)
+    await picker.load()
+    #expect(picker.state == .denied)
+    #expect(await gateway.nearbyCalls.isEmpty)
+  }
+
+  @Test func restrictedHidesSettings() async throws {
+    let picker = try model(FakeLocation(.restricted), FakeGateway())
+    await picker.load()
+    #expect(picker.state == .denied)
+    #expect(!picker.canOpenSettings)
+    let denied = try model(FakeLocation(.denied), FakeGateway())
+    await denied.load()
+    #expect(denied.canOpenSettings)
+  }
+
+  @Test func declinedPrecisionIsReported() async throws {
+    let picker = try model(FakeLocation(.approximate), FakeGateway(nearby: .success([row("A", 60)])))
+    await picker.load()
+    await picker.requestPrecision()
+    #expect(picker.precisionDeclined)
+  }
+
+  /// Sheet fermée pendant la lecture de la position : aucune position ne part.
+  @Test func cancelStopsBeforeSendingPosition() async throws {
+    let location = FakeLocation(.precise)
+    location.hangs = true
+    let gateway = FakeGateway()
+    let picker = try model(location, gateway)
+    picker.start()
+    while location.fixRequests == 0 { await Task.yield() }
+    picker.cancel()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await gateway.nearbyCalls.isEmpty)
+    #expect(picker.state == .loading)
+  }
+
+  /// Une relance remplace la précédente : une seule position part.
+  @Test func restartReplacesRunningLoad() async throws {
+    let location = FakeLocation(.precise)
+    location.hangs = true
+    let gateway = FakeGateway(nearby: .success([row("A", 60)]))
+    let picker = try model(location, gateway)
+    picker.start()
+    while location.fixRequests == 0 { await Task.yield() }
+    location.hangs = false
+    await picker.load()
+    #expect(await gateway.nearbyCalls.count == 1)
+  }
+
+  @Test func exitIsPossibleWhileLoading() async throws {
+    let location = FakeLocation(.precise)
+    location.hangs = true
+    var outcome: StorePickerOutcome?
+    let gateway = FakeGateway()
+    let picker = try model(location, gateway) { outcome = $0 }
+    picker.start()
+    while location.fixRequests == 0 { await Task.yield() }
+    #expect(picker.state == .loading)
+    picker.continueWithoutStore()
+    #expect(outcome == .withoutStore)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await gateway.nearbyCalls.isEmpty)
+  }
+
+  @Test func fastTypingSendsOnlyTheLastQuery() async throws {
+    let gateway = FakeGateway()
+    let picker = try model(FakeLocation(.denied), gateway, debounce: .milliseconds(100))
+    await picker.load()
+    picker.query = "Le"
+    picker.query = "Lec"
+    picker.query = "Lecl"
+    await waitForSearch(picker)
+    #expect(await gateway.searches == ["Lecl"])
+  }
+
+  /// La réponse lente de l'ancienne saisie arrive après la nouvelle : elle ne l'écrase pas.
+  @Test func staleSearchDoesNotOverwriteNewerResults() async throws {
+    let old = StoreSearchRow(id: UUID(), name: "Ancien", chain: nil, address: nil)
+    let new = StoreSearchRow(id: UUID(), name: "Nouveau", chain: nil, address: nil)
+    let gateway = FakeGateway(
+      foundByQuery: ["ab": [old], "abc": [new]], searchDelays: ["ab": .milliseconds(200)])
+    let picker = try model(FakeLocation(.denied), gateway)
+    await picker.load()
+    picker.query = "ab"
+    while await gateway.searches.isEmpty { await Task.yield() }
+    picker.query = "abc"
+    await waitForSearch(picker)
+    try await Task.sleep(for: .milliseconds(300))
+    guard case .results(let rows) = picker.search else {
+      Issue.record("recherche \(picker.search)")
+      return
+    }
+    #expect(rows.map(\.name) == ["Nouveau"])
   }
 
   @Test func searchOfflineIsReported() async throws {
@@ -443,7 +631,10 @@ struct SystemLocationProviderLiveTests {
   @Test func readsSimulatedPositionOnce() async throws {
     let provider = SystemLocationProvider()
     #expect(provider.authorization == .precise)
-    let fix = try #require(await provider.currentFix())
+    guard case .fix(let fix) = await provider.currentFix() else {
+      Issue.record("aucun point")
+      return
+    }
     #expect(abs(fix.latitude - 43.646) < 0.01)
     #expect(abs(fix.longitude - 0.586) < 0.01)
   }

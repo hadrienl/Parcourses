@@ -241,13 +241,9 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
-    // Sans texte utile, le filtre `**` renverrait tous les magasins.
-    guard query.contains(where: { $0 != "*" && !$0.isWhitespace }) else { return [] }
-    let seenAfter = Date.now.addingTimeInterval(-StoreSearch.maxOsmAge).formatted(.iso8601)
+    let parameters = SearchStoresParameters(q: query, maxResults: limit)
     return try await authorized {
-      try await self.rest.from(StoreSearchRow.table).select(Self.selection(of: StoreSearchRow.self))
-        .or(StoreSearch.filter(query: query, seenAfter: seenAfter))
-        .order("name").order("id").limit(limit).execute().value
+      try await self.rest.rpc("search_stores", params: parameters).execute().value
     }
   }
 
@@ -356,6 +352,16 @@ actor SupabaseGateway: RemoteGateway {
 
 private nonisolated struct IdentifierRow: Decodable, Sendable {
   let id: UUID
+}
+
+private nonisolated struct SearchStoresParameters: Encodable, Sendable {
+  let q: String
+  let maxResults: Int
+
+  enum CodingKeys: String, CodingKey {
+    case q
+    case maxResults = "max_results"
+  }
 }
 
 private nonisolated struct NearbyStoresParameters: Encodable, Sendable {

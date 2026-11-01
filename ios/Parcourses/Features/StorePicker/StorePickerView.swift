@@ -19,9 +19,10 @@ struct StorePickerView: View {
           Text("Réessayez, ou continuez sans magasin.")
         }
     }
-    .task { await model.load() }
+    .onAppear { model.start() }
+    .onDisappear { model.cancel() }
     .onChange(of: scenePhase) { _, phase in
-      if phase == .active { Task { await model.refreshAfterForeground() } }
+      if phase == .active { model.refreshAfterForeground() }
     }
   }
 
@@ -32,8 +33,11 @@ struct StorePickerView: View {
   @ViewBuilder private var content: some View {
     switch model.state {
     case .loading:
-      ProgressView("Recherche des magasins proches…")
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      VStack(spacing: 24) {
+        ProgressView("Recherche des magasins proches…")
+        continueWithoutStoreButton
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     case .precise(let proposed, let others):
       List {
         if let proposed {
@@ -54,6 +58,10 @@ struct StorePickerView: View {
         Section {
           Label("Votre position est approximative : choisissez votre magasin.", systemImage: "location.circle")
           Button("Utiliser ma position précise") { Task { await model.requestPrecision() } }
+          if model.precisionDeclined {
+            Text("Position précise non accordée : choisissez dans la liste.")
+              .font(.subheadline).foregroundStyle(.secondary)
+          }
         }
         searchSection
         if !isSearching { stores(candidates, title: "Magasins dans le secteur") }
@@ -62,15 +70,17 @@ struct StorePickerView: View {
     case .denied:
       fallbackList(
         title: "Localisation désactivée",
-        message: "Cherchez votre magasin par nom ou par ville.", systemImage: "location.slash"
+        message: "Cherchez votre magasin par nom ou par adresse.", systemImage: "location.slash"
       ) {
-        Button("Ouvrir les Réglages") {
-          if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+        if model.canOpenSettings {
+          Button("Ouvrir les Réglages") {
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+          }
         }
       }
     case .locationUnavailable:
       fallbackList(
-        title: "Position introuvable", message: "Cherchez votre magasin par nom ou par ville.",
+        title: "Position introuvable", message: "Cherchez votre magasin par nom ou par adresse.",
         systemImage: "location.magnifyingglass"
       ) { retry }
     case .offline:
@@ -80,7 +90,8 @@ struct StorePickerView: View {
       ) { retry }
     case .serviceError:
       fallbackList(
-        title: "Service indisponible", message: "Les magasins proches n'ont pas pu être chargés.",
+        title: "Service indisponible",
+        message: "Les magasins proches n'ont pas pu être chargés. Réessayez dans un instant.",
         systemImage: "exclamationmark.icloud"
       ) { retry }
     case .noStore:
@@ -92,7 +103,12 @@ struct StorePickerView: View {
   }
 
   private var retry: some View {
-    Button("Réessayer") { Task { await model.load() } }
+    Button("Réessayer") { model.start() }
+  }
+
+  private var continueWithoutStoreButton: some View {
+    Button("Continuer sans magasin") { model.continueWithoutStore() }
+      .accessibilityIdentifier("continueWithoutStore")
   }
 
   private var isSearching: Bool {
@@ -115,8 +131,7 @@ struct StorePickerView: View {
       if model.offersSearch { searchSection }
       recentsSection
       Section {
-        Button("Continuer sans magasin") { model.continueWithoutStore() }
-          .accessibilityIdentifier("continueWithoutStore")
+        continueWithoutStoreButton
       } footer: {
         Text("La liste suivra l'ordre générique des rayons.")
       }
@@ -125,7 +140,7 @@ struct StorePickerView: View {
 
   @ViewBuilder private var searchSection: some View {
     Section {
-      TextField("Nom du magasin ou ville", text: $model.query, prompt: Text("Nom du magasin ou ville"))
+      TextField("Nom ou adresse du magasin", text: $model.query, prompt: Text("Nom ou adresse du magasin"))
         .textInputAutocapitalization(.words)
         .autocorrectionDisabled()
         .accessibilityIdentifier("storeSearch")
@@ -160,7 +175,7 @@ struct StorePickerView: View {
 
   /// Les magasins viennent d'OpenStreetMap (#9 §8).
   private var attribution: some View {
-    Text("© contributeurs OpenStreetMap")
+    Link("© contributeurs OpenStreetMap", destination: URL(filePath: "/").osmCopyright)
       .font(.caption2)
       .foregroundStyle(.secondary)
       .frame(maxWidth: .infinity)
@@ -198,10 +213,17 @@ private struct StoreRow: View {
   }
 }
 
+extension URL {
+  /// Licence ODbL, exigée avec l'attribution.
+  fileprivate var osmCopyright: URL { URL(string: "https://www.openstreetmap.org/copyright") ?? self }
+}
+
 /// Distance lisible et arrondie : le GPS ne justifie pas le mètre près.
 nonisolated enum StoreDistance {
   static func text(metres: Double) -> String {
-    if metres < 1000 { return "\(Int((metres / 10).rounded()) * 10) m" }
+    // Arrondi d'abord : 996 m ne doit pas s'écrire « 1000 m ».
+    let rounded = Int((metres / 10).rounded()) * 10
+    if rounded < 1000 { return "\(rounded) m" }
     let kilometres = (metres / 100).rounded() / 10
     return kilometres.formatted(.number.precision(.fractionLength(1)).locale(Locale(identifier: "fr_FR"))) + " km"
   }

@@ -22,19 +22,35 @@ nonisolated enum StoreRanking {
   static let approximateRadiusM = 10000
   static let maxResults = 10
   static let recentLimit = 5
+  static let searchLimit = 20
   /// Au-delà, le magasin n'est pas proposé d'office (#9 §8).
   static let proposalMaxDistanceM = 150.0
-  /// Précision de « nettement plus proche » : écart minimal avec le deuxième magasin.
+  /// Précision de « nettement plus proche » : écart minimal avec le deuxième magasin, relevé par l'imprécision du point.
   static let proposalMinGapM = 50.0
 
-  /// Magasin à proposer en tête. La liste reçue est triée par distance croissante.
-  static func proposal(in stores: [StoreCandidate], accuracyM: Double) -> StoreCandidate? {
-    guard accuracyM <= FixSelection.targetAccuracy, let first = stores.first, let distance = first.distanceM,
-      distance < proposalMaxDistanceM
-    else { return nil }
-    guard stores.count > 1 else { return first }
-    guard let next = stores[1].distanceM else { return nil }
-    return next - distance >= proposalMinGapM ? first : nil
+  /// Magasin à proposer en tête : l'écart doit dépasser ce que l'imprécision du point peut expliquer.
+  static func proposal(in stores: [StoreCandidate], fix: LocationFix) -> StoreCandidate? {
+    guard !fix.isStale, fix.horizontalAccuracy <= FixSelection.targetAccuracy else { return nil }
+    let ranked = stores.filter { $0.distanceM != nil }.sorted { ($0.distanceM ?? 0) < ($1.distanceM ?? 0) }
+    guard let first = ranked.first, let distance = first.distanceM, distance < proposalMaxDistanceM else { return nil }
+    guard ranked.count > 1, let next = ranked[1].distanceM else { return first }
+    return next - distance >= max(proposalMinGapM, fix.horizontalAccuracy) ? first : nil
+  }
+}
+
+/// Borne une requête distante : sans réponse à temps, c'est comme sans réseau.
+nonisolated func withRemoteTimeout<T: Sendable>(
+  _ timeout: Duration, _ operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+  try await withThrowingTaskGroup(of: T.self) { group in
+    group.addTask { try await operation() }
+    group.addTask {
+      try await Task.sleep(for: timeout)
+      throw RemoteError.network
+    }
+    defer { group.cancelAll() }
+    guard let first = try await group.next() else { throw RemoteError.network }
+    return first
   }
 }
 
@@ -73,6 +89,10 @@ final class StorePickerModel {
   private(set) var recents: [StoreCandidate] = []
   private(set) var search = SearchState.idle
   private(set) var selectionFailed = false
+  /// La demande de précision temporaire n'a rien donné : à dire, sinon le bouton semble sans effet.
+  private(set) var precisionDeclined = false
+  /// Faux en cas de restriction : les Réglages ne permettent pas de lever le refus.
+  private(set) var canOpenSettings = true
   var query = "" {
     didSet { if query != oldValue { scheduleSearch() } }
   }
@@ -91,49 +111,80 @@ final class StorePickerModel {
   private let onFinish: (StorePickerOutcome) -> Void
   private let now: () -> Date
   private let debounce: Duration
+  private let requestTimeout: Duration
+  private var loadTask: Task<Void, Never>?
   private var searchTask: Task<Void, Never>?
 
   /// `gateway` est `nil` sans configuration Supabase : l'app reste locale, comme hors ligne.
   init(
     location: any LocationProvider, gateway: (any RemoteGateway)?, stores: any StoreRepository,
-    debounce: Duration = .milliseconds(300), now: @escaping () -> Date = { .now },
+    debounce: Duration = .milliseconds(300), requestTimeout: Duration = .seconds(10),
+    now: @escaping () -> Date = { .now },
     onFinish: @escaping (StorePickerOutcome) -> Void
   ) {
     self.location = location
     self.gateway = gateway
     self.stores = stores
     self.debounce = debounce
+    self.requestTimeout = requestTimeout
     self.now = now
     self.onFinish = onFinish
   }
 
+  /// Lance le chargement et remplace celui en cours : un seul à la fois.
   /// Autorisation demandée ici, à l'ouverture de l'écran, jamais au lancement de l'app.
-  func load() async {
+  func start() {
+    loadTask?.cancel()
     state = .loading
     reloadRecents()
+    loadTask = Task { await performLoad() }
+  }
+
+  /// Fermeture de l'écran : aucune position ne doit partir ensuite.
+  func cancel() {
+    loadTask?.cancel()
+    searchTask?.cancel()
+  }
+
+  /// Lance le chargement et attend sa fin.
+  func load() async {
+    start()
+    await loadTask?.value
+  }
+
+  private func performLoad() async {
     let authorization = await location.requestAuthorization()
     guard !Task.isCancelled else { return }
     switch authorization {
-    case .denied, .notDetermined:
-      lastAuthorization = authorization
-      state = .denied
+    case .denied, .restricted, .notDetermined:
+      showDenied(authorization)
     case .approximate, .precise:
       await locate(authorization)
     }
   }
 
+  private func showDenied(_ authorization: LocationAuthorization) {
+    lastAuthorization = authorization
+    canOpenSettings = authorization != .restricted
+    state = .denied
+  }
+
   /// Au retour au premier plan : les Réglages ont pu rendre l'accès à la position.
-  func refreshAfterForeground() async {
+  func refreshAfterForeground() {
     let wasWaiting: Bool
     switch state {
     case .denied, .approximate: wasWaiting = true
     default: wasWaiting = false
     }
-    if wasWaiting && location.authorization != lastAuthorization { await load() }
+    if wasWaiting && location.authorization != lastAuthorization { start() }
   }
 
   func requestPrecision() async {
-    guard await location.requestTemporaryPrecision() == .precise else { return }
+    precisionDeclined = false
+    guard await location.requestTemporaryPrecision() == .precise else {
+      precisionDeclined = true
+      return
+    }
     await load()
   }
 
@@ -144,6 +195,7 @@ final class StorePickerModel {
         id: store.id, name: store.name, chain: store.chain, address: store.address, lastDistanceM: nil)
       try stores.markUsed(id: store.id, at: now())
       selectionFailed = false
+      cancel()
       onFinish(.store(store.id))
     } catch {
       selectionFailed = true
@@ -155,6 +207,7 @@ final class StorePickerModel {
   }
 
   func continueWithoutStore() {
+    cancel()
     onFinish(.withoutStore)
   }
 
@@ -168,19 +221,26 @@ final class StorePickerModel {
       state = .offline
       return
     }
-    guard let fix = await location.currentFix() else {
+    let fix: LocationFix
+    switch await location.currentFix() {
+    case .fix(let result): fix = result
+    case .denied:
+      if !Task.isCancelled { showDenied(location.authorization) }
+      return
+    case .unavailable:
       if !Task.isCancelled { state = .locationUnavailable }
       return
     }
     guard !Task.isCancelled else { return }
     let isPrecise = authorization == .precise
+    let radiusM = isPrecise ? StoreRanking.preciseRadiusM : StoreRanking.approximateRadiusM
     do {
-      let rows = try await gateway.nearbyStores(
-        lat: fix.latitude, lng: fix.longitude,
-        radiusM: isPrecise ? StoreRanking.preciseRadiusM : StoreRanking.approximateRadiusM,
-        maxResults: StoreRanking.maxResults)
+      let rows = try await withRemoteTimeout(requestTimeout) {
+        try await gateway.nearbyStores(
+          lat: fix.latitude, lng: fix.longitude, radiusM: radiusM, maxResults: StoreRanking.maxResults)
+      }
       guard !Task.isCancelled else { return }
-      state = Self.state(from: rows, isPrecise: isPrecise, accuracyM: fix.horizontalAccuracy)
+      state = Self.state(from: rows, isPrecise: isPrecise, fix: fix)
     } catch {
       // Une annulation est classée `network` par le gateway : elle ne doit pas afficher « hors ligne ».
       guard !Task.isCancelled else { return }
@@ -188,7 +248,7 @@ final class StorePickerModel {
     }
   }
 
-  private static func state(from rows: [NearbyStoreRow], isPrecise: Bool, accuracyM: Double) -> State {
+  private static func state(from rows: [NearbyStoreRow], isPrecise: Bool, fix: LocationFix) -> State {
     guard !rows.isEmpty else { return .noStore }
     guard isPrecise else {
       // Le point approximatif ne permet pas de classer : à égalité, par ordre alphabétique.
@@ -196,7 +256,7 @@ final class StorePickerModel {
       return .approximate(stores.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
     }
     let stores = rows.map { StoreCandidate(row: $0, keepsDistance: true) }
-    let proposed = StoreRanking.proposal(in: stores, accuracyM: accuracyM)
+    let proposed = StoreRanking.proposal(in: stores, fix: fix)
     return .precise(proposed: proposed, others: stores.filter { $0.id != proposed?.id })
   }
 
@@ -222,11 +282,13 @@ final class StorePickerModel {
       search = .offline
       return
     }
-    searchTask = Task { [debounce] in
+    searchTask = Task { [debounce, requestTimeout] in
       try? await Task.sleep(for: debounce)
       guard !Task.isCancelled else { return }
       do {
-        let rows = try await gateway.searchStores(query: text, limit: StoreSearch.limit)
+        let rows = try await withRemoteTimeout(requestTimeout) {
+          try await gateway.searchStores(query: text, limit: StoreRanking.searchLimit)
+        }
         guard !Task.isCancelled else { return }
         search = .results(
           rows.map { StoreCandidate(id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil) })
