@@ -1,5 +1,5 @@
-/// Espace de noms du paquet Domain (contenu à venir).
+/// Espace de noms du paquet Domain.
 public enum Domain {
   /// Version du module, utile pour vérifier l'intégration.
-  public static let version = "0.1.0"
+  public static let version = "0.2.0"
 }

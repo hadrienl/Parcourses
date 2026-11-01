@@ -1,0 +1,78 @@
+-- Helpers des tests du graphe (#11), inclus après 00_helpers.psql.
+
+-- Paramètres serveur de la version active.
+create or replace function tests.graph_params()
+returns jsonb
+language sql
+as $$ select server_params from graph.algo_versions where version = 1 $$;
+
+-- Produit de test : identifiant déterministe 00000000-0000-0000-0000-000000000pNN.
+create or replace function tests.product(p_n integer)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_id uuid := ('00000000-0000-0000-0000-' || lpad(to_hex(4096 + p_n), 12, '0'))::uuid;
+begin
+  insert into public.products (id, name, normalized_name)
+  values (v_id, 'produit ' || p_n, 'produit test ' || p_n)
+  on conflict (id) do nothing;
+  return v_id;
+end;
+$$;
+
+-- Magasin de test.
+create or replace function tests.store(p_n integer default 1)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_id uuid := ('00000000-0000-0000-0000-' || lpad(to_hex(8192 + p_n), 12, '0'))::uuid;
+begin
+  insert into public.stores (id, name, location)
+  values (v_id, 'magasin test ' || p_n, extensions.st_point(0.58, 43.64, 4326)::extensions.geography)
+  on conflict (id) do nothing;
+  return v_id;
+end;
+$$;
+
+-- Visite terminée à p_ended_at ; la coche i (produit p_products[i]) a lieu p_offsets[i] secondes
+-- après le début (p_ended_at - 1 h). Un produit nul donne une coche de catégorie.
+create or replace function tests.visit(
+  p_user uuid, p_store uuid, p_products integer[], p_offsets double precision[],
+  p_ended_at timestamptz, p_sorted boolean default false
+)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_id uuid := gen_random_uuid();
+  v_start timestamptz := p_ended_at - interval '1 hour';
+begin
+  insert into public.visits (id, user_id, store_id, list_was_sorted, started_at)
+  values (v_id, p_user, p_store, p_sorted, v_start);
+  for i in 1..coalesce(array_length(p_products, 1), 0) loop
+    insert into public.checks (id, visit_id, product_id, category_id, checked_at)
+    values (gen_random_uuid(), v_id,
+            case when p_products[i] is null then null else tests.product(p_products[i]) end,
+            case when p_products[i] is null then (select min(id) from public.categories) end,
+            v_start + make_interval(secs => p_offsets[i]));
+  end loop;
+  update public.visits set ended_at = p_ended_at where id = v_id;
+  return v_id;
+end;
+$$;
+
+-- Coches au format attendu par graph.learn_visit, sans toucher aux tables.
+create or replace function tests.checks_json(p_products integer[], p_offsets double precision[])
+returns jsonb
+language sql
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', ('00000000-0000-0000-0000-' || lpad(to_hex(12288 + i::integer), 12, '0')),
+    'product_id', case when p is null then null
+                  else ('00000000-0000-0000-0000-' || lpad(to_hex(4096 + p), 12, '0')) end,
+    'checked_at', timestamptz '2026-10-01 10:00:00+00' + make_interval(secs => o)
+  )), '[]')
+  from unnest(p_products, p_offsets) with ordinality as u (p, o, i);
+$$;

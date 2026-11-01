@@ -32,6 +32,8 @@ jobs:
         with:
           path: ios/Packages/*/.build
           key: spm-${{ runner.os }}-${{ hashFiles('ios/Packages/*/Package.swift', 'ios/Packages/*/Package.resolved') }}
+      - name: Dictionnaire embarqué identique à shared/categories
+        run: scripts/sync-categories.sh --check
       - name: Tests des paquets
         run: |
           for p in Domain SortEngine; do (cd "Packages/$p" && swift test); done

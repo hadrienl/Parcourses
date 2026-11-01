@@ -35,6 +35,8 @@ export function categorizeGroups(): CategorizeGroup[] {
         N("crème fraîche", "creme fraiche"),
         N("Œufs", "oeuf"),
         N("bœuf", "boeuf"),
+        // « œ » suivi d'un accent combinant : la ligature se remplace quand même (U+0153 U+0301).
+        N("\u0153\u0301uf", "oeuf"),
         N("Cœur de laitue", "coeur laitue"),
         N("ex æquo", "ex aequo"),
         N("pâtes/riz", "pate riz"),
