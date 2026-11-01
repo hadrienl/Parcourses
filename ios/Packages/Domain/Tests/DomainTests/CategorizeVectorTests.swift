@@ -42,13 +42,21 @@ let repositoryRoot = URL(fileURLWithPath: #filePath)
   .deletingLastPathComponent()  // ios
   .deletingLastPathComponent()
 
-/// Tous les vecteurs, triés par nom de fichier.
-func loadVectors() throws -> [CategorizeVector] {
+/// Fichiers de vecteurs, triés par nom.
+func vectorFiles() throws -> [URL] {
   let directory = repositoryRoot.appendingPathComponent("shared/test-vectors/categorize")
-  let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+  return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     .filter { $0.pathExtension == "json" }
     .sorted { $0.lastPathComponent < $1.lastPathComponent }
-  return try files.map { try JSONDecoder().decode(CategorizeVector.self, from: Data(contentsOf: $0)) }
+}
+
+func decodeVector(at file: URL) throws -> CategorizeVector {
+  try JSONDecoder().decode(CategorizeVector.self, from: Data(contentsOf: file))
+}
+
+/// Tous les vecteurs, triés par nom de fichier.
+func loadVectors() throws -> [CategorizeVector] {
+  try vectorFiles().map(decodeVector(at:))
 }
 
 /// Classifieur partagé par les tests, sur le dictionnaire embarqué.
@@ -60,6 +68,13 @@ let classifier: CategoryClassifier = {
   let vectors = try loadVectors()
   #expect(vectors.count >= 9)
   #expect(vectors.allSatisfy { $0.formatVersion == 1 && !$0.cases.isEmpty })
+}
+
+@Test func vectorIdsAreUniqueAndMatchFileNames() throws {
+  let files = try vectorFiles()
+  let ids = try files.map { try decodeVector(at: $0).id }
+  #expect(Set(ids).count == ids.count)
+  #expect(ids == files.map { $0.deletingPathExtension().lastPathComponent })
 }
 
 @Test(arguments: try loadVectors())
