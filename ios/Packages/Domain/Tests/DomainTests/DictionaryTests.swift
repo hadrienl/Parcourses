@@ -41,3 +41,7 @@ import Testing
   #expect(
     classifier.classify("") == Classification(normalized: "", categoryId: "other", matchedKeyword: nil, match: .none))
 }
+
+@Test func categoriesVersionIsExposed() throws {
+  #expect(try CategoryResources.categoriesVersion() >= 1)
+}
