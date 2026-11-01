@@ -1,0 +1,7 @@
+# Surcharges de la configuration detekt par défaut.
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+style:
+  UnusedParameter:
+    active: true

@@ -37,6 +37,9 @@ jobs:
       - name: Tests des paquets
         run: |
           for p in Domain SortEngine; do (cd "Packages/$p" && swift test); done
+      - name: Performance du tri (release)
+        working-directory: ios/Packages/SortEngine
+        run: swift test -c release --filter PerformanceTests
 
   lint:
     runs-on: macos-26
