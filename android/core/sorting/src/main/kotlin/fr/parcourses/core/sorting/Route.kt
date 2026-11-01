@@ -5,17 +5,17 @@ package fr.parcourses.core.sorting
 
 /** Coût d'un chemin ouvert (indices de la matrice, départ compris). */
 internal fun pathCost(
-    d: Array<LongArray>,
+    d: DistanceMatrix,
     path: IntArray,
 ): Long {
     var c = 0L
-    for (i in 0 until path.size - 1) c = satAdd(c, d[path[i]][path[i + 1]])
+    for (i in 0 until path.size - 1) c = satAdd(c, d[path[i], path[i + 1]])
     return c
 }
 
 /** Plus proche voisin depuis le nœud 0 ; à égalité, plus petit identifiant d'article. */
 internal fun nearestNeighbour(
-    d: Array<LongArray>,
+    d: DistanceMatrix,
     ids: List<String>,
 ): IntArray {
     val n = d.size
@@ -27,7 +27,7 @@ internal fun nearestNeighbour(
         var best = -1
         for (j in 1 until n) {
             if (used[j]) continue
-            if (best == -1 || isCloser(d[cur], ids, j, best)) best = j
+            if (best == -1 || isCloser(d, cur, ids, j, best)) best = j
         }
         used[best] = true
         path[step] = best
@@ -36,17 +36,18 @@ internal fun nearestNeighbour(
     return path
 }
 
-/** Vrai si `j` est plus proche que `best` depuis la ligne `row` ; à égalité, plus petit id. */
+/** Vrai si `j` est plus proche que `best` depuis `cur` ; à égalité, plus petit id. */
 private fun isCloser(
-    row: LongArray,
+    d: DistanceMatrix,
+    cur: Int,
     ids: List<String>,
     j: Int,
     best: Int,
-): Boolean = row[j] < row[best] || (row[j] == row[best] && compareIds(ids[j], ids[best]) < 0)
+): Boolean = d[cur, j] < d[cur, best] || (d[cur, j] == d[cur, best] && compareIds(ids[j], ids[best]) < 0)
 
 /** 2-opt sur chemin ouvert, première amélioration, ordre de boucle imposé, départ fixe. */
 internal fun twoOpt(
-    d: Array<LongArray>,
+    d: DistanceMatrix,
     path: IntArray,
     maxPasses: Long,
 ): IntArray {
@@ -71,14 +72,14 @@ internal fun twoOpt(
 
 /** Variation de coût si l'on inverse le segment de i à k (la fin de chemin n'a pas d'arc sortant). */
 private fun twoOptDelta(
-    d: Array<LongArray>,
+    d: DistanceMatrix,
     p: IntArray,
     i: Int,
     k: Int,
 ): Long {
     val hasNext = k + 1 < p.size
-    val added = d[p[i - 1]][p[k]] + (if (hasNext) d[p[i]][p[k + 1]] else 0L)
-    val removed = d[p[i - 1]][p[i]] + (if (hasNext) d[p[k]][p[k + 1]] else 0L)
+    val added = d[p[i - 1], p[k]] + (if (hasNext) d[p[i], p[k + 1]] else 0L)
+    val removed = d[p[i - 1], p[i]] + (if (hasNext) d[p[k], p[k + 1]] else 0L)
     return added - removed
 }
 
@@ -88,7 +89,7 @@ private fun twoOptDelta(
  * augmente le moins le coût (à égalité, la plus en tête ; la fin compte comme position).
  */
 internal fun previousPath(
-    d: Array<LongArray>,
+    d: DistanceMatrix,
     ids: List<String>,
     previous: List<String>,
 ): IntArray {
@@ -113,9 +114,9 @@ internal fun previousPath(
             val prev = path[pos - 1]
             val inc =
                 if (pos < path.size) {
-                    d[prev][j] + d[j][path[pos]] - d[prev][path[pos]]
+                    d[prev, j] + d[j, path[pos]] - d[prev, path[pos]]
                 } else {
-                    d[prev][j]
+                    d[prev, j]
                 }
             if (bestPos == -1 || inc < bestInc) {
                 bestPos = pos

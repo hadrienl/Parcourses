@@ -77,17 +77,14 @@ internal class StoreGraph(
         entryCosts = entryBest.values.toLongArray()
     }
 
-    /** Distances depuis l'entrée vers chaque produit ([SORT_INFINITY] si inaccessible). */
-    fun fromEntry(): (String?) -> Long = lookup(dijkstra(entryTargets, entryCosts, source = -1))
+    /** Indice d'un produit dans les distances ; -1 s'il est absent du graphe ou `null`. */
+    fun indexOf(productId: String?): Int = productId?.let { index[it] } ?: -1
 
-    /** Distances depuis un produit ; un produit absent du graphe n'atteint que lui-même. */
-    fun fromProduct(productId: String): (String?) -> Long {
-        val s = index[productId] ?: return { if (it == productId) 0L else SORT_INFINITY }
-        return lookup(dijkstra(neighbours[s], adjacency[s], source = s))
-    }
+    /** Distances depuis l'entrée, par indice de produit ([SORT_INFINITY] si inaccessible). */
+    fun distancesFromEntry(): LongArray = dijkstra(entryTargets, entryCosts, source = -1)
 
-    private fun lookup(dist: LongArray): (String?) -> Long =
-        { id -> id?.let { index[it] }?.let { dist[it] } ?: SORT_INFINITY }
+    /** Distances depuis un produit du graphe, désigné par son indice. */
+    fun distancesFrom(source: Int): LongArray = dijkstra(neighbours[source], adjacency[source], source)
 
     /**
      * Dijkstra entier, file ordonnée par (distance, indice = ordre des identifiants).
