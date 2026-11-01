@@ -3,6 +3,7 @@ package fr.parcourses.core.categorizer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -32,7 +33,7 @@ class CategorizeVectorTest {
     @Test
     fun everyFileInTheDirectoryIsAVector() {
         val files = vectorFiles()
-        assertTrue("vecteurs introuvables dans $vectorDir", files.size >= 9)
+        assertTrue("vecteurs introuvables dans $vectorDir", files.size >= 10)
         files.forEach { file ->
             assertEquals("json", file.extension)
             val vector = parse(file)
@@ -75,5 +76,6 @@ class CategorizeVectorTest {
                     ?.jsonPrimitive
                     ?.content,
             match = MatchKind.entries.single { it.wireName == o.getValue("match").jsonPrimitive.content },
+            organic = o.getValue("organic").jsonPrimitive.boolean,
         )
 }
