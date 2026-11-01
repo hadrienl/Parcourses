@@ -4,7 +4,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 src="$root/shared/categories"
-dst="$root/ios/Packages/Domain/Sources/Domain/Resources"
+dst="$root/ios/Packages/Domain/Sources/Domain/Dictionary"
 files=(categories.json normalization.json keywords.fr.json)
 if [[ "${1:-}" == "--check" ]]; then
   status=0

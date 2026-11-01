@@ -26,7 +26,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       "Store": ["id", "name", "chain", "address", "lastDistanceM", "lastUsedAt"],
       "GraphSnapshot": ["storeId", "snapshotVersion", "paramsVersion", "confidenceQ", "fetchedAt", "payload"],
       "Product": ["id", "name", "normalizedName", "categoryId"],
-      "Category": ["id", "slug", "rank", "label"],
+      "Category": ["id", "slug", "rank", "label", "remoteId"],
       "CategorySeedState": ["id", "version"],
       "OutboxEntry": [
         "id", "sequence", "kindRaw", "entityId", "payload", "createdAt", "attempts", "nextAttemptAt", "lastError",
@@ -373,6 +373,25 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
 @MainActor
 @Suite struct CategorySeedTests {
+  @Test func remoteIdsArePairedBySlugWithoutDeletingAnything() throws {
+    let context = try makeContext()
+    let repository = SwiftDataCategoryRepository(
+      context: context, seedSource: { CategorySeed(version: 1, categories: [dairy, other]) })
+    try repository.seedIfNeeded()
+    try repository.applyRemoteIds([
+      CategoryRow(id: 7, slug: "dairy", name: "Crèmerie", defaultRank: 70),
+      CategoryRow(id: 9, slug: "unknown-here", name: "Inconnue", defaultRank: 90),
+    ])
+    var rows = try repository.categories()
+    #expect(rows.map(\.id) == ["dairy", "other"])
+    #expect(rows.map(\.remoteId) == [7, nil])
+
+    try repository.applyRemoteIds([])
+    rows = try repository.categories()
+    #expect(rows.map(\.id) == ["dairy", "other"])
+    #expect(rows.allSatisfy { $0.remoteId == nil })
+  }
+
   private let other = ItemCategory(id: "other", rank: 999, labelFr: "Autre")
   private let dairy = ItemCategory(id: "dairy", rank: 70, labelFr: "Crèmerie")
 

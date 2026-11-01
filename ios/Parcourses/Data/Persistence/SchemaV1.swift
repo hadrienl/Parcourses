@@ -264,12 +264,15 @@ nonisolated enum SchemaV1: VersionedSchema {
     var slug: String
     var rank: Int
     var label: String
+    /// Identifiant serveur, apparié par slug. `nil` tant que le serveur ne connaît pas ce slug.
+    var remoteId: Int16?
 
-    init(id: String, slug: String, rank: Int, label: String) {
+    init(id: String, slug: String, rank: Int, label: String, remoteId: Int16? = nil) {
       self.id = id
       self.slug = slug
       self.rank = rank
       self.label = label
+      self.remoteId = remoteId
     }
   }
 
