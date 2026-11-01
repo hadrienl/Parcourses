@@ -143,6 +143,21 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
   }
 }
 
+/// Magasin trouvé par nom : la colonne `location` n'est jamais demandée.
+nonisolated struct StoreSearchRow: TableDTO, Equatable {
+  static let table = "stores"
+  static var columns: [String] { CodingKeys.allCases.map(\.rawValue) }
+
+  let id: UUID
+  let name: String
+  let chain: String?
+  let address: String?
+
+  enum CodingKeys: String, CodingKey, CaseIterable {
+    case id, name, chain, address
+  }
+}
+
 /// Produit vu par l'app : sa catégorie est le slug partagé, pas l'`Int16` serveur.
 nonisolated struct RemoteProduct: Sendable, Equatable {
   let id: UUID

@@ -18,7 +18,7 @@ struct RemoteContractTests {
     return tables
   }()
 
-  /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
+  /// Pas de DTO complet : magasins par RPC et recherche partielle (`StoreSearchRow`), graphe écrit et servi par le serveur.
   private static let tablesWithoutDTO: Set<String> = [
     "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots",
   ]
@@ -78,6 +78,12 @@ struct RemoteContractTests {
       let expected = Set(columns).subtracting(Self.serverOnlyColumns[dto.table, default: []])
       #expect(Set(dto.columns) == expected, "\(dto) ≠ \(dto.table)")
     }
+  }
+
+  @Test func storeSearchReadsExistingColumnsButNeverTheLocation() throws {
+    let columns = try #require(Self.contract[StoreSearchRow.table])
+    #expect(Set(StoreSearchRow.columns).isSubset(of: columns))
+    #expect(!StoreSearchRow.columns.contains("location"))
   }
 
   @Test func writeDTOsEncodeExactlyTheirColumnsAndOnlyGrantedOnes() throws {

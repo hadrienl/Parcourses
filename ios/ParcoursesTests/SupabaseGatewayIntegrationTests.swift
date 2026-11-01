@@ -170,6 +170,17 @@ struct SupabaseGatewayIntegrationTests {
     }
   }
 
+  @Test func storeSearchFindsByNameAndTreatsInputAsText() async throws {
+    let gateway = try makeGateway()
+    let known = try #require(
+      try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first)
+    let found = try await gateway.searchStores(query: String(known.name.lowercased().prefix(4)), limit: 20)
+    #expect(found.contains { $0.id == known.id })
+    for hostile in ["%", "_", "*", "a,b)", "\"x", "\\"] {
+      #expect(try await gateway.searchStores(query: hostile, limit: 20).isEmpty, "\(hostile)")
+    }
+  }
+
   @Test func catalogDecodes() async throws {
     let gateway = try makeGateway()
     #expect(try await !gateway.fetchCategories().isEmpty)

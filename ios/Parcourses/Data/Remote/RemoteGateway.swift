@@ -110,4 +110,27 @@ nonisolated protocol RemoteGateway: Sendable {
 
   /// La position n'est ni conservée ni journalisée ici.
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow]
+
+  /// Repli sans position (refus de localisation) : recherche par nom ou adresse.
+  func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow]
+}
+
+/// Filtre de recherche de magasins, au format PostgREST.
+nonisolated enum StoreSearch {
+  static let limit = 20
+  /// Comme `nearby_stores` : un magasin non revu par l'import OSM depuis 90 jours est masqué.
+  static let maxOsmAge: TimeInterval = 90 * 24 * 3600
+
+  /// La saisie reste une valeur citée : ni ses virgules ou parenthèses, ni ses `%` et `_` ne font partie de la syntaxe.
+  static func filter(query: String, seenAfter: String) -> String {
+    // PostgREST lit toujours `*` comme un joker, même échappé : il est retiré.
+    let like = query.replacingOccurrences(of: "*", with: "")
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "%", with: "\\%")
+      .replacingOccurrences(of: "_", with: "\\_")
+    let quoted = ("*" + like + "*").replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
+    return "and(or(name.ilike.\"\(quoted)\",address.ilike.\"\(quoted)\"),"
+      + "or(osm_seen_at.is.null,osm_seen_at.gt.\(seenAfter)))"
+  }
 }

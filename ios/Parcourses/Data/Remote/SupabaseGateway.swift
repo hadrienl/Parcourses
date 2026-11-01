@@ -240,6 +240,17 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
+    // Sans texte utile, le filtre `**` renverrait tous les magasins.
+    guard query.contains(where: { $0 != "*" && !$0.isWhitespace }) else { return [] }
+    let seenAfter = Date.now.addingTimeInterval(-StoreSearch.maxOsmAge).formatted(.iso8601)
+    return try await authorized {
+      try await self.rest.from(StoreSearchRow.table).select(Self.selection(of: StoreSearchRow.self))
+        .or(StoreSearch.filter(query: query, seenAfter: seenAfter))
+        .order("name").order("id").limit(limit).execute().value
+    }
+  }
+
   // MARK: - Outils
 
   private func loadCategories() async throws -> [CategoryRow] {
