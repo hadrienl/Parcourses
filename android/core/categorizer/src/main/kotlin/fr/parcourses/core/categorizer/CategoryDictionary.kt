@@ -63,8 +63,9 @@ object CategoryResources {
     private const val RESOURCE_DIR = "fr/parcourses/core/categorizer"
 
     // Lecture et décodage une seule fois par processus, à la première demande.
+    private val cachedCategoriesFile by lazy { read("categories") }
     private val cachedCategories by lazy {
-        read("categories")
+        cachedCategoriesFile
             .array("categories")
             .map { element ->
                 val o = element.jsonObject
@@ -93,7 +94,10 @@ object CategoryResources {
         )
     }
 
-    /** Les 20 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache. */
+    /** Version de `categories.json` : l'amorçage local n'est rejoué que si elle augmente. */
+    fun categoriesVersion(): Int = cachedCategoriesFile.getValue("version").jsonPrimitive.int
+
+    /** Les 21 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache. */
     fun categories(): List<ItemCategory> = cachedCategories
 
     /** Règles de normalisation françaises. Lues une seule fois, puis servies depuis le cache. */

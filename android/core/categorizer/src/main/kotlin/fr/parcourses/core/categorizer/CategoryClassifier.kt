@@ -28,6 +28,8 @@ data class Classification(
     val matchedKeyword: String?,
     /** Nature de la correspondance. */
     val match: MatchKind,
+    /** Vrai si le libellé contient « bio » ou « biologique », quelle que soit la catégorie (#28). */
+    val organic: Boolean,
 )
 
 /**
@@ -54,13 +56,15 @@ class CategoryClassifier(
     /** Classe un libellé saisi librement. */
     fun classify(raw: String): Classification {
         val normalized = normalizer.normalize(raw)
-        val tokens = if (normalized.isEmpty()) emptyList() else normalized.split(' ')
+        val words = if (normalized.isEmpty()) emptyList() else normalized.split(' ')
+        val tokens = words.filter { it !in ORGANIC_WORDS }
         val decision = matchOverride(tokens) ?: matchPhrase(tokens) ?: matchWord(tokens)
         return Classification(
             normalized = normalized,
             categoryId = decision?.categoryId ?: OTHER_CATEGORY_ID,
             matchedKeyword = decision?.key,
             match = decision?.match ?: MatchKind.None,
+            organic = tokens.size != words.size,
         )
     }
 
@@ -110,6 +114,12 @@ class CategoryClassifier(
     companion object {
         /** Catégorie de repli. */
         const val OTHER_CATEGORY_ID = "other"
+
+        /**
+         * Mots retirés avant la recherche de mots-clés (#28), sous leur forme normalisée :
+         * « biologiques » arrive au singulier. Ils restent dans `normalized`. « AB » est exclu.
+         */
+        val ORGANIC_WORDS: Set<String> = setOf("bio", "biologique")
 
         private fun wordCount(key: String) = key.split(' ').size
     }
