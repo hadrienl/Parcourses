@@ -25,8 +25,9 @@ public struct LabelNormalizer: Sendable {
   /// C'est le `normalizedName` utilisé par le tri de repli.
   public func normalizeText(_ raw: String) -> String {
     // Minuscules sans dépendre de la locale de l'appareil.
+    // `.literal` plus bas : sans cette option, la comparaison par graphème ignore « œ » suivi d'un accent.
     var text = raw.lowercased(with: Locale(identifier: "en_US_POSIX"))
-    for (from, to) in ligatures { text = text.replacingOccurrences(of: from, with: to) }
+    for (from, to) in ligatures { text = text.replacingOccurrences(of: from, with: to, options: .literal) }
     var output = String.UnicodeScalarView()
     var pendingSpace = false
     for scalar in text.decomposedStringWithCanonicalMapping.unicodeScalars {
