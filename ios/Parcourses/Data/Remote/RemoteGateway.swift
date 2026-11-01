@@ -61,10 +61,7 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   /// Classe un statut HTTP pour les réponses sans code PostgREST. Un 403 de passerelle reste réessayable :
   /// le traiter comme un refus RLS ferait disparaître une coche jamais reçue.
   static func fromHTTP(status: Int) -> RemoteError {
-    switch status {
-    case 401: .unauthorized
-    default: .server(code: String(status))
-    }
+    status == 401 ? .unauthorized : .server(code: String(status))
   }
 
   /// Erreur d'une réponse en échec dont le corps ne porte pas de `code` : son statut se perdrait ensuite.

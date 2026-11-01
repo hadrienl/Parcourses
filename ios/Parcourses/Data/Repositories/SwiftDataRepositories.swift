@@ -46,7 +46,12 @@ final class SwiftDataListRepository: ListRepository {
   private let onEnqueue: () -> Void
 
   /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
-  init(context: ModelContext, onEnqueue: @escaping () -> Void = { /* Aucun moteur à réveiller. */  }) {
+  init(
+    context: ModelContext,
+    onEnqueue: @escaping () -> Void = {
+      // Aucun moteur à réveiller.
+    }
+  ) {
     self.context = context
     self.onEnqueue = onEnqueue
   }
@@ -131,7 +136,7 @@ final class SwiftDataListRepository: ListRepository {
     onEnqueue()
   }
 
-  func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws {
+  func setNotFound(itemId: UUID, notFoundAt: Date?, at _: Date) throws {
     let item = try requireWritableItem(itemId)
     // Champ purement local (#9 question 4) : ni envoi, ni `updatedAt`, qui suit l'état partagé.
     item.notFoundAt = notFoundAt
@@ -228,7 +233,12 @@ final class SwiftDataVisitRepository: VisitRepository {
   private let onEnqueue: () -> Void
 
   /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
-  init(context: ModelContext, onEnqueue: @escaping () -> Void = { /* Aucun moteur à réveiller. */  }) {
+  init(
+    context: ModelContext,
+    onEnqueue: @escaping () -> Void = {
+      // Aucun moteur à réveiller.
+    }
+  ) {
     self.context = context
     self.onEnqueue = onEnqueue
   }

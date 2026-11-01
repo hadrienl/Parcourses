@@ -20,7 +20,10 @@ final class AppEnvironment {
     let context = container.mainContext
     let sync = try gateway.map { try SyncRuntime(gateway: $0, container: container) }
     self.sync = sync
-    let onEnqueue: () -> Void = sync?.enqueued ?? { /* Sans configuration : rien à réveiller. */  }
+    let onEnqueue: () -> Void =
+      sync?.enqueued ?? {
+        // Sans configuration : rien à réveiller.
+      }
     lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue)
     visits = SwiftDataVisitRepository(context: context, onEnqueue: onEnqueue)
     products = SwiftDataProductRepository(context: context)
