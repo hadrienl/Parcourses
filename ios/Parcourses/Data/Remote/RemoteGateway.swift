@@ -83,6 +83,14 @@ nonisolated struct CategoryMap: Sendable, Equatable {
   func slug(forRemoteId id: Int16) -> String? { slugsById[id] }
 }
 
+/// Une visite telle que le compte courant la voit.
+nonisolated enum VisitAccess: Sendable, Equatable {
+  case open
+  case closed
+  /// Absente ou appartenant à un autre compte : la RLS ne permet pas de distinguer.
+  case notVisible
+}
+
 /// Accès distant de l'app. `SupabaseGateway` en est l'implémentation ; les tests fournissent une doublure.
 /// Toutes les écritures sont idempotentes : la file peut les rejouer. Elles lèvent `RemoteError`.
 nonisolated protocol RemoteGateway: Sendable {
@@ -101,6 +109,8 @@ nonisolated protocol RemoteGateway: Sendable {
   func createVisit(_ visit: VisitInsert) async throws
   func insertChecks(_ checks: [CheckUpload]) async throws
   func closeVisit(id: UUID, endedAt: Date) async throws
+  /// Ce que la RLS laisse voir d'une visite : distingue une coche tardive d'une visite d'un autre compte.
+  func visitAccess(id: UUID) async throws -> VisitAccess
 
   /// `updatedAfter` a un recouvrement de quelques secondes : l'appelant doit fusionner de façon idempotente.
   func fetchLists(updatedAfter: Date?) async throws -> [ListRow]

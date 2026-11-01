@@ -43,6 +43,7 @@ private final class FakeLocation: LocationProvider {
 }
 
 private actor FakeGateway: RemoteGateway {
+  func visitAccess(id: UUID) async throws -> VisitAccess { .notVisible }
   struct NearbyCall: Equatable {
     let lat: Double
     let lng: Double

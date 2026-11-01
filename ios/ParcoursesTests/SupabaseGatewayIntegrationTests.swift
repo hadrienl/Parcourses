@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 
 @testable import Parcourses
@@ -21,10 +22,20 @@ private nonisolated enum LocalSupabase {
 
 @Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
 struct SupabaseGatewayIntegrationTests {
-  private func makeGateway(service: String = UUID().uuidString) throws -> SupabaseGateway {
+  private func makeGateway(service: String = UUID().uuidString, signedIn: Bool = true) async throws -> SupabaseGateway {
     let configuration = try #require(LocalSupabase.configuration)
-    return SupabaseGateway(
+    let gateway = SupabaseGateway(
       configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"))
+    if signedIn { try await gateway.ensureSession() }
+    return gateway
+  }
+
+  @Test func withoutSessionARequestCreatesNoAccount() async throws {
+    let gateway = try await makeGateway(signedIn: false)
+    await #expect(throws: RemoteError.unauthorized) { try await gateway.fetchLists(updatedAfter: nil) }
+    await #expect(throws: RemoteError.unauthorized) {
+      try await gateway.saveList(ListUpsert(id: UUID(), name: "Sans session"))
+    }
   }
 
   private func anyStoreId(_ gateway: SupabaseGateway) async throws -> UUID {
@@ -43,7 +54,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func concurrentCallsCreateASingleAccount() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway(signedIn: false)
     async let first = gateway.ensureSession()
     async let second = gateway.ensureSession()
     let (a, b) = try await (first, second)
@@ -51,7 +62,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func listsAndItemsAreIdempotentAndPrivate() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let owner = try await gateway.ensureSession()
     let list = ListUpsert(id: UUID(), name: "Courses")
     try await gateway.saveList(list)
@@ -81,7 +92,7 @@ struct SupabaseGatewayIntegrationTests {
     #expect(items.first?.quantity == nil)
     #expect(items.first?.checkedAt == nil)
 
-    let stranger = try makeGateway()
+    let stranger = try await makeGateway()
     #expect(try await stranger.fetchLists(updatedAfter: nil).isEmpty)
     #expect(try await stranger.fetchItems(updatedAfter: nil).isEmpty)
 
@@ -97,7 +108,7 @@ struct SupabaseGatewayIntegrationTests {
 
   /// Contrat hors ligne de `docs/data-model.md`, côté gateway.
   @Test func visitAndChecksFollowTheOfflineContract() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let storeId = try await anyStoreId(gateway)
     let categories = try await gateway.fetchCategories()
     let products = try await gateway.fetchProducts()
@@ -139,7 +150,7 @@ struct SupabaseGatewayIntegrationTests {
     let service = UUID().uuidString
     let store = KeychainStore(service: "app.parcourses.tests.\(service)")
     defer { try? store.removeAll() }
-    let gateway = try makeGateway(service: service)
+    let gateway = try await makeGateway(service: service)
     let id = try await gateway.ensureSession()
     try store.set(Data(UUID().uuidString.utf8), forKey: SupabaseGateway.lastAccountKey)
 
@@ -152,7 +163,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func anUnknownCategorySlugIsAnError() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let storeId = try await anyStoreId(gateway)
     let visit = VisitInsert(id: UUID(), storeId: storeId, listId: nil, listWasSorted: false, startedAt: .now)
     try await gateway.createVisit(visit)
@@ -162,7 +173,7 @@ struct SupabaseGatewayIntegrationTests {
 
   /// #36 : un identifiant de `shared/categories/` a sa ligne serveur.
   @Test func aSharedCategorySlugIsAccepted() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let storeId = try await anyStoreId(gateway)
     let visit = VisitInsert(id: UUID(), storeId: storeId, listId: nil, listWasSorted: false, startedAt: .now)
     try await gateway.createVisit(visit)
@@ -171,7 +182,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func nearbyStoresReturnsSortedDistances() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let stores = try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 5)
     #expect(!stores.isEmpty)
     #expect(stores.map(\.distanceM) == stores.map(\.distanceM).sorted())
@@ -181,7 +192,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func storeSearchFindsByNameAndTreatsInputAsText() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     let known = try #require(
       try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first)
     let found = try await gateway.searchStores(query: String(known.name.lowercased().prefix(4)), limit: 20)
@@ -195,7 +206,7 @@ struct SupabaseGatewayIntegrationTests {
   }
 
   @Test func catalogDecodes() async throws {
-    let gateway = try makeGateway()
+    let gateway = try await makeGateway()
     #expect(try await !gateway.fetchCategories().isEmpty)
     #expect(try await !gateway.fetchProducts().isEmpty)
   }
@@ -207,5 +218,227 @@ struct SupabaseGatewayIntegrationTests {
       store: KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
     )
     await #expect(throws: RemoteError.network) { try await gateway.ensureSession() }
+  }
+}
+
+/// Gateway réel, coupé à la demande : simule la perte de réseau de bout en bout.
+private actor SwitchableGateway: RemoteGateway {
+  let remote: SupabaseGateway
+  var isOffline = false
+
+  init(_ remote: SupabaseGateway) { self.remote = remote }
+  func setOffline(_ value: Bool) { isOffline = value }
+  private func check() throws { if isOffline { throw RemoteError.network } }
+
+  func ensureSession(captchaToken: String?) async throws -> UUID {
+    try check()
+    return try await remote.ensureSession(captchaToken: captchaToken)
+  }
+  func acceptCurrentAccount() async throws { try await remote.acceptCurrentAccount() }
+  func saveList(_ list: ListUpsert) async throws {
+    try check()
+    try await remote.saveList(list)
+  }
+  func deleteList(id: UUID) async throws {
+    try check()
+    try await remote.deleteList(id: id)
+  }
+  func saveItem(_ item: ListItemUpsert) async throws {
+    try check()
+    try await remote.saveItem(item)
+  }
+  func deleteItem(id: UUID) async throws {
+    try check()
+    try await remote.deleteItem(id: id)
+  }
+  func createVisit(_ visit: VisitInsert) async throws {
+    try check()
+    try await remote.createVisit(visit)
+  }
+  func insertChecks(_ checks: [CheckUpload]) async throws {
+    try check()
+    try await remote.insertChecks(checks)
+  }
+  func closeVisit(id: UUID, endedAt: Date) async throws {
+    try check()
+    try await remote.closeVisit(id: id, endedAt: endedAt)
+  }
+  func visitAccess(id: UUID) async throws -> VisitAccess {
+    try check()
+    return try await remote.visitAccess(id: id)
+  }
+  func fetchLists(updatedAfter: Date?) async throws -> [ListRow] {
+    try check()
+    return try await remote.fetchLists(updatedAfter: updatedAfter)
+  }
+  func fetchItems(updatedAfter: Date?) async throws -> [ListItemRow] {
+    try check()
+    return try await remote.fetchItems(updatedAfter: updatedAfter)
+  }
+  func fetchCategories() async throws -> [CategoryRow] {
+    try check()
+    return try await remote.fetchCategories()
+  }
+  func fetchProducts() async throws -> [RemoteProduct] {
+    try check()
+    return try await remote.fetchProducts()
+  }
+  func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] {
+    try await remote.nearbyStores(lat: lat, lng: lng, radiusM: radiusM, maxResults: maxResults)
+  }
+  func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
+    try await remote.searchStores(query: query, limit: limit)
+  }
+}
+
+private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
+  var lists: Date?
+  var items: Date?
+  var catalog: Date?
+}
+
+/// La file complète contre le Supabase local.
+@MainActor
+@Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
+struct SyncEngineIntegrationTests {
+  private struct Setup {
+    let remote: SupabaseGateway
+    let gateway: SwitchableGateway
+    let engine: SyncEngine
+    let context: ModelContext
+    let lists: SwiftDataListRepository
+    let visits: SwiftDataVisitRepository
+    let container: ModelContainer
+    let service: String
+  }
+
+  private func makeSetup(service: String = UUID().uuidString) async throws -> Setup {
+    let configuration = try #require(LocalSupabase.configuration)
+    let remote = SupabaseGateway(
+      configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"))
+    try await remote.ensureSession()
+    let gateway = SwitchableGateway(remote)
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let categories = SwiftDataCategoryRepository(context: container.mainContext)
+    try categories.seedIfNeeded()
+    let engine = SyncEngine(
+      gateway: gateway, container: container, cursors: ItCursors(), classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    return Setup(
+      remote: remote, gateway: gateway, engine: engine, context: container.mainContext,
+      lists: SwiftDataListRepository(context: container.mainContext),
+      visits: SwiftDataVisitRepository(context: container.mainContext), container: container, service: service)
+  }
+
+  private func pending(_ setup: Setup) throws -> [OutboxEntry] {
+    try setup.context.fetch(FetchDescriptor<OutboxEntry>())
+  }
+
+  @Test func offlineShoppingReachesTheServerOnceBack() async throws {
+    let setup = try await makeSetup()
+    let storeId = try #require(
+      try await setup.remote.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first
+    ).id
+
+    await setup.gateway.setOffline(true)
+    let start = Date.now.addingTimeInterval(-60)
+    let list = try setup.lists.createList(name: "Hors ligne", at: start)
+    let item = try setup.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: "1", productId: nil, categoryId: "other",
+      at: start)
+    let visit = try setup.visits.startVisit(storeId: storeId, listId: list.id, listWasSorted: false, at: start)
+    try setup.visits.addCheck(
+      visitId: visit.id, itemId: item.id, subject: .category("other"), checkedAt: start.addingTimeInterval(1))
+    try setup.visits.closeVisit(id: visit.id, at: start.addingTimeInterval(2))
+    await setup.engine.drain()
+    #expect(try pending(setup).count == 5)
+
+    await setup.gateway.setOffline(false)
+    await setup.engine.drain(pull: true)
+    #expect(try pending(setup).isEmpty)
+    #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.name) == ["Hors ligne"])
+    #expect(try await setup.remote.fetchItems(updatedAfter: nil).map(\.label) == ["Lait"])
+    #expect(try await setup.remote.visitAccess(id: visit.id) == .closed)
+    let products = try setup.context.fetchCount(FetchDescriptor<Product>())
+    #expect(products > 0)
+  }
+
+  @Test func aVisitWhoseListWasDeletedArrivesWithoutList() async throws {
+    let setup = try await makeSetup()
+    let storeId = try #require(
+      try await setup.remote.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first
+    ).id
+    let start = Date.now.addingTimeInterval(-60)
+    let list = try setup.lists.createList(name: "Vite supprimée", at: start)
+    let listId = list.id
+    let visit = try setup.visits.startVisit(storeId: storeId, listId: listId, listWasSorted: false, at: start)
+    try setup.lists.deleteList(id: listId, at: start)
+    await setup.engine.drain()
+    try setup.visits.addCheck(
+      visitId: visit.id, itemId: UUID(), subject: .category("other"), checkedAt: start.addingTimeInterval(1))
+    await setup.engine.drain()
+    #expect(try pending(setup).isEmpty)
+    #expect(try await setup.remote.visitAccess(id: visit.id) == .open)
+  }
+
+  @Test func aLateCheckIsReceivedAndAForeignVisitIsSentAgain() async throws {
+    let setup = try await makeSetup()
+    let storeId = try #require(
+      try await setup.remote.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first
+    ).id
+    let start = Date.now.addingTimeInterval(-60)
+
+    // Visite déjà close côté serveur, coche encore en file : 42501, reçue.
+    let list = try setup.lists.createList(name: "A", at: start)
+    let closed = try setup.visits.startVisit(storeId: storeId, listId: list.id, listWasSorted: false, at: start)
+    try setup.visits.addCheck(
+      visitId: closed.id, itemId: UUID(), subject: .category("other"), checkedAt: start.addingTimeInterval(1))
+    await setup.engine.drain()
+    try await setup.remote.closeVisit(id: closed.id, endedAt: .now)
+    let late = try setup.visits.addCheck(
+      visitId: closed.id, itemId: UUID(), subject: .category("other"), checkedAt: start.addingTimeInterval(2))
+    await setup.engine.drain()
+    #expect(try pending(setup).isEmpty)
+    let lateId = late.id
+    #expect(
+      try setup.context.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.id == lateId })).first?.syncState
+        == .synced)
+
+    // Visite d'un autre compte, même identifiant : gardée en local, jamais marquée reçue.
+    let foreign = try await makeSetup()
+    let foreignVisit = VisitInsert(id: UUID(), storeId: storeId, listId: nil, listWasSorted: false, startedAt: start)
+    try await foreign.remote.createVisit(foreignVisit)
+    let mine = Visit(id: foreignVisit.id, storeId: storeId, listId: list.id, listWasSorted: false, startedAt: start)
+    setup.context.insert(mine)
+    try setup.context.save()
+    let check = try setup.visits.addCheck(
+      visitId: mine.id, itemId: UUID(), subject: .category("other"), checkedAt: start.addingTimeInterval(1))
+    let checkId = check.id
+    await setup.engine.drain()
+    #expect(
+      try setup.context.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.id == checkId })).first?.syncState
+        == .failed)
+  }
+
+  @Test func aChangedAccountPausesWithoutWriting() async throws {
+    let service = UUID().uuidString
+    let setup = try await makeSetup(service: service)
+    let list = try setup.lists.createList(name: "Avant", at: .now)
+    await setup.engine.drain()
+
+    let store = KeychainStore(service: "app.parcourses.tests.\(service)")
+    let current = try #require(try store.data(forKey: SupabaseGateway.lastAccountKey))
+    try store.set(Data(UUID().uuidString.utf8), forKey: SupabaseGateway.lastAccountKey)
+    try setup.lists.renameList(id: list.id, name: "Après", at: .now)
+    await setup.engine.drain()
+    #expect(await setup.engine.pause == .accountChanged)
+    #expect(try pending(setup).count == 1)
+
+    try store.set(current, forKey: SupabaseGateway.lastAccountKey)
+    await setup.engine.resume()
+    await setup.engine.drain()
+    #expect(try pending(setup).isEmpty)
+    #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.name) == ["Après"])
+    try store.removeAll()
   }
 }

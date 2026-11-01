@@ -4,8 +4,19 @@ import SwiftUI
 @main
 struct ParcoursesApp: App {
   /// Une erreur ici (store illisible, App Group absent) s'affiche : on ne repart jamais sur un store vide en silence.
-  @State private var environment = Result { try AppEnvironment.live() }
-  private let gateway = AuthBootstrap.makeGateway()
+  @State private var environment: Result<AppEnvironment, any Error>
+  @Environment(\.scenePhase) private var scenePhase
+  private let gateway: (any RemoteGateway)?
+
+  init() {
+    let gateway = AuthBootstrap.makeGateway()
+    self.gateway = gateway
+    _environment = State(initialValue: Result { try AppEnvironment.live(gateway: gateway) })
+  }
+
+  private var sync: SyncRuntime? {
+    try? environment.get().sync
+  }
 
   var body: some Scene {
     WindowGroup {
@@ -13,12 +24,35 @@ struct ParcoursesApp: App {
       case .success(let environment):
         RootView(environment: environment)
           .task {
-            if let gateway { await AuthBootstrap.signIn(gateway) }
+            environment.sync?.start()
+            if let gateway {
+              await AuthBootstrap.signIn(gateway)
+              environment.sync?.sessionDidChange()
+            }
           }
       case .failure(let error):
         StoreFailureView(error: error)
       }
     }
+    .onChange(of: scenePhase) { _, phase in
+      switch phase {
+      case .active: sync?.foreground()
+      case .background: if sync != nil { SyncRuntime.scheduleBackgroundRefresh() }
+      default: break
+      }
+    }
+    .backgroundTask(.appRefresh(SyncRuntime.backgroundTaskIdentifier)) {
+      await refreshInBackground()
+    }
+  }
+}
+
+extension ParcoursesApp {
+  private func refreshInBackground() async {
+    guard let sync else { return }
+    // Une seule tâche planifiée à la fois : la suivante se demande ici.
+    SyncRuntime.scheduleBackgroundRefresh()
+    await sync.backgroundRefresh()
   }
 }
 

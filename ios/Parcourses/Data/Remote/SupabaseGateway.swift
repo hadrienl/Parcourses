@@ -86,6 +86,18 @@ actor SupabaseGateway: RemoteGateway {
     return id
   }
 
+  private func resolveExistingSession() async throws -> UUID {
+    guard client.auth.currentSession != nil else { throw RemoteError.unauthorized }
+    let id = try await client.auth.session.user.id
+    let known = try store.data(forKey: Self.lastAccountKey).flatMap { String(bytes: $0, encoding: .utf8) }
+    if let known {
+      guard known == id.uuidString else { throw RemoteError.accountChanged }
+    } else {
+      try store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey)
+    }
+    return id
+  }
+
   private func currentOrNewUser(captchaToken: String?) async throws -> UUID {
     let auth = client.auth
     if auth.currentSession != nil {
@@ -191,6 +203,15 @@ actor SupabaseGateway: RemoteGateway {
         .eq("id", value: id)
         .is("ended_at", value: nil)
         .execute()
+    }
+  }
+
+  func visitAccess(id: UUID) async throws -> VisitAccess {
+    try await authorized {
+      let rows: [VisitEndRow] =
+        try await self.rest.from(VisitInsert.table).select("ended_at").eq("id", value: id).execute().value
+      guard let row = rows.first else { return .notVisible }
+      return row.endedAt == nil ? .open : .closed
     }
   }
 
@@ -304,7 +325,8 @@ actor SupabaseGateway: RemoteGateway {
   /// Toute requête passe par une session valide du même compte, puis ses erreurs sont classées.
   private func authorized<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
     try await mapped {
-      _ = try await self.resolveSession(captchaToken: nil)
+      // Jamais de compte créé ici : sans session, l'appelant reçoit `unauthorized` et attend.
+      _ = try await self.resolveExistingSession()
       return try await operation()
     }
   }
@@ -352,6 +374,14 @@ actor SupabaseGateway: RemoteGateway {
 
 private nonisolated struct IdentifierRow: Decodable, Sendable {
   let id: UUID
+}
+
+private nonisolated struct VisitEndRow: Decodable, Sendable {
+  let endedAt: Date?
+
+  enum CodingKeys: String, CodingKey {
+    case endedAt = "ended_at"
+  }
 }
 
 private nonisolated struct SearchStoresParameters: Encodable, Sendable {
