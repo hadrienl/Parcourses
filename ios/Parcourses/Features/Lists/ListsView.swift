@@ -21,6 +21,7 @@ struct ListsView: View {
       .safeAreaInset(edge: .bottom) { createButton }
       // Relancé à chaque retour sur l'écran, pour des compteurs à jour.
       .task { model.load() }
+      .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
       .alert("Nouvelle liste", isPresented: $isCreating) {
         TextField("Nom de la liste", text: $nameInput)
         Button("Annuler", role: .cancel) { isCreating = false }

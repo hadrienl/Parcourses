@@ -50,6 +50,8 @@ targets:
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
         UILaunchScreen: {}
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [app.parcourses.sync]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSSupportsLiveActivities: true
         NSLocationWhenInUseUsageDescription: "Parcourses utilise votre position une seule fois pour trouver le magasin où vous êtes. Elle n'est ni conservée ni envoyée ailleurs que pour cette recherche."

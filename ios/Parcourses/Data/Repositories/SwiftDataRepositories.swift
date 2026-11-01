@@ -8,6 +8,18 @@ extension ModelContext {
     try commit(using: save)
   }
 
+  /// Exécute des écritures et les enregistre ; toute erreur les annule, enregistrement ou mise en file.
+  func atomically<Result>(_ body: () throws -> Result) throws -> Result {
+    do {
+      let result = try body()
+      try save()
+      return result
+    } catch {
+      rollback()
+      throw error
+    }
+  }
+
   /// Variante à sauvegarde injectée : un store SwiftData sain n'échoue pas à la demande.
   func commit(using save: () throws -> Void) throws {
     do {
@@ -19,11 +31,29 @@ extension ModelContext {
   }
 }
 
+extension ModelContext {
+  /// Sans enregistrer. Ne supprime ni n'ajoute aucune catégorie locale.
+  nonisolated func applyRemoteCategoryIds(_ rows: [CategoryRow]) throws {
+    let map = CategoryMap(rows: rows)
+    for category in try fetch(FetchDescriptor<Category>()) {
+      category.remoteId = map.remoteId(forSlug: category.slug)
+    }
+  }
+}
+
 final class SwiftDataListRepository: ListRepository {
   private let context: ModelContext
+  private let onEnqueue: () -> Void
 
-  init(context: ModelContext) {
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  init(
+    context: ModelContext,
+    onEnqueue: @escaping () -> Void = {
+      // Aucun moteur à réveiller.
+    }
+  ) {
     self.context = context
+    self.onEnqueue = onEnqueue
   }
 
   func lists() throws -> [ShoppingList] {
@@ -39,26 +69,36 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func createList(name: String, at date: Date) throws -> ShoppingList {
-    let list = ShoppingList(name: name, createdAt: date, updatedAt: date)
-    context.insert(list)
-    try context.commit()
+    let list = try context.atomically {
+      let list = ShoppingList(name: name, createdAt: date, updatedAt: date)
+      context.insert(list)
+      try context.enqueueUpsert(of: list, at: date)
+      return list
+    }
+    onEnqueue()
     return list
   }
 
   func renameList(id: UUID, name: String, at date: Date) throws {
     let list = try requireActiveList(id)
-    list.name = name
-    list.updatedAt = date
-    list.syncState = .pending
-    try context.commit()
+    try context.atomically {
+      list.name = name
+      list.updatedAt = date
+      list.syncState = .pending
+      try context.enqueueUpsert(of: list, at: date)
+    }
+    onEnqueue()
   }
 
   func deleteList(id: UUID, at date: Date) throws {
     let list = try requireActiveList(id)
-    list.deletedAt = date
-    list.updatedAt = date
-    list.syncState = .pending
-    try context.commit()
+    try context.atomically {
+      list.deletedAt = date
+      list.updatedAt = date
+      list.syncState = .pending
+      try context.enqueueDeletion(ofList: id, at: date)
+    }
+    onEnqueue()
   }
 
   func items(listId: UUID) throws -> [ListItem] {
@@ -73,33 +113,43 @@ final class SwiftDataListRepository: ListRepository {
   ) throws -> ListItem {
     _ = try requireActiveList(listId)
     let position = (try items(listId: listId).last?.position ?? -1) + 1
-    let item = ListItem(
-      listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
-      categoryId: categoryId, position: position, updatedAt: date)
-    context.insert(item)
-    try context.commit()
+    let item = try context.atomically {
+      let item = ListItem(
+        listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
+        categoryId: categoryId, position: position, updatedAt: date)
+      context.insert(item)
+      try context.enqueueUpsert(of: item, at: date)
+      return item
+    }
+    onEnqueue()
     return item
   }
 
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws {
     let item = try requireWritableItem(itemId)
-    item.checkedAt = checkedAt
-    item.updatedAt = date
-    item.syncState = .pending
-    try context.commit()
+    try context.atomically {
+      item.checkedAt = checkedAt
+      item.updatedAt = date
+      item.syncState = .pending
+      try context.enqueueUpsert(of: item, at: date)
+    }
+    onEnqueue()
   }
 
-  func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws {
+  func setNotFound(itemId: UUID, notFoundAt: Date?, at _: Date) throws {
     let item = try requireWritableItem(itemId)
-    // Champ purement local (#9 question 4) : rien à renvoyer au serveur.
+    // Champ purement local (#9 question 4) : ni envoi, ni `updatedAt`, qui suit l'état partagé.
     item.notFoundAt = notFoundAt
-    item.updatedAt = date
     try context.commit()
   }
 
   func deleteItem(id: UUID) throws {
-    context.delete(try requireWritableItem(id))
-    try context.commit()
+    let item = try requireWritableItem(id)
+    try context.atomically {
+      try context.enqueueDeletion(ofItem: id, listId: item.listId, at: .now)
+      context.delete(item)
+    }
+    onEnqueue()
   }
 
   func itemHistory() throws -> [ListItem] {
@@ -180,9 +230,17 @@ final class SwiftDataStoreRepository: StoreRepository {
 
 final class SwiftDataVisitRepository: VisitRepository {
   private let context: ModelContext
+  private let onEnqueue: () -> Void
 
-  init(context: ModelContext) {
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  init(
+    context: ModelContext,
+    onEnqueue: @escaping () -> Void = {
+      // Aucun moteur à réveiller.
+    }
+  ) {
     self.context = context
+    self.onEnqueue = onEnqueue
   }
 
   func visit(id: UUID) throws -> Visit? {
@@ -197,6 +255,7 @@ final class SwiftDataVisitRepository: VisitRepository {
   }
 
   func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit {
+    // Rien en file : la création part avec la première coche (#9 §5.5).
     let visit = Visit(storeId: storeId, listId: listId, listWasSorted: listWasSorted, startedAt: date)
     context.insert(visit)
     try context.commit()
@@ -213,8 +272,13 @@ final class SwiftDataVisitRepository: VisitRepository {
     case .category(let categoryId):
       check = Check(visitId: visitId, itemId: itemId, productId: nil, categoryId: categoryId, checkedAt: checkedAt)
     }
-    context.insert(check)
-    try context.commit()
+    let isFirstCheck = try checks(visitId: visitId).isEmpty
+    try context.atomically {
+      context.insert(check)
+      if isFirstCheck { try context.enqueueCreation(of: visit, listId: visit.listId, at: checkedAt) }
+      try context.enqueueInsertion(of: check, at: checkedAt)
+    }
+    onEnqueue()
     return check
   }
 
@@ -231,9 +295,12 @@ final class SwiftDataVisitRepository: VisitRepository {
       try context.commit()
       return false
     }
-    visit.endedAt = date
-    visit.endSyncState = .pending
-    try context.commit()
+    try context.atomically {
+      visit.endedAt = date
+      visit.endSyncState = .pending
+      try context.enqueueClosure(ofVisit: id, endedAt: date, at: date)
+    }
+    onEnqueue()
     return true
   }
 }
@@ -307,10 +374,7 @@ final class SwiftDataCategoryRepository: CategoryRepository {
   }
 
   func applyRemoteIds(_ rows: [CategoryRow]) throws {
-    let map = CategoryMap(rows: rows)
-    for category in try context.fetch(FetchDescriptor<Category>()) {
-      category.remoteId = map.remoteId(forSlug: category.slug)
-    }
+    try context.applyRemoteCategoryIds(rows)
     try context.commit()
   }
 

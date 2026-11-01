@@ -64,7 +64,7 @@ struct LockedKeychainTests {
     // Adresse injoignable : une tentative de connexion donnerait `.network`, pas `.unauthorized`.
     let configuration = try #require(SupabaseConfiguration(url: "http://127.0.0.1:9", publishableKey: "k"))
     let gateway = SupabaseGateway(configuration: configuration, store: LockedStore())
-    await #expect(throws: RemoteError.unauthorized) { try await gateway.ensureSession() }
+    await #expect(throws: RemoteError.keychainLocked) { try await gateway.ensureSession() }
   }
 
   @Test func sentinelRoundTripsOnARealKeychain() throws {

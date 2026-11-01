@@ -183,7 +183,7 @@ struct RemoteErrorTests {
   @Test(arguments: [
     (401, RemoteError.unauthorized),
     (403, .server(code: "403")),
-    (404, .rejected(code: "404")),
+    (404, .server(code: "404")),
     (429, .server(code: "429")),
     (503, .server(code: "503")),
   ])
@@ -218,7 +218,7 @@ struct RemoteClassificationTests {
     #expect(SupabaseGateway.classify(PostgrestError(message: "m")) == .unexpected)
     #expect(SupabaseGateway.classify(URLError(.notConnectedToInternet)) == .network)
     #expect(SupabaseGateway.classify(CancellationError()) == .network)
-    #expect(SupabaseGateway.classify(KeychainError(status: -25308)) == .unauthorized)
+    #expect(SupabaseGateway.classify(KeychainError(status: -25308)) == .keychainLocked)
     #expect(SupabaseGateway.classify(CocoaError(.fileNoSuchFile)) == .unexpected)
   }
 
@@ -250,5 +250,25 @@ struct SupabaseConfigurationTests {
   @Test func acceptsAValidEnvironment() {
     let configuration = SupabaseConfiguration(url: "http://127.0.0.1:56321", publishableKey: "k")
     #expect(configuration?.url.port == 56321)
+  }
+}
+
+@Suite struct ReviewedRemoteErrorTests {
+  @Test func onlyClientFailuresWithoutMeaningAreCapped() {
+    #expect(RemoteError.server(code: "404").isCappedClientFailure)
+    #expect(!RemoteError.server(code: "403").isCappedClientFailure)
+    #expect(!RemoteError.server(code: "429").isCappedClientFailure)
+    #expect(!RemoteError.server(code: "503").isCappedClientFailure)
+    #expect(!RemoteError.server(code: "PGRST000").isCappedClientFailure)
+  }
+
+  @Test func aMissingSlugIsReloadedAtMostOncePerLifetime() {
+    let date = Date(timeIntervalSince1970: 1_800_000_000)
+    var map = CategoryMap(rows: [CategoryRow(id: 1, slug: "dairy", name: "n", defaultRank: 1)])
+    #expect(!map.shouldReload(forSlug: "dairy", now: date))
+    #expect(map.shouldReload(forSlug: "x", now: date))
+    map.markMissing("x", at: date)
+    #expect(!map.shouldReload(forSlug: "x", now: date.addingTimeInterval(10)))
+    #expect(map.shouldReload(forSlug: "x", now: date.addingTimeInterval(CategoryMap.missingSlugLifetime)))
   }
 }

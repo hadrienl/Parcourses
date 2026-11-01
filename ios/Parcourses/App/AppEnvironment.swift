@@ -10,11 +10,22 @@ final class AppEnvironment {
   private let products: any ProductRepository
   private let categories: any CategoryRepository
   private let entryAnalyzer: EntryAnalyzer
+  /// `nil` sans configuration Supabase : l'app reste entièrement locale.
+  let sync: SyncRuntime?
+  /// Pour le mode courses (9.9) : ses écritures réveillent déjà la file.
+  let visits: any VisitRepository
 
-  init(container: ModelContainer) throws {
+  init(container: ModelContainer, gateway: (any RemoteGateway)? = nil) throws {
     self.container = container
     let context = container.mainContext
-    lists = SwiftDataListRepository(context: context)
+    let sync = try gateway.map { try SyncRuntime(gateway: $0, container: container) }
+    self.sync = sync
+    let onEnqueue: () -> Void =
+      sync?.enqueued ?? {
+        // Sans configuration : rien à réveiller.
+      }
+    lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue)
+    visits = SwiftDataVisitRepository(context: context, onEnqueue: onEnqueue)
     products = SwiftDataProductRepository(context: context)
     let categories = SwiftDataCategoryRepository(context: context)
     try categories.seedIfNeeded()
@@ -22,8 +33,8 @@ final class AppEnvironment {
     entryAnalyzer = try EntryAnalyzer()
   }
 
-  static func live() throws -> AppEnvironment {
-    try AppEnvironment(container: PersistenceStack.makeContainer(storage: storage()))
+  static func live(gateway: (any RemoteGateway)?) throws -> AppEnvironment {
+    try AppEnvironment(container: PersistenceStack.makeContainer(storage: storage()), gateway: gateway)
   }
 
   func makeListsModel() -> ListsModel {

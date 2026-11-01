@@ -36,6 +36,7 @@ struct ListDetailView: View {
     .safeAreaInset(edge: .bottom) {
       if !model.isMissing { dock }
     }
+    .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
     .task {
       model.load()
       inputIsFocused = model.isEmpty && !model.isMissing
