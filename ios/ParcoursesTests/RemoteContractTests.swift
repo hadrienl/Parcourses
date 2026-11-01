@@ -132,8 +132,12 @@ struct RemoteContractTests {
       #"{"id":"\#(u)","name":"Lait","normalized_name":"lait","category_id":4,"off_code":null,"created_at":"\#(d)"}"#)
     #expect(product.normalizedName == "lait")
     let store = try decode(
-      NearbyStoreRow.self, #"{"id":"\#(u)","name":"S","chain":null,"address":null,"distance_m":12.5}"#)
+      NearbyStoreRow.self,
+      #"{"id":"\#(u)","name":"S","chain":null,"address":null,"distance_m":12.5,"organic_aisle":false}"#)
     #expect(store.distanceM == 12.5)
+    let found = try decode(
+      StoreSearchRow.self, #"{"id":"\#(u)","name":"S","chain":null,"address":"A","organic_aisle":false}"#)
+    #expect(found.address == "A")
   }
 
   /// Une nouvelle table dans le schéma doit recevoir un DTO ou être écartée explicitement.

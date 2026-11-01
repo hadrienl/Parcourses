@@ -170,6 +170,20 @@ struct SupabaseGatewayIntegrationTests {
     }
   }
 
+  @Test func storeSearchFindsByNameAndTreatsInputAsText() async throws {
+    let gateway = try makeGateway()
+    let known = try #require(
+      try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first)
+    let found = try await gateway.searchStores(query: String(known.name.lowercased().prefix(4)), limit: 20)
+    #expect(found.contains { $0.id == known.id })
+    // Le jeu de départ contient « Intermarché » : la saisie sans accent le trouve.
+    let unaccented = try await gateway.searchStores(query: "intermarche", limit: 20)
+    #expect(!unaccented.isEmpty && unaccented.allSatisfy { $0.name.contains("Intermarché") })
+    for literal in ["%%", "__", "**", "a,b)", "\"x", "\\", "+&#", "#+", "&&"] {
+      #expect(try await gateway.searchStores(query: literal, limit: 20).isEmpty, "\(literal)")
+    }
+  }
+
   @Test func catalogDecodes() async throws {
     let gateway = try makeGateway()
     #expect(try await !gateway.fetchCategories().isEmpty)
