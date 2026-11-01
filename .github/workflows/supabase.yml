@@ -6,6 +6,7 @@ on:
     paths:
       - "supabase/**"
       - "scripts/**"
+      - "shared/categories/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".sqlfluff"
@@ -16,6 +17,7 @@ on:
     paths:
       - "supabase/**"
       - "scripts/**"
+      - "shared/categories/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".github/workflows/supabase.yml"
@@ -51,6 +53,9 @@ jobs:
         run: |
           pip install --quiet sqlfluff==3.4.2
           sqlfluff lint supabase/
+
+      - name: Migration des catégories conforme à shared/categories
+        run: deno run --allow-read scripts/check-categories.ts
 
       - name: Démarrage
         run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor

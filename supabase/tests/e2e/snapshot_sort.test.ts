@@ -7,25 +7,9 @@
 //   deno test --allow-run --allow-read --allow-env supabase/tests/e2e/
 
 import { DEFAULT_PARAMS, type Snapshot, sortItems, type SortParams } from "../../../shared/reference/sort.ts";
+import { psql } from "./psql.ts";
 
-const CONTAINER = Deno.env.get("SUPABASE_DB_CONTAINER") ?? "supabase_db_parcourses";
 const here = new URL(".", import.meta.url);
-
-async function psql(sql: string): Promise<string> {
-  const cmd = new Deno.Command("docker", {
-    args: ["exec", "-i", CONTAINER, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-At"],
-    stdin: "piped",
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const child = cmd.spawn();
-  const writer = child.stdin.getWriter();
-  await writer.write(new TextEncoder().encode(sql));
-  await writer.close();
-  const out = await child.output();
-  if (!out.success) throw new Error(new TextDecoder().decode(out.stderr));
-  return new TextDecoder().decode(out.stdout).trim();
-}
 
 // Rayon simulé : les produits 1 à 6 sont rangés dans cet ordre depuis l'entrée.
 const AISLE = [1, 2, 3, 4, 5, 6];

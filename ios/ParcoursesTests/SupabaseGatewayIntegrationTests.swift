@@ -160,6 +160,16 @@ struct SupabaseGatewayIntegrationTests {
     await #expect(throws: RemoteError.unknownCategory("inconnue")) { try await gateway.insertChecks([check]) }
   }
 
+  /// #36 : un identifiant de `shared/categories/` a sa ligne serveur.
+  @Test func aSharedCategorySlugIsAccepted() async throws {
+    let gateway = try makeGateway()
+    let storeId = try await anyStoreId(gateway)
+    let visit = VisitInsert(id: UUID(), storeId: storeId, listId: nil, listWasSorted: false, startedAt: .now)
+    try await gateway.createVisit(visit)
+    let check = CheckUpload(id: UUID(), visitId: visit.id, target: .category(slug: "dairy"), checkedAt: .now)
+    try await gateway.insertChecks([check])
+  }
+
   @Test func nearbyStoresReturnsSortedDistances() async throws {
     let gateway = try makeGateway()
     let stores = try await gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 5)

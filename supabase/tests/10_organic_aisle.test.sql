@@ -12,14 +12,14 @@ select ok(not has_column_privilege('anon', 'public.stores', 'organic_aisle', 'SE
 
 select results_eq(
   $$ select name, default_rank from public.categories where slug = 'bio' $$,
-  $$ values ('Bio'::text, 65::smallint) $$,
+  $$ values ('Bio'::text, 85::smallint) $$,
   'catégorie bio insérée'
 );
 select results_eq(
   $$ select slug::text from public.categories
-     where slug in ('epicerie-salee', 'bio', 'epicerie-sucree') order by default_rank $$,
-  $$ values ('epicerie-salee'), ('bio'), ('epicerie-sucree') $$,
-  'bio entre les deux épiceries'
+     where slug in ('savory-grocery', 'bio', 'world-food') order by default_rank $$,
+  $$ values ('savory-grocery'), ('bio'), ('world-food') $$,
+  'bio entre l''épicerie salée et les produits du monde'
 );
 
 select * from finish();
