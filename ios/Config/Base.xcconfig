@@ -14,3 +14,6 @@ SUPABASE_URL =
 SUPABASE_PUBLISHABLE_KEY =
 #include? "Local.xcconfig"
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+// Simulateur : signature ad hoc, sans certificat. Sans elle, le Keychain renvoie -34018.
+CODE_SIGN_STYLE[sdk=iphonesimulator*] = Manual
+CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -

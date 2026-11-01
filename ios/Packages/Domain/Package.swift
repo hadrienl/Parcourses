@@ -8,7 +8,7 @@ let package = Package(
   products: [.library(name: "Domain", targets: ["Domain"])],
   targets: [
     // Le dictionnaire est copié depuis shared/categories/ (ios/scripts/sync-categories.sh, vérifié en CI).
-    .target(name: "Domain", resources: [.copy("Resources")]),
+    .target(name: "Domain", resources: [.copy("Dictionary")]),
     .testTarget(name: "DomainTests", dependencies: ["Domain"]),
   ],
   swiftLanguageModes: [.v6]
