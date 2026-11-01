@@ -1,5 +1,5 @@
 {
-  "$description": "Parcourses, direction B « Ticket » v2 : trois variantes (proposition, non validée). Noms communs iOS/Android. Contrastes calculés WCAG 2.2 sur la surface de la variante.",
+  "$description": "Parcourses, direction retenue : B3 « Ticket filé ». Seuls ces tokens font référence. Noms communs iOS/Android.",
   "shared": {
     "typography": {
       "mono": {
@@ -86,7 +86,7 @@
       "android": "HorizontalFloatingToolbar + FAB ; couleur dynamique : seul `accent` suit le schéma dynamique, le papier reste celui de la marque"
     },
     "structure": {
-      "$note": "Commune aux 3 variantes (structure de A « Le Fil ») : liste groupée par rayon dans l'ordre du trajet, fil du parcours de rayon en rayon, avancée d'une perle par coche, réordonnancement des groupes en direct. Le ticket n'est que l'habillage.",
+      "$note": "Structure de B3 : liste groupée par rayon dans l'ordre du trajet, fil du parcours de rayon en rayon, avancée d'une perle par coche, réordonnancement des groupes en direct. Le ticket n'est que l'habillage.",
       "threadGutter": 28,
       "threadWidth": 3,
       "bead": 14,
@@ -113,97 +113,8 @@
     }
   },
   "variants": {
-    "thermique": {
-      "$intent": "Ticket chaleureux : papier thermique crème, mono expressive, un accent tomate, tampons et perforations.",
-      "color": {
-        "light": {
-          "paper": "#F6F0E1",
-          "paperEdge": "#E7DDC6",
-          "ink": "#1F1A14",
-          "inkMuted": "#5E5546",
-          "accent": "#C2301A",
-          "onAccent": "#FFFFFF",
-          "stamp": "#C2301A",
-          "checked": "#5E5546",
-          "aisle": {
-            "fresh": "#3F6B1E",
-            "dairy": "#1F5E8A",
-            "grocery": "#C2301A",
-            "threadIdle": "#CFC3A8"
-          }
-        },
-        "dark": {
-          "paper": "#1B1812",
-          "paperEdge": "#2B261D",
-          "ink": "#F2EAD8",
-          "inkMuted": "#B3A88F",
-          "accent": "#FF7A5C",
-          "onAccent": "#2A0A03",
-          "stamp": "#FF7A5C",
-          "checked": "#B3A88F",
-          "aisle": {
-            "fresh": "#A8D67A",
-            "dairy": "#8CC4F0",
-            "grocery": "#FF7A5C",
-            "threadIdle": "#3E372B"
-          }
-        },
-        "$contrast": "ink/paper clair 15,2:1 ; inkMuted 6,4:1 ; accent 5,2:1 ; sombre : accent 6,8:1, inkMuted 7,9:1"
-      },
-      "signature": {
-        "check": "tampon « PRIS » qui s'imprime en 250 ms (échelle 1,4→1, rotation -8°)",
-        "edges": "perforations rondes de 6 pt en haut et en bas",
-        "radius": 4,
-        "thread": "fil pointillé façon perforation, nœuds de rayon en tampons inclinés de -8°"
-      }
-    },
-    "fanfare": {
-      "$intent": "Ticket ludique : le ticket s'imprime à l'ouverture, se déchire à chaque coche, pictos de rayon au trait.",
-      "color": {
-        "light": {
-          "paper": "#FFFDF7",
-          "paperEdge": "#ECE7DA",
-          "ink": "#18181B",
-          "inkMuted": "#55525E",
-          "accent": "#5B3FD6",
-          "onAccent": "#FFFFFF",
-          "highlight": "#FFD84D",
-          "checked": "#55525E",
-          "aisle": {
-            "fresh": "#0F7A6A",
-            "dairy": "#5B3FD6",
-            "grocery": "#B0306A",
-            "threadIdle": "#DCD6E8"
-          }
-        },
-        "dark": {
-          "paper": "#15131C",
-          "paperEdge": "#25222F",
-          "ink": "#EEEAF7",
-          "inkMuted": "#ABA5BD",
-          "accent": "#B4A2FF",
-          "onAccent": "#1A0F4A",
-          "highlight": "#5A4A00",
-          "checked": "#ABA5BD",
-          "aisle": {
-            "fresh": "#6FE0CC",
-            "dairy": "#B4A2FF",
-            "grocery": "#FF94C2",
-            "threadIdle": "#34304A"
-          }
-        },
-        "$contrast": "accent/paper clair 7,1:1 ; ink sur highlight 13:1 ; sombre accent 8,2:1"
-      },
-      "signature": {
-        "open": "le ticket descend ligne à ligne, 40 ms par ligne (max 400 ms)",
-        "check": "la ligne se détache par un bord dentelé puis se replie (300 ms)",
-        "illustration": "pictos de rayon au trait 1,5 pt, couleur ink",
-        "radius": 6,
-        "thread": "nœuds de rayon ronds avec pictos, perle suivante surlignée en jaune"
-      }
-    },
     "ticketFile": {
-      "$intent": "BASE : structure de A habillée en ticket ; B1 et B2 en déclinent le ton.",
+      "$intent": "Direction retenue : structure de A « Le Fil » habillée en ticket.",
       "color": {
         "light": {
           "paper": "#FBF7F0",
@@ -247,7 +158,19 @@
         "thread": "fil de 3 pt dans une gouttière de 28 pt ; il avance d'une perle à chaque coche",
         "check": "la perle se remplit, la ligne est barrée",
         "radius": 8
-      }
+      },
+      "status": "retained"
     }
+  },
+  "rejected": {
+    "thermique": {
+      "name": "B1 · Thermique",
+      "status": "rejected"
+    },
+    "fanfare": {
+      "name": "B2 · Fanfare",
+      "status": "rejected"
+    },
+    "$note": "Écartées par décision de l'utilisateur : leurs tokens ne font plus référence (historique dans git)."
   }
 }
