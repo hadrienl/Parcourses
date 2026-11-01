@@ -13,7 +13,7 @@ select fk_ok('public', 'checks', 'visit_id', 'public', 'visits', 'id');
 select fk_ok('public', 'list_items', 'list_id', 'public', 'lists', 'id');
 select fk_ok('public', 'visits', 'store_id', 'public', 'stores', 'id');
 select has_index('public', 'stores', 'stores_location_idx', 'index GiST des magasins');
-select is((select count(*)::int from public.categories), 12, '12 catégories de référence');
+select is((select count(*)::int from public.categories), 13, '13 catégories de référence');
 select is(public.normalize_label('  Œufs   Frais  '), 'oeufs frais', 'normalize_label');
 
 -- Contraintes CHECK
