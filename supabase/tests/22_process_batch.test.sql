@@ -7,7 +7,7 @@ select plan(29);
 select tests.create_user('alice@example.com') as alice \gset
 select tests.create_user('bob@example.com') as bob \gset
 select tests.store(1) as store \gset
-select count(*) as runs_before from graph.runs \gset
+select count(*) as runs_before from graph.runs where kind = 'process' \gset
 
 -- Deux visites d'Alice et une de Bob, le même jour.
 select tests.visit(:'alice', :'store', array[1,2,3,4], array[0,30,60,90]::float8[], timestamptz '2026-10-30 09:00+01') as v1 \gset
