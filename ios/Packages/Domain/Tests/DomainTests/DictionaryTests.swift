@@ -29,7 +29,7 @@ import Testing
   for entry in dictionary.keywords + dictionary.overrides {
     #expect(entry.c != organicCategoryId, "\(entry.k)")
     let words = entry.k.split(separator: " ")
-    #expect(!words.contains { $0 == CategoryClassifier.organicWord }, "\(entry.k)")
+    #expect(!words.contains { CategoryClassifier.organicWords.contains(String($0)) }, "\(entry.k)")
   }
 }
 

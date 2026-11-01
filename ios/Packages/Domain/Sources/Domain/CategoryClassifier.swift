@@ -22,7 +22,7 @@ public struct Classification: Sendable, Hashable {
   public let matchedKeyword: String?
   /// Nature de la correspondance.
   public let match: MatchKind
-  /// Vrai si le libellé contient le mot « bio », quelle que soit la catégorie (#28).
+  /// Vrai si le libellé contient « bio » ou « biologique », quelle que soit la catégorie (#28).
   public let organic: Bool
 
   public init(normalized: String, categoryId: String, matchedKeyword: String?, match: MatchKind, organic: Bool) {
@@ -41,8 +41,9 @@ public struct Classification: Sendable, Hashable {
 public struct CategoryClassifier: Sendable {
   /// Catégorie de repli.
   public static let otherCategoryId = "other"
-  /// Mot retiré avant la recherche de mots-clés (#28). Il reste dans `normalized`.
-  public static let organicWord = "bio"
+  /// Mots retirés avant la recherche de mots-clés (#28), sous leur forme normalisée : « biologiques »
+  /// arrive au singulier. Ils restent dans `normalized`. « AB » est exclu volontairement.
+  public static let organicWords: Set<String> = ["bio", "biologique"]
 
   /// Normaliseur utilisé, exposé pour calculer `normalizedName` avec les mêmes règles.
   public let normalizer: LabelNormalizer
@@ -80,7 +81,7 @@ public struct CategoryClassifier: Sendable {
   public func classify(_ raw: String) -> Classification {
     let normalized = normalizer.normalize(raw)
     let words = normalized.split(separator: " ").map(String.init)
-    let tokens = words.filter { $0 != Self.organicWord }
+    let tokens = words.filter { !Self.organicWords.contains($0) }
     let organic = tokens.count != words.count
     func result(_ category: String, _ key: String?, _ match: MatchKind) -> Classification {
       Classification(normalized: normalized, categoryId: category, matchedKeyword: key, match: match, organic: organic)
