@@ -2,6 +2,8 @@
 // `sort.ts` reçoit le résultat comme `category_id` et ne connaît pas la notion de bio.
 
 export const BIO_CATEGORY = "bio";
+/** Un surgelé bio reste au rayon surgelés, même si le magasin a un rayon bio. */
+export const FROZEN_CATEGORY = "frozen";
 
 /** Sans magasin choisi (mode liste), passer `storeOrganicAisle = false`. */
 export function effectiveCategory(
@@ -9,5 +11,5 @@ export function effectiveCategory(
   organic: boolean,
   storeOrganicAisle: boolean,
 ): string {
-  return organic && storeOrganicAisle ? BIO_CATEGORY : categoryId;
+  return organic && storeOrganicAisle && categoryId !== FROZEN_CATEGORY ? BIO_CATEGORY : categoryId;
 }

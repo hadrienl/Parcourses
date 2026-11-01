@@ -90,6 +90,61 @@
       "expected": {
         "effective_category": "other"
       }
+    },
+    {
+      "label": "lait biologique",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "œufs biologiques",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "lessive bio",
+      "input": {
+        "category_id": "household",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "petits pois bio surgelés",
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
+    },
+    {
+      "label": "petits pois bio surgelés",
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
     }
   ]
 }

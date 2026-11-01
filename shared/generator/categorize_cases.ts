@@ -339,7 +339,15 @@ export function categorizeGroups(): CategorizeGroup[] {
         { input: "truc bio", n: "truc bio", c: "other", o: true },
         // Correspondance sur le mot entier uniquement.
         { input: "biscuit", n: "biscuit", c: "sweet-grocery", o: false },
-        { input: "biologique", n: "biologique", c: "other", o: false },
+        { input: "biologie", n: "biologie", c: "other", o: false },
+        // Variantes reconnues : le pluriel est ramené au singulier par la normalisation.
+        { input: "lait biologique", n: "lait biologique", c: "dairy", o: true },
+        { input: "œufs biologiques", n: "oeuf biologique", c: "dairy", o: true },
+        { input: "biologique", n: "biologique", c: "other", o: true },
+        // « AB » n'est pas reconnu.
+        { input: "lait AB", n: "lait ab", c: "dairy", o: false },
+        // Non alimentaire : même indicateur.
+        { input: "lessive bio", n: "lessive bio", c: "household", o: true },
       ],
     },
     {
@@ -389,7 +397,8 @@ export function effectiveCategoryGroups(): EffectiveCategoryGroup[] {
   return [
     {
       id: "001-truth-table",
-      description: "Rayon bio seulement si l'article est bio ET le magasin a un rayon bio à part.",
+      description:
+        "Rayon bio si l'article est bio ET le magasin a un rayon bio à part, sauf les surgelés.",
       cases: [
         table("dairy", false, false, "dairy"),
         table("dairy", false, true, "dairy"),
@@ -397,7 +406,11 @@ export function effectiveCategoryGroups(): EffectiveCategoryGroup[] {
         table("dairy", true, true, "bio"),
         table("other", true, true, "bio"),
         table("other", true, false, "other"),
-        table("frozen", true, true, "bio"),
+        table("household", true, true, "bio"),
+        // Exception : un surgelé bio reste en surgelés.
+        table("frozen", true, true, "frozen"),
+        table("frozen", true, false, "frozen"),
+        table("frozen", false, true, "frozen"),
       ],
     },
     {
@@ -414,6 +427,11 @@ export function effectiveCategoryGroups(): EffectiveCategoryGroup[] {
         label("Courgettes bio", false, "produce"),
         label("bio", true, "bio"),
         label("bio", false, "other"),
+        label("lait biologique", true, "bio"),
+        label("œufs biologiques", true, "bio"),
+        label("lessive bio", true, "bio"),
+        label("petits pois bio surgelés", true, "frozen"),
+        label("petits pois bio surgelés", false, "frozen"),
       ],
     },
   ];

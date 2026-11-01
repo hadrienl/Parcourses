@@ -184,8 +184,9 @@ Collision connue et assumée : « bouquet de roses » → `rose` → `alcohol` (
 
 ### Classification
 
-Le mot exact `bio` est d'abord retiré des mots à chercher, et sa présence donne `organic = true`. Il
-**reste dans `normalized`** : `lait` et `lait bio` sont deux produits distincts dans le graphe.
+Les mots exacts `bio` et `biologique` (`biologiques` y est ramené par le singulier) sont d'abord
+retirés des mots à chercher, et leur présence donne `organic = true`. « AB » n'est pas reconnu. Ils
+**restent dans `normalized`** : `lait` et `lait bio` sont deux produits distincts dans le graphe.
 Puis, sur les mots restants, de gauche à droite :
 
 1. **Modificateur** (`overrides`), n-gramme le plus long puis le plus à gauche →
@@ -194,8 +195,8 @@ Puis, sur les mots restants, de gauche à droite :
 3. **Mot simple** : le premier nom de produit ; sinon la première marque (`match: "brand"`).
 4. Sinon `{ "category_id": "other", "matched_keyword": null, "match": "none" }`.
 
-Le résultat ne dépend jamais du magasin. Aucune clé du dictionnaire ne contient `bio`, et aucune ne
-classe en catégorie `bio` (vérifié en CI).
+Le résultat ne dépend jamais du magasin. Aucune clé du dictionnaire ne contient ces mots, et aucune
+ne classe en catégorie `bio` (vérifié en CI).
 
 ### Rayon effectif (#28)
 
@@ -204,12 +205,16 @@ d'appeler le tri** (`sort.ts` ne la connaît pas) :
 
 ```
 effectiveCategory(categoryId, organic, storeOrganicAisle) =
-  organic && storeOrganicAisle ? "bio" : categoryId
+  organic && storeOrganicAisle && categoryId != "frozen" ? "bio" : categoryId
 ```
 
-`storeOrganicAisle` vient de `stores.organic_aisle`. Sans magasin choisi (mode liste), l'app passe
-`false` : les articles bio restent dans leur rayon habituel. Le `category_id` passé au tri est ce
-rayon effectif ; le `category_id` stocké avec l'article reste celui du classifieur.
+Un surgelé bio reste donc en `frozen`. Tout autre article bio, non alimentaire compris, va au rayon
+bio. `storeOrganicAisle` vient de `stores.organic_aisle`. Sans magasin choisi (mode liste), l'app
+passe `false` : les articles bio restent dans leur rayon habituel. Le `category_id` passé au tri est
+ce rayon effectif ; le `category_id` stocké avec l'article reste celui du classifieur.
+
+**Coches** : `Check.categoryId` porte toujours la catégorie du classifieur, jamais `bio` ni un autre
+rayon effectif.
 
 ## Format d'un vecteur de classification (`test-vectors/categorize/*.json`)
 

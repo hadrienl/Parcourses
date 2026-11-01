@@ -114,13 +114,63 @@
       }
     },
     {
+      "input": "biologie",
+      "expected": {
+        "normalized": "biologie",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "lait biologique",
+      "expected": {
+        "normalized": "lait biologique",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
+      "input": "œufs biologiques",
+      "expected": {
+        "normalized": "oeuf biologique",
+        "category_id": "dairy",
+        "matched_keyword": "oeuf",
+        "match": "keyword",
+        "organic": true
+      }
+    },
+    {
       "input": "biologique",
       "expected": {
         "normalized": "biologique",
         "category_id": "other",
         "matched_keyword": null,
         "match": "none",
+        "organic": true
+      }
+    },
+    {
+      "input": "lait AB",
+      "expected": {
+        "normalized": "lait ab",
+        "category_id": "dairy",
+        "matched_keyword": "lait",
+        "match": "keyword",
         "organic": false
+      }
+    },
+    {
+      "input": "lessive bio",
+      "expected": {
+        "normalized": "lessive bio",
+        "category_id": "household",
+        "matched_keyword": "lessive",
+        "match": "keyword",
+        "organic": true
       }
     }
   ]

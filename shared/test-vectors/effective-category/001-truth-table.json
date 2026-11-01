@@ -1,6 +1,6 @@
 {
   "id": "001-truth-table",
-  "description": "Rayon bio seulement si l'article est bio ET le magasin a un rayon bio à part.",
+  "description": "Rayon bio si l'article est bio ET le magasin a un rayon bio à part, sauf les surgelés.",
   "format_version": 1,
   "cases": [
     {
@@ -65,12 +65,42 @@
     },
     {
       "input": {
-        "category_id": "frozen",
+        "category_id": "household",
         "organic": true,
         "store_organic_aisle": true
       },
       "expected": {
         "effective_category": "bio"
+      }
+    },
+    {
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
+    },
+    {
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
+    },
+    {
+      "input": {
+        "category_id": "frozen",
+        "organic": false,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "frozen"
       }
     }
   ]
