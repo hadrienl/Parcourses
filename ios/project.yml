@@ -5,6 +5,10 @@ options:
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
+  # Dépendances transitives figées : Package.resolved est versionné, le .xcodeproj ne l'est pas.
+  postGenCommand: >-
+    mkdir -p Parcourses.xcodeproj/project.xcworkspace/xcshareddata/swiftpm &&
+    cp Package.resolved Parcourses.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 configs:
   Debug: debug
   Release: release
@@ -16,6 +20,9 @@ packages:
     path: Packages/Domain
   SortEngine:
     path: Packages/SortEngine
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    exactVersion: 2.55.6
 targets:
   Parcourses:
     type: application
@@ -24,6 +31,8 @@ targets:
     dependencies:
       - package: Domain
       - package: SortEngine
+      - package: Supabase
+        product: Supabase
       - target: ParcoursesWidgets
     entitlements:
       path: Parcourses/Parcourses.entitlements
@@ -66,7 +75,13 @@ targets:
   ParcoursesTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [ParcoursesTests]
+    sources:
+      - ParcoursesTests
+      - path: ../shared/contract/tables.json
+        buildPhase: resources
+      - path: ../supabase/migrations
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: Parcourses
     settings:

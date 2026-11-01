@@ -1,0 +1,3 @@
+// Copier en Local.xcconfig (ignoré par git). Clé : `supabase status -o env`, variable PUBLISHABLE_KEY.
+SUPABASE_URL = http:/$()/127.0.0.1:56321
+SUPABASE_PUBLISHABLE_KEY = <publishable-key-locale>
