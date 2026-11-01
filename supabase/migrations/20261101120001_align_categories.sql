@@ -27,7 +27,7 @@ declare
   ]$json$;
   -- Anciens slugs français. Les rayons scindés depuis (boucherie/poissonnerie, crèmerie/fromages)
   -- vont vers le rayon principal : l'ancienne catégorie ne permet pas de distinguer davantage.
-  v_legacy constant jsonb := '{
+  v_legacy constant jsonb := $json${
     "fruits-legumes": "produce",
     "boulangerie": "bakery",
     "boucherie": "butcher",
@@ -39,7 +39,7 @@ declare
     "entretien": "household",
     "surgeles": "frozen",
     "autre": "other"
-  }';
+  }$json$;
   v_old_slug text;
   v_new_slug text;
   v_old_id smallint;

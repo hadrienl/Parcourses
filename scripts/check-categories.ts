@@ -17,11 +17,9 @@ const expected = categories
   .map((c) => JSON.stringify({ slug: c.id, name: c.label_fr, default_rank: c.rank }))
   .join(",\n") + "\n";
 
-const names = [...Deno.readDirSync(MIGRATIONS)].map((e) => e.name).filter((n) => n.endsWith(".sql")).sort();
-let latest: string | undefined;
-for (const name of names) {
-  if ((await Deno.readTextFile(`${MIGRATIONS}/${name}`)).includes(START)) latest = `${MIGRATIONS}/${name}`;
-}
+const names = [...Deno.readDirSync(MIGRATIONS)].map((e) => e.name).filter((n) => n.endsWith(".sql"))
+  .sort((a, b) => a.localeCompare(b));
+const latest = names.map((n) => `${MIGRATIONS}/${n}`).findLast((p) => Deno.readTextFileSync(p).includes(START));
 if (!latest) throw new Error(`aucune migration ne contient ${START.trim()}`);
 
 const sql = await Deno.readTextFile(latest);
