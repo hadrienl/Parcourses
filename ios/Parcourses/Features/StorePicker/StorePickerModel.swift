@@ -8,6 +8,8 @@ struct StoreCandidate: Identifiable, Equatable, Sendable {
   let address: String?
   /// `nil` quand elle n'a pas de sens : position approximative, recherche, magasin récent.
   let distanceM: Double?
+  /// Le magasin a un rayon bio : mis en cache au choix, lu par le mode courses.
+  var organicAisle = false
 }
 
 /// Résultat de l'écran. `withoutStore` : ordre générique, et aucune visite créée (#9 §8).
@@ -192,7 +194,8 @@ final class StorePickerModel {
     do {
       // Distance non conservée : avec le magasin et la date, elle situerait l'utilisateur.
       try stores.upsertStore(
-        id: store.id, name: store.name, chain: store.chain, address: store.address, lastDistanceM: nil)
+        id: store.id, name: store.name, chain: store.chain, address: store.address, lastDistanceM: nil,
+        organicAisle: store.organicAisle)
       try stores.markUsed(id: store.id, at: now())
       selectionFailed = false
       cancel()
@@ -264,7 +267,8 @@ final class StorePickerModel {
     // Le cache est un confort : illisible, il ne doit pas bloquer le choix en ligne.
     let cached = (try? stores.recentStores(limit: StoreRanking.recentLimit)) ?? []
     recents = cached.map {
-      StoreCandidate(id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil)
+      StoreCandidate(
+        id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil, organicAisle: $0.organicAisle)
     }
   }
 
@@ -291,7 +295,11 @@ final class StorePickerModel {
         }
         guard !Task.isCancelled else { return }
         search = .results(
-          rows.map { StoreCandidate(id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil) })
+          rows.map {
+            StoreCandidate(
+              id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil,
+              organicAisle: $0.organicAisle)
+          })
       } catch {
         guard !Task.isCancelled else { return }
         search = error as? RemoteError == .network ? .offline : .failed
@@ -304,6 +312,6 @@ extension StoreCandidate {
   fileprivate init(row: NearbyStoreRow, keepsDistance: Bool) {
     self.init(
       id: row.id, name: row.name, chain: row.chain, address: row.address,
-      distanceM: keepsDistance ? row.distanceM : nil)
+      distanceM: keepsDistance ? row.distanceM : nil, organicAisle: row.organicAisle)
   }
 }

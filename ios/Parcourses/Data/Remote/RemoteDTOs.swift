@@ -136,10 +136,32 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
   let chain: String?
   let address: String?
   let distanceM: Double
+  let organicAisle: Bool
 
   enum CodingKeys: String, CodingKey {
     case id, name, chain, address
     case distanceM = "distance_m"
+    case organicAisle = "organic_aisle"
+  }
+
+  init(id: UUID, name: String, chain: String?, address: String?, distanceM: Double, organicAisle: Bool = false) {
+    self.id = id
+    self.name = name
+    self.chain = chain
+    self.address = address
+    self.distanceM = distanceM
+    self.organicAisle = organicAisle
+  }
+
+  /// Colonne facultative : un serveur sans la migration #28 ne doit pas casser le choix du magasin.
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    chain = try container.decodeIfPresent(String.self, forKey: .chain)
+    address = try container.decodeIfPresent(String.self, forKey: .address)
+    distanceM = try container.decode(Double.self, forKey: .distanceM)
+    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle) ?? false
   }
 }
 
@@ -149,6 +171,47 @@ nonisolated struct StoreSearchRow: Decodable, Sendable, Equatable {
   let name: String
   let chain: String?
   let address: String?
+  let organicAisle: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, chain, address
+    case organicAisle = "organic_aisle"
+  }
+
+  init(id: UUID, name: String, chain: String?, address: String?, organicAisle: Bool = false) {
+    self.id = id
+    self.name = name
+    self.chain = chain
+    self.address = address
+    self.organicAisle = organicAisle
+  }
+
+  /// Colonne facultative, comme pour `NearbyStoreRow`.
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    chain = try container.decodeIfPresent(String.self, forKey: .chain)
+    address = try container.decodeIfPresent(String.self, forKey: .address)
+    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle) ?? false
+  }
+}
+
+/// Réponse de la RPC `store_graph_snapshot`, sans interprétation du contenu.
+nonisolated enum GraphSnapshotResponse: Sendable, Equatable {
+  /// La version connue est la version courante.
+  case unchanged
+  /// Le magasin n'a pas encore d'instantané.
+  case none
+  /// JSON brut, à conserver tel quel (#9 §4.3).
+  case payload(Data)
+
+  static func parse(_ data: Data) -> GraphSnapshotResponse {
+    let object = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
+    if object == nil || object is NSNull { return .unchanged }
+    if let dictionary = object as? [String: Any], dictionary["none"] as? Bool == true { return .none }
+    return .payload(data)
+  }
 }
 
 /// Produit vu par l'app : sa catégorie est le slug partagé, pas l'`Int16` serveur.

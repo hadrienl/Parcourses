@@ -88,6 +88,12 @@ enum Route: Hashable {
 struct RootView: View {
   let environment: AppEnvironment
   @State private var path: [Route] = []
+  /// Liste pour laquelle on choisit le magasin.
+  @State private var pickingFor: PickerRequest?
+  /// Choix fait, en attente de la fermeture de la sheet : deux présentations ne se chevauchent pas.
+  @State private var pendingStart: PendingStart?
+  @State private var session: ShoppingSession?
+  @State private var didResume = false
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -99,9 +105,50 @@ struct RootView: View {
       .navigationDestination(for: Route.self) { route in
         switch route {
         case .list(let id):
-          ListDetailView(model: environment.makeListDetailModel(listId: id))
+          ListDetailView(model: environment.makeListDetailModel(listId: id)) {
+            pickingFor = PickerRequest(listId: id)
+          }
         }
       }
     }
+    .sheet(item: $pickingFor, onDismiss: beginPendingShopping) { request in
+      StorePickerView(
+        model: environment.makeStorePickerModel { outcome in
+          pendingStart = PendingStart(listId: request.listId, outcome: outcome)
+          pickingFor = nil
+        })
+    }
+    .fullScreenCover(item: $session) { session in
+      ShoppingView(session: session) {
+        self.session = nil
+        // Les écrans déjà ouverts relisent coches, ajouts et retraits.
+        NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
+      }
+    }
+    .task {
+      guard !didResume else { return }
+      didResume = true
+      session = await environment.resumeShopping()
+    }
   }
+
+  private func beginPendingShopping() {
+    guard let start = pendingStart else { return }
+    pendingStart = nil
+    Task {
+      var storeId: UUID?
+      if case .store(let id) = start.outcome { storeId = id }
+      session = await environment.startShopping(listId: start.listId, storeId: storeId)
+    }
+  }
+}
+
+private struct PickerRequest: Identifiable {
+  let listId: UUID
+  var id: UUID { listId }
+}
+
+private struct PendingStart {
+  let listId: UUID
+  let outcome: StorePickerOutcome
 }
