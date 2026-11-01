@@ -101,8 +101,9 @@ object SortVectors {
             normalizedName = o.str("normalized_name"),
         )
 
+    // Comme `"entry" in start` dans la référence : la présence de la clé suffit, et elle prime.
     private fun start(o: JsonObject): SortStart =
-        o.nullable("product_id")?.let { SortStart.Product(it.jsonPrimitive.content) } ?: SortStart.Entry
+        if ("entry" in o) SortStart.Entry else SortStart.Product(o.str("product_id"))
 
     private fun JsonObject.obj(k: String) = getValue(k).jsonObject
 
