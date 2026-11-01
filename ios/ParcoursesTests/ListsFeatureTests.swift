@@ -151,6 +151,19 @@ private final class SpyHistory: ListRepository {
     #expect(model.isEmpty)
   }
 
+  /// Décision produit : une saisie ajoute toujours une ligne, sans fusion des doublons.
+  @Test func sameEntryTwiceAddsTwoRows() throws {
+    let h = try Harness()
+    let id = try h.lists.createList(name: "L", at: t0).id
+    let model = h.detail(id)
+    for _ in 0..<2 {
+      model.input = "2 tomates"
+      model.submit()
+    }
+    #expect(model.sections.map(\.items.count) == [2])
+    #expect(try h.lists.items(listId: id).count == 2)
+  }
+
   @Test func unknownOrDeletedListIsMissing() throws {
     let h = try Harness()
     #expect(h.detail(UUID()).isMissing)
