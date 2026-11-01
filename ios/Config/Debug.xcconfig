@@ -1,2 +1,4 @@
 #include "Base.xcconfig"
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+// Environnement local, jamais en Release.
+#include? "Local.xcconfig"

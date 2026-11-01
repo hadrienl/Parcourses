@@ -9,7 +9,8 @@
         "normalized": "yaourt fraise",
         "category_id": "dairy",
         "matched_keyword": "yaourt",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -18,7 +19,8 @@
         "normalized": "fraise yaourt",
         "category_id": "produce",
         "matched_keyword": "fraise",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -27,7 +29,8 @@
         "normalized": "compote pomme",
         "category_id": "dairy",
         "matched_keyword": "compote",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -36,7 +39,8 @@
         "normalized": "biscuit chocolat",
         "category_id": "sweet-grocery",
         "matched_keyword": "biscuit",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -45,7 +49,8 @@
         "normalized": "glace chocolat",
         "category_id": "frozen",
         "matched_keyword": "glace",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -54,7 +59,8 @@
         "normalized": "saucisse lentille",
         "category_id": "butcher",
         "matched_keyword": "saucisse",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -63,7 +69,8 @@
         "normalized": "thon tomate",
         "category_id": "savory-grocery",
         "matched_keyword": "thon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -72,7 +79,8 @@
         "normalized": "tarte pomme",
         "category_id": "bakery",
         "matched_keyword": "tarte",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -81,7 +89,8 @@
         "normalized": "jambon fromage",
         "category_id": "deli",
         "matched_keyword": "jambon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     }
   ]

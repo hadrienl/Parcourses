@@ -5,12 +5,16 @@ import SwiftUI
 struct ParcoursesApp: App {
   /// Une erreur ici (store illisible, App Group absent) s'affiche : on ne repart jamais sur un store vide en silence.
   @State private var environment = Result { try AppEnvironment.live() }
+  private let gateway = AuthBootstrap.makeGateway()
 
   var body: some Scene {
     WindowGroup {
       switch environment {
       case .success(let environment):
         RootView(environment: environment)
+          .task {
+            if let gateway { await AuthBootstrap.signIn(gateway) }
+          }
       case .failure(let error):
         StoreFailureView(error: error)
       }

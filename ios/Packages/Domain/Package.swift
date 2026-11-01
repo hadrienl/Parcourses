@@ -8,8 +8,7 @@ let package = Package(
   products: [.library(name: "Domain", targets: ["Domain"])],
   targets: [
     // Le dictionnaire est copié depuis shared/categories/ (ios/scripts/sync-categories.sh, vérifié en CI).
-    // `.process` aplatit le bundle : codesign refuse un dossier `Resources/` à la racine d'un bundle iOS.
-    .target(name: "Domain", resources: [.process("Resources")]),
+    .target(name: "Domain", resources: [.copy("Dictionary")]),
     .testTarget(name: "DomainTests", dependencies: ["Domain"]),
   ],
   swiftLanguageModes: [.v6]

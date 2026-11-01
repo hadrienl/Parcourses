@@ -78,7 +78,7 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 
 ## RPC `nearby_stores(lat, lng, radius_m = 3000, max_results = 10)`
 
-Renvoie `id, name, chain, address, distance_m`, triés par distance (KNN sur l'index GiST), 20 au plus.
+Renvoie `id, name, chain, address, distance_m, organic_aisle`, triés par distance (KNN sur l'index GiST), 20 au plus.
 Paramètres bornés (`lat` ∈ [-90, 90], `lng` ∈ [-180, 180], `radius_m` ∈ ]0, 20 000]). La position
 reçue n'est ni stockée ni renvoyée. Réservée à `authenticated`.
 

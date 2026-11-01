@@ -9,7 +9,8 @@
         "normalized": "pomme",
         "category_id": "produce",
         "matched_keyword": "pomme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -18,7 +19,8 @@
         "normalized": "pomme terre",
         "category_id": "produce",
         "matched_keyword": "pomme terre",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -27,7 +29,8 @@
         "normalized": "tomate cerise",
         "category_id": "produce",
         "matched_keyword": "tomate cerise",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -36,7 +39,8 @@
         "normalized": "salade",
         "category_id": "produce",
         "matched_keyword": "salade",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -45,7 +49,8 @@
         "normalized": "courgette bio",
         "category_id": "produce",
         "matched_keyword": "courgette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": true
       }
     },
     {
@@ -54,7 +59,8 @@
         "normalized": "banane",
         "category_id": "produce",
         "matched_keyword": "banane",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -63,7 +69,8 @@
         "normalized": "persil",
         "category_id": "produce",
         "matched_keyword": "persil",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -72,7 +79,8 @@
         "normalized": "baguette",
         "category_id": "bakery",
         "matched_keyword": "baguette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -81,7 +89,8 @@
         "normalized": "baguette tradition",
         "category_id": "bakery",
         "matched_keyword": "baguette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -90,7 +99,8 @@
         "normalized": "croissant",
         "category_id": "bakery",
         "matched_keyword": "croissant",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -99,7 +109,8 @@
         "normalized": "pain mie",
         "category_id": "bakery",
         "matched_keyword": "pain mie",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -108,7 +119,8 @@
         "normalized": "steak hache",
         "category_id": "butcher",
         "matched_keyword": "steak hache",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -117,7 +129,8 @@
         "normalized": "poulet",
         "category_id": "butcher",
         "matched_keyword": "poulet",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -126,7 +139,8 @@
         "normalized": "escalope dinde",
         "category_id": "butcher",
         "matched_keyword": "escalope dinde",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -135,7 +149,8 @@
         "normalized": "merguez",
         "category_id": "butcher",
         "matched_keyword": "merguez",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -144,7 +159,8 @@
         "normalized": "jambon",
         "category_id": "deli",
         "matched_keyword": "jambon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -153,7 +169,8 @@
         "normalized": "lardon",
         "category_id": "deli",
         "matched_keyword": "lardon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -162,7 +179,8 @@
         "normalized": "taboule",
         "category_id": "deli",
         "matched_keyword": "taboule",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -171,7 +189,8 @@
         "normalized": "pizza",
         "category_id": "deli",
         "matched_keyword": "pizza",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -180,7 +199,8 @@
         "normalized": "saumon",
         "category_id": "seafood",
         "matched_keyword": "saumon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -189,7 +209,8 @@
         "normalized": "crevette",
         "category_id": "seafood",
         "matched_keyword": "crevette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -198,7 +219,8 @@
         "normalized": "moule",
         "category_id": "seafood",
         "matched_keyword": "moule",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -207,7 +229,8 @@
         "normalized": "emmental rape",
         "category_id": "cheese",
         "matched_keyword": "emmental rape",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -216,7 +239,8 @@
         "normalized": "camembert",
         "category_id": "cheese",
         "matched_keyword": "camembert",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -225,7 +249,8 @@
         "normalized": "mozzarella",
         "category_id": "cheese",
         "matched_keyword": "mozzarella",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -234,7 +259,8 @@
         "normalized": "lait",
         "category_id": "dairy",
         "matched_keyword": "lait",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -243,7 +269,8 @@
         "normalized": "beurre doux",
         "category_id": "dairy",
         "matched_keyword": "beurre doux",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -252,7 +279,8 @@
         "normalized": "yaourt nature",
         "category_id": "dairy",
         "matched_keyword": "yaourt nature",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -261,7 +289,8 @@
         "normalized": "oeuf",
         "category_id": "dairy",
         "matched_keyword": "oeuf",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -270,7 +299,8 @@
         "normalized": "creme fraiche epaisse",
         "category_id": "dairy",
         "matched_keyword": "creme fraiche",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -279,7 +309,8 @@
         "normalized": "pate",
         "category_id": "savory-grocery",
         "matched_keyword": "pate",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -288,7 +319,8 @@
         "normalized": "riz basmati",
         "category_id": "savory-grocery",
         "matched_keyword": "riz basmati",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -297,7 +329,8 @@
         "normalized": "huile olive",
         "category_id": "savory-grocery",
         "matched_keyword": "huile olive",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -306,7 +339,8 @@
         "normalized": "moutarde",
         "category_id": "savory-grocery",
         "matched_keyword": "moutarde",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -315,7 +349,8 @@
         "normalized": "thon",
         "category_id": "savory-grocery",
         "matched_keyword": "thon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -324,7 +359,8 @@
         "normalized": "sauce soja",
         "category_id": "world-food",
         "matched_keyword": "sauce soja",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -333,7 +369,8 @@
         "normalized": "tortilla",
         "category_id": "world-food",
         "matched_keyword": "tortilla",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -342,7 +379,8 @@
         "normalized": "lait coco",
         "category_id": "world-food",
         "matched_keyword": "lait coco",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -351,7 +389,8 @@
         "normalized": "cafe",
         "category_id": "breakfast",
         "matched_keyword": "cafe",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -360,7 +399,8 @@
         "normalized": "the vert",
         "category_id": "breakfast",
         "matched_keyword": "the vert",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -369,7 +409,8 @@
         "normalized": "cereale",
         "category_id": "breakfast",
         "matched_keyword": "cereale",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -378,7 +419,8 @@
         "normalized": "confiture fraise",
         "category_id": "breakfast",
         "matched_keyword": "confiture",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -387,7 +429,8 @@
         "normalized": "sucre",
         "category_id": "sweet-grocery",
         "matched_keyword": "sucre",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -396,7 +439,8 @@
         "normalized": "farine",
         "category_id": "sweet-grocery",
         "matched_keyword": "farine",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -405,7 +449,8 @@
         "normalized": "chocolat noir",
         "category_id": "sweet-grocery",
         "matched_keyword": "chocolat noir",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -414,7 +459,8 @@
         "normalized": "biscuit",
         "category_id": "sweet-grocery",
         "matched_keyword": "biscuit",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -423,7 +469,8 @@
         "normalized": "chip",
         "category_id": "snacks",
         "matched_keyword": "chip",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -432,7 +479,8 @@
         "normalized": "bonbon",
         "category_id": "snacks",
         "matched_keyword": "bonbon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -441,7 +489,8 @@
         "normalized": "cacahuete",
         "category_id": "snacks",
         "matched_keyword": "cacahuete",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -450,7 +499,8 @@
         "normalized": "eau gazeuse",
         "category_id": "beverages",
         "matched_keyword": "eau gazeuse",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -459,7 +509,8 @@
         "normalized": "eau",
         "category_id": "beverages",
         "matched_keyword": "eau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -468,7 +519,8 @@
         "normalized": "jus pomme",
         "category_id": "beverages",
         "matched_keyword": "jus pomme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -477,7 +529,8 @@
         "normalized": "sirop menthe",
         "category_id": "beverages",
         "matched_keyword": "sirop menthe",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -486,7 +539,8 @@
         "normalized": "biere",
         "category_id": "alcohol",
         "matched_keyword": "biere",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -495,7 +549,8 @@
         "normalized": "vin rouge",
         "category_id": "alcohol",
         "matched_keyword": "vin rouge",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -504,7 +559,8 @@
         "normalized": "champagne",
         "category_id": "alcohol",
         "matched_keyword": "champagne",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -513,7 +569,8 @@
         "normalized": "glace vanille",
         "category_id": "frozen",
         "matched_keyword": "glace",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -522,7 +579,8 @@
         "normalized": "frite",
         "category_id": "frozen",
         "matched_keyword": "frite",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -531,7 +589,8 @@
         "normalized": "couche",
         "category_id": "baby",
         "matched_keyword": "couche",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -540,7 +599,8 @@
         "normalized": "petit pot",
         "category_id": "baby",
         "matched_keyword": "petit pot",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -549,7 +609,8 @@
         "normalized": "dentifrice",
         "category_id": "hygiene",
         "matched_keyword": "dentifrice",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -558,7 +619,8 @@
         "normalized": "gel douche",
         "category_id": "hygiene",
         "matched_keyword": "gel douche",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -567,7 +629,8 @@
         "normalized": "papier toilette",
         "category_id": "hygiene",
         "matched_keyword": "papier toilette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -576,7 +639,8 @@
         "normalized": "lessive",
         "category_id": "household",
         "matched_keyword": "lessive",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -585,7 +649,8 @@
         "normalized": "liquide vaisselle",
         "category_id": "household",
         "matched_keyword": "liquide vaisselle",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -594,7 +659,8 @@
         "normalized": "sac poubelle",
         "category_id": "household",
         "matched_keyword": "sac poubelle",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -603,7 +669,8 @@
         "normalized": "eponge",
         "category_id": "household",
         "matched_keyword": "eponge",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -612,7 +679,8 @@
         "normalized": "croquette",
         "category_id": "pets",
         "matched_keyword": "croquette",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -621,7 +689,8 @@
         "normalized": "litiere",
         "category_id": "pets",
         "matched_keyword": "litiere",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     }
   ]

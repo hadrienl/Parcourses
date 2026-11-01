@@ -37,7 +37,7 @@ final class AppEnvironment {
 
   private static func storage() -> PersistenceStack.Storage {
     #if DEBUG
-      // Tests UI : la CI ne signe pas, donc pas d'App Group. Un fichier dédié garde la vérification de la relance.
+      // Tests UI : un fichier dédié, remis à zéro à la demande, isole le parcours et sa relance.
       let variables = ProcessInfo.processInfo.environment
       if let name = variables["PARCOURSES_TEST_STORE"] {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(name).store")

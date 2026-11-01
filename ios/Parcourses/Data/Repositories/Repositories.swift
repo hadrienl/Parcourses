@@ -93,4 +93,7 @@ protocol CategoryRepository {
   func categories() throws -> [Category]
   /// Aligne la table sur `CategoryResources` si la version du fichier dépasse celle déjà appliquée.
   func seedIfNeeded() throws
+  /// Renseigne `remoteId` par slug. `shared/categories/` fait foi : aucune catégorie locale n'est ajoutée ni
+  /// supprimée, et une catégorie que le serveur ne connaît pas repasse à `nil`.
+  func applyRemoteIds(_ rows: [CategoryRow]) throws
 }

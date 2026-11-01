@@ -306,6 +306,14 @@ final class SwiftDataCategoryRepository: CategoryRepository {
     try context.fetch(FetchDescriptor<Category>(sortBy: [SortDescriptor(\.rank), SortDescriptor(\.id)]))
   }
 
+  func applyRemoteIds(_ rows: [CategoryRow]) throws {
+    let map = CategoryMap(rows: rows)
+    for category in try context.fetch(FetchDescriptor<Category>()) {
+      category.remoteId = map.remoteId(forSlug: category.slug)
+    }
+    try context.commit()
+  }
+
   func seedIfNeeded() throws {
     let seed = try seedSource()
     let state = try context.fetch(FetchDescriptor<CategorySeedState>()).first

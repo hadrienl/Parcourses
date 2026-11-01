@@ -9,7 +9,8 @@
         "normalized": "pomme",
         "category_id": "produce",
         "matched_keyword": "pomme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -18,7 +19,8 @@
         "normalized": "pomme",
         "category_id": "produce",
         "matched_keyword": "pomme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -27,7 +29,8 @@
         "normalized": "lait",
         "category_id": "dairy",
         "matched_keyword": "lait",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -36,7 +39,8 @@
         "normalized": "lait",
         "category_id": "dairy",
         "matched_keyword": "lait",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -45,7 +49,8 @@
         "normalized": "eau",
         "category_id": "beverages",
         "matched_keyword": "eau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -54,7 +59,8 @@
         "normalized": "eau",
         "category_id": "beverages",
         "matched_keyword": "eau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -63,7 +69,8 @@
         "normalized": "farine",
         "category_id": "sweet-grocery",
         "matched_keyword": "farine",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -72,7 +79,8 @@
         "normalized": "farine",
         "category_id": "sweet-grocery",
         "matched_keyword": "farine",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -81,7 +89,8 @@
         "normalized": "coca",
         "category_id": "beverages",
         "matched_keyword": "coca",
-        "match": "brand"
+        "match": "brand",
+        "organic": false
       }
     },
     {
@@ -90,7 +99,8 @@
         "normalized": "pate",
         "category_id": "savory-grocery",
         "matched_keyword": "pate",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -99,7 +109,8 @@
         "normalized": "pate barilla",
         "category_id": "savory-grocery",
         "matched_keyword": "pate",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -108,7 +119,8 @@
         "normalized": "thon",
         "category_id": "savory-grocery",
         "matched_keyword": "thon",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -117,7 +129,8 @@
         "normalized": "vin",
         "category_id": "alcohol",
         "matched_keyword": "vin",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -126,7 +139,8 @@
         "normalized": "yaourt",
         "category_id": "dairy",
         "matched_keyword": "yaourt",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -135,7 +149,8 @@
         "normalized": "biere",
         "category_id": "alcohol",
         "matched_keyword": "biere",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -144,7 +159,8 @@
         "normalized": "oeuf",
         "category_id": "dairy",
         "matched_keyword": "oeuf",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -153,7 +169,8 @@
         "normalized": "pain",
         "category_id": "bakery",
         "matched_keyword": "pain",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -162,7 +179,8 @@
         "normalized": "creme",
         "category_id": "dairy",
         "matched_keyword": "creme",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -171,7 +189,8 @@
         "normalized": "beurre confiture",
         "category_id": "dairy",
         "matched_keyword": "beurre",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -180,7 +199,8 @@
         "normalized": "pomme terre",
         "category_id": "produce",
         "matched_keyword": "pomme terre",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -189,7 +209,8 @@
         "normalized": "creme change",
         "category_id": "baby",
         "matched_keyword": "creme change",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -198,7 +219,8 @@
         "normalized": "oeuf",
         "category_id": "dairy",
         "matched_keyword": "oeuf",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -207,7 +229,8 @@
         "normalized": "oeuf",
         "category_id": "dairy",
         "matched_keyword": "oeuf",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -216,7 +239,8 @@
         "normalized": "lait 1er age",
         "category_id": "baby",
         "matched_keyword": "lait 1er age",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -225,7 +249,8 @@
         "normalized": "",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -234,7 +259,8 @@
         "normalized": "coca",
         "category_id": "beverages",
         "matched_keyword": "coca",
-        "match": "brand"
+        "match": "brand",
+        "organic": false
       }
     },
     {
@@ -243,7 +269,8 @@
         "normalized": "yaourt",
         "category_id": "dairy",
         "matched_keyword": "yaourt",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -252,7 +279,8 @@
         "normalized": "eau",
         "category_id": "beverages",
         "matched_keyword": "eau",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -261,7 +289,8 @@
         "normalized": "pain sans gluten",
         "category_id": "bakery",
         "matched_keyword": "pain",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     }
   ]

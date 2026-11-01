@@ -1,11 +1,12 @@
 // Génère les vecteurs de test partagés à partir des cas et de l'implémentation de référence.
-//   deno task generate   → écrit test-vectors/sort/*.json et test-vectors/categorize/*.json
+//   deno task generate   → écrit test-vectors/{sort,categorize,effective-category}/*.json
 //   deno task check      → régénère en mémoire et échoue si un fichier diffère ou manque
 
 import { sortItems } from "../reference/sort.ts";
 import { Classifier } from "../reference/classify.ts";
+import { effectiveCategory } from "../reference/effective_category.ts";
 import { sortCases } from "./sort_cases.ts";
-import { categorizeGroups } from "./categorize_cases.ts";
+import { categorizeGroups, effectiveCategoryGroups } from "./categorize_cases.ts";
 
 const ROOT = new URL("../test-vectors/", import.meta.url);
 export const FORMAT_VERSION = 1;
@@ -50,10 +51,34 @@ export function buildVectors(): Map<string, string> {
           `${g.id} « ${c.input} » : ${r.category_id} (${r.matched_keyword}), attendu ${c.c}`,
         );
       }
+      if (c.o !== undefined && r.organic !== c.o) {
+        errors.push(`${g.id} « ${c.input} » : organic ${r.organic}, attendu ${c.o}`);
+      }
       return { input: c.input, expected: r };
     });
     files.set(
       `categorize/${g.id}.json`,
+      json({ id: g.id, description: g.description, format_version: FORMAT_VERSION, cases }),
+    );
+  }
+
+  for (const g of effectiveCategoryGroups()) {
+    const cases = g.cases.map((c) => {
+      const r = c.label === undefined ? null : classifier.classify(c.label);
+      const category_id = r?.category_id ?? c.category_id!;
+      const organic = r?.organic ?? c.organic!;
+      const effective = effectiveCategory(category_id, organic, c.store_organic_aisle);
+      if (effective !== c.expect) {
+        errors.push(`${g.id} ${c.label ?? category_id} : ${effective}, attendu ${c.expect}`);
+      }
+      return {
+        ...(c.label === undefined ? {} : { label: c.label }),
+        input: { category_id, organic, store_organic_aisle: c.store_organic_aisle },
+        expected: { effective_category: effective },
+      };
+    });
+    files.set(
+      `effective-category/${g.id}.json`,
       json({ id: g.id, description: g.description, format_version: FORMAT_VERSION, cases }),
     );
   }
@@ -77,7 +102,11 @@ async function listJson(dir: string): Promise<string[]> {
 async function main() {
   const check = Deno.args.includes("--check");
   const files = buildVectors();
-  const onDisk = [...await listJson("sort/"), ...await listJson("categorize/")];
+  const onDisk = [
+    ...await listJson("sort/"),
+    ...await listJson("categorize/"),
+    ...await listJson("effective-category/"),
+  ];
   const problems: string[] = [];
 
   for (const path of onDisk) {

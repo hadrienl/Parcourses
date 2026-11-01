@@ -15,9 +15,10 @@ struct CategorizeVector: Decodable, Sendable {
     let categoryId: String
     let matchedKeyword: String?
     let match: String
+    let organic: Bool
 
     enum CodingKeys: String, CodingKey {
-      case normalized, match
+      case normalized, match, organic
       case categoryId = "category_id"
       case matchedKeyword = "matched_keyword"
     }
@@ -66,7 +67,7 @@ let classifier: CategoryClassifier = {
 
 @Test func allVectorFilesAreLoaded() throws {
   let vectors = try loadVectors()
-  #expect(vectors.count >= 9)
+  #expect(vectors.count >= 10)
   #expect(vectors.allSatisfy { $0.formatVersion == 1 && !$0.cases.isEmpty })
 }
 
@@ -86,6 +87,7 @@ func vectorMatchesReference(_ vector: CategorizeVector) {
     #expect(got.categoryId == want.categoryId, "\(vector.id) « \(testCase.input) »")
     #expect(got.matchedKeyword == want.matchedKeyword, "\(vector.id) « \(testCase.input) »")
     #expect(got.match.rawValue == want.match, "\(vector.id) « \(testCase.input) »")
+    #expect(got.organic == want.organic, "\(vector.id) « \(testCase.input) »")
   }
 }
 

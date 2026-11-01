@@ -1,5 +1,8 @@
 -- Magasins proches d'une position. La position reçue n'est jamais stockée.
 -- Un magasin non revu par l'import OSM depuis 90 jours est masqué.
+-- Rejeu (idempotence) : une migration ultérieure change le type de retour, qu'un « create or replace » refuse.
+drop function if exists public.nearby_stores(double precision, double precision, integer, integer);
+
 create or replace function public.nearby_stores(
   lat double precision,
   lng double precision,

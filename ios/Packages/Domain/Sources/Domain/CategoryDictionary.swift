@@ -77,7 +77,7 @@ public enum CategoryResources {
   private static let cachedRules = Result<NormalizationRules, any Error> { try decode("normalization") }
   private static let cachedKeywords = Result<KeywordDictionary, any Error> { try decode("keywords.fr") }
 
-  /// Les 20 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
+  /// Les 21 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
   public static func categories() throws -> [ItemCategory] {
     try cachedCategories.get().categories
   }
@@ -99,7 +99,7 @@ public enum CategoryResources {
 
   private static func decode<T: Decodable>(_ name: String) throws -> T {
     guard
-      let url = Bundle.module.url(forResource: name, withExtension: "json")
+      let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Dictionary")
     else { throw CategoryResourceError.missingResource(name) }
     return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
   }
