@@ -142,6 +142,10 @@ Règles impératives pour obtenir les mêmes octets que la référence :
   `Normalizer.normalize(s, Normalizer.Form.NFD)`.
 - **Regex des diacritiques** : écrire la classe avec des échappements, `[\u0300-\u036f]`, jamais
   avec les caractères combinants littéraux (invisibles, et souvent recomposés par les éditeurs).
+  Swift n'utilise pas de regex : il filtre numériquement les scalaires de U+0300 à U+036F, ce qui
+  est équivalent et accepté.
+- **Remplacement des ligatures** : en Swift, `replacingOccurrences(of:with:options: .literal)`. Sans
+  `.literal`, la comparaison se fait par graphème et « œ » suivi de U+0301 n'est pas remplacé.
 - **Entiers** : `Int64` / `Long` partout ; pas de `Double`, même transitoire.
 - **Tables** : jamais d'itération sur un `Dictionary` / `HashMap` / `Set` non trié.
 
