@@ -195,6 +195,7 @@ nonisolated enum SchemaV1: VersionedSchema {
     var name: String
     var chain: String?
     var address: String?
+    /// Jamais écrit : avec le magasin et `lastUsedAt`, une distance situerait l'utilisateur. Toujours `nil`.
     var lastDistanceM: Double?
     var lastUsedAt: Date?
 

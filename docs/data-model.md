@@ -73,7 +73,7 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 - Référentiel OpenStreetMap (`shop=supermarket`), identifié par le couple `(osm_type, osm_id)`.
 - Import : `scripts/import-osm-stores.ts` (Overpass → upsert via la Secret key, met à jour `osm_seen_at`).
   `--sql` produit l'instantané figé `supabase/seeds/stores_gers.sql` utilisé en local et en CI.
-- Un magasin non revu par l'import depuis 90 jours est masqué par `nearby_stores`, jamais supprimé.
+- Un magasin non revu par l'import depuis 90 jours est masqué par `nearby_stores` et `search_stores`, jamais supprimé.
 - Attribution ODbL : « © contributeurs OpenStreetMap » dans les apps.
 
 ## RPC `nearby_stores(lat, lng, radius_m = 3000, max_results = 10)`
@@ -81,6 +81,10 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 Renvoie `id, name, chain, address, distance_m, organic_aisle`, triés par distance (KNN sur l'index GiST), 20 au plus.
 Paramètres bornés (`lat` ∈ [-90, 90], `lng` ∈ [-180, 180], `radius_m` ∈ ]0, 20 000]). La position
 reçue n'est ni stockée ni renvoyée. Réservée à `authenticated`.
+
+## RPC `search_stores(q, max_results = 20)`
+
+Repli sans position : renvoie `id, name, chain, address, organic_aisle` des magasins dont le nom ou l'adresse contient `q`, sans casse ni accents (`normalize_label`), triés par nom, 20 au plus. La saisie est lue comme du texte, sans joker. Moins de 2 caractères : aucun résultat. Réservée à `authenticated`.
 
 ## Types et contrat
 

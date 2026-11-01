@@ -42,6 +42,7 @@ protocol StoreRepository {
   func store(id: UUID) throws -> Store?
   /// Magasins déjà utilisés, du plus récent au plus ancien.
   func recentStores(limit: Int) throws -> [Store]
+  /// `lastDistanceM` : l'app passe toujours `nil`, aucune distance à l'utilisateur n'est conservée.
   func upsertStore(id: UUID, name: String, chain: String?, address: String?, lastDistanceM: Double?) throws
   func markUsed(id: UUID, at date: Date) throws
 }

@@ -143,6 +143,14 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
   }
 }
 
+/// Ligne de la RPC `search_stores`.
+nonisolated struct StoreSearchRow: Decodable, Sendable, Equatable {
+  let id: UUID
+  let name: String
+  let chain: String?
+  let address: String?
+}
+
 /// Produit vu par l'app : sa catégorie est le slug partagé, pas l'`Int16` serveur.
 nonisolated struct RemoteProduct: Sendable, Equatable {
   let id: UUID

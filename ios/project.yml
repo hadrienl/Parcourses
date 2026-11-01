@@ -49,6 +49,9 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSSupportsLiveActivities: true
+        NSLocationWhenInUseUsageDescription: "Parcourses utilise votre position une seule fois pour trouver le magasin où vous êtes. Elle n'est ni conservée ni envoyée ailleurs que pour cette recherche."
+        NSLocationTemporaryUsageDescriptionDictionary:
+          StorePicker: "La position précise permet de proposer le magasin où vous êtes. Elle n'est pas conservée."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.parcourses
