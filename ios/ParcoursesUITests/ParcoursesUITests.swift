@@ -114,6 +114,7 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests-shopping"
     app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1"
     app.launchEnvironment["PARCOURSES_TEST_SEED_STORE"] = "Leclerc Auch"
+    app.launchEnvironment["PARCOURSES_TEST_UNDO_SECONDS"] = "60"
     if let confidenceQ {
       app.launchEnvironment["PARCOURSES_TEST_SEED_SNAPSHOT"] = Self.snapshot(confidenceQ: confidenceQ)
     }

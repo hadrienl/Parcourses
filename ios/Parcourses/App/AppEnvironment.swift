@@ -99,9 +99,16 @@ final class AppEnvironment {
   }
 
   private func makeSession(listId: UUID, storeId: UUID?) -> ShoppingSession {
-    ShoppingSession(
+    var undoDelay = Duration.seconds(4)
+    #if DEBUG
+      // Tests UI : une capture d'écran sur un runner chargé dure plus longtemps que la bannière.
+      if let seconds = ProcessInfo.processInfo.environment["PARCOURSES_TEST_UNDO_SECONDS"].flatMap(Int.init) {
+        undoDelay = .seconds(seconds)
+      }
+    #endif
+    return ShoppingSession(
       listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
-      analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway))
+      analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay)
   }
 
   private static func storage() -> PersistenceStack.Storage {
