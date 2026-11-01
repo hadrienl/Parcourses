@@ -288,3 +288,27 @@ private final class SpyHistory: ListRepository {
     #expect(try h.lists.itemHistory().isEmpty)
   }
 }
+
+/// Perte de session sur l'écran Liste : l'écran suit la liste, et la saisie n'est pas perdue.
+@MainActor
+@Suite struct ListDetailRekeyTests {
+  @Test func theOpenListFollowsItsNewIdentifier() throws {
+    let harness = try Harness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let oldId = list.id
+    let model = harness.detail(oldId)
+    model.input = "lait"
+
+    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    NotificationCenter.default.post(
+      name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
+
+    model.load()
+    #expect(!model.isMissing)
+    #expect(model.input == "lait")
+    #expect(model.listId == remap[oldId])
+    model.submit()
+    #expect(try harness.lists.items(listId: remap[oldId]).map(\.label) == ["lait"])
+    #expect(try harness.context.fetch(FetchDescriptor<ListItem>()).count == 1)
+  }
+}

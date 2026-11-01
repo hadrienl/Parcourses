@@ -131,14 +131,13 @@ nonisolated struct ServerClock: Sendable {
   let serverNow: Date
   let deviceNow: Date
 
-  /// Date à envoyer à la place de `date`, `nil` si `date` n'est pas trop loin dans le futur.
+  /// Décalage à ôter à toutes les dates d'une visite, `nil` si la plus récente n'est pas trop loin dans le futur.
   ///
-  /// L'avance mesurée s'ôte à toutes les dates, ce qui garde l'ordre des coches. Le plafond couvre une horloge
-  /// remise à l'heure entre-temps : l'avance mesurée est alors nulle alors que `date` reste dans le futur.
-  func corrected(_ date: Date) -> Date? {
-    guard date > serverNow.addingTimeInterval(Self.futureMargin) else { return nil }
-    let lead = max(0, deviceNow.timeIntervalSince(serverNow))
-    return min(date.addingTimeInterval(-lead), serverNow)
+  /// Un seul décalage garde l'ordre des coches. Il vaut l'avance mesurée, au moins de quoi ramener la plus récente
+  /// à l'heure du serveur : l'horloge a pu être remise à l'heure entre-temps, l'avance mesurée est alors nulle.
+  func shift(forLatest latest: Date) -> TimeInterval? {
+    guard latest > serverNow.addingTimeInterval(Self.futureMargin) else { return nil }
+    return max(deviceNow.timeIntervalSince(serverNow), latest.timeIntervalSince(serverNow))
   }
 
   static func parseHTTPDate(_ value: String) -> Date? {

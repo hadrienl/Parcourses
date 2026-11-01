@@ -14,21 +14,52 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
 /// Perte de session : un nouveau compte anonyme ne voit plus rien, tout repart sous de nouveaux identifiants.
 @MainActor
 @Suite(.serialized) struct AccountRecoveryTests {
-  @Test func everythingIsResentUnderNewIdentifiers() async throws {
+  /// Reçue et close : elle a pu nourrir le graphe partagé. La renvoyer l'y apprendrait une seconde fois.
+  @Test func aReceivedClosedVisitStaysLocalUnderItsNewIdentifier() async throws {
+    let harness = try SyncHarness()
+    let seeded = try harness.seedVisit(checks: 2)
+    let oldVisit = seeded.visit.id
+    try harness.visits.closeVisit(id: oldVisit, at: t0)
+    await harness.engine.drain(pull: true)
+    #expect(try harness.entries().isEmpty)
+    let before = await harness.gateway.visits.count
+
+    await harness.gateway.loseAccount()
+    await harness.engine.drain(pull: true)
+
+    let visit = try #require(try harness.fresh(Visit.self).first)
+    let checks = try harness.fresh(Check.self)
+    #expect(visit.id != oldVisit)
+    #expect(visit.syncState == .synced && visit.endSyncState == .synced)
+    #expect(try visit.listId == harness.fresh(ShoppingList.self).first?.id)
+    #expect(checks.count == 2 && checks.allSatisfy { $0.visitId == visit.id && $0.syncState == .synced })
+    #expect(await harness.gateway.visits.count == before)
+    #expect(await harness.gateway.closures.count == 1)
+    // Sa liste et ses articles appartiennent au compte : eux repartent.
+    #expect(await harness.gateway.savedLists.last?.id == visit.listId)
+    #expect(try harness.entries().isEmpty)
+  }
+
+  @Test func everythingNotReceivedIsResentUnderNewIdentifiers() async throws {
     let harness = try SyncHarness()
     let seeded = try harness.seedVisit(checks: 2)
     let (oldList, oldVisit) = (seeded.list.id, seeded.visit.id)
     let oldItem = try #require(try all(harness, ListItem.self).first).id
     let oldChecks = Set(try all(harness, Check.self).map(\.id))
-    try harness.visits.closeVisit(id: oldVisit, at: t0.addingTimeInterval(60))
-    await harness.engine.drain(pull: true)
-    #expect(try harness.entries().isEmpty)
+    await harness.engine.drain()
     await harness.gateway.setPull(lists: [
       ListRow(id: oldList, ownerId: UUID(), name: "Courses", createdAt: t0, updatedAt: t0)
     ])
     await harness.engine.drain(pull: true)
     await harness.gateway.setPull()
     #expect(harness.cursors.lists != nil)
+    // Créée et cochée, mais jamais close côté serveur : pas apprise, donc à renvoyer en entier.
+    try harness.visits.closeVisit(id: oldVisit, at: t0.addingTimeInterval(60))
+    await harness.gateway.failAlways("closeVisit", with: .network)
+    await harness.engine.drain()
+    await harness.gateway.failAlways("closeVisit", with: nil)
+    await harness.skipBackoff()
+    #expect(try harness.kinds() == [.closeVisit])
     let previousAccount = harness.cursors.accountId
 
     await harness.gateway.loseAccount()
@@ -209,6 +240,18 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
     #expect(await harness.gateway.savedLists.last?.id == current)
   }
 
+  @Test func anOrphanItemProducesNoDoomedUpsert() async throws {
+    let harness = try SyncHarness()
+    harness.context.insert(
+      ListItem(listId: UUID(), label: "Orphelin", normalizedName: "orphelin", categoryId: "other", position: 0))
+    try harness.context.save()
+    await harness.gateway.setKnownAccount(UUID())
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.savedItems.isEmpty)
+    #expect(try harness.entries().isEmpty)
+    #expect(try harness.fresh(ListItem.self).first?.label == "Orphelin")
+  }
+
   @Test func screensReceiveTheMapping() async throws {
     let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "A", at: t0)
@@ -270,13 +313,39 @@ private nonisolated final class Box<Value>: @unchecked Sendable {
     #expect(visit.startedAt == device)
   }
 
-  @Test func aDateStillInTheFutureAfterTheClockWasFixedIsCapped() {
+  @Test func theShiftIsUniformAndCappedAtServerTime() {
     let server = t0
-    let clock = ServerClock(serverNow: server, deviceNow: server)
-    #expect(clock.corrected(server.addingTimeInterval(86_400)) == server)
-    #expect(clock.corrected(server.addingTimeInterval(60)) == nil)
+    let fixed = ServerClock(serverNow: server, deviceNow: server)
+    #expect(fixed.shift(forLatest: server.addingTimeInterval(86_400)) == 86_400)
+    #expect(fixed.shift(forLatest: server.addingTimeInterval(60)) == nil)
     let fast = ServerClock(serverNow: server, deviceNow: server.addingTimeInterval(600))
-    #expect(fast.corrected(server.addingTimeInterval(590)) == server.addingTimeInterval(-10))
+    #expect(fast.shift(forLatest: server.addingTimeInterval(590)) == 600)
+  }
+
+  /// Une coche sous la marge et une au-delà : les corriger séparément inverserait leur ordre.
+  @Test func aMixedBatchKeepsItsOrderAndItsClosure() async throws {
+    let harness = try SyncHarness()
+    let serverNow = harness.clock.now
+    let device = serverNow.addingTimeInterval(600)
+    harness.clock.now = device
+    await harness.gateway.setServerNow(serverNow)
+    await harness.gateway.setEnforcesClock(true)
+    let list = try harness.lists.createList(name: "A", at: device)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: device)
+    let start = serverNow.addingTimeInterval(100)
+    let visit = try harness.visits.startVisit(storeId: UUID(), listId: list.id, listWasSorted: false, at: start)
+    let early = serverNow.addingTimeInterval(200)
+    let late = serverNow.addingTimeInterval(400)
+    try harness.visits.addCheck(visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: early)
+    try harness.visits.addCheck(visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: late)
+    try harness.visits.closeVisit(id: visit.id, at: device)
+    await harness.engine.drain()
+    #expect(try harness.entries().isEmpty)
+    let dates = (await harness.gateway.checkBatches.flatMap { $0 }).map(\.checkedAt)
+    #expect(Set(dates) == [early.addingTimeInterval(-600), late.addingTimeInterval(-600)])
+    #expect(await harness.gateway.closures == [serverNow])
   }
 
   @Test func theHTTPDateIsParsed() {
@@ -295,19 +364,23 @@ private nonisolated final class Box<Value>: @unchecked Sendable {
     _ = seeded
   }
 
-  @Test func withoutServerTimeTheEntryIsNotLostAtOnce() async throws {
+  /// Sans heure du serveur, le refus ne se corrige pas, mais la visite ne doit jamais être perdue.
+  @Test func withoutServerTimeTheVisitIsSetAsideAndNeverFails() async throws {
     let harness = try SyncHarness()
-    let list = try harness.lists.createList(name: "A", at: t0)
-    let visit = try harness.visits.startVisit(storeId: UUID(), listId: list.id, listWasSorted: false, at: t0)
-    let item = try harness.lists.addItem(
-      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
-    )
-    try harness.visits.addCheck(visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: t0)
+    let seeded = try harness.seedVisit(checks: 1)
+    let other = try harness.lists.createList(name: "Autre", at: t0)
     await harness.gateway.setServerNow(nil)
     await harness.gateway.failAlways("createVisit", with: .constraint(code: "23514"))
-    await harness.engine.drain()
+    for _ in 0..<(SyncRetryPolicy.maxDependencyAttempts + 2) {
+      await harness.engine.drain()
+      harness.clock.advance(SyncRetryPolicy.parkedRetryDelay + 1)
+    }
+    let visit = try #require(try harness.fresh(Visit.self).first)
     #expect(visit.syncState == .pending)
-    #expect(try harness.entries().first { $0.kind == .createVisit }?.attempts == 1)
+    #expect(try harness.fresh(Check.self).first?.syncState == .pending)
+    let entry = try #require(try harness.entries().first { $0.entityId == seeded.visit.id })
+    #expect(entry.syncState == .pending && entry.attempts == 0)
+    #expect(await harness.gateway.savedLists.contains { $0.id == other.id })
   }
 }
 
@@ -432,6 +505,40 @@ private nonisolated final class Box<Value>: @unchecked Sendable {
     #expect(await harness.gateway.checkBatches.isEmpty)
     #expect(await harness.gateway.closures.isEmpty)
     #expect(seeded.visit.syncState == .pending)
+  }
+
+  /// Panne générale : la ligne innocente mise de côté repart à la première preuve de reprise, sans attendre 6 h.
+  @Test func aGlobalOutageReleasesTheInnocentRowOnRecovery() async throws {
+    let harness = try SyncHarness()
+    let innocent = try harness.lists.createList(name: "A", at: t0)
+    await harness.gateway.setServerFailing([innocent.id])
+    await harness.engine.drain()
+    elapseGrace(harness)
+    await pass(harness)
+    #expect(try harness.entries().first?.nextAttemptAt ?? t0 > harness.clock.now)
+
+    await harness.gateway.setServerFailing([])
+    try harness.lists.createList(name: "B", at: harness.clock.now)
+    await harness.engine.drain()
+    #expect(try harness.entries().isEmpty)
+    #expect(await harness.gateway.savedLists.map(\.id).contains(innocent.id))
+  }
+
+  /// Une ligne vraiment fautive n'est réessayée qu'une fois : les succès suivants ne la relancent plus.
+  @Test func aReallyFailingRowIsNotRetriedOnEverySuccess() async throws {
+    let harness = try SyncHarness()
+    let bad = try harness.lists.createList(name: "A", at: t0)
+    await harness.gateway.setServerFailing([bad.id])
+    await harness.engine.drain()
+    elapseGrace(harness)
+    await pass(harness)
+    try harness.lists.createList(name: "B", at: harness.clock.now)
+    await harness.engine.drain()
+    await harness.gateway.clearCalls()
+    try harness.lists.createList(name: "C", at: harness.clock.now)
+    await harness.engine.drain()
+    #expect(await harness.gateway.calls.filter { $0 == "saveList" }.count == 1)
+    #expect(try harness.entries().map(\.entityId) == [bad.id])
   }
 
   @Test func aNetworkOutageParksNothing() async throws {

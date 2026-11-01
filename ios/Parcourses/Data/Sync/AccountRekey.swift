@@ -17,7 +17,8 @@ nonisolated struct IdentifierRemap: Sendable, Equatable {
 }
 
 /// Reprise après perte de session : le nouveau compte anonyme ne voit aucune ligne de l'ancien, et un même
-/// identifiant y serait ignoré en silence (`on conflict do nothing`). Tout repart donc sous de nouveaux identifiants.
+/// identifiant y serait ignoré en silence (`on conflict do nothing`). Tout change donc d'identifiant, et tout repart
+/// sauf les visites reçues et closes.
 ///
 /// Une seule sauvegarde : tout ou rien. Rejouable : tant que le compte n'est pas acquitté, aucun envoi n'a lieu,
 /// et ces identifiants n'existent nulle part ; recommencer n'a donc aucun effet visible.
@@ -25,6 +26,17 @@ nonisolated struct IdentifierRemap: Sendable, Equatable {
 enum AccountRekey {
   static func run(in context: ModelContext, now: Date) throws -> IdentifierRemap {
     try context.atomically {
+      // Sur un contexte neuf : le principal reçoit les écritures du moteur plus tard, et un état `pending` périmé
+      // ferait renvoyer une visite déjà reçue.
+      let disk = ModelContext(context.container)
+      let synced = SyncState.synced.rawValue
+      let received = Set(
+        try disk.fetch(
+          FetchDescriptor<Visit>(predicate: #Predicate { $0.syncStateRaw == synced && $0.endSyncStateRaw == synced })
+        ).map(\.id))
+      let checkStates = Dictionary(
+        try disk.fetch(FetchDescriptor<Check>()).map { ($0.id, $0.syncState) }, uniquingKeysWith: { first, _ in first })
+
       let entries = try context.fetch(FetchDescriptor<OutboxEntry>())
       // Coche retenue pendant l'annulation : l'envoi reste retenu, sinon elle deviendrait immuable trop tôt.
       var held: [UUID: Date] = [:]
@@ -57,7 +69,12 @@ enum AccountRekey {
       }
       for item in items where !deleted.contains(item.listId) {
         item.id = fresh(item.id)
-        item.listId = identifiers[item.listId] ?? item.listId
+        guard let listId = identifiers[item.listId] else {
+          // Orphelin : sans liste à envoyer, le serveur le refuserait. Il reste en local, sans entrée.
+          item.syncState = .failed
+          continue
+        }
+        item.listId = listId
         item.syncState = .pending
         try context.enqueueUpsert(of: item, at: now)
       }
@@ -69,9 +86,23 @@ enum AccountRekey {
         let oldVisit = visit.id
         visit.id = fresh(oldVisit)
         visit.listId = identifiers[visit.listId] ?? visit.listId
+        let own = checksByVisit[oldVisit] ?? []
+        // Reçue et close : elle a pu nourrir le graphe partagé, et la renvoyer l'y apprendrait une seconde fois.
+        // Elle reste en local. Visite ouverte ou clôture non reçue : jamais apprise, elle repart en entier.
+        guard !received.contains(oldVisit) else {
+          visit.syncState = .synced
+          visit.endSyncState = .synced
+          for check in own {
+            let state = checkStates[check.id] ?? .synced
+            check.id = fresh(check.id)
+            check.visitId = visit.id
+            check.itemId = identifiers[check.itemId] ?? check.itemId
+            check.syncState = state
+          }
+          continue
+        }
         visit.syncState = .pending
         visit.endSyncState = .pending
-        let own = checksByVisit[oldVisit] ?? []
         // Sans coche, une visite reste locale (#9 §5.5). Elle partira avec sa première coche.
         guard !own.isEmpty else { continue }
         // Sans sa liste, la visite reste utile au graphe.

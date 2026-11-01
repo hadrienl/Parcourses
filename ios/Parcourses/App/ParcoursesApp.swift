@@ -107,9 +107,10 @@ struct RootView: View {
       .navigationDestination(for: Route.self) { route in
         switch route {
         case .list(let id):
-          ListDetailView(model: environment.makeListDetailModel(listId: id)) {
+          // L'identifiant vient du modèle, qui suit la liste : celui de la route a pu changer.
+          ListDetailView(model: environment.makeListDetailModel(listId: id)) { listId in
             guard !isStarting, session == nil, pendingStart == nil else { return }
-            pickingFor = PickerRequest(listId: id)
+            pickingFor = PickerRequest(listId: listId)
           }
         }
       }
@@ -163,10 +164,13 @@ struct RootView: View {
     guard let start = pendingStart else { return }
     pendingStart = nil
     isStarting = true
+    var storeId: UUID?
+    if case .store(let id) = start.outcome { storeId = id }
+    // Créée avant toute suspension : dès cet instant, la session suit un changement d'identifiant.
+    let prepared = environment.makeSession(listId: start.listId, storeId: storeId)
     Task {
-      var storeId: UUID?
-      if case .store(let id) = start.outcome { storeId = id }
-      session = await environment.startShopping(listId: start.listId, storeId: storeId)
+      await prepared.start()
+      session = prepared
       isStarting = false
     }
   }

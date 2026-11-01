@@ -98,7 +98,7 @@ final class AppEnvironment {
     return session
   }
 
-  private func makeSession(listId: UUID, storeId: UUID?) -> ShoppingSession {
+  func makeSession(listId: UUID, storeId: UUID?) -> ShoppingSession {
     var undoDelay = Duration.seconds(4)
     #if DEBUG
       // Tests UI : une capture d'écran sur un runner chargé dure plus longtemps que la bannière.

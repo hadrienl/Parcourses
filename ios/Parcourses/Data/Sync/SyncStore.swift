@@ -159,33 +159,55 @@ actor SyncStore {
     return oldest
   }
 
-  /// Corrige la date envoyée, jamais la date locale. Vrai si au moins une date était trop loin dans le futur.
+  /// Corrige les dates envoyées, jamais les dates locales. Toutes les entrées en attente de la visite reçoivent le
+  /// même décalage : création, coches de tous les lots et clôture gardent leur ordre. Vrai si une date était trop
+  /// loin dans le futur.
   func correctClock(_ work: OutboxWork, clock: ServerClock) throws -> Bool {
-    var changed = false
-    for id in work.entryIds {
-      guard let entry = try entry(id: id) else { continue }
-      switch work.kind {
+    guard let id = work.entryIds.first, let first = try entry(id: id),
+      let visitId = OutboxDependencies.visitId(of: first)
+    else { return false }
+    let entries = try pendingEntries().filter { OutboxDependencies.visitId(of: $0) == visitId }
+    let dates = try entries.compactMap { try Self.sentDate(of: $0) }
+    guard let latest = dates.max(), let shift = clock.shift(forLatest: latest) else { return false }
+    for entry in entries {
+      switch entry.kind {
       case .createVisit:
         let row = try OutboxCoding.decode(VisitInsert.self, from: entry.payload)
-        guard let date = clock.corrected(row.startedAt) else { continue }
         entry.payload = try OutboxCoding.encode(
           VisitInsert(
-            id: row.id, storeId: row.storeId, listId: row.listId, listWasSorted: row.listWasSorted, startedAt: date))
+            id: row.id, storeId: row.storeId, listId: row.listId, listWasSorted: row.listWasSorted,
+            startedAt: row.startedAt.addingTimeInterval(-shift)))
       case .insertChecks:
         let row = try OutboxCoding.decode(CheckPayload.self, from: entry.payload)
-        guard let date = clock.corrected(row.checkedAt) else { continue }
-        entry.payload = try OutboxCoding.encode(row.with(checkedAt: date))
+        entry.payload = try OutboxCoding.encode(row.with(checkedAt: row.checkedAt.addingTimeInterval(-shift)))
       case .closeVisit:
         let row = try OutboxCoding.decode(VisitClosePayload.self, from: entry.payload)
-        guard let date = clock.corrected(row.endedAt) else { continue }
-        entry.payload = try OutboxCoding.encode(VisitClosePayload(visitId: row.visitId, endedAt: date))
+        entry.payload = try OutboxCoding.encode(
+          VisitClosePayload(visitId: row.visitId, endedAt: row.endedAt.addingTimeInterval(-shift)))
       default:
-        continue
+        break
       }
-      changed = true
     }
-    if changed { try modelContext.save() }
-    return changed
+    try modelContext.save()
+    return true
+  }
+
+  private static func sentDate(of entry: OutboxEntry) throws -> Date? {
+    switch entry.kind {
+    case .createVisit: try OutboxCoding.decode(VisitInsert.self, from: entry.payload).startedAt
+    case .insertChecks: try OutboxCoding.decode(CheckPayload.self, from: entry.payload).checkedAt
+    case .closeVisit: try OutboxCoding.decode(VisitClosePayload.self, from: entry.payload).endedAt
+    default: nil
+    }
+  }
+
+  /// Reprise prouvée après une panne : les lignes mises de côté repartent. Leur départ de panne reste :
+  /// une ligne vraiment fautive retourne de côté dès son échec, sans retenir la file.
+  func releaseParked(now: Date) throws {
+    for entry in try pendingEntries() where entry.serverFailingSince != nil && entry.nextAttemptAt > now {
+      entry.nextAttemptAt = now
+    }
+    try modelContext.save()
   }
 
   /// La liste de la visite n'existe plus côté serveur : la visite repart sans elle.

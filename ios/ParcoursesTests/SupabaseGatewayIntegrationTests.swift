@@ -533,7 +533,8 @@ struct SyncEngineIntegrationTests {
     #expect(list.id != oldList && item.listId == list.id && visit.listId == list.id)
     #expect(try await setup.remote.fetchLists(updatedAfter: nil).map(\.id) == [list.id])
     #expect(try await setup.remote.fetchItems(updatedAfter: nil).map(\.listId) == [list.id])
-    #expect(try await setup.remote.visitAccess(id: visit.id) == .closed)
+    // Reçue et close par l'ancien compte : pas renvoyée, le graphe ne l'apprend pas deux fois.
+    #expect(try await setup.remote.visitAccess(id: visit.id) == .notVisible)
     try store.removeAll()
   }
 

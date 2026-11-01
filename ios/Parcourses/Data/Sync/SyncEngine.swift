@@ -68,6 +68,9 @@ actor SyncEngine {
 
   /// Pas de session valide : seule une passe forcée tente d'en retrouver une.
   private(set) var isWaitingForSession = false
+  /// Une erreur serveur a retenu la file : le prochain succès prouve la reprise et libère les lignes mises de côté.
+  /// En mémoire : après un relancement pendant la panne, une ligne attend au pire la fin de son délai.
+  private var isServerOutageSuspected = false
   /// Le compte a changé : réidentifier avant tout envoi.
   private var needsAccountRecovery = false
 
@@ -297,6 +300,7 @@ actor SyncEngine {
           try await send(work)
           try await store.complete(work)
           isWaitingForSession = false
+          try await releaseParkedIfRecovered()
           sent += 1
         } catch {
           if Task.isCancelled { return nil }
@@ -315,6 +319,12 @@ actor SyncEngine {
       registerTransientFailure()
       return nil
     }
+  }
+
+  private func releaseParkedIfRecovered() async throws {
+    guard isServerOutageSuspected else { return }
+    isServerOutageSuspected = false
+    try await store.releaseParked(now: dependencies.now())
   }
 
   private func send(_ work: OutboxWork) async throws {
@@ -382,7 +392,12 @@ actor SyncEngine {
         case .corrected: return .proceed
         case .stopped: return .stop
         case .noServerTime:
-          return try await capAttempts(error, work, limit: SyncRetryPolicy.maxDependencyAttempts)
+          // Rien ne prouve que la ligne soit fautive : de côté, sans essai consommé, jamais `failed`.
+          try await store.postpone(
+            work, attempts: work.attempts,
+            until: dependencies.now().addingTimeInterval(SyncRetryPolicy.parkedRetryDelay * dependencies.jitter()),
+            reason: "\(error), heure du serveur inconnue")
+          return .proceed
         case .notAhead: break
         }
       }
@@ -399,7 +414,10 @@ actor SyncEngine {
   ) async throws -> Next {
     let now = dependencies.now()
     let since = try await store.markServerFailure(work, at: now, reason: String(describing: error))
-    guard now.timeIntervalSince(since) >= SyncRetryPolicy.serverFailureGrace else { return stop(on: error) }
+    guard now.timeIntervalSince(since) >= SyncRetryPolicy.serverFailureGrace else {
+      isServerOutageSuspected = true
+      return stop(on: error)
+    }
     if split(work, into: &singleChecks) { return .proceed }
     let delay = SyncRetryPolicy.parkedRetryDelay * dependencies.jitter()
     try await store.postpone(
@@ -541,6 +559,7 @@ actor SyncEngine {
       }
       lastPull = now
       pullBackoffUntil = nil
+      try await releaseParkedIfRecovered()
       isWaitingForSession = false
       if listsMerge.changed || itemsMerge.changed {
         await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
