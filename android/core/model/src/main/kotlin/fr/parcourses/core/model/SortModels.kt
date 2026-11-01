@@ -132,8 +132,8 @@ sealed class SortError(
         val id: String,
     ) : SortError("identifiant d'article en double : $id")
 
-    /** Poids négatif ; [context] désigne l'arête ou l'entrée fautive. */
-    class NegativeWeight(
+    /** Poids hors de `0..2^53-1` ; [context] désigne l'arête ou l'entrée fautive. */
+    class InvalidWeight(
         val context: String,
         val weightQ: Long,
     ) : SortError("weight_q invalide : $context $weightQ")

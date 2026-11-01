@@ -52,19 +52,36 @@ class ValidationTest {
     }
 
     @Test
-    fun rejectsNegativeWeights() {
-        assertThrows(SortError.NegativeWeight::class.java) {
-            sortItems(base.copy(snapshot = SortSnapshot(900, emptyList(), listOf(SnapshotEdge("a", "b", -1)))))
-        }
-        assertThrows(SortError.NegativeWeight::class.java) {
-            sortItems(base.copy(snapshot = SortSnapshot(900, listOf(SnapshotEntry("a", -1)), emptyList())))
+    fun rejectsWeightsOutsideSafeRange() {
+        for (bad in listOf(-1L, MAX_SAFE + 1, Long.MAX_VALUE)) {
+            assertThrows(SortError.InvalidWeight::class.java) { sortItems(withEdgeWeight(bad)) }
+            assertThrows(SortError.InvalidWeight::class.java) { sortItems(withEntryWeight(bad)) }
         }
     }
+
+    @Test
+    fun acceptsLargestSafeWeight() {
+        assertEquals(listOf("i-1"), sortItems(withEdgeWeight(MAX_SAFE)).order)
+        assertEquals(listOf("i-1"), sortItems(withEntryWeight(MAX_SAFE)).order)
+    }
+
+    private fun withEdgeWeight(w: Long) =
+        base.copy(snapshot = SortSnapshot(900, emptyList(), listOf(SnapshotEdge("a", "b", w))))
+
+    private fun withEntryWeight(w: Long) =
+        base.copy(snapshot = SortSnapshot(900, listOf(SnapshotEntry("a", w)), emptyList()))
 
     @Test
     fun comparesBytesUnsigned() {
         // « é » (0xC3 0xA9) passe après « z » (0x7A) en octets UTF-8 non signés.
         assert(compareBytes("é", "z") > 0)
         assert(compareBytes("ab", "abc") < 0)
+        // Formes NFC et NFD : canoniquement équivalentes, mais octets différents.
+        assert(compareBytes("\u00e9", "e\u0301") > 0)
+        assertEquals(0, compareBytes("abc", "abc"))
+    }
+
+    private companion object {
+        const val MAX_SAFE = (1L shl 53) - 1
     }
 }

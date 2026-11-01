@@ -38,13 +38,21 @@ private fun validateSnapshot(input: SortInput) {
     for (edge in snapshot.edges) {
         checkId(edge.a, "edge.a")
         checkId(edge.b, "edge.b")
-        if (edge.weightQ < 0) throw SortError.NegativeWeight("${edge.a}-${edge.b}", edge.weightQ)
+        if (!isValidWeight(edge.weightQ)) throw SortError.InvalidWeight("${edge.a}-${edge.b}", edge.weightQ)
     }
     for (entry in snapshot.entries) {
         checkId(entry.productId, "entry.product_id")
-        if (entry.weightQ < 0) throw SortError.NegativeWeight("entry ${entry.productId}", entry.weightQ)
+        if (!isValidWeight(entry.weightQ)) throw SortError.InvalidWeight("entry ${entry.productId}", entry.weightQ)
     }
 }
+
+/**
+ * Poids valide : positif ou nul, au plus `2^53 - 1` (`Number.isSafeInteger` de la référence).
+ * Cette borne évite aussi le débordement de `1000 + weightQ` dans `edgeCost`.
+ */
+private fun isValidWeight(weightQ: Long): Boolean = weightQ in 0..MAX_SAFE_WEIGHT
+
+private const val MAX_SAFE_WEIGHT = (1L shl 53) - 1
 
 private fun checkId(
     id: String,
