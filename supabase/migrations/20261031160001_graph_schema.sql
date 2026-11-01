@@ -18,17 +18,18 @@ alter table public.visits
   add column if not exists processed_algo_version integer,
   add column if not exists auto_closed boolean not null default false,
   add column if not exists process_attempts smallint not null default 0,
+  add column if not exists next_attempt_at timestamptz,
   add column if not exists process_error text;
 
 alter table public.visits drop constraint if exists visits_learn_outcome_check;
 alter table public.visits add constraint visits_learn_outcome_check check (
-  learn_outcome in ('learned', 'too_few_checks', 'rate_limited', 'auto_closed_empty', 'error')
+  learn_outcome in ('learned', 'too_few_checks', 'too_many_checks', 'rate_limited', 'auto_closed_empty', 'error')
 );
 
 -- File des visites à traiter : ordre chronologique par magasin (§5.2).
 drop index if exists public.visits_to_process_idx;
 create index if not exists visits_to_process_idx on public.visits (store_id, ended_at, id)
-where ended_at is not null and processed_at is null;
+where ended_at is not null and processed_at is null and process_attempts < 5;
 
 -- Anti-spam (§6.6) : visites déjà apprises d'un utilisateur dans un magasin.
 create index if not exists visits_learned_idx on public.visits (user_id, store_id, ended_at)

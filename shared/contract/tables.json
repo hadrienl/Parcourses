@@ -93,6 +93,7 @@
     "learn_weight",
     "list_id",
     "list_was_sorted",
+    "next_attempt_at",
     "process_attempts",
     "process_error",
     "processed_algo_version",

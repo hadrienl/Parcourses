@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(20);
+select plan(29);
 
 select tests.create_user('alice@example.com') as alice \gset
 select tests.create_user('bob@example.com') as bob \gset
@@ -63,6 +63,31 @@ select ok((select processed_at is null and process_attempts = 1 and process_erro
 select is((select count(*)::int from public.store_edges where product_a = tests.product(10) or product_b = tests.product(10)),
   0, 'aucun delta partiel de la visite en erreur');
 select is((select learn_outcome from public.visits where id = :'v8'), 'learned', 'la visite suivante est apprise');
+
+-- Backoff exponentiel après l'échec de 11:00.
+select is((select next_attempt_at from public.visits where id = :'v7'), timestamptz '2026-10-31 11:01+01', '1er échec : reprise 1 min plus tard');
+select graph.process_pending_visits(200, timestamptz '2026-10-31 11:00:30+01');
+select is((select process_attempts::int from public.visits where id = :'v7'), 1, 'pas de reprise avant l''échéance');
+select graph.process_pending_visits(200, timestamptz '2026-10-31 11:01+01');
+select ok((select process_attempts = 2 and next_attempt_at = timestamptz '2026-10-31 11:03+01' from public.visits where id = :'v7'), '2e échec : reprise 2 min plus tard');
+select graph.process_pending_visits(200, timestamptz '2026-10-31 11:03+01');
+select graph.process_pending_visits(200, timestamptz '2026-10-31 11:07+01');
+select graph.process_pending_visits(200, timestamptz '2026-10-31 11:15+01');
+select ok((select process_attempts = 5 and learn_outcome = 'error' and next_attempt_at is null from public.visits where id = :'v7'), '5e échec : outcome error, plus de reprise');
+select is(graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01') ->> 'claimed', '0', 'visite épuisée hors de la file');
+select ok((select pg_get_indexdef('public.visits_to_process_idx'::regclass) like '%process_attempts < 5%'), 'index de file limité aux visites à reprendre');
+
+-- Plafond de coches, de bout en bout : MAX_CHECKS abaissé pour rester sous le trigger de #8.
+update graph.algo_versions set server_params = server_params || '{"MAX_CHECKS": 2}' where version = 1;
+select tests.visit(:'bob', :'store', array[20,21,22], array[0,30,60]::float8[], timestamptz '2026-10-31 10:30+01') as v9 \gset
+select graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01');
+select is((select learn_outcome from public.visits where id = :'v9'), 'too_many_checks', 'trop de coches : too_many_checks');
+
+-- Aucune version active : exception, sans consommer de tentative.
+update graph.algo_versions set retired_at = now() where version = 1;
+select tests.visit(:'bob', :'store', array[23,24,25], array[0,30,60]::float8[], timestamptz '2026-10-31 10:45+01') as v10 \gset
+select throws_ok($$ select graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01') $$, 'P0001', 'no active graph.algo_versions row', 'aucune version active : exception');
+select is((select process_attempts::int from public.visits where id = :'v10'), 0, 'aucune tentative consommée');
 
 select * from finish();
 rollback;

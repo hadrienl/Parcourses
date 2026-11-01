@@ -243,14 +243,14 @@ isOneToOne: true
                   ]
                 },"visits": {
                   Row: {
-                    "auto_closed": boolean,"ended_at": string | null,"id": string,"learn_outcome": string | null,"learn_weight": number | null,"list_id": string | null,"list_was_sorted": boolean,"process_attempts": number,"process_error": string | null,"processed_algo_version": number | null,"processed_at": string | null,"started_at": string,"store_id": string,"user_id": string
+                    "auto_closed": boolean,"ended_at": string | null,"id": string,"learn_outcome": string | null,"learn_weight": number | null,"list_id": string | null,"list_was_sorted": boolean,"next_attempt_at": string | null,"process_attempts": number,"process_error": string | null,"processed_algo_version": number | null,"processed_at": string | null,"started_at": string,"store_id": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted": boolean,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id": string,"user_id"?: string
+                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted": boolean,"next_attempt_at"?: string | null,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id": string,"user_id"?: string
                   }
                   Update: {
-                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted"?: boolean,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id"?: string,"user_id"?: string
+                    "auto_closed"?: boolean,"ended_at"?: string | null,"id"?: string,"learn_outcome"?: string | null,"learn_weight"?: number | null,"list_id"?: string | null,"list_was_sorted"?: boolean,"next_attempt_at"?: string | null,"process_attempts"?: number,"process_error"?: string | null,"processed_algo_version"?: number | null,"processed_at"?: string | null,"started_at"?: string,"store_id"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {

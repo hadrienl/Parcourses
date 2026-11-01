@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(16);
+select plan(17);
 
 -- Visite simple : 1, 2, 3, 4 espacés de 30 s.
 select is(graph.learn_visit(tests.graph_params(), false, tests.checks_json(array[1,2,3,4], array[0,30,60,90]::float8[])) ->> 'outcome',
@@ -55,6 +55,11 @@ select ok((select bool_and(e ->> 'a' < e ->> 'b') from jsonb_array_elements(
 -- Égalité d'horloge départagée par l'identifiant de coche.
 select is(graph.learn_visit(tests.graph_params(), false, tests.checks_json(array[2,1,3], array[0,0,60]::float8[])) -> 'entries' -> 0 ->> 'product_id',
   tests.product(2)::text, 'égalité d''horloge : ordre des identifiants');
+
+-- Au-delà du plafond : outcome distinct de too_few_checks.
+select is(graph.learn_visit(tests.graph_params(), false, tests.checks_json(
+    array(select 1 from generate_series(1, 501)), array(select g::float8 * 60 from generate_series(1, 501) as g))) ->> 'outcome',
+  'too_many_checks', 'plus de 500 coches : too_many_checks');
 
 select * from finish();
 rollback;

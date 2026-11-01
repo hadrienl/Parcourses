@@ -1,7 +1,7 @@
 -- Droits et RLS du calcul du graphe (#11 §8).
 begin;
 \ir 00_helpers.psql
-select plan(14);
+select plan(16);
 
 select ok(not has_schema_privilege('authenticated', 'graph', 'USAGE'), 'schéma graph fermé à authenticated');
 select ok(not has_schema_privilege('anon', 'graph', 'USAGE'), 'schéma graph fermé à anon');
@@ -24,9 +24,11 @@ select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots
 
 -- Colonnes de traitement : jamais modifiables par le client.
 select ok(not has_column_privilege('authenticated', 'public.visits', c, 'INSERT,UPDATE'), 'visits.' || c || ' réservé au serveur')
-from unnest(array['learn_outcome', 'process_attempts']) as c;
+from unnest(array['learn_outcome', 'process_attempts', 'next_attempt_at']) as c;
 
 select is((select count(*)::int from cron.job where jobname like 'graph-%'), 5, 'cinq jobs pg_cron du graphe');
+
+select is((select schedule from cron.job where jobname = 'graph-snapshot-decay'), '32 3 * * *', 'décroissance hors des passages de graph-snapshot');
 
 select * from finish();
 rollback;

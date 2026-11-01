@@ -43,7 +43,8 @@ $$;
 -- Fonction pure : toutes les règles de #5 §1 pour une visite (§6.1 à §6.4).
 -- p_checks : [{ "id", "product_id" | null, "checked_at" }], dans n'importe quel ordre.
 -- Renvoie { outcome, v, ignored_ids, edges: [{a, b, delta}], entries: [{product_id, delta}] }.
--- Ne lit aucune table et ne reçoit aucune identité.
+-- Ne lit aucune table et ne reçoit aucune identité. STABLE et non IMMUTABLE : la conversion
+-- texte → timestamptz et jsonb_build_object sont STABLE pour Postgres.
 create or replace function graph.learn_visit(
   p_params jsonb,
   p_was_sorted boolean,
@@ -52,7 +53,7 @@ create or replace function graph.learn_visit(
 )
 returns jsonb
 language plpgsql
-immutable
+stable
 set search_path = ''
 as $$
 declare
@@ -66,20 +67,20 @@ declare
   v_products uuid[];
   v_times timestamptz[];
   v_ignored boolean[];
-  v_valid uuid[] := '{}';
-  v_ignored_ids uuid[] := '{}';
-  v_xs uuid[] := '{}';
-  v_ys uuid[] := '{}';
-  v_ds double precision[] := '{}';
+  v_valid uuid[] := '{}'::uuid[];
+  v_ignored_ids uuid[] := '{}'::uuid[];
+  v_xs uuid[] := '{}'::uuid[];
+  v_ys uuid[] := '{}'::uuid[];
+  v_ds double precision[] := '{}'::double precision[];
   v_n integer;
   v_m integer;
   v_run_start integer := 1;
   v_edges jsonb;
-  v_entries jsonb := '[]';
+  v_entries jsonb := '[]'::jsonb;
 begin
   -- Plafond de coches (#8) : au-delà, la visite est rejetée.
   if jsonb_array_length(p_checks) > v_max_checks then
-    return jsonb_build_object('outcome', 'too_few_checks', 'v', 0, 'ignored_ids', '[]'::jsonb,
+    return jsonb_build_object('outcome', 'too_many_checks', 'v', 0, 'ignored_ids', '[]'::jsonb,
                               'edges', '[]'::jsonb, 'entries', '[]'::jsonb);
   end if;
 
@@ -205,7 +206,7 @@ declare
   v_learned integer := 0;
   v_skipped integer := 0;
   v_failed integer := 0;
-  v_stores uuid[] := '{}';
+  v_stores uuid[] := '{}'::uuid[];
 begin
   -- Une exécution à la fois : la suivante sort au lieu de s'empiler.
   if not pg_try_advisory_xact_lock(hashtext('graph-process')) then
@@ -213,6 +214,10 @@ begin
   end if;
 
   v_algo := graph.active_version();
+  -- Configuration absente : le job échoue sans consommer de tentative sur les visites.
+  if v_algo.version is null then
+    raise exception 'no active graph.algo_versions row';
+  end if;
   v_params := v_algo.server_params;
   v_half_life_s := (v_params ->> 'HALF_LIFE_DAYS')::double precision * 86400;
   v_tz := v_params ->> 'RATE_LIMIT_TIME_ZONE';
@@ -222,6 +227,7 @@ begin
     select v.id, v.user_id, v.store_id, v.list_was_sorted, v.ended_at, v.process_attempts
     from public.visits as v
     where v.ended_at is not null and v.processed_at is null and v.process_attempts < 5
+      and (v.next_attempt_at is null or v.next_attempt_at <= p_now)
     order by v.store_id, v.ended_at, v.id
     limit p_batch
     for update skip locked
@@ -303,14 +309,19 @@ begin
           learn_weight = v_weight,
           learn_outcome = v_outcome,
           processed_algo_version = v_algo.version,
-          process_error = null
+          process_error = null,
+          next_attempt_at = null
       where id = v_visit.id;
     exception when others then
       -- Sous-transaction annulée : aucun delta partiel. Message tronqué, sans donnée personnelle.
       update public.visits
       set process_attempts = process_attempts + 1,
           process_error = left(sqlstate || ' ' || sqlerrm, 200),
-          learn_outcome = case when process_attempts + 1 >= 5 then 'error' end
+          learn_outcome = case when process_attempts + 1 >= 5 then 'error' end,
+          -- Backoff exponentiel : 1, 2, 4 puis 8 min ; plus de reprise après le 5e échec.
+          next_attempt_at = case
+            when process_attempts + 1 < 5 then p_now + interval '1 minute' * power(2, process_attempts)
+          end
       where id = v_visit.id;
       v_failed := v_failed + 1;
     end;
