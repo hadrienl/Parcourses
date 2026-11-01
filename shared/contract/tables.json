@@ -53,11 +53,25 @@
     "store_id",
     "weight"
   ],
+  "store_graph_snapshots": [
+    "algo_version",
+    "checked_at",
+    "etag",
+    "generated_at",
+    "payload",
+    "payload_bytes",
+    "snapshot_version",
+    "store_id"
+  ],
   "store_stats": [
     "confidence",
+    "confidence_q",
+    "graph_changed_at",
     "last_visit_at",
     "store_id",
     "updated_at",
+    "v_eff",
+    "v_eff_at",
     "visits_count"
   ],
   "stores": [
@@ -72,10 +86,17 @@
     "osm_type"
   ],
   "visits": [
+    "auto_closed",
     "ended_at",
     "id",
+    "learn_outcome",
+    "learn_weight",
     "list_id",
     "list_was_sorted",
+    "next_attempt_at",
+    "process_attempts",
+    "process_error",
+    "processed_algo_version",
     "processed_at",
     "started_at",
     "store_id",
