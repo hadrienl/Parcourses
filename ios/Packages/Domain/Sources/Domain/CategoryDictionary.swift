@@ -63,20 +63,28 @@ public enum CategoryResourceError: Error, Sendable {
 /// Accès aux fichiers de `shared/categories/` embarqués dans le paquet.
 public enum CategoryResources {
   private struct CategoriesFile: Decodable {
+    let version: Int
     let categories: [ItemCategory]
   }
 
   // Lecture et décodage une seule fois par processus ; une erreur est mémorisée et relancée.
-  private static let cachedCategories = Result<[ItemCategory], any Error> {
+  private static let cachedCategories = Result<CategoriesFile, any Error> {
     let file: CategoriesFile = try decode("categories")
-    return file.categories.sorted { ($0.rank, $0.id) < ($1.rank, $1.id) }
+    return CategoriesFile(
+      version: file.version,
+      categories: file.categories.sorted { ($0.rank, $0.id) < ($1.rank, $1.id) })
   }
   private static let cachedRules = Result<NormalizationRules, any Error> { try decode("normalization") }
   private static let cachedKeywords = Result<KeywordDictionary, any Error> { try decode("keywords.fr") }
 
-  /// Les 20 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
+  /// Les 21 catégories, triées par `(rank, id)`. Lues une seule fois, puis servies depuis le cache.
   public static func categories() throws -> [ItemCategory] {
-    try cachedCategories.get()
+    try cachedCategories.get().categories
+  }
+
+  /// Version de `categories.json` : l'amorçage local n'est rejoué que si elle augmente.
+  public static func categoriesVersion() throws -> Int {
+    try cachedCategories.get().version
   }
 
   /// Règles de normalisation françaises. Lues une seule fois, puis servies depuis le cache.
@@ -91,7 +99,7 @@ public enum CategoryResources {
 
   private static func decode<T: Decodable>(_ name: String) throws -> T {
     guard
-      let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Resources")
+      let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Dictionary")
     else { throw CategoryResourceError.missingResource(name) }
     return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
   }

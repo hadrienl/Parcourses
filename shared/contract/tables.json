@@ -81,6 +81,7 @@
     "id",
     "location",
     "name",
+    "organic_aisle",
     "osm_id",
     "osm_seen_at",
     "osm_type"

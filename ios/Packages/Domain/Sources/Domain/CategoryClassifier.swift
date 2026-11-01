@@ -22,12 +22,15 @@ public struct Classification: Sendable, Hashable {
   public let matchedKeyword: String?
   /// Nature de la correspondance.
   public let match: MatchKind
+  /// Vrai si le libellé contient « bio » ou « biologique », quelle que soit la catégorie (#28).
+  public let organic: Bool
 
-  public init(normalized: String, categoryId: String, matchedKeyword: String?, match: MatchKind) {
+  public init(normalized: String, categoryId: String, matchedKeyword: String?, match: MatchKind, organic: Bool) {
     self.normalized = normalized
     self.categoryId = categoryId
     self.matchedKeyword = matchedKeyword
     self.match = match
+    self.organic = organic
   }
 }
 
@@ -38,6 +41,9 @@ public struct Classification: Sendable, Hashable {
 public struct CategoryClassifier: Sendable {
   /// Catégorie de repli.
   public static let otherCategoryId = "other"
+  /// Mots retirés avant la recherche de mots-clés (#28), sous leur forme normalisée : « biologiques »
+  /// arrive au singulier. Ils restent dans `normalized`. « AB » est exclu volontairement.
+  public static let organicWords: Set<String> = ["bio", "biologique"]
 
   /// Normaliseur utilisé, exposé pour calculer `normalizedName` avec les mêmes règles.
   public let normalizer: LabelNormalizer
@@ -74,9 +80,11 @@ public struct CategoryClassifier: Sendable {
   /// Classe un libellé saisi librement.
   public func classify(_ raw: String) -> Classification {
     let normalized = normalizer.normalize(raw)
-    let tokens = normalized.split(separator: " ").map(String.init)
+    let words = normalized.split(separator: " ").map(String.init)
+    let tokens = words.filter { !Self.organicWords.contains($0) }
+    let organic = tokens.count != words.count
     func result(_ category: String, _ key: String?, _ match: MatchKind) -> Classification {
-      Classification(normalized: normalized, categoryId: category, matchedKeyword: key, match: match)
+      Classification(normalized: normalized, categoryId: category, matchedKeyword: key, match: match, organic: organic)
     }
 
     // 1. Modificateurs : n-gramme le plus long, puis le plus à gauche.

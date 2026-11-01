@@ -5,9 +5,14 @@ import SwiftUI
 /// Point d'entrée de l'app. Au lot 9.1, un écran vide.
 @main
 struct ParcoursesApp: App {
+  private let gateway = AuthBootstrap.makeGateway()
+
   var body: some Scene {
     WindowGroup {
       RootView()
+        .task {
+          if let gateway { await AuthBootstrap.signIn(gateway) }
+        }
     }
   }
 }

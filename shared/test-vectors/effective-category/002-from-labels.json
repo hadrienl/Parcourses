@@ -1,0 +1,150 @@
+{
+  "id": "002-from-labels",
+  "description": "Du libellé au rayon. Sans magasin choisi (mode liste), l'app passe false : l'article reste dans son rayon habituel.",
+  "format_version": 1,
+  "cases": [
+    {
+      "label": "lait",
+      "input": {
+        "category_id": "dairy",
+        "organic": false,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "dairy"
+      }
+    },
+    {
+      "label": "lait",
+      "input": {
+        "category_id": "dairy",
+        "organic": false,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "dairy"
+      }
+    },
+    {
+      "label": "lait bio",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "lait bio",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "dairy"
+      }
+    },
+    {
+      "label": "Courgettes bio",
+      "input": {
+        "category_id": "produce",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "Courgettes bio",
+      "input": {
+        "category_id": "produce",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "produce"
+      }
+    },
+    {
+      "label": "bio",
+      "input": {
+        "category_id": "other",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "bio",
+      "input": {
+        "category_id": "other",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "other"
+      }
+    },
+    {
+      "label": "lait biologique",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "œufs biologiques",
+      "input": {
+        "category_id": "dairy",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "lessive bio",
+      "input": {
+        "category_id": "household",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "bio"
+      }
+    },
+    {
+      "label": "petits pois bio surgelés",
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": true
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
+    },
+    {
+      "label": "petits pois bio surgelés",
+      "input": {
+        "category_id": "frozen",
+        "organic": true,
+        "store_organic_aisle": false
+      },
+      "expected": {
+        "effective_category": "frozen"
+      }
+    }
+  ]
+}

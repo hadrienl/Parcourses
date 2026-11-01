@@ -229,14 +229,14 @@ isOneToOne: true
                   ]
                 },"stores": {
                   Row: {
-                    "address": string | null,"chain": string | null,"created_at": string,"id": string,"location": unknown,"name": string,"osm_id": number | null,"osm_seen_at": string | null,"osm_type": string | null
+                    "address": string | null,"chain": string | null,"created_at": string,"id": string,"location": unknown,"name": string,"organic_aisle": boolean,"osm_id": number | null,"osm_seen_at": string | null,"osm_type": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "address"?: string | null,"chain"?: string | null,"created_at"?: string,"id"?: string,"location": unknown,"name": string,"osm_id"?: number | null,"osm_seen_at"?: string | null,"osm_type"?: string | null
+                    "address"?: string | null,"chain"?: string | null,"created_at"?: string,"id"?: string,"location": unknown,"name": string,"organic_aisle"?: boolean,"osm_id"?: number | null,"osm_seen_at"?: string | null,"osm_type"?: string | null
                   }
                   Update: {
-                    "address"?: string | null,"chain"?: string | null,"created_at"?: string,"id"?: string,"location"?: unknown,"name"?: string,"osm_id"?: number | null,"osm_seen_at"?: string | null,"osm_type"?: string | null
+                    "address"?: string | null,"chain"?: string | null,"created_at"?: string,"id"?: string,"location"?: unknown,"name"?: string,"organic_aisle"?: boolean,"osm_id"?: number | null,"osm_seen_at"?: string | null,"osm_type"?: string | null
                   }
                   Relationships: [
                     
@@ -275,7 +275,7 @@ isOneToOne: false
           Functions: {
             "nearby_stores":
 { Args: { "lat": number,"lng": number,"max_results"?: number,"radius_m"?: number }; Returns: {
-              "address": string,"chain": string,"distance_m": number,"id": string,"name": string
+              "address": string,"chain": string,"distance_m": number,"id": string,"name": string,"organic_aisle": boolean
             }[]
                            },
 "normalize_label":

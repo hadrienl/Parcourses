@@ -1,6 +1,6 @@
 begin;
 \ir 00_helpers.psql
-select plan(11);
+select plan(12);
 
 select tests.create_user('alice@test.local') as alice \gset
 select tests.authenticate_as(:'alice');
@@ -11,11 +11,16 @@ select ok((select bool_and(distance_m <= 3000) from public.nearby_stores(43.6465
 select ok((
   select bool_and(d >= coalesce(prev, 0)) from (
     select distance_m as d, lag(distance_m) over (order by ord) as prev
-    from public.nearby_stores(43.6465, 0.5855) with ordinality as t(id, name, chain, address, distance_m, ord)
+    from public.nearby_stores(43.6465, 0.5855) with ordinality as t(id, name, chain, address, distance_m, organic_aisle, ord)
   ) as s), 'tri par distance');
 select is((select count(*)::int from public.nearby_stores(43.6465, 0.5855, 20000, 5)), 5, 'max_results respecté');
 select ok((select count(*) <= 20 from public.nearby_stores(43.7, 0.4, 20000, 100)), 'au plus 20 résultats');
 select is_empty($$ select * from public.nearby_stores(48.8566, 2.3522) $$, 'rien autour de Paris');
+
+select ok((
+  select bool_and(n.organic_aisle = s.organic_aisle)
+  from public.nearby_stores(43.6465, 0.5855) as n
+  join public.stores as s on s.id = n.id), 'organic_aisle renvoyé');
 
 select throws_ok($$ select * from public.nearby_stores(91, 0) $$, '22023', null, 'lat bornée');
 select throws_ok($$ select * from public.nearby_stores(0, 181) $$, '22023', null, 'lng bornée');

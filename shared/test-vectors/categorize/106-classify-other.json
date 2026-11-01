@@ -9,7 +9,8 @@
         "normalized": "truc",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -18,7 +19,8 @@
         "normalized": "cadeau mamie",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -27,7 +29,8 @@
         "normalized": "",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -36,7 +39,8 @@
         "normalized": "",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -45,7 +49,8 @@
         "normalized": "xyzzy",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     },
     {
@@ -54,7 +59,8 @@
         "normalized": "pile journal",
         "category_id": "household",
         "matched_keyword": "pile",
-        "match": "keyword"
+        "match": "keyword",
+        "organic": false
       }
     },
     {
@@ -63,7 +69,8 @@
         "normalized": "rendez vou dentiste",
         "category_id": "other",
         "matched_keyword": null,
-        "match": "none"
+        "match": "none",
+        "organic": false
       }
     }
   ]
