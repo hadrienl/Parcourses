@@ -1,0 +1,3 @@
+// Copier en Cloud.xcconfig (ignoré par git) et renseigner.
+SUPABASE_URL = https:/$()/<projet>.supabase.co
+SUPABASE_PUBLISHABLE_KEY = <publishable-key>

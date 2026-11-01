@@ -1,4 +1,4 @@
-# Mises à jour des actions GitHub (SHA épinglés).
+# Mises à jour des actions GitHub (SHA épinglés) : PR groupées, jamais fusionnées automatiquement.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,3 +7,6 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    groups:
+      github-actions:
+        patterns: ["*"]
