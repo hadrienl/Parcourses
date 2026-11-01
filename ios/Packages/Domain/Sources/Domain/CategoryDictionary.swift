@@ -99,7 +99,7 @@ public enum CategoryResources {
 
   private static func decode<T: Decodable>(_ name: String) throws -> T {
     guard
-      let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Resources")
+      let url = Bundle.module.url(forResource: name, withExtension: "json")
     else { throw CategoryResourceError.missingResource(name) }
     return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
   }

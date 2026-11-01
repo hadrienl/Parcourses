@@ -85,6 +85,11 @@ jobs:
           xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses \
             -destination "id=$udid" -derivedDataPath DerivedData -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
+      - name: Signature ad hoc sur simulateur (un bundle mal formé empêche l'installation sur iPhone)
+        if: matrix.ios != '18'
+        run: |
+          xcodebuild build -project Parcourses.xcodeproj -scheme Parcourses -sdk iphonesimulator -configuration Debug \
+            -derivedDataPath DerivedData CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

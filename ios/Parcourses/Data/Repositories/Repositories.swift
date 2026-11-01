@@ -35,6 +35,13 @@ protocol ListRepository {
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws
   func deleteItem(id: UUID) throws
+  /// Articles de toutes les listes non supprimées, source de l'autocomplétion.
+  func itemHistory() throws -> [ListItem]
+}
+
+/// Cache local du catalogue de produits, vide tant que la descente (9.7) ne l'a pas rempli.
+protocol ProductRepository {
+  func products() throws -> [Product]
 }
 
 /// Cache local des magasins.

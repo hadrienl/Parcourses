@@ -34,6 +34,9 @@ targets:
       path: Parcourses/Info.plist
       properties:
         CFBundleDisplayName: Parcourses
+        # App en français : les libellés système (clavier, VoiceOver) suivent.
+        CFBundleDevelopmentRegion: fr
+        CFBundleLocalizations: [fr]
         AppGroupIdentifier: $(APP_GROUP_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
