@@ -18,6 +18,18 @@ Deno.test("catégories : identifiants et rangs uniques, « other » en dernier",
   assertEquals(other.rank, Math.max(...ranks));
 });
 
+// Garde-fou : changer la liste des ids impose d'augmenter `version`, sinon les apps déjà installées
+// ne rejouent pas l'amorçage de leur référentiel. Mettre à jour les deux valeurs ensemble.
+Deno.test("catégories : version figée avec la liste des identifiants", async () => {
+  const sorted = categories.categories.map((c) => c.id).sort().join("\n");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sorted));
+  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  assertEquals({ version: categories.version, hash }, {
+    version: 2,
+    hash: "be2add80d02dfe86caa503194686e7922cb93fc17ef5a902532587565eab78f6",
+  });
+});
+
 Deno.test("dictionnaire : au moins 500 entrées", () => assert(dict.keywords.length >= 500));
 
 Deno.test("dictionnaire : clés normalisées, uniques, catégories existantes", () => {

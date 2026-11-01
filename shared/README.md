@@ -157,6 +157,11 @@ Règles impératives pour obtenir les mêmes octets que la référence :
   (rang 85, #28), placé après l'épicerie salée, rang générique retenu pour un rayon bio à part. Ces
   rangs ne servent qu'à ordonner : le tri utilise l'indice ordinal (voir « Règles normatives du tri
   »).
+- **`version` de `categories.json`** : à augmenter à chaque changement du fichier (ajout, retrait,
+  renommage, rang, libellé). Les apps ne rejouent l'amorçage de leur référentiel que si elle
+  augmente. Un test fige le couple version + hash de la liste des ids : il échoue si la liste change
+  sans que le test soit mis à jour. Il ne voit ni les rangs ni les libellés : pour ceux-là, la règle
+  repose sur la revue.
 - `normalization.json` : ligatures, unités, mots vides, pluriels en `-aux` → `-al`, exceptions.
 - `keywords.fr.json` : `keywords` (`k` forme normalisée, `c` catégorie, `brand` facultatif) et
   `overrides` (modificateurs comme « surgelé »). Les clés sont **déjà normalisées** :

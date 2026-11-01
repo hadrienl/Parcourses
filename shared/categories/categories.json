@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "categories": [
     { "id": "produce", "rank": 10, "label_fr": "Fruits et légumes" },
     { "id": "bakery", "rank": 20, "label_fr": "Boulangerie, pâtisserie" },
