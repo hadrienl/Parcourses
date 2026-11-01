@@ -94,6 +94,8 @@ struct RootView: View {
   @State private var pendingStart: PendingStart?
   @State private var session: ShoppingSession?
   @State private var didResume = false
+  /// Préparation en cours (jusqu'à 3 s) : bloque tout second départ, source de visites en double.
+  @State private var isStarting = false
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -106,9 +108,21 @@ struct RootView: View {
         switch route {
         case .list(let id):
           ListDetailView(model: environment.makeListDetailModel(listId: id)) {
+            guard !isStarting, session == nil, pendingStart == nil else { return }
             pickingFor = PickerRequest(listId: id)
           }
         }
+      }
+    }
+    .overlay {
+      if isStarting {
+        ZStack {
+          Color.black.opacity(0.2).ignoresSafeArea()
+          ProgressView("Préparation de vos courses…")
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .accessibilityIdentifier("shoppingPreparation")
       }
     }
     .sheet(item: $pickingFor, onDismiss: beginPendingShopping) { request in
@@ -128,17 +142,21 @@ struct RootView: View {
     .task {
       guard !didResume else { return }
       didResume = true
+      isStarting = true
       session = await environment.resumeShopping()
+      isStarting = false
     }
   }
 
   private func beginPendingShopping() {
     guard let start = pendingStart else { return }
     pendingStart = nil
+    isStarting = true
     Task {
       var storeId: UUID?
       if case .store(let id) = start.outcome { storeId = id }
       session = await environment.startShopping(listId: start.listId, storeId: storeId)
+      isStarting = false
     }
   }
 }

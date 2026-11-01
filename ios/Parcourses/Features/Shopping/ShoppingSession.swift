@@ -96,12 +96,17 @@ final class ShoppingSession: Identifiable {
   private let undoDelay: Duration
   private let highlightDelay: Duration
   private let preloadTimeout: Duration
+  private let sendMargin: Duration
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
   private var current: LoadedSnapshot?
   /// Arrivé pendant la visite : s'applique à la coche suivante, jamais spontanément (#9 §5.4).
   private var pendingSnapshot: LoadedSnapshot?
+  /// Même règle pour le rayon bio venu du serveur : la liste ne bouge pas d'elle-même.
+  private var pendingOrganicAisle: Bool?
+  /// Lignes cochées qui restent à leur place jusqu'au prochain tri (600 ms).
+  private var settlingIds: Set<UUID> = []
   private var startedAt = Date.distantPast
   /// Fin réelle d'une visite expirée : le temps passé ailleurs ne compte pas dans le résumé.
   private var expiredAt: Date?
@@ -122,7 +127,7 @@ final class ShoppingSession: Identifiable {
     stores: any StoreRepository, categories: any CategoryRepository, analyzer: EntryAnalyzer,
     cache: GraphSnapshotCache, now: @escaping () -> Date = { .now }, settleDelay: Duration = .milliseconds(600),
     undoDelay: Duration = .seconds(4), highlightDelay: Duration = .milliseconds(300),
-    preloadTimeout: Duration = .seconds(3)
+    preloadTimeout: Duration = .seconds(3), sendMargin: Duration = .seconds(1)
   ) {
     self.listId = listId
     self.storeId = storeId
@@ -137,6 +142,7 @@ final class ShoppingSession: Identifiable {
     self.undoDelay = undoDelay
     self.highlightDelay = highlightDelay
     self.preloadTimeout = preloadTimeout
+    self.sendMargin = sendMargin
   }
 
   // MARK: - Ouverture
@@ -148,8 +154,10 @@ final class ShoppingSession: Identifiable {
     guard let storeId else { return }
     perform {
       // `listWasSorted` : le mode du début de visite, celui que la personne a réellement suivi (#9 §6.3).
-      visitId =
-        try visits.startVisit(storeId: storeId, listId: listId, listWasSorted: mode == .learned, at: startedAt).id
+      let visit = try visits.startVisit(
+        storeId: storeId, listId: listId, listWasSorted: mode == .learned, at: startedAt)
+      visitId = visit.id
+      startedAt = visit.startedAt
     }
   }
 
@@ -182,7 +190,13 @@ final class ShoppingSession: Identifiable {
   /// Attend le serveur au plus `preloadTimeout`. Au-delà, la réponse attend la première coche dans `pendingSnapshot`.
   private func preloadSnapshot(storeId: UUID) async {
     let cache = cache
+    let stores = stores
     refreshTask = Task {
+      // Le cache peut dater : un magasin d'avant la migration V2 y est toujours « sans rayon bio ».
+      if let gateway = cache.gateway, let organic = try? await gateway.storeOrganicAisle(id: storeId) {
+        try? stores.updateOrganicAisle(id: storeId, organicAisle: organic)
+        pendingOrganicAisle = organic
+      }
       pendingSnapshot = try? await cache.refresh(storeId: storeId)
       refreshFinished = true
       resumeRefreshWaiter()
@@ -205,6 +219,10 @@ final class ShoppingSession: Identifiable {
   }
 
   private func adoptPendingSnapshot() {
+    if let pendingOrganicAisle {
+      storeOrganicAisle = pendingOrganicAisle
+      self.pendingOrganicAisle = nil
+    }
     guard let pendingSnapshot else { return }
     current = pendingSnapshot
     self.pendingSnapshot = nil
@@ -236,17 +254,20 @@ final class ShoppingSession: Identifiable {
     let date = now()
     var checkId: UUID?
     let succeeded = perform {
-      try lists.setChecked(itemId: row.id, checkedAt: date, at: date)
       if let visitId {
         checkId =
-          try visits.addCheck(
+          try visits.checkItem(
             visitId: visitId, itemId: row.id, subject: Self.subject(of: item, analyzer: analyzer), checkedAt: date,
-            sendAfter: undoDelay.timeInterval
+            // Marge : l'envoi ne doit pas partir pendant que la bannière « Annuler » est encore affichée.
+            sendAfter: (undoDelay + sendMargin).timeInterval
           ).id
+      } else {
+        try lists.setChecked(itemId: row.id, checkedAt: date, at: date)
       }
     }
     guard succeeded else { return }
     // La ligne reste à sa place jusqu'au prochain tri : elle ne bouge jamais sous le doigt.
+    settlingIds.insert(row.id)
     toBuy[index] = ShoppingRow(id: row.id, label: row.label, quantity: row.quantity, isChecked: true)
     adoptPendingSnapshot()
     offerUndo(ShoppingUndo(kind: .check, itemId: row.id, label: row.label, checkId: checkId, index: index))
@@ -265,12 +286,15 @@ final class ShoppingSession: Identifiable {
   private func uncheck(_ row: ShoppingRow) {
     let date = now()
     let succeeded = perform {
-      if let visitId, let check = try visits.checks(visitId: visitId).last(where: { $0.itemId == row.id }) {
-        try visits.removeCheck(id: check.id)
+      if let visitId {
+        let check = try visits.checks(visitId: visitId).last { $0.itemId == row.id }
+        try visits.uncheckItem(itemId: row.id, checkId: check?.id, at: date)
+      } else {
+        try lists.setChecked(itemId: row.id, checkedAt: nil, at: date)
       }
-      try lists.setChecked(itemId: row.id, checkedAt: nil, at: date)
     }
     guard succeeded else { return }
+    settlingIds.remove(row.id)
     if undo?.itemId == row.id { clearUndo() }
     reloadRows()
     scheduleSettle()
@@ -307,7 +331,8 @@ final class ShoppingSession: Identifiable {
     }
     guard succeeded, let added else { return }
     input = ""
-    let previous = toBuy.filter { !$0.isChecked }.map(\.id)
+    // Lignes juste cochées comprises : elles gardent leur place.
+    let previous = toBuy.map(\.id)
     reloadRows()
     let estimated = await computeOrder(previous: previous)
     let predecessors = Set(estimated.prefix { $0 != added })
@@ -324,21 +349,30 @@ final class ShoppingSession: Identifiable {
     let succeeded = perform {
       switch undo.kind {
       case .check:
-        if let checkId = undo.checkId { try visits.removeCheck(id: checkId) }
-        try lists.setChecked(itemId: undo.itemId, checkedAt: nil, at: date)
+        if undo.checkId != nil {
+          try visits.uncheckItem(itemId: undo.itemId, checkId: undo.checkId, at: date)
+        } else {
+          try lists.setChecked(itemId: undo.itemId, checkedAt: nil, at: date)
+        }
       case .notFound:
         try lists.setNotFound(itemId: undo.itemId, notFoundAt: nil, at: date)
       }
     }
     guard succeeded else { return }
-    settleTask?.cancel()
-    generation += 1
-    hasUnsettledChange = false
+    settlingIds.remove(undo.itemId)
     // La ligne reprend sa place : l'annulation n'est pas un nouveau trajet.
     var order = toBuy.map(\.id).filter { $0 != undo.itemId }
     order.insert(undo.itemId, at: min(undo.index, order.count))
     reloadRows()
     arrange(order)
+    // Le tri attendu par une autre coche reste dû ; s'il n'y en a pas, l'annulation ne déclenche aucun trajet.
+    if settlingIds.isEmpty {
+      settleTask?.cancel()
+      generation += 1
+      hasUnsettledChange = false
+    } else {
+      scheduleSettle()
+    }
   }
 
   // MARK: - Tri
@@ -363,12 +397,13 @@ final class ShoppingSession: Identifiable {
     hasUnsettledChange = true
     settleTask?.cancel()
     settleTask = nil
+    // Un tri déjà lancé ne connaît pas ce changement : son résultat est écarté.
+    generation += 1
     // Un clavier resté ouvert sans texte ne doit pas figer la liste : seule une saisie en cours suspend le tri.
     guard !isScrolling, !(isEditing && !input.isEmpty) else { return }
     settleTask = Task { [settleDelay] in
       try? await Task.sleep(for: settleDelay)
       guard !Task.isCancelled else { return }
-      hasUnsettledChange = false
       await sortNow(previous: toBuy.filter { !$0.isChecked }.map(\.id))
     }
   }
@@ -383,6 +418,8 @@ final class ShoppingSession: Identifiable {
     let mine = generation
     let order = await computeOrder(previous: previous)
     guard mine == generation else { return }
+    hasUnsettledChange = false
+    settlingIds.removeAll()
     reloadRows()
     arrange(order)
   }
@@ -445,15 +482,18 @@ final class ShoppingSession: Identifiable {
       .map(\.element)
   }
 
-  /// Relit la liste en gardant l'ordre affiché. Une ligne juste cochée passe alors au panier.
+  /// Relit la liste en gardant l'ordre affiché. Une ligne juste cochée ne passe au panier qu'au tri suivant.
   private func reloadRows() {
     let items = (try? lists.items(listId: listId)) ?? []
     let rows = items.map {
       (item: $0, row: ShoppingRow(id: $0.id, label: $0.label, quantity: $0.quantity, isChecked: $0.checkedAt != nil))
     }
+    let settling = settlingIds
     toBuy = Self.ordered(
-      rows.filter { $0.item.checkedAt == nil && $0.item.notFoundAt == nil }.map(\.row), by: toBuy.map(\.id))
-    basket = rows.filter { $0.item.checkedAt != nil }
+      rows.filter { settling.contains($0.row.id) || ($0.item.checkedAt == nil && $0.item.notFoundAt == nil) }.map(
+        \.row),
+      by: toBuy.map(\.id))
+    basket = rows.filter { $0.item.checkedAt != nil && !settling.contains($0.row.id) }
       .sorted { ($0.item.checkedAt ?? .distantPast) > ($1.item.checkedAt ?? .distantPast) }.map(\.row)
     notFound = rows.filter { $0.item.checkedAt == nil && $0.item.notFoundAt != nil }.map(\.row)
   }
@@ -513,6 +553,7 @@ final class ShoppingSession: Identifiable {
     self.visitId = nil
     expiredAt = lastActivity
     expired = true
+    settlingIds.removeAll()
     clearUndo()
     reloadRows()
     if remainingCount == 0 { finish(keepRemaining: true) }
@@ -525,6 +566,7 @@ final class ShoppingSession: Identifiable {
     settleTask?.cancel()
     refreshTask?.cancel()
     generation += 1
+    settlingIds.removeAll()
     clearUndo()
     reloadRows()
     let succeeded = perform {

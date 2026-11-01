@@ -296,6 +296,10 @@ private actor SwitchableGateway: RemoteGateway {
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] {
     try await remote.searchStores(query: query, limit: limit)
   }
+  func storeOrganicAisle(id: UUID) async throws -> Bool? {
+    try check()
+    return try await remote.storeOrganicAisle(id: id)
+  }
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse {
     try check()
     return try await remote.graphSnapshot(storeId: storeId, knownVersion: knownVersion)
@@ -443,7 +447,7 @@ struct SyncEngineIntegrationTests {
     let cache = GraphSnapshotCache(graphs: SwiftDataGraphRepository(context: setup.context), gateway: setup.gateway)
     let stores = SwiftDataStoreRepository(context: setup.context)
     try stores.upsertStore(
-      id: storeId, name: "Magasin de test", chain: nil, address: nil, lastDistanceM: nil, organicAisle: true)
+      id: storeId, name: "Magasin de test", chain: nil, address: nil, lastDistanceM: nil, organicAisle: false)
 
     let list = try setup.lists.createList(name: "Courses", at: .now)
     let analyzer = try EntryAnalyzer()
@@ -456,8 +460,10 @@ struct SyncEngineIntegrationTests {
     let session = ShoppingSession(
       listId: list.id, storeId: storeId, lists: setup.lists, visits: setup.visits, stores: stores,
       categories: SwiftDataCategoryRepository(context: setup.context), analyzer: analyzer, cache: cache,
-      settleDelay: .milliseconds(1), undoDelay: .milliseconds(50))
+      settleDelay: .milliseconds(1), undoDelay: .milliseconds(50), sendMargin: .zero)
     await session.start()
+    // Le serveur (`organic_aisle` vrai) l'emporte sur le cache.
+    #expect(try stores.store(id: storeId)?.organicAisle == true)
     #expect(session.knowledge == .learned(72))
     #expect(session.mode == .learned)
     let version = try #require(cache.cached(storeId: storeId)?.version)

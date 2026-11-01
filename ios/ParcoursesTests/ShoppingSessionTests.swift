@@ -45,6 +45,10 @@ private actor SnapshotGateway: RemoteGateway {
     gate = nil
   }
 
+  var organicAisle: Bool?
+  func setOrganicAisle(_ value: Bool?) { organicAisle = value }
+  func storeOrganicAisle(id: UUID) async throws -> Bool? { organicAisle }
+
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse {
     knownVersions.append(knownVersion)
     if isGated { await withCheckedContinuation { gate = $0 } }
@@ -111,13 +115,14 @@ private final class Harness {
   }
 
   func session(
-    withStore: Bool = true, gateway: (any RemoteGateway)? = nil, preloadTimeout: Duration = .seconds(3)
+    withStore: Bool = true, gateway: (any RemoteGateway)? = nil, preloadTimeout: Duration = .seconds(3),
+    settleDelay: Duration = .milliseconds(1)
   ) -> ShoppingSession {
     ShoppingSession(
       listId: listId, storeId: withStore ? storeId : nil, lists: lists, visits: visits, stores: stores,
       categories: categories, analyzer: analyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway),
       // Capture forte : un tri encore en attente ne doit pas survivre au conteneur (fetch fatal après sa libération).
-      now: { [self] in date }, settleDelay: .milliseconds(1), highlightDelay: .milliseconds(1),
+      now: { [self] in date }, settleDelay: settleDelay, highlightDelay: .milliseconds(1),
       preloadTimeout: preloadTimeout)
   }
 
@@ -373,10 +378,10 @@ private func row(_ session: ShoppingSession, _ label: String) throws -> Shopping
 
     let store = SyncStore(modelContainer: harness.container)
     // L'article (coché) part aussitôt, ni la visite ni la coche.
-    let beforeWindow = try #require(try await store.nextWork(now: t0.addingTimeInterval(3.9)))
+    let beforeWindow = try #require(try await store.nextWork(now: t0.addingTimeInterval(4.9)))
     #expect(beforeWindow.kind == .upsertList)
-    #expect(try harness.outbox(.createVisit).first?.nextAttemptAt == t0.addingTimeInterval(4))
-    #expect(try harness.outbox(.insertChecks).first?.nextAttemptAt == t0.addingTimeInterval(4))
+    #expect(try harness.outbox(.createVisit).first?.nextAttemptAt == t0.addingTimeInterval(5))
+    #expect(try harness.outbox(.insertChecks).first?.nextAttemptAt == t0.addingTimeInterval(5))
   }
 
   @Test func undoLeavesNoTraceForTheServer() async throws {
@@ -457,6 +462,140 @@ private func row(_ session: ShoppingSession, _ label: String) throws -> Shopping
     #expect(session.basket.isEmpty)
     #expect(session.toBuy.map(\.label) == ["lait"])
     #expect(try harness.visits.checks(visitId: try #require(session.visitId)).count == 1)
+  }
+
+  // MARK: - Relecture de la PR #41
+
+  @Test func aSecondStartReusesTheOpenVisit() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let first = harness.session()
+    await first.start()
+    let second = harness.session()
+    await second.start()
+    #expect(first.visitId == second.visitId)
+    #expect(try harness.context.fetchCount(FetchDescriptor<Visit>()) == 1)
+  }
+
+  @Test func startingElsewhereClosesTheOpenVisit() throws {
+    let harness = try Harness()
+    let open = try harness.visits.startVisit(storeId: UUID(), listId: harness.listId, listWasSorted: false, at: t0)
+    let openId = open.id
+    try harness.visits.addCheck(visitId: openId, itemId: UUID(), subject: .category("other"), checkedAt: t0)
+    let next = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    #expect(next.id != openId)
+    #expect(try harness.visits.visit(id: openId)?.endedAt == t0)
+    #expect(try harness.visits.openVisit()?.id == next.id)
+  }
+
+  @Test func aRecentStoreKeepsTheCachedOrganicAisleAndTheServerWins() async throws {
+    let harness = try Harness(organicAisle: true)
+    // Choisir un récent (`nil`) n'écrase rien.
+    try harness.stores.upsertStore(
+      id: harness.storeId, name: "Leclerc Auch", chain: nil, address: nil, lastDistanceM: nil, organicAisle: nil)
+    #expect(try harness.stores.store(id: harness.storeId)?.organicAisle == true)
+
+    try harness.stores.updateOrganicAisle(id: harness.storeId, organicAisle: false)
+    try harness.add("lait bio")
+    try harness.add("yaourt")
+    let gateway = SnapshotGateway()
+    await gateway.setOrganicAisle(true)
+    let session = harness.session(gateway: gateway)
+    await session.start()
+    #expect(try harness.stores.store(id: harness.storeId)?.organicAisle == true)
+    #expect(session.toBuy.map(\.label) == ["yaourt", "lait bio"])
+  }
+
+  @Test func aSortAlreadyRunningCannotMoveTheRowJustChecked() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    try harness.add("yaourt")
+    let session = harness.session(settleDelay: .milliseconds(200))
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    try await Task.sleep(for: .milliseconds(10))
+    let order = session.toBuy.map(\.label)
+    session.toggle(try row(session, "tomates"))
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(session.toBuy.map(\.label) == order)
+    #expect(session.basket.isEmpty)
+  }
+
+  @Test func undoingOneCheckKeepsTheOtherCheckPendingSort() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let session = harness.session(settleDelay: .milliseconds(30))
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    session.toggle(try row(session, "tomates"))
+    session.performUndo()
+    #expect(session.toBuy.count == 2)
+    #expect(try row(session, "lait").isChecked)
+    await session.waitUntilSettled()
+    #expect(session.basket.map(\.label) == ["lait"])
+    #expect(session.toBuy.map(\.label) == ["tomates"])
+  }
+
+  @Test func otherActionsLeaveAJustCheckedRowInPlace() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    try harness.add("yaourt")
+    let session = harness.session(settleDelay: .seconds(60))
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    session.markNotFound(try row(session, "yaourt"))
+    #expect(try row(session, "lait").isChecked)
+    #expect(session.basket.isEmpty)
+    session.restore(try #require(session.notFound.first))
+    #expect(try row(session, "lait").isChecked)
+    session.toggle(try row(session, "tomates"))
+    session.toggle(try row(session, "tomates"))
+    #expect(try row(session, "lait").isChecked)
+    #expect(session.basket.isEmpty)
+    // Une ligne en attente n'est pas un article restant.
+    session.finish(keepRemaining: false)
+    #expect(try harness.lists.items(listId: harness.listId).contains { $0.label == "lait" })
+  }
+
+  @Test func aRefusedCheckLeavesListAndRowsUntouched() async throws {
+    let harness = try Harness()
+    let id = try harness.add("lait")
+    let session = harness.session()
+    await session.start()
+    // Visite close derrière le dos de la session : la coche est refusée.
+    try harness.visits.addCheck(
+      visitId: try #require(session.visitId), itemId: UUID(), subject: .category("other"), checkedAt: t0)
+    try harness.visits.closeVisit(id: try #require(session.visitId), at: t0)
+    let upserts = try harness.outbox(.upsertItem).count
+
+    session.toggle(try row(session, "lait"))
+
+    #expect(session.errorMessage != nil)
+    #expect(try harness.lists.items(listId: harness.listId).first { $0.id == id }?.checkedAt == nil)
+    #expect(try !row(session, "lait").isChecked)
+    #expect(session.undo == nil)
+    #expect(try harness.outbox(.upsertItem).count == upserts)
+  }
+
+  /// Point 8 : l'entrée partie pendant l'envoi n'est ni recréée ni bloquante.
+  @Test func anEntryRemovedWhileBeingSentIsIgnored() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let session = harness.session()
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    let store = SyncStore(modelContainer: harness.container)
+    let entry = try #require(try harness.outbox(.insertChecks).first)
+    let work = OutboxWork(
+      entryIds: [entry.id], kind: .insertChecks, entityId: entry.entityId, payloads: [entry.payload], attempts: 0)
+    session.performUndo()
+    try await store.complete(work)
+    try await store.postpone(work, attempts: 1, until: t0, reason: "test")
+    #expect(try harness.outbox(.insertChecks).isEmpty)
   }
 
   // MARK: - Introuvable
@@ -655,7 +794,7 @@ extension SnapshotGateway {
   @Test func rowsWithoutTheColumnStillDecode() throws {
     let id = UUID().uuidString
     let old = Data("{\"id\":\"\(id)\",\"name\":\"M\",\"chain\":null,\"address\":null,\"distance_m\":3}".utf8)
-    #expect(try JSONDecoder().decode(NearbyStoreRow.self, from: old).organicAisle == false)
+    #expect(try JSONDecoder().decode(NearbyStoreRow.self, from: old).organicAisle == nil)
     let new = Data("{\"id\":\"\(id)\",\"name\":\"M\",\"organic_aisle\":true}".utf8)
     #expect(try JSONDecoder().decode(StoreSearchRow.self, from: new).organicAisle == true)
   }

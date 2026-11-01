@@ -8,8 +8,8 @@ struct StoreCandidate: Identifiable, Equatable, Sendable {
   let address: String?
   /// `nil` quand elle n'a pas de sens : position approximative, recherche, magasin récent.
   let distanceM: Double?
-  /// Le magasin a un rayon bio : mis en cache au choix, lu par le mode courses.
-  var organicAisle = false
+  /// Rayon bio tel que le serveur vient de le dire. `nil` pour un récent : le choisir ne doit pas réécrire le cache.
+  var organicAisle: Bool?
 }
 
 /// Résultat de l'écran. `withoutStore` : ordre générique, et aucune visite créée (#9 §8).
@@ -267,8 +267,7 @@ final class StorePickerModel {
     // Le cache est un confort : illisible, il ne doit pas bloquer le choix en ligne.
     let cached = (try? stores.recentStores(limit: StoreRanking.recentLimit)) ?? []
     recents = cached.map {
-      StoreCandidate(
-        id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil, organicAisle: $0.organicAisle)
+      StoreCandidate(id: $0.id, name: $0.name, chain: $0.chain, address: $0.address, distanceM: nil)
     }
   }
 

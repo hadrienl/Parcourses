@@ -136,7 +136,8 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
   let chain: String?
   let address: String?
   let distanceM: Double
-  let organicAisle: Bool
+  /// `nil` : colonne absente (serveur sans la migration #28), la valeur en cache reste.
+  let organicAisle: Bool?
 
   enum CodingKeys: String, CodingKey {
     case id, name, chain, address
@@ -144,7 +145,7 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
     case organicAisle = "organic_aisle"
   }
 
-  init(id: UUID, name: String, chain: String?, address: String?, distanceM: Double, organicAisle: Bool = false) {
+  init(id: UUID, name: String, chain: String?, address: String?, distanceM: Double, organicAisle: Bool? = nil) {
     self.id = id
     self.name = name
     self.chain = chain
@@ -161,7 +162,7 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
     chain = try container.decodeIfPresent(String.self, forKey: .chain)
     address = try container.decodeIfPresent(String.self, forKey: .address)
     distanceM = try container.decode(Double.self, forKey: .distanceM)
-    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle) ?? false
+    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle)
   }
 }
 
@@ -171,14 +172,15 @@ nonisolated struct StoreSearchRow: Decodable, Sendable, Equatable {
   let name: String
   let chain: String?
   let address: String?
-  let organicAisle: Bool
+  /// `nil` : colonne absente (serveur sans la migration #28), la valeur en cache reste.
+  let organicAisle: Bool?
 
   enum CodingKeys: String, CodingKey {
     case id, name, chain, address
     case organicAisle = "organic_aisle"
   }
 
-  init(id: UUID, name: String, chain: String?, address: String?, organicAisle: Bool = false) {
+  init(id: UUID, name: String, chain: String?, address: String?, organicAisle: Bool? = nil) {
     self.id = id
     self.name = name
     self.chain = chain
@@ -193,7 +195,7 @@ nonisolated struct StoreSearchRow: Decodable, Sendable, Equatable {
     name = try container.decode(String.self, forKey: .name)
     chain = try container.decodeIfPresent(String.self, forKey: .chain)
     address = try container.decodeIfPresent(String.self, forKey: .address)
-    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle) ?? false
+    organicAisle = try container.decodeIfPresent(Bool.self, forKey: .organicAisle)
   }
 }
 

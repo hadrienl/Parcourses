@@ -43,6 +43,7 @@ private final class FakeLocation: LocationProvider {
 }
 
 private actor FakeGateway: RemoteGateway {
+  func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   func visitAccess(id: UUID) async throws -> VisitAccess { .notVisible }
   struct NearbyCall: Equatable {

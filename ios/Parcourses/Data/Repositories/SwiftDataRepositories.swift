@@ -210,20 +210,26 @@ final class SwiftDataStoreRepository: StoreRepository {
   }
 
   func upsertStore(
-    id: UUID, name: String, chain: String?, address: String?, lastDistanceM: Double?, organicAisle: Bool
+    id: UUID, name: String, chain: String?, address: String?, lastDistanceM: Double?, organicAisle: Bool?
   ) throws {
     if let store = try store(id: id) {
       store.name = name
       store.chain = chain
       store.address = address
       store.lastDistanceM = lastDistanceM
-      store.organicAisle = organicAisle
+      if let organicAisle { store.organicAisle = organicAisle }
     } else {
       context.insert(
         Store(
           id: id, name: name, chain: chain, address: address, lastDistanceM: lastDistanceM,
-          organicAisle: organicAisle))
+          organicAisle: organicAisle ?? false))
     }
+    try context.commit()
+  }
+
+  func updateOrganicAisle(id: UUID, organicAisle: Bool) throws {
+    guard let store = try store(id: id), store.organicAisle != organicAisle else { return }
+    store.organicAisle = organicAisle
     try context.commit()
   }
 
@@ -261,6 +267,10 @@ final class SwiftDataVisitRepository: VisitRepository {
   }
 
   func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit {
+    while let open = try openVisit() {
+      if open.storeId == storeId && open.listId == listId { return open }
+      try closeVisit(id: open.id, at: date)
+    }
     // Rien en file : la création part avec la première coche (#9 §5.5).
     let visit = Visit(storeId: storeId, listId: listId, listWasSorted: listWasSorted, startedAt: date)
     context.insert(visit)
@@ -269,6 +279,60 @@ final class SwiftDataVisitRepository: VisitRepository {
   }
 
   func addCheck(
+    visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
+  ) throws -> Check {
+    let check = try context.atomically {
+      try insertCheck(visitId: visitId, itemId: itemId, subject: subject, checkedAt: checkedAt, sendAfter: sendAfter)
+    }
+    onEnqueue()
+    return check
+  }
+
+  func checkItem(
+    visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
+  ) throws -> Check {
+    let item = try requireWritableItem(itemId)
+    let check = try context.atomically {
+      let check = try insertCheck(
+        visitId: visitId, itemId: itemId, subject: subject, checkedAt: checkedAt, sendAfter: sendAfter)
+      try write(checkedAt: checkedAt, to: item, at: checkedAt)
+      return check
+    }
+    onEnqueue()
+    return check
+  }
+
+  func uncheckItem(itemId: UUID, checkId: UUID?, at date: Date) throws {
+    let item = try requireWritableItem(itemId)
+    try context.atomically {
+      if let checkId { _ = try deleteUnsentCheck(id: checkId) }
+      try write(checkedAt: nil, to: item, at: date)
+    }
+    onEnqueue()
+  }
+
+  func removeCheck(id: UUID) throws -> Bool {
+    try context.atomically { try deleteUnsentCheck(id: id) }
+  }
+
+  /// Sans enregistrer. Comme une entrée remplacée, une entrée en cours d'envoi peut disparaître ici :
+  /// `SyncStore.complete` et `postpone` l'ignorent alors, et la coche reçue reste au serveur.
+  private func deleteUnsentCheck(id: UUID) throws -> Bool {
+    guard let check = try context.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.id == id })).first else {
+      return false
+    }
+    // Plus d'entrée en attente : la coche est partie, ou abandonnée. Le serveur ne sait pas la retirer.
+    guard try context.cancelPendingOutboxEntries(entityId: id, kinds: [.insertChecks]) != nil else { return false }
+    let visitId = check.visitId
+    // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
+    if try checks(visitId: visitId).allSatisfy({ $0.id == id }) {
+      try context.cancelPendingOutboxEntries(entityId: visitId, kinds: [.createVisit])
+    }
+    context.delete(check)
+    return true
+  }
+
+  private func insertCheck(
     visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
   ) throws -> Check {
     guard let visit = try visit(id: visitId) else { throw RepositoryError.notFound(visitId) }
@@ -281,33 +345,30 @@ final class SwiftDataVisitRepository: VisitRepository {
       check = Check(visitId: visitId, itemId: itemId, productId: nil, categoryId: categoryId, checkedAt: checkedAt)
     }
     let isFirstCheck = try checks(visitId: visitId).isEmpty
-    try context.atomically {
-      context.insert(check)
-      let notBefore = sendAfter > 0 ? checkedAt.addingTimeInterval(sendAfter) : nil
-      if isFirstCheck {
-        try context.enqueueCreation(of: visit, listId: visit.listId, at: checkedAt, notBefore: notBefore)
-      }
-      try context.enqueueInsertion(of: check, at: checkedAt, notBefore: notBefore)
+    context.insert(check)
+    let notBefore = sendAfter > 0 ? checkedAt.addingTimeInterval(sendAfter) : nil
+    if isFirstCheck {
+      try context.enqueueCreation(of: visit, listId: visit.listId, at: checkedAt, notBefore: notBefore)
     }
-    onEnqueue()
+    try context.enqueueInsertion(of: check, at: checkedAt, notBefore: notBefore)
     return check
   }
 
-  func removeCheck(id: UUID) throws -> Bool {
-    guard let check = try context.fetch(FetchDescriptor<Check>(predicate: #Predicate { $0.id == id })).first else {
-      return false
+  private func write(checkedAt: Date?, to item: ListItem, at date: Date) throws {
+    item.checkedAt = checkedAt
+    item.updatedAt = date
+    item.syncState = .pending
+    try context.enqueueUpsert(of: item, at: date)
+  }
+
+  private func requireWritableItem(_ id: UUID) throws -> ListItem {
+    guard let item = try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first else {
+      throw RepositoryError.notFound(id)
     }
-    let visitId = check.visitId
-    return try context.atomically {
-      // Plus d'entrée en attente : la coche est partie, ou abandonnée. Le serveur ne sait pas la retirer.
-      guard try context.cancelPendingOutboxEntries(entityId: id, kinds: [.insertChecks]) != nil else { return false }
-      context.delete(check)
-      // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
-      if try checks(visitId: visitId).allSatisfy({ $0.id == id }) {
-        try context.cancelPendingOutboxEntries(entityId: visitId, kinds: [.createVisit])
-      }
-      return true
-    }
+    let listId = item.listId
+    let deleted = FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId && $0.deletedAt != nil })
+    guard try context.fetchCount(deleted) == 0 else { throw RepositoryError.listDeleted(listId) }
+    return item
   }
 
   func checks(visitId: UUID) throws -> [Check] {
