@@ -18,16 +18,16 @@ as $$
 declare
   p extensions.geography;
 begin
-  if lat is null or lat < -90 or lat > 90 then
+  if not coalesce(lat between -90 and 90, false) then
     raise exception 'lat must be between -90 and 90' using errcode = '22023';
   end if;
-  if lng is null or lng < -180 or lng > 180 then
+  if not coalesce(lng between -180 and 180, false) then
     raise exception 'lng must be between -180 and 180' using errcode = '22023';
   end if;
-  if radius_m is null or radius_m <= 0 or radius_m > 20000 then
+  if not coalesce(radius_m > 0 and radius_m <= 20000, false) then
     raise exception 'radius_m must be in ]0, 20000]' using errcode = '22023';
   end if;
-  if max_results is null or max_results <= 0 then
+  if not coalesce(max_results > 0, false) then
     raise exception 'max_results must be positive' using errcode = '22023';
   end if;
 
