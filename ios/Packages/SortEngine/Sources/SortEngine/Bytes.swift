@@ -3,7 +3,8 @@
 
 /// Compare deux chaînes sur leurs octets UTF-8 : -1, 0 ou 1.
 func compareBytes(_ a: String, _ b: String) -> Int {
-  if a == b { return 0 }
+  // Pas de `a == b` : l'égalité de `String` suit l'équivalence canonique (NFC et NFD égales).
+  if a.utf8.elementsEqual(b.utf8) { return 0 }
   var x = a.utf8.makeIterator()
   var y = b.utf8.makeIterator()
   while true {

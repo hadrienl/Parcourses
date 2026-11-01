@@ -144,13 +144,11 @@ public enum SortStart: Sendable, Equatable, Codable {
 
   public init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    if let productId = try container.decodeIfPresent(String.self, forKey: .productId) {
-      self = .product(productId)
-    } else if try container.decodeIfPresent(Bool.self, forKey: .entry) == true {
+    // Comme `"entry" in start` dans la référence : la présence de la clé suffit.
+    if container.contains(.entry) {
       self = .entry
     } else {
-      throw DecodingError.dataCorrupted(
-        .init(codingPath: decoder.codingPath, debugDescription: "start: entry ou product_id attendu"))
+      self = .product(try container.decode(String.self, forKey: .productId))
     }
   }
 
@@ -219,6 +217,6 @@ public enum SortError: Error, Sendable, Equatable {
   case invalidId(field: String, value: String)
   case duplicateCategory(String)
   case duplicateItem(String)
-  /// Poids négatif ; `context` désigne l'arête ou l'entrée fautive.
-  case negativeWeight(context: String, weightQ: Int64)
+  /// Poids hors de `0...2^53-1` ; `context` désigne l'arête ou l'entrée fautive.
+  case invalidWeight(context: String, weightQ: Int64)
 }

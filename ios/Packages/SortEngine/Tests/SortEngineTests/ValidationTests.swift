@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import SortEngine
@@ -53,13 +54,59 @@ struct ValidationTests {
 
   @Test func rejectsNegativeWeights() {
     let edge = SortSnapshot(confidenceQ: 900, entries: [], edges: [SnapshotEdge(a: "p-1", b: "p-2", weightQ: -1)])
-    #expect(throws: SortError.negativeWeight(context: "p-1-p-2", weightQ: -1)) {
+    #expect(throws: SortError.invalidWeight(context: "p-1-p-2", weightQ: -1)) {
       try sortItems(input(snapshot: edge))
     }
     let entry = SortSnapshot(confidenceQ: 900, entries: [SnapshotEntry(productId: "p-1", weightQ: -5)], edges: [])
-    #expect(throws: SortError.negativeWeight(context: "entry p-1", weightQ: -5)) {
+    #expect(throws: SortError.invalidWeight(context: "entry p-1", weightQ: -5)) {
       try sortItems(input(snapshot: entry))
     }
+  }
+
+  @Test("Poids au-delà de 2^53-1 refusés, sans débordement", arguments: [Int64(1) << 53, Int64.max])
+  func rejectsUnsafeWeights(_ weightQ: Int64) {
+    let edge = SortSnapshot(confidenceQ: 900, entries: [], edges: [SnapshotEdge(a: "p-1", b: "p-2", weightQ: weightQ)])
+    #expect(throws: SortError.invalidWeight(context: "p-1-p-2", weightQ: weightQ)) {
+      try sortItems(input(snapshot: edge))
+    }
+    let entry = SortSnapshot(confidenceQ: 900, entries: [SnapshotEntry(productId: "p-1", weightQ: weightQ)], edges: [])
+    #expect(throws: SortError.invalidWeight(context: "entry p-1", weightQ: weightQ)) {
+      try sortItems(input(snapshot: entry))
+    }
+  }
+
+  @Test func acceptsLargestSafeWeight() throws {
+    let weightQ: Int64 = (1 << 53) - 1
+    let snapshot = SortSnapshot(
+      confidenceQ: 900, entries: [SnapshotEntry(productId: "p-1", weightQ: weightQ)],
+      edges: [SnapshotEdge(a: "p-1", b: "p-2", weightQ: weightQ)])
+    #expect(try sortItems(input(snapshot: snapshot)).mode == .learned)
+  }
+
+  @Test func fallbackComparesNFCAndNFDAsDifferentBytes() throws {
+    // Même texte pour `String` : NFC commence par C3, NFD par 65, donc NFD passe d'abord malgré
+    // l'identifiant. Avec l'égalité de `String`, le départage par identifiant inverserait l'ordre.
+    let nfc = "\u{E9}"
+    let nfd = "e\u{301}"
+    #expect(nfc == nfd)
+    #expect(compareBytes(nfd, nfc) < 0)
+    let items = [
+      SortItem(id: "i-a", productId: nil, categoryId: "dairy", normalizedName: nfc),
+      SortItem(id: "i-b", productId: nil, categoryId: "dairy", normalizedName: nfd),
+    ]
+    #expect(try sortItems(input(items: items)).order == ["i-b", "i-a"])
+  }
+
+  @Test("Décodage de start : entry d'abord, comme la référence")
+  func decodesStart() throws {
+    func decode(_ json: String) throws -> SortStart {
+      try JSONDecoder().decode(SortStart.self, from: Data(json.utf8))
+    }
+    #expect(try decode(#"{"entry":true}"#) == .entry)
+    #expect(try decode(#"{"entry":false}"#) == .entry)
+    #expect(try decode(#"{"entry":true,"product_id":"p-1"}"#) == .entry)
+    #expect(try decode(#"{"product_id":"p-1"}"#) == .product("p-1"))
+    #expect(throws: DecodingError.self) { try decode("{}") }
   }
 
   @Test func comparesBytesNotUnicode() {

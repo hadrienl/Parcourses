@@ -20,7 +20,7 @@ public let sortInfinity: Int64 = 1 << 40
 /// - Repli : sinon, tri par (indice de catégorie, nom normalisé, identifiant).
 ///
 /// - Throws: ``SortError`` si un identifiant n'est pas en `[0-9a-z-]+`, si un article ou une
-///   catégorie est en double, ou si un poids est négatif.
+///   catégorie est en double, ou si un poids sort de `0...2^53-1`.
 public func sortItems(_ input: SortInput) throws(SortError) -> SortOutput {
   try validate(input)
   let ranks = RankResolver(input.categories)

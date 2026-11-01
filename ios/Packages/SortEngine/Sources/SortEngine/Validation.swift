@@ -22,13 +22,23 @@ func validate(_ input: SortInput) throws(SortError) {
   for edge in snapshot.edges {
     try checkId(edge.a, "edge.a")
     try checkId(edge.b, "edge.b")
-    if edge.weightQ < 0 { throw .negativeWeight(context: "\(edge.a)-\(edge.b)", weightQ: edge.weightQ) }
+    if !isValidWeight(edge.weightQ) { throw .invalidWeight(context: "\(edge.a)-\(edge.b)", weightQ: edge.weightQ) }
   }
   for entry in snapshot.entries {
     try checkId(entry.productId, "entry.product_id")
-    if entry.weightQ < 0 { throw .negativeWeight(context: "entry \(entry.productId)", weightQ: entry.weightQ) }
+    if !isValidWeight(entry.weightQ) {
+      throw .invalidWeight(context: "entry \(entry.productId)", weightQ: entry.weightQ)
+    }
   }
 }
+
+/// Poids valide : entier positif ou nul, au plus `2^53 - 1` (`Number.isSafeInteger` de la référence).
+/// Cette borne évite aussi le débordement de `1000 + weightQ` dans `edgeCost`.
+private func isValidWeight(_ weightQ: Int64) -> Bool {
+  (0...maxSafeWeight).contains(weightQ)
+}
+
+private let maxSafeWeight: Int64 = (1 << 53) - 1
 
 private func checkId(_ id: String, _ field: String) throws(SortError) {
   guard isValidId(id) else { throw .invalidId(field: field, value: id) }
