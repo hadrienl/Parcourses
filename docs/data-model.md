@@ -29,7 +29,8 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_privileges.sql` | `REVOKE` globaux puis `GRANT` par colonne |
 | `…_rls.sql` | RLS sur les 10 tables, une politique par commande |
 | `…_nearby_stores.sql` | RPC `nearby_stores` |
-| `…_reference_categories.sql` | 12 catégories de référence |
+| `…_reference_categories.sql` | 12 catégories de référence, remplacées par `…_align_categories.sql` |
+| `…_align_categories.sql` | 21 catégories générées depuis `shared/categories/` (#36) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration

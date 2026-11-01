@@ -6,6 +6,7 @@ on:
     paths:
       - "supabase/**"
       - "scripts/**"
+      - "shared/categories/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".sqlfluff"
@@ -16,6 +17,7 @@ on:
     paths:
       - "supabase/**"
       - "scripts/**"
+      - "shared/categories/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".github/workflows/supabase.yml"
@@ -33,6 +35,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Historique complet : le contrôle des migrations compare à la base de la PR.
+          fetch-depth: 0
 
       - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
         with:
@@ -51,6 +56,20 @@ jobs:
         run: |
           pip install --quiet sqlfluff==3.4.2
           sqlfluff lint supabase/
+
+      - name: Migrations existantes non modifiées
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          modified=$(git diff --name-only --diff-filter=M "$BASE_SHA"...HEAD -- supabase/migrations)
+          if [ -n "$modified" ]; then
+            echo "::error::Migrations déjà présentes sur la base, à ne pas modifier : $modified"
+            exit 1
+          fi
+
+      - name: Migration des catégories conforme à shared/categories
+        run: deno run --allow-read scripts/check-categories.ts
 
       - name: Démarrage
         run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
