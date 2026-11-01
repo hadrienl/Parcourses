@@ -107,9 +107,10 @@ struct RootView: View {
       .navigationDestination(for: Route.self) { route in
         switch route {
         case .list(let id):
-          ListDetailView(model: environment.makeListDetailModel(listId: id)) {
+          // L'identifiant vient du modèle, qui suit la liste : celui de la route a pu changer.
+          ListDetailView(model: environment.makeListDetailModel(listId: id)) { listId in
             guard !isStarting, session == nil, pendingStart == nil else { return }
-            pickingFor = PickerRequest(listId: id)
+            pickingFor = PickerRequest(listId: listId)
           }
         }
       }
@@ -128,7 +129,8 @@ struct RootView: View {
     .sheet(item: $pickingFor, onDismiss: beginPendingShopping) { request in
       StorePickerView(
         model: environment.makeStorePickerModel { outcome in
-          pendingStart = PendingStart(listId: request.listId, outcome: outcome)
+          // Pas `request.listId` : la liste a pu changer d'identifiant pendant le choix.
+          pendingStart = PendingStart(listId: pickingFor?.listId ?? request.listId, outcome: outcome)
           pickingFor = nil
         })
     }
@@ -138,6 +140,16 @@ struct RootView: View {
         // Les écrans déjà ouverts relisent coches, ajouts et retraits.
         NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
       }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .syncDidRekeyData)) { notification in
+      guard let remap = IdentifierRemap(notification: notification) else { return }
+      path = path.map { route in
+        switch route {
+        case .list(let id): .list(remap[id])
+        }
+      }
+      pickingFor?.listId = remap[pickingFor?.listId ?? UUID()]
+      pendingStart?.listId = remap[pendingStart?.listId ?? UUID()]
     }
     .task {
       guard !didResume else { return }
@@ -152,21 +164,25 @@ struct RootView: View {
     guard let start = pendingStart else { return }
     pendingStart = nil
     isStarting = true
+    var storeId: UUID?
+    if case .store(let id) = start.outcome { storeId = id }
+    // Créée avant toute suspension : dès cet instant, la session suit un changement d'identifiant.
+    let prepared = environment.makeSession(listId: start.listId, storeId: storeId)
     Task {
-      var storeId: UUID?
-      if case .store(let id) = start.outcome { storeId = id }
-      session = await environment.startShopping(listId: start.listId, storeId: storeId)
+      await prepared.start()
+      session = prepared
       isStarting = false
     }
   }
 }
 
 private struct PickerRequest: Identifiable {
-  let listId: UUID
-  var id: UUID { listId }
+  /// Distinct de `listId` : un changement d'identifiant de la liste ne doit pas rouvrir la sheet.
+  let id = UUID()
+  var listId: UUID
 }
 
 private struct PendingStart {
-  let listId: UUID
+  var listId: UUID
   let outcome: StorePickerOutcome
 }

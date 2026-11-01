@@ -79,6 +79,22 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func sessionAccountId() async throws -> UUID {
+    try await mapped { try await self.existingSessionUser() }
+  }
+
+  func acknowledgeAccount(_ id: UUID) async throws {
+    try await mapped { try self.store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey) }
+  }
+
+  func serverDate() async throws -> Date? {
+    try await authorized {
+      // Lecture minimale : seul l'en-tête compte, et il prouve que PostgREST répond.
+      let response = try await self.rest.from(CategoryRow.table).select("id").limit(1).execute().response
+      return response.value(forHTTPHeaderField: "Date").flatMap(ServerClock.parseHTTPDate)
+    }
+  }
+
   private func resolveSession(captchaToken: String?) async throws -> UUID {
     let id = try await currentOrNewUser(captchaToken: captchaToken)
     let known = try store.data(forKey: Self.lastAccountKey).flatMap { String(bytes: $0, encoding: .utf8) }
@@ -91,12 +107,7 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   private func resolveExistingSession() async throws -> UUID {
-    guard client.auth.currentSession != nil else {
-      // Keychain verrouillé : `currentSession` est nil alors que la session existe.
-      try store.verifyAvailable()
-      throw RemoteError.unauthorized
-    }
-    let id = try await client.auth.session.user.id
+    let id = try await existingSessionUser()
     let known = try store.data(forKey: Self.lastAccountKey).flatMap { String(bytes: $0, encoding: .utf8) }
     if let known {
       guard known == id.uuidString else { throw RemoteError.accountChanged }
@@ -104,6 +115,15 @@ actor SupabaseGateway: RemoteGateway {
       try store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey)
     }
     return id
+  }
+
+  private func existingSessionUser() async throws -> UUID {
+    guard client.auth.currentSession != nil else {
+      // Keychain verrouillé : `currentSession` est nil alors que la session existe.
+      try store.verifyAvailable()
+      throw RemoteError.unauthorized
+    }
+    return try await client.auth.session.user.id
   }
 
   private func currentOrNewUser(captchaToken: String?) async throws -> UUID {

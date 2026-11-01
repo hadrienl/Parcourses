@@ -58,6 +58,9 @@ private actor SnapshotGateway: RemoteGateway {
   func ensureSession(captchaToken: String?) async throws -> UUID { throw RemoteError.unauthorized }
   func currentAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func verifySession() async throws { throw RemoteError.unauthorized }
+  func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
+  func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
+  func serverDate() async throws -> Date? { throw RemoteError.unauthorized }
   func saveList(_ list: ListUpsert) async throws { throw RemoteError.unauthorized }
   func deleteList(id: UUID) async throws { throw RemoteError.unauthorized }
   func saveItem(_ item: ListItemUpsert) async throws { throw RemoteError.unauthorized }
@@ -822,5 +825,66 @@ extension SnapshotGateway {
     #expect(store.name == "Leclerc")
     #expect(store.organicAisle == false)
     #expect(try context.fetchCount(FetchDescriptor<ShoppingList>()) == 1)
+  }
+}
+
+/// Une file écrite par la version précédente garde ses entrées, sans panne en cours.
+@Suite struct OutboxMigrationTests {
+  @Test func aV2StoreMigratesToV3WithItsQueue() throws {
+    let url = FileManager.default.temporaryDirectory.appending(path: "migration-\(UUID().uuidString).store")
+    defer {
+      for suffix in ["", "-shm", "-wal"] { try? FileManager.default.removeItem(at: URL(filePath: url.path + suffix)) }
+    }
+    let entityId = UUID()
+    do {
+      let schema = Schema(versionedSchema: SchemaV2.self)
+      let container = try ModelContainer(
+        for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
+      let context = ModelContext(container)
+      context.insert(SchemaV1.OutboxEntry(sequence: 7, kind: .upsertList, entityId: entityId, payload: Data([1])))
+      try context.save()
+    }
+    let context = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+    let entry = try #require(try context.fetch(FetchDescriptor<OutboxEntry>()).first)
+    #expect(entry.entityId == entityId && entry.sequence == 7 && entry.kind == .upsertList)
+    #expect(entry.serverFailingSince == nil)
+  }
+}
+
+/// Perte de session pendant les courses : la visite continue sous ses nouveaux identifiants.
+@Suite(.serialized) struct ShoppingSessionRekeyTests {
+  @Test func aVisitInProgressSurvivesTheRekey() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pommes")
+    try harness.add("tomates")
+    let session = harness.session()
+    await session.start()
+    let oldVisit = try #require(session.visitId)
+    session.toggle(try row(session, "lait"))
+    let oldUndo = try #require(session.undo)
+
+    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    NotificationCenter.default.post(
+      name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
+
+    let visitId = try #require(session.visitId)
+    #expect(visitId != oldVisit)
+    #expect(try harness.visits.openVisit()?.id == visitId)
+    #expect(session.undo?.itemId == remap[oldUndo.itemId])
+    #expect(session.undo?.checkId == oldUndo.checkId.map { remap[$0] })
+
+    // Annuler, cocher, ajouter puis finir fonctionnent sur les nouveaux identifiants.
+    session.performUndo()
+    #expect(session.errorMessage == nil)
+    #expect(try harness.visits.checks(visitId: visitId).isEmpty)
+    session.toggle(try row(session, "pommes"))
+    #expect(session.errorMessage == nil)
+    #expect(try harness.visits.checks(visitId: visitId).count == 1)
+    #expect(try harness.outbox(.createVisit).count == 1)
+    session.finish(keepRemaining: true)
+    #expect(session.errorMessage == nil)
+    #expect(try harness.outbox(.closeVisit).first?.entityId == visitId)
+    #expect(try harness.lists.lists().first?.id == remap[harness.listId])
   }
 }

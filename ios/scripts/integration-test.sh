@@ -20,6 +20,8 @@ sql() { docker exec -i supabase_db_parcourses psql -U postgres -v ON_ERROR_STOP=
 store=9f000000-0000-4000-8000-000000000909
 cleanup() {
   sql <<SQL
+drop trigger if exists it_fail_list on public.lists;
+drop function if exists public.it_fail_list();
 delete from public.visits where store_id = '$store';
 delete from public.store_graph_snapshots where store_id = '$store';
 delete from public.stores where id = '$store';
@@ -27,6 +29,17 @@ SQL
 }
 cleanup
 trap cleanup EXIT
+# Erreur serveur sur une seule ligne, pour la mise de côté. Local et temporaire : retirée par cleanup.
+sql <<SQL
+create function public.it_fail_list() returns trigger language plpgsql as \$\$
+begin
+  if new.name = 'IT-500' then raise exception 'panne simulée' using errcode = 'XX000'; end if;
+  return new;
+end;
+\$\$;
+create trigger it_fail_list before insert or update on public.lists
+  for each row execute function public.it_fail_list();
+SQL
 sql <<SQL
 insert into public.stores (id, name, location, organic_aisle)
 values ('$store', 'Magasin de test', extensions.st_setsrid(extensions.st_makepoint(-30.0, 40.0), 4326)::extensions.geography, true);

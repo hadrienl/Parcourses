@@ -30,10 +30,10 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       "CategorySeedState": ["id", "version"],
       "OutboxEntry": [
         "id", "sequence", "kindRaw", "entityId", "payload", "createdAt", "attempts", "nextAttemptAt", "lastError",
-        "syncStateRaw",
+        "syncStateRaw", "serverFailingSince",
       ],
     ]
-    let schema = Schema(versionedSchema: SchemaV2.self)
+    let schema = Schema(versionedSchema: SchemaV3.self)
     let actual = Dictionary(
       uniqueKeysWithValues: schema.entities.map { ($0.name, Set($0.storedProperties.map(\.name))) })
     #expect(actual == expected)
@@ -42,8 +42,9 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   @Test func migrationPlanStartsAtV1() {
     #expect(SchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
     #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
-    #expect(ParcoursesMigrationPlan.schemas.count == 2)
-    #expect(ParcoursesMigrationPlan.stages.count == 1)
+    #expect(SchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
+    #expect(ParcoursesMigrationPlan.schemas.count == 3)
+    #expect(ParcoursesMigrationPlan.stages.count == 2)
   }
 
   @Test func valuesSurviveReopeningTheStoreFile() throws {

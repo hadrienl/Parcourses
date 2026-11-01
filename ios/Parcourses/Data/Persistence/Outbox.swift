@@ -36,20 +36,32 @@ extension ModelContext {
     return sequence
   }
 
+  /// Une modification garde le départ de la panne : sinon, chaque retouche rebloquerait toute la file.
+  private nonisolated func serverFailureStart(entityId: UUID) throws -> Date? {
+    let pending = SyncState.pending.rawValue
+    return try fetch(
+      FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.entityId == entityId && $0.syncStateRaw == pending })
+    ).compactMap(\.serverFailingSince).min()
+  }
+
   nonisolated func enqueueUpsert(of list: ShoppingList, at date: Date) throws {
+    let since = try serverFailureStart(entityId: list.id)
     let kept = try cancelPendingOutboxEntries(entityId: list.id, kinds: [.upsertList])
-    try enqueueOutboxEntry(
+    let entry = try enqueueOutboxEntry(
       kind: .upsertList, entityId: list.id, payload: OutboxCoding.encode(ListUpsert(id: list.id, name: list.name)),
       at: date, keepingSequence: kept)
+    entry.serverFailingSince = since
   }
 
   nonisolated func enqueueUpsert(of item: ListItem, at date: Date) throws {
+    let since = try serverFailureStart(entityId: item.id)
     let kept = try cancelPendingOutboxEntries(entityId: item.id, kinds: [.upsertItem])
     let row = ListItemUpsert(
       id: item.id, listId: item.listId, productId: item.productId, label: item.label, quantity: item.quantity,
       checkedAt: item.checkedAt)
-    try enqueueOutboxEntry(
+    let entry = try enqueueOutboxEntry(
       kind: .upsertItem, entityId: item.id, payload: OutboxCoding.encode(row), at: date, keepingSequence: kept)
+    entry.serverFailingSince = since
   }
 
   /// Plus rien de la liste ni de ses articles ne doit partir avant sa suppression.

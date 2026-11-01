@@ -36,6 +36,18 @@ nonisolated struct CheckPayload: Codable, Sendable, Equatable {
     checkedAt = check.checkedAt
   }
 
+  private init(_ other: CheckPayload, checkedAt: Date) {
+    id = other.id
+    visitId = other.visitId
+    productId = other.productId
+    categoryId = other.categoryId
+    self.checkedAt = checkedAt
+  }
+
+  func with(checkedAt: Date) -> CheckPayload {
+    CheckPayload(self, checkedAt: checkedAt)
+  }
+
   /// `nil` si la coche ne désigne rien : elle ne pourra jamais être envoyée.
   var upload: CheckUpload? {
     if let productId { return CheckUpload(id: id, visitId: visitId, target: .product(productId), checkedAt: checkedAt) }
@@ -59,13 +71,17 @@ nonisolated enum OutboxDependencies {
   /// `nil` si la charge utile est illisible.
   static func dependency(of entry: OutboxEntry) -> OutboxDependency? {
     switch entry.kind {
-    case .upsertList, .deleteList:
+    case .upsertList:
       let key: Set = ["list:\(entry.entityId)"]
       return OutboxDependency(waits: key, blocks: key)
+    case .deleteList:
+      let key = "list:\(entry.entityId)"
+      return OutboxDependency(waits: [key, "items:\(entry.entityId)"], blocks: [key])
     case .upsertItem, .deleteItem:
+      // Un article en retard ne retient pas les autres articles de sa liste, seulement la suppression de celle-ci.
       guard let listId = listId(of: entry) else { return nil }
-      let key: Set = ["list:\(listId)"]
-      return OutboxDependency(waits: key, blocks: key)
+      let own = "item:\(entry.entityId)"
+      return OutboxDependency(waits: ["list:\(listId)", own], blocks: ["items:\(listId)", own])
     case .createVisit:
       guard let row = try? OutboxCoding.decode(VisitInsert.self, from: entry.payload) else { return nil }
       return OutboxDependency(
@@ -94,5 +110,41 @@ nonisolated enum OutboxDependencies {
     case .insertChecks: (try? OutboxCoding.decode(CheckPayload.self, from: entry.payload))?.visitId
     default: nil
     }
+  }
+}
+
+extension OutboxKind {
+  /// L'horodatage part tel quel, et le serveur le refuse s'il est trop loin dans le futur.
+  nonisolated var carriesDeviceTime: Bool {
+    switch self {
+    case .createVisit, .insertChecks, .closeVisit: true
+    case .upsertList, .deleteList, .upsertItem, .deleteItem: false
+    }
+  }
+}
+
+/// Horloge du serveur, lue dans l'en-tête `Date` : aucune migration, et toute réponse en porte un.
+nonisolated struct ServerClock: Sendable {
+  /// Marge sous les 5 min de `guard_visit` et `guard_check` : l'en-tête arrondit à la seconde et le trajet compte.
+  static let futureMargin: TimeInterval = 240
+
+  let serverNow: Date
+  let deviceNow: Date
+
+  /// Décalage à ôter à toutes les dates d'une visite, `nil` si la plus récente n'est pas trop loin dans le futur.
+  ///
+  /// Un seul décalage garde l'ordre des coches. Il vaut l'avance mesurée, au moins de quoi ramener la plus récente
+  /// à l'heure du serveur : l'horloge a pu être remise à l'heure entre-temps, l'avance mesurée est alors nulle.
+  func shift(forLatest latest: Date) -> TimeInterval? {
+    guard latest > serverNow.addingTimeInterval(Self.futureMargin) else { return nil }
+    return max(deviceNow.timeIntervalSince(serverNow), latest.timeIntervalSince(serverNow))
+  }
+
+  static func parseHTTPDate(_ value: String) -> Date? {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "GMT")
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+    return formatter.date(from: value)
   }
 }

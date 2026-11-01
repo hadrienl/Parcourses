@@ -43,7 +43,8 @@ final class ListDetailModel {
   var input = ""
   var errorMessage: String?
 
-  private let listId: UUID
+  private(set) var listId: UUID
+  private var remapObserver: IdentifierRemapObserver?
   private let lists: any ListRepository
   private let products: any ProductRepository
   private let analyzer: EntryAnalyzer
@@ -63,6 +64,12 @@ final class ListDetailModel {
     self.analyzer = analyzer
     self.now = now
     categoryRepository = categories
+    // La vue garde ce modèle : il suit la liste, sans perdre la saisie en cours.
+    remapObserver = IdentifierRemapObserver { [weak self] remap in
+      guard let self else { return }
+      self.listId = remap[self.listId]
+      self.reloadItems()
+    }
   }
 
   /// Propositions pour la saisie en cours, quantité ignorée (« 2 lai » cherche « lai »).

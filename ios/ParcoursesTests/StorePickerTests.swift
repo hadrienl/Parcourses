@@ -43,6 +43,9 @@ private final class FakeLocation: LocationProvider {
 }
 
 private actor FakeGateway: RemoteGateway {
+  func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
+  func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
+  func serverDate() async throws -> Date? { throw RemoteError.unauthorized }
   func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   func visitAccess(id: UUID) async throws -> VisitAccess { .notVisible }
@@ -92,6 +95,9 @@ private actor FakeGateway: RemoteGateway {
   func ensureSession(captchaToken: String?) async throws -> UUID { UUID() }
   func currentAccountId() async throws -> UUID { UUID() }
   func verifySession() async throws {
+    func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
+    func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
+    func serverDate() async throws -> Date? { throw RemoteError.unauthorized }
     // Sans objet ici.
   }
   func saveList(_ list: ListUpsert) async throws {}

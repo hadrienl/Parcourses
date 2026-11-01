@@ -352,4 +352,4 @@ typealias GraphSnapshot = SchemaV1.GraphSnapshot
 typealias Product = SchemaV1.Product
 typealias Category = SchemaV1.Category
 typealias CategorySeedState = SchemaV1.CategorySeedState
-typealias OutboxEntry = SchemaV1.OutboxEntry
+typealias OutboxEntry = SchemaV3.OutboxEntry

@@ -4,11 +4,11 @@ import SwiftUI
 struct ListDetailView: View {
   @State private var model: ListDetailModel
   @FocusState private var inputIsFocused: Bool
-  private let onShop: () -> Void
+  private let onShop: (UUID) -> Void
 
   init(
     model: ListDetailModel,
-    onShop: @escaping () -> Void = {
+    onShop: @escaping (UUID) -> Void = { _ in
       // Sans navigation : aperçus et tests.
     }
   ) {
@@ -43,7 +43,7 @@ struct ListDetailView: View {
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         if !model.isMissing {
-          Button("Faire mes courses", systemImage: "cart", action: onShop)
+          Button("Faire mes courses", systemImage: "cart") { onShop(model.listId) }
             .labelStyle(.titleAndIcon)
             .disabled(model.isEmpty)
             .accessibilityIdentifier("startShopping")

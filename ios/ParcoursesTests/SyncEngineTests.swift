@@ -4,10 +4,11 @@ import Testing
 
 @testable import Parcourses
 
-private nonisolated let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+private nonisolated let t0 = syncEpoch
+nonisolated let syncEpoch = Date(timeIntervalSince1970: 1_800_000_000)
 
 /// Horloge modifiable depuis les tests.
-private nonisolated final class Clock: @unchecked Sendable {
+nonisolated final class SyncClock: @unchecked Sendable {
   private let lock = NSLock()
   private var value = t0.addingTimeInterval(3600)
   var now: Date {
@@ -17,7 +18,7 @@ private nonisolated final class Clock: @unchecked Sendable {
   func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
 }
 
-private nonisolated final class Flag: @unchecked Sendable {
+nonisolated final class SyncFlag: @unchecked Sendable {
   private let lock = NSLock()
   private var value: Bool
   init(_ value: Bool) { self.value = value }
@@ -27,7 +28,7 @@ private nonisolated final class Flag: @unchecked Sendable {
   }
 }
 
-private nonisolated final class MemoryCursors: SyncCursors, @unchecked Sendable {
+nonisolated final class MemorySyncCursors: SyncCursors, @unchecked Sendable {
   var accountId: UUID?
   var lists: Date?
   var items: Date?
@@ -35,7 +36,7 @@ private nonisolated final class MemoryCursors: SyncCursors, @unchecked Sendable 
 }
 
 /// Doublure : journal des appels et erreurs programmées par nom d'appel.
-private actor ScriptedGateway: RemoteGateway {
+actor ScriptedSyncGateway: RemoteGateway {
   func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   var calls: [String] = []
@@ -86,17 +87,73 @@ private actor ScriptedGateway: RemoteGateway {
     }
   }
 
+  /// Dernier compte connu, comme `SupabaseGateway.lastAccountKey`.
+  var knownAccount: UUID?
+  /// Heure du serveur : `nil` = en-tête absent.
+  var serverNow: Date? = syncEpoch.addingTimeInterval(3600)
+  /// Lignes sur lesquelles le serveur répond 500.
+  var serverFailing: Set<UUID> = []
+  /// Horodatages refusés au-delà de `serverNow` + 5 min, comme `guard_visit` et `guard_check`.
+  var enforcesClock = false
+  var closures: [Date] = []
+  var deletedLists: [UUID] = []
+
+  func loseAccount() { account = UUID() }
+  func setKnownAccount(_ id: UUID?) { knownAccount = id }
+  func setServerNow(_ date: Date?) { serverNow = date }
+  func setServerFailing(_ ids: Set<UUID>) { serverFailing = ids }
+  func setEnforcesClock(_ value: Bool) { enforcesClock = value }
+
+  private func checkAccount() throws {
+    if let knownAccount {
+      guard knownAccount == account else { throw RemoteError.accountChanged }
+    } else {
+      knownAccount = account
+    }
+  }
+
+  private func checkClock(_ date: Date) throws {
+    guard enforcesClock, let serverNow, date > serverNow.addingTimeInterval(300) else { return }
+    throw RemoteError.constraint(code: "23514")
+  }
+
+  private func checkServer(_ id: UUID) throws {
+    if serverFailing.contains(id) { throw RemoteError.server(code: "500") }
+  }
+
   func ensureSession(captchaToken: String?) async throws -> UUID {
     try record("ensureSession")
+    try checkAccount()
     return account
   }
-  func currentAccountId() async throws -> UUID { account }
+  func currentAccountId() async throws -> UUID {
+    try recordFailureOnly("currentAccountId")
+    try checkAccount()
+    return account
+  }
+  func sessionAccountId() async throws -> UUID {
+    try recordFailureOnly("sessionAccountId")
+    return account
+  }
+  func acknowledgeAccount(_ id: UUID) async throws {
+    try record("acknowledgeAccount")
+    knownAccount = id
+  }
+  func serverDate() async throws -> Date? {
+    try record("serverDate")
+    return serverNow
+  }
+  /// Erreur programmable sans entrer au journal : ces lectures locales accompagnent chaque passe.
+  private func recordFailureOnly(_ name: String) throws {
+    if let error = permanent[name] { throw error }
+  }
   func verifySession() async throws { try record("verifySession") }
-  func setAccount(_ id: UUID) { account = id }
   func setAfterSaveList(_ hook: (@Sendable () async -> Void)?) { afterSaveList = hook }
   func setLosesCheckResponses(_ value: Bool) { losesCheckResponses = value }
   func saveList(_ list: ListUpsert) async throws {
     try record("saveList")
+    try checkAccount()
+    try checkServer(list.id)
     if list.id == failingList { throw RemoteError.dependencyMissing(code: "23503") }
     savedLists.append(list)
     if let hook = afterSaveList {
@@ -104,18 +161,32 @@ private actor ScriptedGateway: RemoteGateway {
       await hook()
     }
   }
-  func deleteList(id: UUID) async throws { try record("deleteList") }
+  func deleteList(id: UUID) async throws {
+    try record("deleteList")
+    try checkAccount()
+    deletedLists.append(id)
+  }
   func saveItem(_ item: ListItemUpsert) async throws {
     try record("saveItem")
+    try checkAccount()
+    try checkServer(item.id)
     savedItems.append(item)
   }
   func deleteItem(id: UUID) async throws { try record("deleteItem") }
   func createVisit(_ visit: VisitInsert) async throws {
     try record("createVisit")
+    try checkAccount()
+    try checkServer(visit.id)
+    try checkClock(visit.startedAt)
     visits.append(visit)
   }
   func insertChecks(_ checks: [CheckUpload]) async throws {
     try record("insertChecks")
+    try checkAccount()
+    for check in checks {
+      try checkServer(check.id)
+      try checkClock(check.checkedAt)
+    }
     if let failingCheck, checks.contains(where: { $0.id == failingCheck }) { throw failingCheckError }
     checkBatches.append(checks)
     if losesCheckResponses {
@@ -123,7 +194,13 @@ private actor ScriptedGateway: RemoteGateway {
       throw RemoteError.network
     }
   }
-  func closeVisit(id: UUID, endedAt: Date) async throws { try record("closeVisit") }
+  func closeVisit(id: UUID, endedAt: Date) async throws {
+    try record("closeVisit")
+    try checkAccount()
+    try checkServer(id)
+    try checkClock(endedAt)
+    closures.append(endedAt)
+  }
   func visitAccess(id: UUID) async throws -> VisitAccess {
     try record("visitAccess")
     return access
@@ -159,12 +236,12 @@ private nonisolated final class TaskHolder: @unchecked Sendable {
 }
 
 @MainActor
-private final class Harness {
+final class SyncHarness {
   let container: ModelContainer
-  let gateway = ScriptedGateway()
-  let clock = Clock()
-  let online = Flag(true)
-  let cursors = MemoryCursors()
+  let gateway = ScriptedSyncGateway()
+  let clock = SyncClock()
+  let online = SyncFlag(true)
+  let cursors = MemorySyncCursors()
   let lists: SwiftDataListRepository
   let visits: SwiftDataVisitRepository
   let categories: SwiftDataCategoryRepository
@@ -176,8 +253,19 @@ private final class Harness {
     lists = SwiftDataListRepository(context: container.mainContext)
     visits = SwiftDataVisitRepository(context: container.mainContext)
     categories = SwiftDataCategoryRepository(context: container.mainContext)
-    let (clock, online) = (clock, online)
-    engine = SyncEngine(
+    engine = Self.makeEngine(gateway: gateway, container: container, cursors: cursors, clock: clock, online: online)
+  }
+
+  /// Nouveau moteur sur les mêmes données : ce que voit l'app après un arrêt.
+  func makeEngine() -> SyncEngine {
+    Self.makeEngine(gateway: gateway, container: container, cursors: cursors, clock: clock, online: online)
+  }
+
+  private static func makeEngine(
+    gateway: ScriptedSyncGateway, container: ModelContainer, cursors: MemorySyncCursors, clock: SyncClock,
+    online: SyncFlag
+  ) -> SyncEngine {
+    SyncEngine(
       gateway: gateway, container: container, cursors: cursors,
       classify: { PulledItemClassification(normalizedName: $0.lowercased(), categoryId: "other") },
       dependencies: SyncEngine.Dependencies(
@@ -188,6 +276,11 @@ private final class Harness {
 
   func entries() throws -> [OutboxEntry] {
     try context.fetch(FetchDescriptor<OutboxEntry>(sortBy: [SortDescriptor(\.sequence)]))
+  }
+
+  /// Lecture sur un contexte neuf : le contexte principal reçoit les écritures du moteur plus tard.
+  func fresh<Model: PersistentModel>(_ type: Model.Type = Model.self) throws -> [Model] {
+    try ModelContext(container).fetch(FetchDescriptor<Model>())
   }
 
   func kinds() throws -> [OutboxKind?] { try entries().map(\.kind) }
@@ -216,7 +309,7 @@ private final class Harness {
 @MainActor
 @Suite struct OutboxWritesTests {
   @Test func everyListWriteEntersTheQueueWithIt() throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "A", at: t0)
     let item = try harness.lists.addItem(
       listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
@@ -242,7 +335,7 @@ private final class Harness {
   }
 
   @Test func aVisitWithoutCheckIsNeverQueued() throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let visit = try harness.visits.startVisit(storeId: UUID(), listId: UUID(), listWasSorted: false, at: t0)
     #expect(try harness.entries().isEmpty)
     #expect(try harness.visits.closeVisit(id: visit.id, at: t0) == false)
@@ -250,7 +343,7 @@ private final class Harness {
   }
 
   @Test func theCreationIsQueuedOnlyAtTheFirstCheck() throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit(checks: 2)
     #expect(try harness.kinds() == [.upsertList, .upsertItem, .createVisit, .insertChecks, .insertChecks])
     try harness.visits.closeVisit(id: visit.id, at: t0)
@@ -261,7 +354,7 @@ private final class Harness {
 @MainActor
 @Suite(.serialized) struct SyncEngineSendTests {
   @Test func offlineThenBackDeliversEverythingInOrder() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit(checks: 3)
     try harness.visits.closeVisit(id: visit.id, at: t0.addingTimeInterval(60))
     let count = try harness.entries().count
@@ -300,7 +393,7 @@ private final class Harness {
   }
 
   @Test func replayAfterAnInterruptedRunStaysIdempotent() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit()
     await harness.gateway.fail("insertChecks", with: [.network])
     await harness.engine.drain()
@@ -312,14 +405,14 @@ private final class Harness {
   }
 
   @Test func checksAreBatchedByTwoHundred() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit(checks: 205)
     await harness.engine.drain()
     #expect(await harness.gateway.checkBatches.map(\.count) == [200, 5])
   }
 
   @Test func aClosureNeverOvertakesItsChecks() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
     try harness.visits.closeVisit(id: visit.id, at: t0.addingTimeInterval(1))
     await harness.gateway.failAlways("insertChecks", with: .dependencyMissing(code: "23503"))
@@ -329,7 +422,7 @@ private final class Harness {
   }
 
   @Test func aMissingDependencyIsCappedThenFails() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "A", at: t0)
     let other = try harness.lists.createList(name: "B", at: t0)
     await harness.gateway.setFailingList(list.id)
@@ -346,7 +439,7 @@ private final class Harness {
   }
 
   @Test func anUnknownCategoryNeverFails() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit()
     await harness.gateway.failAlways("insertChecks", with: .unknownCategory("dairy"))
     for _ in 0..<60 {
@@ -358,7 +451,7 @@ private final class Harness {
   }
 
   @Test func aRefusedBatchIsSplitToIsolateTheBadCheck() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit(checks: 3)
     let bad = try harness.visits.checks(visitId: visit.id)[1]
     await harness.gateway.setFailingCheck(bad.id, error: .constraint(code: "23514"))
@@ -369,7 +462,7 @@ private final class Harness {
   }
 
   @Test func aDeletedListSendsTheVisitAgainWithoutList() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit()
     await harness.gateway.fail("createVisit", with: [.forbidden])
     await harness.engine.drain()
@@ -380,7 +473,7 @@ private final class Harness {
   }
 
   @Test func aVisitRefusedWithoutListFailsWithItsChecks() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
     await harness.gateway.failAlways("createVisit", with: .forbidden)
     await harness.engine.drain()
@@ -391,7 +484,7 @@ private final class Harness {
   }
 
   @Test func aLateCheckInOurClosedVisitCountsAsReceived() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
     await harness.gateway.fail("insertChecks", with: [.forbidden])
     await harness.gateway.setAccess(.closed)
@@ -402,7 +495,7 @@ private final class Harness {
   }
 
   @Test func aCheckInAnotherAccountsVisitStaysLocalWithoutBlockingTheQueue() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
     await harness.gateway.failAlways("insertChecks", with: .forbidden)
     await harness.gateway.setAccess(.notVisible)
@@ -418,7 +511,7 @@ private final class Harness {
 
   /// Revue #40 : le découpage du lot ne doit jamais tourner en boucle sur un `42501` en visite ouverte.
   @Test func aRefusalInAnOpenVisitWithSeveralChecksDoesNotSpin() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit(checks: 3)
     await harness.gateway.failAlways("insertChecks", with: .forbidden)
     await harness.gateway.setAccess(.open)
@@ -432,7 +525,7 @@ private final class Harness {
   }
 
   @Test func aRefusalInAnOpenVisitIsCapped() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit(checks: 3)
     await harness.gateway.failAlways("insertChecks", with: .forbidden)
     await harness.gateway.setAccess(.open)
@@ -444,29 +537,29 @@ private final class Harness {
   }
 
   @Test func aLostSessionNeverProducesAFailedEntry() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
     await harness.gateway.failAlways("createVisit", with: .forbidden)
     await harness.gateway.failAlways("verifySession", with: .unauthorized)
     await harness.engine.drain()
-    #expect(await harness.engine.pause == .sessionRequired)
+    #expect(await harness.engine.isWaitingForSession)
     #expect(try harness.entries().allSatisfy { $0.syncState == .pending })
     #expect(try harness.visits.visit(id: visit.id)?.syncState == .pending)
   }
 
   @Test func aSessionLostOnAForbiddenCheckPausesToo() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.seedVisit()
     await harness.gateway.fail("insertChecks", with: [.forbidden])
     await harness.gateway.setAccess(.notVisible)
     await harness.gateway.failAlways("verifySession", with: .unauthorized)
     await harness.engine.drain()
-    #expect(await harness.engine.pause == .sessionRequired)
+    #expect(await harness.engine.isWaitingForSession)
     #expect(try harness.entries().allSatisfy { $0.syncState == .pending })
   }
 
   @Test func anUncodedClientErrorIsCapped() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "A", at: t0)
     let id = list.id
     await harness.gateway.failAlways("saveList", with: .server(code: "404"))
@@ -479,7 +572,7 @@ private final class Harness {
 
   /// Les coches ne s'attendent pas : une ligne en attente ne retient que la clôture.
   @Test func aPostponedCheckHoldsOnlyTheClosure() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit(checks: 3)
     try harness.visits.closeVisit(id: visit.id, at: t0.addingTimeInterval(10))
     let checks = try harness.visits.checks(visitId: visit.id)
@@ -492,7 +585,7 @@ private final class Harness {
 
   /// Envoyé, reçu par le serveur, puis appli tuée avant `complete` : un nouveau moteur renvoie les mêmes lignes.
   @Test func sentThenKilledBeforeCompleteResendsTheSameIds() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit(checks: 2)
     await harness.gateway.setLosesCheckResponses(true)
     await harness.engine.drain()
@@ -513,11 +606,11 @@ private final class Harness {
   }
 
   @Test func anEntryReplacedDuringTheSendKeepsTheNewValue() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "Avant", at: t0)
     let id = list.id
     let repository = harness.lists
-    let renamed = Flag(false)
+    let renamed = SyncFlag(false)
     await harness.gateway.setAfterSaveList {
       await MainActor.run {
         try? repository.renameList(id: id, name: "Après", at: t0)
@@ -535,7 +628,7 @@ private final class Harness {
   }
 
   @Test func aKickDuringCancellationIsNotLost() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let first = try harness.lists.createList(name: "A", at: t0)
     _ = first
     try harness.lists.createList(name: "B", at: t0)
@@ -555,23 +648,12 @@ private final class Harness {
   }
 
   @Test func theStoreDoesNotRunOnTheMainThread() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     #expect(await harness.engine.storeIsOnMainThread() == false)
   }
 
-  @Test func aStoppedEngineSendsNothingUntilRestarted() async throws {
-    let harness = try Harness()
-    try harness.lists.createList(name: "A", at: t0)
-    await harness.engine.stopAndWait()
-    await harness.engine.drain(pull: true)
-    #expect(await harness.gateway.calls.isEmpty)
-    await harness.engine.restart()
-    await harness.engine.drain()
-    #expect(try harness.entries().isEmpty)
-  }
-
   @Test func aDeletionFinishesLocallyOnceAcknowledged() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "A", at: t0)
     let id = list.id
     try harness.lists.addItem(
@@ -585,36 +667,13 @@ private final class Harness {
 }
 
 @MainActor
-@Suite(.serialized) struct SyncPauseTests {
-  @Test func aChangedAccountPausesWithoutSendingNorDeleting() async throws {
-    let harness = try Harness()
-    try harness.lists.createList(name: "A", at: t0)
-    let before = try harness.entries().count
-    await harness.gateway.failAlways("saveList", with: .accountChanged)
-    await harness.engine.drain()
-    #expect(await harness.engine.pause == .accountChanged)
-    #expect(try harness.entries().count == before)
-    #expect(try harness.entries().allSatisfy { $0.attempts == 0 && $0.syncState == .pending })
-
-    // Ni un nouveau déclenchement, ni une passe forcée, ne relancent l'envoi.
-    await harness.gateway.clearCalls()
-    await harness.engine.drain()
-    await harness.engine.drain(pull: true)
-    #expect(await harness.gateway.calls.isEmpty)
-
-    await harness.gateway.failAlways("saveList", with: nil)
-    await harness.engine.resume()
-    await harness.engine.drain()
-    #expect(await harness.engine.pause == nil)
-    #expect(try harness.entries().isEmpty)
-  }
-
+@Suite(.serialized) struct SyncSessionTests {
   @Test func aLostSessionPausesThenResumesWhenItReturns() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.lists.createList(name: "A", at: t0)
     await harness.gateway.failAlways("saveList", with: .unauthorized)
     await harness.engine.drain()
-    #expect(await harness.engine.pause == .sessionRequired)
+    #expect(await harness.engine.isWaitingForSession)
     #expect(try harness.entries().first?.attempts == 0)
 
     // Une nouvelle écriture n'insiste pas.
@@ -626,42 +685,29 @@ private final class Harness {
     await harness.gateway.failAlways("ensureSession", with: .unauthorized)
     await harness.engine.drain(pull: true)
     #expect(await harness.gateway.calls == ["ensureSession"])
-    #expect(await harness.engine.pause == .sessionRequired)
+    #expect(await harness.engine.isWaitingForSession)
 
     await harness.gateway.failAlways("ensureSession", with: nil)
     await harness.gateway.failAlways("saveList", with: nil)
     await harness.engine.drain(pull: true)
-    #expect(await harness.engine.pause == nil)
+    #expect(await !harness.engine.isWaitingForSession)
     #expect(try harness.entries().isEmpty)
   }
 
   @Test func aLockedKeychainIsNotALostSession() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.lists.createList(name: "A", at: t0)
     await harness.gateway.fail("saveList", with: [.keychainLocked])
     await harness.engine.drain()
-    #expect(await harness.engine.pause == nil)
+    #expect(await !harness.engine.isWaitingForSession)
     #expect(try harness.entries().count == 1)
   }
 
   @Test func aPullDetectsTheLostSession() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     await harness.gateway.failAlways("fetchLists", with: .unauthorized)
     await harness.engine.drain(pull: true)
-    #expect(await harness.engine.pause == .sessionRequired)
-    await harness.engine.resume()
-    await harness.gateway.failAlways("fetchLists", with: .accountChanged)
-    await harness.engine.drain(pull: true)
-    #expect(await harness.engine.pause == .accountChanged)
-  }
-
-  @Test func changesAreStreamedToTheLoginScreen() async throws {
-    let harness = try Harness()
-    try harness.lists.createList(name: "A", at: t0)
-    await harness.gateway.failAlways("saveList", with: .unauthorized)
-    await harness.engine.drain()
-    var updates = harness.engine.pauseUpdates.makeAsyncIterator()
-    #expect(await updates.next() == .some(.sessionRequired))
+    #expect(await harness.engine.isWaitingForSession)
   }
 }
 
@@ -678,7 +724,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
 @MainActor
 @Suite(.serialized) struct SyncPullTests {
   @Test func newRowsAreCreatedAndTheCursorAdvances() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let listId = UUID()
     let later = t0.addingTimeInterval(100)
     await harness.gateway.setPull(
@@ -697,7 +743,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func aPendingLocalWriteWinsOverTheServer() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "Local", at: t0)
     await harness.gateway.failAlways("saveList", with: .dependencyMissing(code: "23503"))
     await harness.gateway.setPull(lists: [listRow(list.id, name: "Serveur", updatedAt: t0.addingTimeInterval(500))])
@@ -707,7 +753,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
 
   /// Revue #40 : sans entrée en attente, la ligne serveur s'applique, sans comparer deux horloges.
   @Test func theServerRowAppliesWithoutPendingEntryWhateverTheClocks() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "Local", at: t0)
     let id = list.id
     await harness.engine.drain()
@@ -718,7 +764,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
 
   /// Revue #40 : un champ local ne doit ni toucher `updatedAt`, ni masquer une modification distante.
   @Test func notFoundDoesNotHideARemoteChange() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (list, _) = try harness.seedVisit()
     let item = try #require(try harness.lists.items(listId: list.id).first)
     await harness.engine.drain()
@@ -734,7 +780,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func aPulledItemKeepsItsLocalFields() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let (list, _) = try harness.seedVisit()
     let item = try #require(try harness.lists.items(listId: list.id).first)
     try harness.lists.setNotFound(itemId: item.id, notFoundAt: t0, at: t0)
@@ -750,7 +796,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func catalogNeverDeletesACategoryAndRefreshesDaily() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     try harness.categories.seedIfNeeded()
     let before = Set(try harness.categories.categories().map(\.id))
     let slug = try #require(before.first)
@@ -785,7 +831,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func aFailedPullKeepsTheCursorAndRetriesOncePerMinute() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     await harness.gateway.fail("fetchItems", with: [.network])
     await harness.gateway.setPull(lists: [listRow(UUID(), name: "A", updatedAt: t0)])
     await harness.engine.drain(pull: true)
@@ -799,7 +845,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func aFailedPullDoesNotBlockSending() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     await harness.gateway.failAlways("fetchLists", with: .server(code: "503"))
     await harness.engine.drain(pull: true)
     let list = try harness.lists.createList(name: "A", at: t0)
@@ -809,7 +855,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func anItemWithoutParentHoldsTheCursor() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let listId = UUID()
     let itemId = UUID()
     let row = itemRow(itemId, listId: listId, label: "Beurre", updatedAt: t0)
@@ -827,7 +873,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func aPendingRowHoldsTheCursor() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "Local", at: t0)
     await harness.gateway.failAlways("saveList", with: .dependencyMissing(code: "23503"))
     await harness.gateway.setPull(lists: [
@@ -838,10 +884,11 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
   }
 
   @Test func cursorsOfAnotherAccountAreIgnored() async throws {
-    let harness = try Harness()
+    let harness = try SyncHarness()
     await harness.gateway.setPull(lists: [listRow(UUID(), name: "A", updatedAt: t0)])
     await harness.engine.drain(pull: true)
-    await harness.gateway.setAccount(UUID())
+    await harness.gateway.loseAccount()
+    await harness.gateway.setPull()
     await harness.engine.drain(pull: true)
     #expect(await harness.gateway.listCursors == [nil, nil])
   }

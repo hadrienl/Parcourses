@@ -83,7 +83,8 @@ final class ShoppingSession: Identifiable {
   var input = ""
   var errorMessage: String?
 
-  private let listId: UUID
+  private var listId: UUID
+  private var remapObserver: IdentifierRemapObserver?
   private let storeId: UUID?
   private let lists: any ListRepository
   private let visits: any VisitRepository
@@ -143,6 +144,29 @@ final class ShoppingSession: Identifiable {
     self.highlightDelay = highlightDelay
     self.preloadTimeout = preloadTimeout
     self.sendMargin = sendMargin
+    remapObserver = IdentifierRemapObserver { [weak self] in self?.apply($0) }
+  }
+
+  /// Les données ont changé d'identifiants (perte de session) : la visite continue, tout le reste suit.
+  /// Un tri déjà lancé porte les anciens identifiants : il est écarté.
+  func apply(_ remap: IdentifierRemap) {
+    listId = remap[listId]
+    visitId = visitId.map { remap[$0] }
+    settlingIds = Set(settlingIds.map { remap[$0] })
+    highlightedItemId = highlightedItemId.map { remap[$0] }
+    undo = undo.map {
+      ShoppingUndo(
+        kind: $0.kind, itemId: remap[$0.itemId], label: $0.label, checkId: $0.checkId.map { remap[$0] }, index: $0.index
+      )
+    }
+    let remapped: ([ShoppingRow]) -> [ShoppingRow] = { rows in
+      rows.map { ShoppingRow(id: remap[$0.id], label: $0.label, quantity: $0.quantity, isChecked: $0.isChecked) }
+    }
+    toBuy = remapped(toBuy)
+    basket = remapped(basket)
+    notFound = remapped(notFound)
+    generation += 1
+    if hasUnsettledChange { scheduleSettle() }
   }
 
   // MARK: - Ouverture

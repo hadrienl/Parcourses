@@ -6,14 +6,8 @@ import SwiftData
 extension Notification.Name {
   /// La synchronisation a modifié des données affichées : les écrans relisent.
   static let syncDidChangeData = Notification.Name("app.parcourses.syncDidChangeData")
-}
-
-/// Pourquoi la file ne part plus. Rien n'est envoyé, rien n'est supprimé.
-nonisolated enum SyncPause: Sendable, Equatable {
-  /// Pas de session valide : l'écran de connexion prend la main. Reprise dès qu'une session revient.
-  case sessionRequired
-  /// La session appartient à un autre compte. Seul `resume()` lève cette pause, une fois la reprise décidée.
-  case accountChanged
+  /// Les données locales ont changé d'identifiants : `IdentifierRemap`, remis de façon synchrone sur le MainActor.
+  nonisolated static let syncDidRekeyData = Notification.Name("app.parcourses.syncDidRekeyData")
 }
 
 /// Plafonds et délais de reprise (#9 §5.3).
@@ -24,6 +18,10 @@ nonisolated enum SyncRetryPolicy {
   static let unknownCategoryDelay: TimeInterval = 3600
   static let minimumDelay: TimeInterval = 2
   static let maximumDelay: TimeInterval = 300
+  /// Erreur serveur sur une même ligne : au-delà, elle ne retient plus le reste de la file.
+  static let serverFailureGrace: TimeInterval = 4 * 3600
+  /// Délai avant de réessayer une ligne mise de côté. Reste `pending`.
+  static let parkedRetryDelay: TimeInterval = 6 * 3600
   /// Catalogue : une fois par jour (#9 §5.4).
   static let catalogInterval: TimeInterval = 86_400
   /// Descente après un envoi : l'envoi d'une coche ne doit pas relire les listes à chaque fois.
@@ -41,6 +39,12 @@ nonisolated enum SyncRetryPolicy {
 ///
 /// Une erreur sans réponse exploitable (réseau, 5xx, 401) arrête la passe avec un délai global et ne consomme
 /// aucun essai de l'entrée : couper le réseau ne doit jamais rapprocher une coche de l'abandon.
+///
+/// Une ligne qui reçoit une erreur serveur retient d'abord toute la file, comme une panne. Passé
+/// `serverFailureGrace`, elle est mise de côté, sans jamais passer en `failed`, et ses dépendances attendent avec elle.
+///
+/// Un nouveau compte déclenche `AccountRekey` avant tout envoi. Un Keychain verrouillé n'est pas une session
+/// perdue : `keychainLocked` n'est qu'un délai, et ne touche à rien.
 ///
 /// Le moteur ignore comment la session est obtenue : il ne connaît que `unauthorized` et `accountChanged`.
 actor SyncEngine {
@@ -62,11 +66,13 @@ actor SyncEngine {
   private let dependencies: Dependencies
   private var cursors: any SyncCursors
 
-  /// État courant de la pause, `nil` si la file circule.
-  private(set) var pause: SyncPause?
-  /// Changements de `pause`, pour l'écran de connexion. Un seul auditeur.
-  nonisolated let pauseUpdates: AsyncStream<SyncPause?>
-  private let pauseContinuation: AsyncStream<SyncPause?>.Continuation
+  /// Pas de session valide : seule une passe forcée tente d'en retrouver une.
+  private(set) var isWaitingForSession = false
+  /// Une erreur serveur a retenu la file : le prochain succès prouve la reprise et libère les lignes mises de côté.
+  /// En mémoire : après un relancement pendant la panne, une ligne attend au pire la fin de son délai.
+  private var isServerOutageSuspected = false
+  /// Le compte a changé : réidentifier avant tout envoi.
+  private var needsAccountRecovery = false
 
   private var runner: Task<Void, Never>?
   private var wake: Task<Void, Never>?
@@ -76,7 +82,6 @@ actor SyncEngine {
   private var backoffUntil: Date?
   private var pullBackoffUntil: Date?
   private var lastPull: Date?
-  private var isStopped = false
 
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
@@ -88,38 +93,12 @@ actor SyncEngine {
     self.cursors = cursors
     self.classify = classify
     self.dependencies = dependencies
-    (pauseUpdates, pauseContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
   }
 
-  /// Une session valide est peut-être revenue, ou la reprise après changement de compte est décidée.
+  /// Une session valide est peut-être revenue.
   func resume() {
-    setPause(nil)
+    isWaitingForSession = false
     pullBackoffUntil = nil
-    kick(pull: true)
-  }
-
-  private func setPause(_ value: SyncPause?) {
-    guard pause != value else { return }
-    pause = value
-    pauseContinuation.yield(value)
-  }
-
-  /// Arrête le moteur et attend la fin de la passe en cours : plus aucune écriture ensuite, jusqu'à `restart()`.
-  /// Préalable à la purge locale (#39 §6).
-  func stopAndWait() async {
-    isStopped = true
-    isRunRequested = false
-    isPullRequested = false
-    wake?.cancel()
-    wake = nil
-    if let runner {
-      runner.cancel()
-      await runner.value
-    }
-  }
-
-  func restart() {
-    isStopped = false
     kick(pull: true)
   }
 
@@ -130,7 +109,6 @@ actor SyncEngine {
 
   /// Demande une passe. `pull` : lancement, premier plan, retour du réseau, arrière-plan ; lève aussi le délai.
   func kick(pull: Bool = false) {
-    guard !isStopped else { return }
     isRunRequested = true
     if pull {
       isPullRequested = true
@@ -160,7 +138,7 @@ actor SyncEngine {
     }
     runner = nil
     // Une demande arrivée pendant une annulation n'est pas perdue : la nouvelle tâche n'est pas annulée.
-    if isRunRequested, !isStopped {
+    if isRunRequested {
       runner = Task { await self.runLoop() }
     } else {
       isRunRequested = false
@@ -170,13 +148,14 @@ actor SyncEngine {
 
   // MARK: - Passe
 
-  private func pass(pull: Bool) async {
+  private func pass(pull requested: Bool) async {
+    var pull = requested
     // Une descente demandée reste due si la passe s'arrête avant elle.
-    guard dependencies.isOnline(), pause != .accountChanged else {
+    guard dependencies.isOnline() else {
       if pull { isPullRequested = true }
       return
     }
-    if pause == .sessionRequired {
+    if isWaitingForSession {
       // Seule une passe forcée (premier plan, réseau) tente de retrouver une session.
       guard pull else { return }
       guard await restoreSession() else {
@@ -187,6 +166,13 @@ actor SyncEngine {
     if let backoffUntil, backoffUntil > dependencies.now() {
       if pull { isPullRequested = true }
       return
+    }
+    switch await prepareAccount() {
+    case .stopped:
+      if pull { isPullRequested = true }
+      return
+    case .recovered: pull = true
+    case .ready: break
     }
     guard let sent = await sendQueue() else {
       if pull { isPullRequested = true }
@@ -208,7 +194,7 @@ actor SyncEngine {
   private func restoreSession() async -> Bool {
     do {
       try await gateway.ensureSession(captchaToken: nil)
-      setPause(nil)
+      isWaitingForSession = false
       return true
     } catch {
       _ = stop(on: error)
@@ -216,12 +202,76 @@ actor SyncEngine {
     }
   }
 
+  private enum AccountState {
+    case ready
+    case recovered
+    case stopped
+  }
+
+  /// Les données locales correspondent-elles au compte de la session ? Le curseur couvre le Keychain vidé
+  /// (restauration sur un autre iPhone), où la passerelle n'a plus de dernier compte à comparer.
+  private func prepareAccount() async -> AccountState {
+    do {
+      if !needsAccountRecovery {
+        let id = try await gateway.currentAccountId()
+        if let known = cursors.accountId, known != id {
+          needsAccountRecovery = true
+        } else {
+          cursors.accountId = id
+          return .ready
+        }
+      }
+    } catch RemoteError.accountChanged {
+      needsAccountRecovery = true
+    } catch {
+      _ = stop(on: error)
+      return .stopped
+    }
+    return await recoverAccount()
+  }
+
+  /// Ordre important pour la reprise après un arrêt : tant que `acknowledgeAccount` n'a pas écrit, chaque requête
+  /// lève `accountChanged`, rien ne part, et l'opération recommence depuis le début.
+  private func recoverAccount() async -> AccountState {
+    do {
+      // D'abord le compte : sans session établie (Keychain verrouillé compris), on ne touche à rien.
+      let id = try await gateway.sessionAccountId()
+      let now = dependencies.now()
+      try await MainActor.run { [container] in
+        let remap = try AccountRekey.run(in: container.mainContext, now: now)
+        NotificationCenter.default.post(
+          name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
+        NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
+      }
+      // Contexte neuf : l'ancien pourrait garder en mémoire les lignes d'avant.
+      store = SyncStore(modelContainer: container)
+      cursors.lists = nil
+      cursors.items = nil
+      cursors.accountId = id
+      try await gateway.acknowledgeAccount(id)
+      needsAccountRecovery = false
+      isWaitingForSession = false
+      lastPull = nil
+      pullBackoffUntil = nil
+      Self.logger.notice("Données locales réidentifiées pour un nouveau compte")
+      return .recovered
+    } catch {
+      needsAccountRecovery = true
+      _ = stop(on: error, recovering: true)
+      return .stopped
+    }
+  }
+
   /// Classe une erreur de session ou de transport. Annulation : rien à retenir, aucun délai.
-  private func stop(on error: any Error) -> Next {
+  private func stop(on error: any Error, recovering: Bool = false) -> Next {
     guard !Task.isCancelled else { return .stop }
     switch error as? RemoteError {
-    case .accountChanged: setPause(.accountChanged)
-    case .unauthorized: setPause(.sessionRequired)
+    case .accountChanged:
+      needsAccountRecovery = true
+      isWaitingForSession = false
+      // Pendant la reprise, une nouvelle erreur attend le délai : pas de boucle serrée.
+      if recovering { registerTransientFailure() } else { isRunRequested = true }
+    case .unauthorized: isWaitingForSession = true
     default: registerTransientFailure()
     }
     return .stop
@@ -249,7 +299,8 @@ actor SyncEngine {
         do {
           try await send(work)
           try await store.complete(work)
-          setPause(nil)
+          isWaitingForSession = false
+          try await releaseParkedIfRecovered()
           sent += 1
         } catch {
           if Task.isCancelled { return nil }
@@ -268,6 +319,12 @@ actor SyncEngine {
       registerTransientFailure()
       return nil
     }
+  }
+
+  private func releaseParkedIfRecovered() async throws {
+    guard isServerOutageSuspected else { return }
+    isServerOutageSuspected = false
+    try await store.releaseParked(now: dependencies.now())
   }
 
   private func send(_ work: OutboxWork) async throws {
@@ -301,11 +358,16 @@ actor SyncEngine {
     _ error: RemoteError, for work: OutboxWork, singleChecks: inout Set<UUID>
   ) async throws -> Next {
     switch error {
-    case .accountChanged, .unauthorized, .network, .unexpected, .keychainLocked:
+    case .accountChanged, .unauthorized, .network, .keychainLocked:
       return stop(on: error)
 
+    case .unexpected:
+      return try await handleServerFailure(error, work, singleChecks: &singleChecks)
+
     case .server:
-      guard error.isCappedClientFailure else { return stop(on: error) }
+      guard error.isCappedClientFailure else {
+        return try await handleServerFailure(error, work, singleChecks: &singleChecks)
+      }
       return try await retryCapped(
         error, work, limit: SyncRetryPolicy.maxDependencyAttempts, singleChecks: &singleChecks)
 
@@ -325,10 +387,65 @@ actor SyncEngine {
       return try await handleForbidden(work)
 
     case .constraint, .rejected:
+      if error == .constraint(code: "23514"), work.kind.carriesDeviceTime {
+        switch try await correctClock(work) {
+        case .corrected: return .proceed
+        case .stopped: return .stop
+        case .noServerTime:
+          // Rien ne prouve que la ligne soit fautive : de côté, sans essai consommé, jamais `failed`.
+          try await store.postpone(
+            work, attempts: work.attempts,
+            until: dependencies.now().addingTimeInterval(SyncRetryPolicy.parkedRetryDelay * dependencies.jitter()),
+            reason: "\(error), heure du serveur inconnue")
+          return .proceed
+        case .notAhead: break
+        }
+      }
       if split(work, into: &singleChecks) { return .proceed }
       try await failDefinitively(work, reason: String(describing: error))
       return .proceed
     }
+  }
+
+  /// La panne retient la file jusqu'à la fin du délai : une panne générale ne doit rien mettre de côté trop tôt.
+  /// Le départ de la panne n'est effacé que par un succès : une ligne déjà mise de côté y retourne dès son échec.
+  private func handleServerFailure(
+    _ error: RemoteError, _ work: OutboxWork, singleChecks: inout Set<UUID>
+  ) async throws -> Next {
+    let now = dependencies.now()
+    let since = try await store.markServerFailure(work, at: now, reason: String(describing: error))
+    guard now.timeIntervalSince(since) >= SyncRetryPolicy.serverFailureGrace else {
+      isServerOutageSuspected = true
+      return stop(on: error)
+    }
+    if split(work, into: &singleChecks) { return .proceed }
+    let delay = SyncRetryPolicy.parkedRetryDelay * dependencies.jitter()
+    try await store.postpone(
+      work, attempts: work.attempts, until: now.addingTimeInterval(delay), reason: String(describing: error))
+    Self.logger.notice("Entrée mise de côté (\(work.kind.rawValue, privacy: .public))")
+    return .proceed
+  }
+
+  private enum ClockOutcome {
+    case corrected
+    case notAhead
+    case noServerTime
+    case stopped
+  }
+
+  /// `23514` : seul un horodatage trop loin dans le futur se corrige. Tout le lot d'un coup, sans essai consommé :
+  /// la date renvoyée n'est jamais après l'heure du serveur, le prochain refus éventuel a donc une autre cause.
+  private func correctClock(_ work: OutboxWork) async throws -> ClockOutcome {
+    let serverNow: Date?
+    do {
+      serverNow = try await gateway.serverDate()
+    } catch {
+      _ = stop(on: error)
+      return .stopped
+    }
+    guard let serverNow else { return .noServerTime }
+    let clock = ServerClock(serverNow: serverNow, deviceNow: dependencies.now())
+    return try await store.correctClock(work, clock: clock) ? .corrected : .notAhead
   }
 
   private func retryCapped(
@@ -429,13 +546,6 @@ actor SyncEngine {
 
   private func pullAll(at now: Date) async {
     do {
-      let accountId = try await gateway.currentAccountId()
-      if cursors.accountId != accountId {
-        // Curseurs d'un autre compte : ils feraient sauter des lignes de celui-ci.
-        cursors.lists = nil
-        cursors.items = nil
-        cursors.accountId = accountId
-      }
       let lists = try await gateway.fetchLists(updatedAfter: cursors.lists)
       let items = try await gateway.fetchItems(updatedAfter: cursors.items)
       let listsMerge = try await store.merge(lists: lists)
@@ -449,7 +559,8 @@ actor SyncEngine {
       }
       lastPull = now
       pullBackoffUntil = nil
-      setPause(nil)
+      try await releaseParkedIfRecovered()
+      isWaitingForSession = false
       if listsMerge.changed || itemsMerge.changed {
         await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
       }
@@ -458,8 +569,8 @@ actor SyncEngine {
       guard !Task.isCancelled else { return }
       Self.logger.notice("Descente reportée : \(String(describing: error), privacy: .private)")
       switch error as? RemoteError {
-      case .accountChanged: setPause(.accountChanged)
-      case .unauthorized: setPause(.sessionRequired)
+      case .accountChanged, .unauthorized:
+        _ = stop(on: error)
       default:
         // N'arrête pas l'envoi : seul un nouvel essai de descente attend.
         pullBackoffUntil = now.addingTimeInterval(SyncRetryPolicy.pullRetryInterval)
@@ -476,7 +587,7 @@ actor SyncEngine {
   private func scheduleWake() {
     wake?.cancel()
     wake = nil
-    guard dependencies.isOnline(), pause == nil, !isStopped else { return }
+    guard dependencies.isOnline(), !isWaitingForSession else { return }
     let store = store
     let sleep = dependencies.sleep
     let now = dependencies.now
