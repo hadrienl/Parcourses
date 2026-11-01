@@ -9,10 +9,9 @@ CODE_SIGN_STYLE = Automatic
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
 APP_GROUP_ID = group.app.parcourses
-// Environnement Supabase : surchargé par Local.xcconfig ou Cloud.xcconfig.
+// Environnement Supabase : surchargé par Local.xcconfig (Debug) ou Cloud.xcconfig (Release).
 SUPABASE_URL =
 SUPABASE_PUBLISHABLE_KEY =
-#include? "Local.xcconfig"
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
 // Simulateur : signature ad hoc, sans certificat. Sans elle, le Keychain renvoie -34018.
 CODE_SIGN_STYLE[sdk=iphonesimulator*] = Manual
