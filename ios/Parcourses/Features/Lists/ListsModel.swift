@@ -31,11 +31,7 @@ final class ListsModel {
 
   func load() {
     perform {
-      lists = try repository.lists().map { list in
-        let items = try repository.items(listId: list.id)
-        return ListSummary(
-          id: list.id, name: list.name, remaining: items.count { $0.checkedAt == nil }, total: items.count)
-      }
+      lists = try repository.lists().map(summary(of:))
     }
   }
 
@@ -57,6 +53,17 @@ final class ListsModel {
   func delete(id: UUID) {
     perform { try repository.deleteList(id: id, at: now()) }
     load()
+  }
+
+  /// Vrai si le nom saisi peut être enregistré.
+  static func isValid(name: String) -> Bool {
+    cleaned(name) != nil
+  }
+
+  private func summary(of list: ShoppingList) throws -> ListSummary {
+    let items = try repository.items(listId: list.id)
+    return ListSummary(
+      id: list.id, name: list.name, remaining: items.count { $0.checkedAt == nil }, total: items.count)
   }
 
   private static func cleaned(_ name: String) -> String? {

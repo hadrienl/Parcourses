@@ -9,6 +9,16 @@ enum RepositoryError: Error, Equatable {
   case visitClosed(UUID)
 }
 
+extension RepositoryError: LocalizedError {
+  var errorDescription: String? {
+    switch self {
+    case .notFound: "Cet élément n'existe plus."
+    case .listDeleted: "Cette liste a été supprimée."
+    case .visitClosed: "Cette visite est déjà terminée."
+    }
+  }
+}
+
 /// Ce qu'une coche désigne : produit du catalogue ou catégorie (`productId` xor `categoryId`, #8 §2.6).
 enum CheckSubject: Equatable, Sendable {
   case product(UUID)

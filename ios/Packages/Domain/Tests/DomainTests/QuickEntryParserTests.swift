@@ -32,6 +32,16 @@ import Testing
     Case(raw: "1.2.3 truc", quantity: nil, label: "1.2.3 truc"),
     Case(raw: "٣ tomates", quantity: nil, label: "٣ tomates"),
     Case(raw: "de la farine", quantity: nil, label: "de la farine"),
+    Case(raw: "2,5kg pommes", quantity: "2,5kg", label: "pommes"),
+    Case(raw: "1.5l lait", quantity: "1.5l", label: "lait"),
+    Case(raw: "2,5kg", quantity: nil, label: "2,5kg"),
+    Case(raw: "1,5xyz lait", quantity: nil, label: "1,5xyz lait"),
+    Case(raw: "1664 bière", quantity: nil, label: "1664 bière"),
+    Case(raw: "1664", quantity: nil, label: "1664"),
+    Case(raw: "100 clous", quantity: "100", label: "clous"),
+    Case(raw: "1664 g farine", quantity: "1664 g", label: "farine"),
+    Case(raw: "x2 lait", quantity: "2", label: "lait"),
+    Case(raw: "3 Suisses", quantity: "3", label: "Suisses"),
     Case(raw: "2 d'accord", quantity: "2", label: "accord"),
   ])
   func parses(_ c: Case) throws {

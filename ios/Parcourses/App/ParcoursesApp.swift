@@ -12,11 +12,29 @@ struct ParcoursesApp: App {
       case .success(let environment):
         RootView(environment: environment)
       case .failure(let error):
-        ContentUnavailableView(
-          "Impossible d'ouvrir vos listes", systemImage: "exclamationmark.triangle",
-          description: Text(String(describing: error)))
+        StoreFailureView(error: error)
       }
     }
+  }
+}
+
+/// Écran d'échec d'ouverture du store : dit quoi faire et rassure sur les données.
+struct StoreFailureView: View {
+  let error: any Error
+
+  var body: some View {
+    ContentUnavailableView(
+      "Impossible d'ouvrir vos listes", systemImage: "exclamationmark.triangle",
+      description: Text(Self.message(for: error)))
+  }
+
+  static func message(for error: any Error) -> String {
+    let localized = error as? any LocalizedError
+    let advice =
+      localized?.recoverySuggestion
+      ?? "Fermez l'app puis rouvrez-la. Si le problème persiste, redémarrez l'iPhone ou installez une version à jour."
+    let reassurance = "Aucune liste n'a été supprimée."
+    return [error.localizedDescription, advice, reassurance].joined(separator: "\n\n")
   }
 }
 
@@ -32,14 +50,17 @@ struct RootView: View {
 
   var body: some View {
     NavigationStack(path: $path) {
-      ListsView(model: environment.makeListsModel()) { path.append(.list($0)) }
-        .navigationDestination(for: Route.self) { route in
-          switch route {
-          case .list(let id):
-            ListDetailView(model: environment.makeListDetailModel(listId: id))
-          }
+      ListsView(model: environment.makeListsModel()) { id in
+        // Un double appui ne doit pas empiler deux fois le même écran.
+        guard path.last != .list(id) else { return }
+        path.append(.list(id))
+      }
+      .navigationDestination(for: Route.self) { route in
+        switch route {
+        case .list(let id):
+          ListDetailView(model: environment.makeListDetailModel(listId: id))
         }
+      }
     }
-    .accessibilityIdentifier("root")
   }
 }

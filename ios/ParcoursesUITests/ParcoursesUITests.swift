@@ -15,6 +15,13 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     return app
   }
 
+  /// Ligne d'article, par libellé et état annoncés à VoiceOver.
+  @MainActor
+  private func row(_ app: XCUIApplication, _ label: String, _ state: String) -> XCUIElement {
+    app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@ AND value == %@", label, state)).firstMatch
+  }
+
   /// Capture conservée dans le `.xcresult`, sert de preuve visuelle aux PR.
   @MainActor
   private func capture(_ app: XCUIApplication, _ name: String) {
@@ -34,6 +41,7 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 5))
+    XCTAssertFalse(app.alerts.buttons["Créer"].isEnabled)
     name.typeText("Semaine")
     app.alerts.buttons["Créer"].tap()
 
@@ -44,18 +52,18 @@ nonisolated final class ParcoursesUITests: XCTestCase {
       entry.typeText(text + "\n")
     }
 
-    XCTAssertTrue(app.buttons["laits demi-écrémé, 2, non coché"].waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["Fruits et légumes"].exists)
     XCTAssertTrue(app.staticTexts["Crèmerie, œufs, ultra-frais"].exists)
 
     capture(app, "2-liste-groupee")
 
-    app.buttons["tomates, non coché"].tap()
-    XCTAssertTrue(app.buttons["tomates, coché"].waitForExistence(timeout: 5))
+    row(app, "tomates", "non coché").tap()
+    XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 5))
 
-    app.buttons["xyzzy, non coché"].swipeLeft()
+    row(app, "xyzzy", "non coché").swipeLeft()
     app.buttons["Supprimer"].firstMatch.tap()
-    XCTAssertTrue(app.buttons["xyzzy, non coché"].waitForNonExistence(timeout: 5))
+    XCTAssertTrue(row(app, "xyzzy", "non coché").waitForNonExistence(timeout: 5))
 
     // L'autocomplétion retrouve un article coché.
     entry.tap()
@@ -64,17 +72,17 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     XCTAssertTrue(chip.waitForExistence(timeout: 5))
     capture(app, "3-autocompletion")
     chip.tap()
-    XCTAssertTrue(app.buttons["tomates, 3, non coché"].waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "tomates, 3", "non coché").waitForExistence(timeout: 5))
 
     app.terminate()
     app = launch(reset: false)
     let list = app.staticTexts["Semaine"]
     XCTAssertTrue(list.waitForExistence(timeout: 15))
     list.tap()
-    XCTAssertTrue(app.buttons["laits demi-écrémé, 2, non coché"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["tomates, coché"].exists)
-    XCTAssertTrue(app.buttons["tomates, 3, non coché"].exists)
-    XCTAssertFalse(app.buttons["xyzzy, non coché"].exists)
+    XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "tomates", "coché").exists)
+    XCTAssertTrue(row(app, "tomates, 3", "non coché").exists)
+    XCTAssertFalse(row(app, "xyzzy", "non coché").exists)
     capture(app, "4-apres-relance")
 
     // Retour à l'écran Listes, suppression de la liste, toujours supprimée après relance.

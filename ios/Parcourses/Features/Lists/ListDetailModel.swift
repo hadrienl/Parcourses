@@ -11,9 +11,13 @@ struct ItemRow: Identifiable, Equatable {
   let normalizedName: String
   let isChecked: Bool
 
-  /// « Tomates, 2, non coché » (#9 §11).
+  /// « Tomates, 2 », suivi par VoiceOver de `accessibilityState` (#9 §11).
   var accessibilityLabel: String {
-    [label, quantity, isChecked ? "coché" : "non coché"].compactMap(\.self).joined(separator: ", ")
+    [label, quantity].compactMap(\.self).joined(separator: ", ")
+  }
+
+  var accessibilityState: String {
+    isChecked ? "coché" : "non coché"
   }
 }
 
@@ -32,6 +36,10 @@ final class ListDetailModel {
   private(set) var name = ""
   private(set) var sections: [ItemSection] = []
   private(set) var isEmpty = true
+  /// Faux jusqu'au premier `load()` : évite d'afficher « Liste vide » avant la lecture.
+  private(set) var isLoaded = false
+  /// Liste inconnue ou supprimée.
+  private(set) var isMissing = false
   var input = ""
   var errorMessage: String?
 
@@ -40,6 +48,7 @@ final class ListDetailModel {
   private let products: any ProductRepository
   private let analyzer: EntryAnalyzer
   private let now: () -> Date
+  private let categoryRepository: any CategoryRepository
   private var categories: [(id: String, label: String)] = []
   private var index = ItemSuggestionIndex(history: [], products: [], normalizeFallback: { $0 })
   private var pendingNames: Set<String> = []
@@ -53,8 +62,7 @@ final class ListDetailModel {
     self.products = products
     self.analyzer = analyzer
     self.now = now
-    perform { self.categories = try categories.categories().map { ($0.id, $0.label) } }
-    load()
+    categoryRepository = categories
   }
 
   /// Propositions pour la saisie en cours, quantité ignorée (« 2 lai » cherche « lai »).
@@ -62,9 +70,22 @@ final class ListDetailModel {
     index.suggestions(forms: analyzer.searchForms(analyzer.analyze(input).label), excluding: pendingNames)
   }
 
+  /// Lecture complète, appelée par la vue : l'initialisation ne fait aucune E/S.
   func load() {
     perform {
-      name = try lists.list(id: listId)?.name ?? ""
+      categories = try categoryRepository.categories().map { ($0.id, $0.label) }
+      let list = try lists.list(id: listId)
+      name = list?.name ?? ""
+      isMissing = list == nil
+    }
+    reloadItems()
+    rebuildIndex()
+    isLoaded = true
+  }
+
+  /// Articles affichés. Ne relit pas l'historique : une coche ne change pas les propositions possibles.
+  private func reloadItems() {
+    perform {
       let rows = try lists.items(listId: listId).map {
         ItemRow(
           id: $0.id, label: $0.label, quantity: $0.quantity, categoryId: $0.categoryId,
@@ -73,6 +94,12 @@ final class ListDetailModel {
       isEmpty = rows.isEmpty
       sections = Self.group(rows, categories: categories)
       pendingNames = Set(rows.filter { !$0.isChecked }.map(\.normalizedName))
+    }
+  }
+
+  /// Index d'autocomplétion, à refaire seulement quand l'ensemble des articles change.
+  private func rebuildIndex() {
+    perform {
       index = ItemSuggestionIndex(
         history: try lists.itemHistory(), products: try products.products(),
         normalizeFallback: { [analyzer] in analyzer.analyze($0).normalizedName })
@@ -100,12 +127,13 @@ final class ListDetailModel {
   func toggle(_ row: ItemRow) {
     let date = now()
     perform { try lists.setChecked(itemId: row.id, checkedAt: row.isChecked ? nil : date, at: date) }
-    load()
+    reloadItems()
   }
 
   func delete(_ row: ItemRow) {
     perform { try lists.deleteItem(id: row.id) }
-    load()
+    reloadItems()
+    rebuildIndex()
   }
 
   /// Regroupe par rayon, dans l'ordre générique (`rank`). Un identifiant inconnu rejoint `other`.
@@ -127,7 +155,8 @@ final class ListDetailModel {
         categoryId: categoryId, at: now())
     }
     if succeeded { input = "" }
-    load()
+    reloadItems()
+    rebuildIndex()
   }
 
   @discardableResult private func perform(_ work: () throws -> Void) -> Bool {

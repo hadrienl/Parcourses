@@ -21,7 +21,8 @@ struct ItemSuggestionIndex {
 
   init(history: [ListItem], products: [Product], normalizeFallback: (String) -> String) {
     var byName: [String: ItemSuggestion] = [:]
-    for product in products {
+    // Ordres totaux : à date égale, le résultat ne dépend pas de l'ordre rendu par le store.
+    for product in products.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
       let key = product.normalizedName.isEmpty ? normalizeFallback(product.name) : product.normalizedName
       guard !key.isEmpty else { continue }
       byName[key] = ItemSuggestion(
@@ -29,7 +30,7 @@ struct ItemSuggestionIndex {
         lastUsedAt: nil)
     }
     // Du plus ancien au plus récent : le dernier libellé saisi l'emporte.
-    for item in history.sorted(by: { $0.updatedAt < $1.updatedAt }) {
+    for item in history.sorted(by: Self.isOlder) {
       let key = item.normalizedName.isEmpty ? normalizeFallback(item.label) : item.normalizedName
       guard !key.isEmpty else { continue }
       let known = byName[key]
@@ -52,10 +53,14 @@ struct ItemSuggestionIndex {
         .prefix(limit))
   }
 
-  /// Le plus utilisé, puis le plus récent, puis ordre stable sur les octets (déterministe).
+  private static func isOlder(_ a: ListItem, _ b: ListItem) -> Bool {
+    a.updatedAt != b.updatedAt ? a.updatedAt < b.updatedAt : a.id.uuidString < b.id.uuidString
+  }
+
+  /// Le plus utilisé, puis le plus récent, puis l'id, unique, comparé octet par octet.
   private static func isRankedBefore(_ a: ItemSuggestion, _ b: ItemSuggestion) -> Bool {
     if a.useCount != b.useCount { return a.useCount > b.useCount }
     if a.lastUsedAt != b.lastUsedAt { return (a.lastUsedAt ?? .distantPast) > (b.lastUsedAt ?? .distantPast) }
-    return Array(a.normalizedName.utf8).lexicographicallyPrecedes(Array(b.normalizedName.utf8))
+    return Array(a.id.utf8).lexicographicallyPrecedes(Array(b.id.utf8))
   }
 }

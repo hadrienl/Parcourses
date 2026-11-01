@@ -103,9 +103,8 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func itemHistory() throws -> [ListItem] {
-    let deleted = Set(
-      try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.deletedAt != nil })).map(\.id))
-    return try context.fetch(FetchDescriptor<ListItem>()).filter { !deleted.contains($0.listId) }
+    let active = Set(try lists().map(\.id))
+    return try context.fetch(FetchDescriptor<ListItem>()).filter { active.contains($0.listId) }
   }
 
   private func requireActiveList(_ id: UUID) throws -> ShoppingList {

@@ -11,9 +11,20 @@ cd ios && xcodegen generate && open Parcourses.xcodeproj
 
 ## Installer sur un iPhone
 
-Dans `Config/Local.xcconfig` (non commité) : `DEVELOPMENT_TEAM = <votre équipe>`. Puis, dans Xcode, choisir
-l'iPhone et lancer. La signature automatique crée les identifiants, dont l'App Group `group.app.parcourses`.
-Si cet identifiant est déjà pris sur un autre compte, changer `APP_GROUP_ID` et les `PRODUCT_BUNDLE_IDENTIFIER`.
+Un identifiant d'app est unique sur tout l'App Store : avec un autre compte que celui du projet, il faut les vôtres.
+Créez `Config/Local.xcconfig` (non commité) :
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+APP_BUNDLE_ID = com.exemple.parcourses
+APP_GROUP_ID = group.com.exemple.parcourses
+```
+
+L'identifiant d'équipe se lit dans Xcode (Settings > Accounts) ou sur developer.apple.com. L'extension reçoit
+`$(APP_BUNDLE_ID).widgets`, et l'App Group passe dans les entitlements et l'Info.plist.
+
+Puis `xcodegen generate`, ouvrir le projet, choisir l'iPhone et lancer. La signature automatique crée les
+identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et faire confiance au profil si iOS le demande.
 
 ## Version de XcodeGen
 

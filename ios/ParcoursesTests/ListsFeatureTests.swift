@@ -20,7 +20,50 @@ private struct Harness {
     lists = SwiftDataListRepository(context: context)
   }
 
-  func detail(_ id: UUID) -> ListDetailModel { environment.makeListDetailModel(listId: id) }
+  func detail(_ id: UUID) -> ListDetailModel {
+    let model = environment.makeListDetailModel(listId: id)
+    model.load()
+    return model
+  }
+}
+
+/// Compte les lectures, le reste passe au vrai repository.
+@MainActor
+private final class SpyHistory: ListRepository {
+  let base: any ListRepository
+  var historyCalls = 0
+  var itemsCalls = 0
+
+  init(base: any ListRepository) { self.base = base }
+
+  func itemHistory() throws -> [ListItem] {
+    historyCalls += 1
+    return try base.itemHistory()
+  }
+  func items(listId: UUID) throws -> [ListItem] {
+    itemsCalls += 1
+    return try base.items(listId: listId)
+  }
+  func lists() throws -> [ShoppingList] { try base.lists() }
+  func list(id: UUID) throws -> ShoppingList? { try base.list(id: id) }
+  func createList(name: String, at date: Date) throws -> ShoppingList { try base.createList(name: name, at: date) }
+  func renameList(id: UUID, name: String, at date: Date) throws { try base.renameList(id: id, name: name, at: date) }
+  func deleteList(id: UUID, at date: Date) throws { try base.deleteList(id: id, at: date) }
+  func addItem(
+    listId: UUID, label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String,
+    at date: Date
+  ) throws -> ListItem {
+    try base.addItem(
+      listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
+      categoryId: categoryId, at: date)
+  }
+  func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws {
+    try base.setChecked(itemId: itemId, checkedAt: checkedAt, at: date)
+  }
+  func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws {
+    try base.setNotFound(itemId: itemId, notFoundAt: notFoundAt, at: date)
+  }
+  func deleteItem(id: UUID) throws { try base.deleteItem(id: id) }
 }
 
 @MainActor
@@ -30,6 +73,7 @@ private struct Harness {
     let model = h.environment.makeListsModel()
     model.load()
     #expect(model.lists.isEmpty)
+    #expect(!ListsModel.isValid(name: "  "))
     #expect(model.create(name: "   ") == nil)
 
     let id = try #require(model.create(name: "  Semaine "))
@@ -60,7 +104,7 @@ private struct Harness {
     let h = try Harness()
     let model = h.environment.makeListsModel()
     model.delete(id: UUID())
-    #expect(model.errorMessage != nil)
+    #expect(model.errorMessage == "L'opération a échoué : Cet élément n'existe plus.")
   }
 }
 
@@ -77,11 +121,13 @@ private struct Harness {
       model.submit()
     }
     #expect(model.sections.map(\.categoryId) == ["produce", "dairy", "other"])
+    #expect(model.sections.map(\.items.count) == [1, 1, 1])
     #expect(model.sections[1].title == "Crèmerie, œufs, ultra-frais")
     let milk = model.sections[1].items[0]
     #expect(milk.label == "laits demi-écrémé")
     #expect(milk.quantity == "2")
-    #expect(milk.accessibilityLabel == "laits demi-écrémé, 2, non coché")
+    #expect(milk.accessibilityLabel == "laits demi-écrémé, 2")
+    #expect(milk.accessibilityState == "non coché")
     #expect(model.input == "   ")
   }
 
@@ -95,7 +141,7 @@ private struct Harness {
 
     model.toggle(row)
     #expect(try h.lists.items(listId: id)[0].checkedAt != nil)
-    #expect(model.sections[0].items[0].accessibilityLabel == "tomates, coché")
+    #expect(model.sections[0].items[0].accessibilityState == "coché")
 
     model.toggle(model.sections[0].items[0])
     #expect(try h.lists.items(listId: id)[0].checkedAt == nil)
@@ -103,6 +149,58 @@ private struct Harness {
     model.delete(model.sections[0].items[0])
     #expect(try h.lists.items(listId: id).isEmpty)
     #expect(model.isEmpty)
+  }
+
+  @Test func unknownOrDeletedListIsMissing() throws {
+    let h = try Harness()
+    #expect(h.detail(UUID()).isMissing)
+    let id = try h.lists.createList(name: "L", at: t0).id
+    #expect(!h.detail(id).isMissing)
+    try h.lists.deleteList(id: id, at: t0)
+    #expect(h.detail(id).isMissing)
+  }
+
+  @Test func initDoesNoIOAndToggleKeepsTheIndex() throws {
+    let h = try Harness()
+    let id = try h.lists.createList(name: "L", at: t0).id
+    let spy = SpyHistory(base: h.lists)
+    let model = ListDetailModel(
+      listId: id, lists: spy, products: SwiftDataProductRepository(context: h.context),
+      categories: SwiftDataCategoryRepository(context: h.context), analyzer: try EntryAnalyzer())
+    #expect(spy.itemsCalls == 0 && spy.historyCalls == 0)
+
+    model.load()
+    #expect(spy.historyCalls == 1)
+    model.input = "tomates"
+    model.submit()
+    #expect(spy.historyCalls == 2)
+    let itemsCalls = spy.itemsCalls
+    model.toggle(model.sections[0].items[0])
+    #expect(spy.historyCalls == 2)
+    #expect(spy.itemsCalls > itemsCalls)
+    model.delete(model.sections[0].items[0])
+    #expect(spy.historyCalls == 3)
+  }
+
+  @Test func suggestionOrderIgnoresFetchOrder() throws {
+    func item(_ label: String, _ name: String) -> ListItem {
+      ListItem(listId: UUID(), label: label, normalizedName: name, categoryId: "dairy", position: 0, updatedAt: t0)
+    }
+    let older = item("Lait", "lait")
+    let newer = item("LAIT", "lait")
+    let other = item("Laitue", "laitue")
+    let a = ItemSuggestionIndex(history: [older, newer, other], products: [], normalizeFallback: { $0 })
+    let b = ItemSuggestionIndex(history: [other, newer, older], products: [], normalizeFallback: { $0 })
+    let first = a.suggestions(forms: ["lait"], excluding: [])
+    #expect(first == b.suggestions(forms: ["lait"], excluding: []))
+    #expect(first.map(\.id) == ["lait", "laitue"])
+  }
+
+  @Test func storeFailureMessageIsActionable() {
+    let message = StoreFailureView.message(for: PersistenceError.appGroupUnavailable("group.x"))
+    #expect(message.contains("group.x"))
+    #expect(message.contains("Signing & Capabilities"))
+    #expect(StoreFailureView.message(for: RepositoryError.visitClosed(UUID())).contains("Fermez l'app"))
   }
 
   @Test func failedAddKeepsTheInput() throws {
@@ -159,6 +257,13 @@ private struct Harness {
     let added = try #require(try h.lists.items(listId: id).last)
     #expect(added.productId == product.id)
     #expect(added.categoryId == "world-food")
+  }
+
+  @Test func orphanItemsLeaveTheHistory() throws {
+    let h = try Harness()
+    h.context.insert(ListItem(listId: UUID(), label: "lait", normalizedName: "lait", categoryId: "dairy", position: 0))
+    try h.context.save()
+    #expect(try h.lists.itemHistory().isEmpty)
   }
 
   @Test func deletedListsLeaveTheHistory() throws {

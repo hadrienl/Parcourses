@@ -21,7 +21,11 @@ struct ListDetailView: View {
     }
     .scrollDismissesKeyboard(.interactively)
     .overlay {
-      if model.isEmpty {
+      if model.isMissing {
+        ContentUnavailableView(
+          "Liste introuvable", systemImage: "questionmark.folder",
+          description: Text("Cette liste a été supprimée."))
+      } else if model.isLoaded && model.isEmpty {
         ContentUnavailableView(
           "Liste vide", systemImage: "basket",
           description: Text("Ajoutez un article, par exemple « 2 laits demi-écrémé »."))
@@ -29,10 +33,15 @@ struct ListDetailView: View {
     }
     .navigationTitle(model.name)
     .navigationBarTitleDisplayMode(.inline)
-    .safeAreaInset(edge: .bottom) { dock }
-    .onAppear { inputIsFocused = model.isEmpty }
+    .safeAreaInset(edge: .bottom) {
+      if !model.isMissing { dock }
+    }
+    .task {
+      model.load()
+      inputIsFocused = model.isEmpty && !model.isMissing
+    }
     .alert("Erreur", isPresented: errorIsPresented) {
-      Button("OK", role: .cancel) {}
+      Button("OK", role: .cancel) { model.errorMessage = nil }
     } message: {
       Text(model.errorMessage ?? "")
     }
@@ -59,9 +68,10 @@ struct ListDetailView: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(row.accessibilityLabel)
-    .accessibilityHint(row.isChecked ? "Décocher" : "Cocher")
+    .accessibilityValue(row.accessibilityState)
+    .accessibilityAddTraits(.isToggle)
     .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
-    .swipeActions(edge: .trailing) {
+    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
       Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
     }
   }

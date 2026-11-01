@@ -19,18 +19,21 @@ struct ListsView: View {
     content
       .navigationTitle("Mes listes")
       .safeAreaInset(edge: .bottom) { createButton }
-      .onAppear { model.load() }
+      // Relancé à chaque retour sur l'écran, pour des compteurs à jour.
+      .task { model.load() }
       .alert("Nouvelle liste", isPresented: $isCreating) {
         TextField("Nom de la liste", text: $nameInput)
-        Button("Annuler", role: .cancel) {}
+        Button("Annuler", role: .cancel) { isCreating = false }
         Button("Créer") {
           if let id = model.create(name: nameInput) { onOpen(id) }
         }
+        .disabled(!ListsModel.isValid(name: nameInput))
       }
       .alert("Renommer la liste", isPresented: isPresented($renaming), presenting: renaming) { list in
         TextField("Nom de la liste", text: $nameInput)
-        Button("Annuler", role: .cancel) {}
+        Button("Annuler", role: .cancel) { renaming = nil }
         Button("Renommer") { model.rename(id: list.id, name: nameInput) }
+          .disabled(!ListsModel.isValid(name: nameInput))
       }
       .confirmationDialog(
         "Supprimer cette liste et ses articles ?", isPresented: isPresented($deleting), titleVisibility: .visible,
@@ -39,7 +42,7 @@ struct ListsView: View {
         Button("Supprimer la liste", role: .destructive) { model.delete(id: list.id) }
       }
       .alert("Erreur", isPresented: errorIsPresented) {
-        Button("OK", role: .cancel) {}
+        Button("OK", role: .cancel) { model.errorMessage = nil }
       } message: {
         Text(model.errorMessage ?? "")
       }
@@ -58,14 +61,17 @@ struct ListsView: View {
           row(list)
         }
         .foregroundStyle(.primary)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-          Button("Supprimer", systemImage: "trash", role: .destructive) { deleting = list }
-          Button("Renommer", systemImage: "pencil") {
-            nameInput = list.name
-            renaming = list
-          }
-        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) { actions(for: list) }
+        .contextMenu { actions(for: list) }
       }
+    }
+  }
+
+  @ViewBuilder private func actions(for list: ListSummary) -> some View {
+    Button("Supprimer", systemImage: "trash", role: .destructive) { deleting = list }
+    Button("Renommer", systemImage: "pencil") {
+      nameInput = list.name
+      renaming = list
     }
   }
 
