@@ -79,6 +79,18 @@ class ValidationTest {
         // Formes NFC et NFD : canoniquement équivalentes, mais octets différents.
         assert(compareBytes("\u00e9", "e\u0301") > 0)
         assertEquals(0, compareBytes("abc", "abc"))
+        // Hors BMP : 0xF0 > 0xEF en UTF-8, alors qu'un surrogate UTF-16 passerait avant U+FFFF.
+        assert(compareBytes("\uD83C\uDF4E", "\uFFFF") > 0)
+    }
+
+    @Test
+    fun fallbackOrdersNonBmpNamesByUtf8Bytes() {
+        val items =
+            listOf(
+                SortItem("i-1", null, "dairy", "\uD83C\uDF4E"),
+                SortItem("i-2", null, "dairy", "\uFFFF"),
+            )
+        assertEquals(listOf("i-2", "i-1"), sortItems(base.copy(snapshot = null, items = items)).order)
     }
 
     private companion object {

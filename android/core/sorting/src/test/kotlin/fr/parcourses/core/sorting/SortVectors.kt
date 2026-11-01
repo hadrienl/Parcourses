@@ -102,8 +102,7 @@ object SortVectors {
         )
 
     // Comme `"entry" in start` dans la référence : la présence de la clé suffit, et elle prime.
-    private fun start(o: JsonObject): SortStart =
-        if ("entry" in o) SortStart.Entry else SortStart.Product(o.str("product_id"))
+    fun start(o: JsonObject): SortStart = if ("entry" in o) SortStart.Entry else SortStart.Product(o.str("product_id"))
 
     private fun JsonObject.obj(k: String) = getValue(k).jsonObject
 
