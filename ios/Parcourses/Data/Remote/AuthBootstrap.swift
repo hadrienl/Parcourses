@@ -13,7 +13,7 @@ enum AuthBootstrap {
   ) -> (any RemoteGateway)? {
     resetAfterReinstall(defaults: defaults, keychain: keychain)
     guard let configuration = SupabaseConfiguration(bundle: bundle) else { return nil }
-    return SupabaseGateway(configuration: configuration, keychain: keychain)
+    return SupabaseGateway(configuration: configuration, store: keychain)
   }
 
   /// Le Keychain survit à la désinstallation, pas `UserDefaults` : une réinstallation repart de zéro.
@@ -24,7 +24,9 @@ enum AuthBootstrap {
       defaults.set(true, forKey: installedFlag)
     } catch {
       // Le drapeau reste absent : on réessaiera au prochain lancement.
-      logger.error("Keychain non réinitialisé : \(error.localizedDescription, privacy: .public)")
+      logger.error(
+        "Keychain non réinitialisé : \(publicCode(of: error), privacy: .public) \(String(describing: error), privacy: .private)"
+      )
     }
   }
 
@@ -33,7 +35,18 @@ enum AuthBootstrap {
     do {
       try await gateway.ensureSession(captchaToken: nil)
     } catch {
-      logger.notice("Connexion anonyme reportée : \(String(describing: error), privacy: .public)")
+      logger.notice(
+        "Connexion anonyme reportée : \(publicCode(of: error), privacy: .public) \(String(describing: error), privacy: .private)"
+      )
+    }
+  }
+
+  /// Seuls ces codes sont journalisés en clair : ils ne contiennent ni jeton ni donnée de l'utilisateur.
+  static func publicCode(of error: any Error) -> String {
+    switch error {
+    case let error as KeychainError: "OSStatus \(error.status)"
+    case let error as RemoteError: String(describing: error)
+    default: "non classée"
     }
   }
 }

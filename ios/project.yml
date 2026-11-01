@@ -79,6 +79,9 @@ targets:
       - ParcoursesTests
       - path: ../shared/contract/tables.json
         buildPhase: resources
+      - path: ../supabase/migrations
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: Parcourses
     settings:

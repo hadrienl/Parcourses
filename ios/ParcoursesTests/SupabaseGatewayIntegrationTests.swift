@@ -24,7 +24,7 @@ struct SupabaseGatewayIntegrationTests {
   private func makeGateway(service: String = UUID().uuidString) throws -> SupabaseGateway {
     let configuration = try #require(LocalSupabase.configuration)
     return SupabaseGateway(
-      configuration: configuration, keychain: KeychainStore(service: "app.parcourses.tests.\(service)"))
+      configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"))
   }
 
   private func anyStoreId(_ gateway: SupabaseGateway) async throws -> UUID {
@@ -101,7 +101,7 @@ struct SupabaseGatewayIntegrationTests {
     let storeId = try await anyStoreId(gateway)
     let categories = try await gateway.fetchCategories()
     let products = try await gateway.fetchProducts()
-    let categoryId = try #require(categories.first).id
+    let categorySlug = try #require(categories.first).slug
     let productId = try #require(products.first).id
 
     let startedAt = Date.now.addingTimeInterval(-600)
@@ -111,26 +111,53 @@ struct SupabaseGatewayIntegrationTests {
 
     // Lot mixte produit et catégorie, rejoué : aucun doublon, aucune erreur.
     let batch = [
-      CheckInsert(
+      CheckUpload(
         id: UUID(), visitId: visit.id, target: .product(productId), checkedAt: startedAt.addingTimeInterval(10)),
-      CheckInsert(
-        id: UUID(), visitId: visit.id, target: .category(categoryId), checkedAt: startedAt.addingTimeInterval(20)),
+      CheckUpload(
+        id: UUID(), visitId: visit.id, target: .category(slug: categorySlug),
+        checkedAt: startedAt.addingTimeInterval(20)),
     ]
     try await gateway.insertChecks(batch)
     try await gateway.insertChecks(batch)
     try await gateway.insertChecks([])
 
     // 23514 : heure hors bornes.
-    let tooEarly = CheckInsert(
-      id: UUID(), visitId: visit.id, target: .category(categoryId), checkedAt: startedAt.addingTimeInterval(-3600)
+    let tooEarly = CheckUpload(
+      id: UUID(), visitId: visit.id, target: .category(slug: categorySlug),
+      checkedAt: startedAt.addingTimeInterval(-3600)
     )
     await #expect(throws: RemoteError.constraint(code: "23514")) { try await gateway.insertChecks([tooEarly]) }
 
     // Clôture rejouable, puis 42501 sur une coche tardive.
     try await gateway.closeVisit(id: visit.id, endedAt: .now)
     try await gateway.closeVisit(id: visit.id, endedAt: .now)
-    let late = CheckInsert(id: UUID(), visitId: visit.id, target: .category(categoryId), checkedAt: .now)
+    let late = CheckUpload(id: UUID(), visitId: visit.id, target: .category(slug: categorySlug), checkedAt: .now)
     await #expect(throws: RemoteError.forbidden) { try await gateway.insertChecks([late]) }
+  }
+
+  @Test func aChangedAccountIsReportedUntilAccepted() async throws {
+    let service = UUID().uuidString
+    let store = KeychainStore(service: "app.parcourses.tests.\(service)")
+    defer { try? store.removeAll() }
+    let gateway = try makeGateway(service: service)
+    let id = try await gateway.ensureSession()
+    try store.set(Data(UUID().uuidString.utf8), forKey: SupabaseGateway.lastAccountKey)
+
+    await #expect(throws: RemoteError.accountChanged) { try await gateway.ensureSession() }
+    await #expect(throws: RemoteError.accountChanged) {
+      try await gateway.saveList(ListUpsert(id: UUID(), name: "Perdue"))
+    }
+    try await gateway.acceptCurrentAccount()
+    #expect(try await gateway.ensureSession() == id)
+  }
+
+  @Test func anUnknownCategorySlugIsAnError() async throws {
+    let gateway = try makeGateway()
+    let storeId = try await anyStoreId(gateway)
+    let visit = VisitInsert(id: UUID(), storeId: storeId, listId: nil, listWasSorted: false, startedAt: .now)
+    try await gateway.createVisit(visit)
+    let check = CheckUpload(id: UUID(), visitId: visit.id, target: .category(slug: "inconnue"), checkedAt: .now)
+    await #expect(throws: RemoteError.unknownCategory("inconnue")) { try await gateway.insertChecks([check]) }
   }
 
   @Test func nearbyStoresReturnsSortedDistances() async throws {
@@ -153,7 +180,7 @@ struct SupabaseGatewayIntegrationTests {
     let configuration = try #require(SupabaseConfiguration(url: "http://127.0.0.1:9", publishableKey: "k"))
     let gateway = SupabaseGateway(
       configuration: configuration,
-      keychain: KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
+      store: KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
     )
     await #expect(throws: RemoteError.network) { try await gateway.ensureSession() }
   }

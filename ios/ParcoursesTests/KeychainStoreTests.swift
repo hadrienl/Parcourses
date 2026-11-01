@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 
 @testable import Parcourses
@@ -45,6 +46,30 @@ struct KeychainStoreTests {
     try store.set(Data("new".utf8), forKey: "session")
     AuthBootstrap.resetAfterReinstall(defaults: defaults, keychain: store)
     #expect(try store.data(forKey: "session") == Data("new".utf8))
+    try store.removeAll()
+  }
+}
+
+/// Keychain verrouillé, comme en arrière-plan avant le premier déverrouillage.
+private nonisolated struct LockedStore: SecureStore {
+  func data(forKey key: String) throws -> Data? { throw KeychainError(status: errSecInteractionNotAllowed) }
+  func set(_ data: Data, forKey key: String) throws { throw KeychainError(status: errSecInteractionNotAllowed) }
+  func removeValue(forKey key: String) throws { throw KeychainError(status: errSecInteractionNotAllowed) }
+  func removeAll() throws { throw KeychainError(status: errSecInteractionNotAllowed) }
+}
+
+struct LockedKeychainTests {
+  @Test func noAnonymousSignInWhileTheKeychainIsLocked() async throws {
+    #expect(errSecInteractionNotAllowed == -25308)
+    // Adresse injoignable : une tentative de connexion donnerait `.network`, pas `.unauthorized`.
+    let configuration = try #require(SupabaseConfiguration(url: "http://127.0.0.1:9", publishableKey: "k"))
+    let gateway = SupabaseGateway(configuration: configuration, store: LockedStore())
+    await #expect(throws: RemoteError.unauthorized) { try await gateway.ensureSession() }
+  }
+
+  @Test func sentinelRoundTripsOnARealKeychain() throws {
+    let store = KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
+    try store.verifyAvailable()
     try store.removeAll()
   }
 }

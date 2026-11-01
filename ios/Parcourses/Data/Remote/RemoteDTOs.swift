@@ -143,6 +143,16 @@ nonisolated struct NearbyStoreRow: Decodable, Sendable, Equatable {
   }
 }
 
+/// Produit vu par l'app : sa catégorie est le slug partagé, pas l'`Int16` serveur.
+nonisolated struct RemoteProduct: Sendable, Equatable {
+  let id: UUID
+  let name: String
+  let normalizedName: String
+  let categorySlug: String?
+  let offCode: String?
+  let createdAt: Date
+}
+
 // MARK: - Écriture (limitée aux colonnes accordées à `authenticated`)
 
 nonisolated struct ListUpsert: TableDTO, Equatable {
@@ -252,5 +262,56 @@ nonisolated struct CheckInsert: TableDTO, Equatable {
     try container.encode(productId, forKey: .productId)
     try container.encode(categoryId, forKey: .categoryId)
     try container.encode(checkedAt, forKey: .checkedAt)
+  }
+}
+
+/// Coche vue par l'app : le gateway traduit le slug en `Int16` au moment de l'envoi.
+nonisolated struct CheckUpload: Sendable, Equatable {
+  enum Target: Sendable, Equatable {
+    case product(UUID)
+    case category(slug: String)
+  }
+
+  let id: UUID
+  let visitId: UUID
+  let target: Target
+  let checkedAt: Date
+}
+
+// Colonnes modifiables uniquement : `id` n'a pas le privilège UPDATE, et un upsert PostgREST
+// classique le réécrirait (`on conflict do update set id = …`), d'où mise à jour puis insertion.
+nonisolated struct ListPatch: Encodable, Sendable {
+  let name: String
+}
+
+nonisolated struct ListItemPatch: Encodable, Sendable {
+  let listId: UUID
+  let productId: UUID?
+  let label: String
+  let quantity: String?
+  let checkedAt: Date?
+
+  enum CodingKeys: String, CodingKey {
+    case label, quantity
+    case listId = "list_id"
+    case productId = "product_id"
+    case checkedAt = "checked_at"
+  }
+
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(listId, forKey: .listId)
+    try container.encode(productId, forKey: .productId)
+    try container.encode(label, forKey: .label)
+    try container.encode(quantity, forKey: .quantity)
+    try container.encode(checkedAt, forKey: .checkedAt)
+  }
+}
+
+nonisolated struct VisitClose: Encodable, Sendable {
+  let endedAt: Date
+
+  enum CodingKeys: String, CodingKey {
+    case endedAt = "ended_at"
   }
 }

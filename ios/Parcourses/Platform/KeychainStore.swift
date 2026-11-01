@@ -6,11 +6,31 @@ nonisolated struct KeychainError: Error, Equatable {
   let status: OSStatus
 }
 
+/// Stockage sécurisé injectable : les tests simulent un Keychain verrouillé (`errSecInteractionNotAllowed`).
+nonisolated protocol SecureStore: Sendable {
+  func data(forKey key: String) throws -> Data?
+  func set(_ data: Data, forKey key: String) throws
+  func removeValue(forKey key: String) throws
+  func removeAll() throws
+}
+
+nonisolated extension SecureStore {
+  /// Écrit puis relit une sentinelle de même accessibilité que la session : une simple lecture ne suffit
+  /// pas à prouver qu'une session pourra être persistée.
+  func verifyAvailable() throws {
+    let sentinel = Data(UUID().uuidString.utf8)
+    try set(sentinel, forKey: "availability-sentinel")
+    guard try data(forKey: "availability-sentinel") == sentinel else {
+      throw KeychainError(status: errSecDataNotAvailable)
+    }
+  }
+}
+
 /// Petit magasin clé/valeur adossé au Keychain (éléments `kSecClassGenericPassword`).
 ///
 /// `AfterFirstUnlockThisDeviceOnly` : le jeton reste lisible en arrière-plan après le premier
 /// déverrouillage (`BGAppRefreshTask`) et ne quitte jamais l'appareil.
-nonisolated struct KeychainStore: Sendable {
+nonisolated struct KeychainStore: SecureStore {
   static let authService = "app.parcourses.auth"
 
   let service: String
