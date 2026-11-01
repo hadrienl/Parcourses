@@ -43,8 +43,8 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .v-thermique.dark {--a1:#A8D67A;--a2:#8CC4F0;--a3:#FF7A5C;--idle:#3E372B;--desk:#0C0B08;--paper:#1B1812;--edge:#2B261D;--ink:#F2EAD8;--muted:#B3A88F;--accent:#FF7A5C;--on:#2A0A03}
 .v-fanfare.light {--a1:#0F7A6A;--a2:#5B3FD6;--a3:#B0306A;--idle:#DCD6E8;--desk:#E7E3F5;--paper:#FFFDF7;--edge:#ECE7DA;--ink:#18181B;--muted:#55525E;--accent:#5B3FD6;--on:#fff;--hl:#FFD84D}
 .v-fanfare.dark  {--a1:#6FE0CC;--a2:#B4A2FF;--a3:#FF94C2;--idle:#34304A;--desk:#0A0910;--paper:#15131C;--edge:#25222F;--ink:#EEEAF7;--muted:#ABA5BD;--accent:#B4A2FF;--on:#1A0F4A;--hl:#5A4A00}
-.v-file.light    {--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#fff;--idle:#D5CEC0;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0}
-.v-file.dark     {--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0}
+.v-file.light    {--a5:#4F6F12;--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#fff;--idle:#D5CEC0;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0}
+.v-file.dark     {--a5:#C3DC6A;--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0}
 /* Couleur dynamique Android simulée (Material You, fond d'écran vert) : seul l'accent change */
 .dyn.light{--accent:#2F6A3F}.dyn.dark{--accent:#94D6A4;--on:#003916}
 
@@ -96,8 +96,8 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 .cat svg{width:28px;height:28px;color:var(--accent)}
 .cat .s20 svg{width:20px;height:20px}
 .grp{position:relative;background:var(--paper)}
-@keyframes up{0%,45%{transform:none}60%,100%{transform:translateY(-130px)}}
-@keyframes down{0%,45%{transform:none}60%,100%{transform:translateY(130px)}}
+@keyframes up{0%,45%{transform:none}60%,100%{transform:translateY(-136px)}}
+@keyframes down{0%,45%{transform:none}60%,100%{transform:translateY(136px)}}
 .reorder .g2{animation:down 6s infinite}.reorder .g3{animation:up 6s infinite}
 .tag{font-size:10px;color:var(--accent);margin-left:auto;letter-spacing:.06em;text-transform:none}
 
@@ -106,9 +106,9 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 
 /* Barre basse */
 .bar{position:absolute;left:16px;right:16px;bottom:22px;height:56px;border-radius:28px;display:flex;align-items:center;gap:8px;padding:0 6px 0 18px;font:500 15px -apple-system,system-ui,sans-serif;color:var(--ink)}
-.glass26{background:color-mix(in srgb,var(--paper) 45%,transparent);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 0 0 .5px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18)}
+.glass26{background:color-mix(in srgb,var(--paper) 78%,transparent);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 0 0 .5px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18)}
 .mat18{background:color-mix(in srgb,var(--paper) 82%,#888 0%);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:.5px solid var(--muted);border-radius:0;left:0;right:0;bottom:0;height:78px;padding-bottom:20px}
-.bar .grow{flex:1;color:var(--muted)}
+.bar .grow{flex:1;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cta{min-height:44px;min-width:44px;padding:0 16px;border-radius:22px;background:var(--accent);color:var(--on);font-weight:700;display:grid;place-items:center;border:0}
 /* Android : toolbar flottante + FAB */
 .m3bar{position:absolute;left:16px;bottom:18px;height:64px;border-radius:32px;background:var(--edge);display:flex;align-items:center;gap:4px;padding:0 8px;color:var(--ink);font:500 14px Roboto,system-ui,sans-serif}
@@ -202,6 +202,7 @@ const V0 = [
  {id:'file',name:'B3 · Ticket filé (base)',intent:"La base : la structure de A « Le Fil » habillée en ticket. Les rayons sont groupés dans l'ordre du trajet et reliés par le fil, qui avance d'une perle à chaque coche. Quand le trajet appris change, les rayons se réordonnent : le groupe glisse et une étiquette « ↑ appris » explique pourquoi. Chaque rayon a sa couleur, doublée de son libellé."}
 ];
 const CAT=[["produce", "Fruits et légumes", "<path d=\"M12 8c-4-1-7 1.5-7 6s3 7 7 7 7-2.5 7-7-3-7-7-6Z\"/><path d=\"M12 8V4.5\"/><path d=\"M12 6c1-2 3-3 5-2.5-.5 2-2.5 3-5 2.5Z\"/>"], ["bakery", "Boulangerie, pâtisserie", "<path d=\"M3.5 15c0-4.5 3.8-8 8.5-8s8.5 3.5 8.5 8v1.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5Z\"/><path d=\"M8.5 9.5 10 13\"/><path d=\"M12 8.5V13\"/><path d=\"M15.5 9.5 14 13\"/>"], ["butcher", "Boucherie, volaille", "<path d=\"M14.5 4.5c3 0 5 2 5 5 0 4-4 7.5-8 9.5-2 1-4.5.5-5.5-1.5\"/><path d=\"M14.5 4.5c-3 0-5.5 2.5-6.5 6l-2 7\"/><circle cx=\"14\" cy=\"10\" r=\"2\"/><path d=\"M6 17.5 3.5 20\"/>"], ["deli", "Charcuterie, traiteur", "<path d=\"M4 12a8 8 0 0 1 16 0\"/><path d=\"M3 12h18\"/><path d=\"M5 12v3.5A3.5 3.5 0 0 0 8.5 19h7a3.5 3.5 0 0 0 3.5-3.5V12\"/><path d=\"M12 4V3\"/>"], ["seafood", "Poissonnerie", "<path d=\"M3 12c3-4 7-5.5 11-5 2.5.3 4.5 2 6 5-1.5 3-3.5 4.7-6 5-4 .5-8-1-11-5Z\"/><path d=\"M3 12 1.5 9M3 12l-1.5 3\"/><circle cx=\"16\" cy=\"11\" r=\".8\" fill=\"currentColor\"/>"], ["cheese", "Fromages", "<path d=\"M3.5 17V11l14-6.5 3 6.5v6.5H3.5Z\"/><path d=\"M3.5 11h17\"/><circle cx=\"9\" cy=\"14.5\" r=\"1.3\"/><circle cx=\"15\" cy=\"15\" r=\".9\"/>"], ["dairy", "Crèmerie, œufs, ultra-frais", "<path d=\"M8 3.5h8\"/><path d=\"M9 3.5v3L7 9.5v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-10l-2-3v-3\"/><path d=\"M7 13h10\"/>"], ["savory-grocery", "Épicerie salée", "<rect x=\"5\" y=\"7\" width=\"14\" height=\"13.5\" rx=\"2\"/><path d=\"M7 7V4.5h10V7\"/><path d=\"M5 11h14M5 16.5h14\"/>"], ["world-food", "Produits du monde", "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M3.5 12h17\"/><path d=\"M12 3.5c2.5 2.3 3.5 5.2 3.5 8.5s-1 6.2-3.5 8.5c-2.5-2.3-3.5-5.2-3.5-8.5s1-6.2 3.5-8.5Z\"/>"], ["breakfast", "Petit-déjeuner", "<path d=\"M4.5 10h12v4.5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5Z\"/><path d=\"M16.5 11.5h1.5a2 2 0 0 1 0 4h-1.8\"/><path d=\"M8.5 3.5c-.8 1 .8 2 0 3.5M12.5 3.5c-.8 1 .8 2 0 3.5\"/>"], ["sweet-grocery", "Épicerie sucrée, biscuits", "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><circle cx=\"9\" cy=\"9.5\" r=\"1\"/><circle cx=\"14.5\" cy=\"9\" r=\"1\"/><circle cx=\"15\" cy=\"14.5\" r=\"1\"/><circle cx=\"9.5\" cy=\"15\" r=\"1\"/>"], ["snacks", "Apéritif, confiserie", "<path d=\"M8 9.5 4.5 6M16 14.5l3.5 3.5\"/><path d=\"M4.5 6 3 9l3-1.5M19.5 18l1.5-3-3 1.5\"/><rect x=\"7\" y=\"8\" width=\"10\" height=\"8\" rx=\"4\" transform=\"rotate(45 12 12)\"/>"], ["beverages", "Eaux, jus, sodas", "<path d=\"M10 3.5h4\"/><path d=\"M10.5 3.5v3c-2 1-3 2.5-3 4.5v8.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V11c0-2-1-3.5-3-4.5v-3\"/><path d=\"M7.5 13.5h9\"/>"], ["alcohol", "Bières, vins, spiritueux", "<path d=\"M7.5 3.5h9l-.5 5a4 4 0 0 1-8 0Z\"/><path d=\"M12 12.5v8M8.5 20.5h7\"/><path d=\"M8 7h8\"/>"], ["frozen", "Surgelés, glaces", "<path d=\"M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9\"/><path d=\"M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5\"/>"], ["baby", "Bébé", "<path d=\"M9 9.5h6l-.5 9.5a1.5 1.5 0 0 1-1.5 1.5h-2A1.5 1.5 0 0 1 9.5 19Z\"/><path d=\"M9 9.5c0-1.8.8-3 3-3s3 1.2 3 3\"/><path d=\"M12 6.5v-3\"/><path d=\"M9.5 13.5h2M9.5 16.5h2\"/>"], ["hygiene", "Hygiène, beauté", "<path d=\"M7 11h10v8.5a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1Z\"/><path d=\"M10 11V7.5h4V11\"/><path d=\"M12 7.5V5h4\"/><path d=\"M16 5v1.5\"/>"], ["household", "Entretien, droguerie", "<path d=\"M8 10h7l1.5 9.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1Z\"/><path d=\"M9.5 10V6h3.5l2 2v2\"/><path d=\"M13 6V4h5l-2 2\"/>"], ["pets", "Animaux", "<circle cx=\"7\" cy=\"10\" r=\"1.6\"/><circle cx=\"10.5\" cy=\"6.5\" r=\"1.6\"/><circle cx=\"14.5\" cy=\"6.5\" r=\"1.6\"/><circle cx=\"18\" cy=\"10\" r=\"1.6\"/><path d=\"M12.5 11.5c-2.5 0-5 3.5-5 6 0 1.5 1.2 2.5 2.7 2.2 1-.2 1.7-.5 2.3-.5s1.3.3 2.3.5c1.5.3 2.7-.7 2.7-2.2 0-2.5-2.5-6-5-6Z\"/>"], ["other", "Autres", "<path d=\"M3.5 6.5 6 4h12l2.5 2.5\"/><path d=\"M4 6.5h16l-1.5 13a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5Z\"/><path d=\"M9 10.5a3 3 0 0 0 6 0\"/>"]];
+CAT.splice(CAT.length-1,0,["bio","Bio",'<path d="M5.5 18.5C4 10.5 10 4.5 20 4c.5 10-5 16-14.5 14.5Z"/><path d="M3.5 20.5C6.5 15.5 10 12 15 9.5"/>']);
 const svg=id=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${CAT.find(c=>c[0]===id)[2]}</svg>`;
 const V=[V0[2],V0[0],V0[1]];
 const ic={frais:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21c5 0 8-4 8-9-4 0-8 2-8 9Zm0 0c-5 0-8-4-8-9 4 0 8 2 8 9Zm0-9V4"/></svg>',
@@ -216,7 +217,8 @@ function aisleHead(a,vid){
 function item(n,q,cls=''){return `<div class="item ${cls}" role="checkbox" aria-checked="${cls.includes('done')}"><span class="box" aria-hidden="true">✓</span><span class="name">${n}</span><span class="qty">${q}</span></div>`}
 function listBody(vid,mode){
   let h='', k=0;
-  aisles.forEach((a,ai)=>{h+=`<div class="grp g${ai+1}">`+aisleHead(a,vid).replace('</div>',ai===2&&mode==='shop'?'<span class="tag">↑ appris</span></div>':'</div>');a[3].forEach(([n,q])=>{
+  const src = vid==='file'&&mode==='list' ? [aisles[0],['Bio','bio','--a5',[['Quinoa','500 g']]],aisles[1],[aisles[2][0],aisles[2][1],aisles[2][2],[aisles[2][3][0]]]] : aisles;
+  src.forEach((a,ai)=>{h+=`<div class="grp g${ai+1}">`+aisleHead(a,vid).replace('</div>',ai===2&&mode==='shop'?'<span class="tag">↑ appris</span></div>':'</div>');a[3].forEach(([n,q])=>{
     let c='';
     if(mode==='shop'){ if(k<1)c='done'; else if(k===1)c='next target'+(vid==='fanfare'?' tear':''); }
     let extra = (mode==='shop'&&k===1&&vid==='thermique')?'<span class="stamp">PRIS</span>':'';
@@ -230,7 +232,7 @@ function head(vid,mode){
 }
 function iosBar(mode,mat){
   const cls=mat==='26'?'bar glass26':'bar mat18';
-  return mode==='shop'?`<div class="${cls}"><span class="grow">Super U · Cleunay ▾</span><button class="cta">Terminer</button></div>`
+  return mode==='shop'?`<div class="${cls}"><span class="grow">Cleunay ▾</span><button class="cta">Terminer</button></div>`
        :`<div class="${cls}"><span class="grow">＋ Ajouter un article</span><button class="cta" aria-label="Commencer les courses">Go</button></div>`;
 }
 function m3Bar(mode){
@@ -277,7 +279,7 @@ V.forEach(x=>{
     phone({vid:x.id,theme:'dark',plat:'android',mode:'store',dyn:true,cap:'Choix du magasin, sombre, couleur dynamique.'})+
     phone({vid:x.id,theme:'dark',plat:'android',mode:'list',ax:true,cap:'Police à 200 %.'})+`</div></section>`;
 });
-out=`<section id="icones"><h2>Icônes de rayon</h2><p class="intent">Une icône au trait pour chacune des 20 catégories de <code>shared/categories/</code> : trait de 1,5 px, extrémités arrondies, grille 24, pensées pour rester lisibles à 20 px. La couleur du rayon ne touche que le trait et l'anneau sur le fil. Le nom du rayon est toujours écrit à côté. Les fichiers sont dans <code>design/icons/categories/&lt;id&gt;.svg</code>.</p>`+
+out=`<section id="icones"><h2>Icônes de rayon</h2><p class="intent">Une icône au trait pour chacune des 20 catégories de <code>shared/categories/</code>, plus le nouveau rayon <code>bio</code> : trait de 1,5 px, extrémités arrondies, grille 24, pensées pour rester lisibles à 20 px. La couleur du rayon ne touche que le trait et l'anneau sur le fil. Le nom du rayon est toujours écrit à côté. Les fichiers sont dans <code>design/icons/categories/&lt;id&gt;.svg</code>.</p>`+
  ['file light','file dark'].map(t=>`<h3>B3 · ${t.includes('dark')?'sombre':'clair'} · 28 px</h3><div class="screen v-${t}" style="height:auto;border-radius:12px"><div class="cat">${CAT.map(c=>`<div>${svg(c[0])}<span>${c[1]}</span></div>`).join('')}</div></div>`).join('')+
  `<h3>Taille réelle 20 px</h3><div class="screen v-file light" style="height:auto;border-radius:12px"><div class="cat s20">${CAT.map(c=>`<div>${svg(c[0])}<span>${c[0]}</span></div>`).join('')}</div></div></section>`+out;
 document.getElementById('variants').innerHTML=out;

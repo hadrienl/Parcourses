@@ -219,7 +219,8 @@
             "fresh": "#1F7A44",
             "dairy": "#2A6FB0",
             "grocery": "#A3520A",
-            "hygiene": "#8A3FA0"
+            "hygiene": "#8A3FA0",
+            "bio": "#4F6F12"
           }
         },
         "dark": {
@@ -236,7 +237,8 @@
             "fresh": "#6FD39A",
             "dairy": "#86BEF2",
             "grocery": "#F2B06A",
-            "hygiene": "#E0A3F0"
+            "hygiene": "#E0A3F0",
+            "bio": "#C3DC6A"
           }
         },
         "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte"
