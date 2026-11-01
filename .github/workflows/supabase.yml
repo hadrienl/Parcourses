@@ -17,6 +17,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/contract/**"
+      - "shared/reference/**"
       - ".github/workflows/supabase.yml"
 
 permissions:
@@ -66,7 +67,7 @@ jobs:
           done
 
       - name: Lint de la base
-        run: supabase db lint -s public --level warning --fail-on warning
+        run: supabase db lint -s public,graph --level warning --fail-on warning
 
       - name: Advisors
         run: supabase db advisors --local --level warn --fail-on warn
