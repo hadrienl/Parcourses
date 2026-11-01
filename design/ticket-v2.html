@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket v2</title>
+<!-- Maquette de conception (issue #6) : trois variantes de la direction B « Ticket ». Pas de code applicatif. -->
+<style>
+:root{--bg:#EDEAE4;--fg:#1B1B1B;--muted:#5A5650;--card:#FFFFFF;--line:#D9D4CA}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31}}
+:root[data-theme="dark"]{--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:1280px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:clamp(28px,5vw,44px);margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:28px;margin:56px 0 4px}
+h3{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:28px 0 10px}
+.lead{color:var(--muted);max-width:760px}
+.intent{max-width:760px;font-size:17px}
+.toolbar{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;display:flex;gap:8px;flex-wrap:wrap}
+.toolbar button{min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
+.row{display:flex;gap:20px;overflow-x:auto;padding:4px 2px 16px;scroll-snap-type:x mandatory}
+.cap{font-size:13px;color:var(--muted);margin-top:8px;max-width:300px}
+figure{margin:0;scroll-snap-align:start;flex:none}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+.tablewrap{overflow-x:auto}
+.reco{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:20px}
+.spec{font-size:14px;color:var(--muted);max-width:900px}
+.spec li{margin:4px 0}
+
+/* ===== Téléphone ===== */
+.phone{width:300px;height:620px;border-radius:44px;padding:10px;background:#0b0b0b;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.phone.android{border-radius:34px}
+.screen{width:100%;height:100%;border-radius:36px;overflow:hidden;position:relative;background:var(--desk);color:var(--ink);font-family:"JetBrains Mono","SF Mono",ui-monospace,Menlo,"Roboto Mono",monospace}
+.android .screen{border-radius:26px}
+.status{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font:600 13px -apple-system,system-ui,sans-serif;color:var(--ink)}
+.island{width:96px;height:28px;background:#000;border-radius:16px}
+.android .island{width:12px;height:12px;border-radius:50%}
+
+/* Thèmes : variables par variante × mode */
+.v-thermique.light{--a1:#3F6B1E;--a2:#1F5E8A;--a3:#C2301A;--idle:#CFC3A8;--desk:#D9CFB8;--paper:#F6F0E1;--edge:#E7DDC6;--ink:#1F1A14;--muted:#5E5546;--accent:#C2301A;--on:#fff}
+.v-thermique.dark {--a1:#A8D67A;--a2:#8CC4F0;--a3:#FF7A5C;--idle:#3E372B;--desk:#0C0B08;--paper:#1B1812;--edge:#2B261D;--ink:#F2EAD8;--muted:#B3A88F;--accent:#FF7A5C;--on:#2A0A03}
+.v-fanfare.light {--a1:#0F7A6A;--a2:#5B3FD6;--a3:#B0306A;--idle:#DCD6E8;--desk:#E7E3F5;--paper:#FFFDF7;--edge:#ECE7DA;--ink:#18181B;--muted:#55525E;--accent:#5B3FD6;--on:#fff;--hl:#FFD84D}
+.v-fanfare.dark  {--a1:#6FE0CC;--a2:#B4A2FF;--a3:#FF94C2;--idle:#34304A;--desk:#0A0910;--paper:#15131C;--edge:#25222F;--ink:#EEEAF7;--muted:#ABA5BD;--accent:#B4A2FF;--on:#1A0F4A;--hl:#5A4A00}
+.v-file.light    {--a5:#4F6F12;--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#fff;--idle:#D5CEC0;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0}
+.v-file.dark     {--a5:#C3DC6A;--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0}
+/* Couleur dynamique Android simulée (Material You, fond d'écran vert) : seul l'accent change */
+.dyn.light{--accent:#2F6A3F}.dyn.dark{--accent:#94D6A4;--on:#003916}
+
+/* ===== Ticket ===== */
+.ticket{position:absolute;left:12px;right:12px;top:44px;bottom:0;background:var(--paper);padding:18px 16px 120px;overflow:hidden}
+.v-thermique .ticket{border-radius:4px 4px 0 0;
+  -webkit-mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x;mask:radial-gradient(circle 3px at 6px 0,#0000 98%,#000) -6px 0/12px 100% repeat-x}
+.v-fanfare .ticket{-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/16px 100%;mask:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg) top/16px 51% repeat-x,linear-gradient(#000 0 0) bottom/100% 50% no-repeat}
+.v-file .ticket{border-radius:8px 8px 0 0}
+.ticket{padding-left:44px}.ticket.st{padding-left:16px}
+.head{text-align:center;border-bottom:2px dashed var(--muted);padding-bottom:10px;margin-bottom:8px}
+.head .store{font-weight:800;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
+.head .meta{font-size:11px;color:var(--muted)}
+.total{display:flex;justify-content:space-between;align-items:flex-end;margin:6px 0 10px}
+.total b{font-size:46px;line-height:1;letter-spacing:-.03em}
+.total span{font-size:11px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.aisle{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:10px 0 2px;display:flex;align-items:center;gap:6px}
+.item{min-height:48px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:500;position:relative}
+.item .name{flex:1;display:flex;align-items:baseline;gap:4px}
+.item .name::after{content:"";flex:1;border-bottom:1px dotted var(--muted);transform:translateY(-4px)}
+.item .qty{color:var(--muted);font-size:13px}
+.box{width:28px;height:28px;border:2px solid var(--ink);border-radius:4px;flex:none;display:grid;place-items:center}
+.v-fanfare .box{border-radius:50%}
+.done .name{text-decoration:line-through;color:var(--muted)}
+.box{color:transparent}
+.done .box{background:var(--ink);color:var(--paper)}
+.head,.total{position:relative;z-index:1;background:var(--paper)}
+.next{font-size:19px;font-weight:800}
+.v-fanfare .next .name{background:linear-gradient(transparent 55%,var(--hl) 55%)}
+
+/* Fil (hybride) */
+.thread{position:absolute;left:24px;top:120px;bottom:0;width:3px;background:var(--idle)}
+.thread i{position:absolute;inset:0 0 auto 0;height:var(--p,40%);background:var(--accent);transition:height .35s}
+.item::before{content:"";position:absolute;left:-26px;width:14px;height:14px;border-radius:50%;border:3px solid var(--idle);background:var(--paper)}
+.item.done::before{background:var(--accent);border-color:var(--accent)}
+.item.next::before{border-color:var(--accent);width:18px;height:18px;left:-28px}
+.aisle .chip{display:inline-block;width:10px;height:10px;border-radius:2px}
+.aisle{color:var(--muted);height:26px;margin:12px 0 2px;position:relative}
+.node{position:absolute;left:-33px;top:-1px;width:28px;height:28px;border-radius:50%;background:var(--paper);border:1.5px solid var(--c);color:var(--c);display:grid;place-items:center}
+.node svg{width:20px;height:20px}
+.v-thermique .item::before{border-width:2px}
+.v-thermique .thread{background:repeating-linear-gradient(var(--idle) 0 6px,transparent 6px 10px)}
+.v-fanfare .item.next::before{background:var(--hl)}
+.v-fanfare .node{background:color-mix(in srgb,var(--c) 14%,var(--paper))}
+.v-thermique .node{border-radius:6px;border-style:dashed;transform:rotate(-6deg)}.v-thermique .node svg{transform:rotate(6deg)}
+/* Catalogue d'icônes */
+.cat{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px;background:var(--paper);color:var(--ink);padding:14px;border-radius:12px;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace}
+.cat div{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-size:11px;padding:8px 4px;min-height:84px}
+.cat svg{width:28px;height:28px;color:var(--accent)}
+.cat .s20 svg{width:20px;height:20px}
+.grp{position:relative;background:var(--paper)}
+@keyframes up{0%,45%{transform:none}60%,100%{transform:translateY(-136px)}}
+@keyframes down{0%,45%{transform:none}60%,100%{transform:translateY(136px)}}
+.reorder .g2{animation:down 6s infinite}.reorder .g3{animation:up 6s infinite}
+.tag{font-size:10px;color:var(--accent);margin-left:auto;letter-spacing:.06em;text-transform:none}
+
+/* Tampon (thermique) */
+.stamp{position:absolute;right:4px;top:50%;font-weight:900;font-size:13px;letter-spacing:.1em;color:var(--accent);border:2px solid var(--accent);padding:1px 6px;border-radius:3px;transform:translateY(-50%) rotate(-8deg)}
+
+/* Barre basse */
+.bar{position:absolute;left:16px;right:16px;bottom:22px;height:56px;border-radius:28px;display:flex;align-items:center;gap:8px;padding:0 6px 0 18px;font:500 15px -apple-system,system-ui,sans-serif;color:var(--ink)}
+.glass26{background:color-mix(in srgb,var(--paper) 78%,transparent);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 0 0 .5px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18)}
+.mat18{background:color-mix(in srgb,var(--paper) 82%,#888 0%);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:.5px solid var(--muted);border-radius:0;left:0;right:0;bottom:0;height:78px;padding-bottom:20px}
+.bar .grow{flex:1;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cta{min-height:44px;min-width:44px;padding:0 16px;border-radius:22px;background:var(--accent);color:var(--on);font-weight:700;display:grid;place-items:center;border:0}
+/* Android : toolbar flottante + FAB */
+.m3bar{position:absolute;left:16px;bottom:18px;height:64px;border-radius:32px;background:var(--edge);display:flex;align-items:center;gap:4px;padding:0 8px;color:var(--ink);font:500 14px Roboto,system-ui,sans-serif}
+.m3bar span{min-width:48px;height:48px;border-radius:24px;display:grid;place-items:center}
+.m3bar span.on{background:var(--accent);color:var(--on);padding:0 14px}
+.fab{position:absolute;right:16px;bottom:18px;width:64px;height:64px;border-radius:20px;background:var(--accent);color:var(--on);display:grid;place-items:center;font-size:30px;font-family:Roboto,system-ui,sans-serif}
+.v-fanfare .fab{border-radius:50% 50% 50% 50%/60% 60% 40% 40%}
+.snack{position:absolute;left:16px;right:16px;bottom:96px;min-height:48px;border-radius:12px;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 16px;font:500 14px Roboto,system-ui,sans-serif}
+.snack b{color:var(--accent);filter:invert(0);min-height:48px;display:grid;place-items:center;padding:0 10px}
+.undo26{white-space:nowrap;position:absolute;left:50%;transform:translateX(-50%);bottom:90px;min-height:44px;padding:0 16px;border-radius:22px;display:flex;align-items:center;gap:10px;font:500 14px -apple-system,system-ui,sans-serif;color:var(--ink)}
+
+/* Choix du magasin */
+.stores .opt{border:2px solid var(--edge);border-radius:8px;padding:10px 12px;margin:8px 0;min-height:64px}
+.stores .opt.sel{border-color:var(--accent)}
+.stores .opt b{display:block;font-size:14px}
+.stores .opt small{color:var(--muted);font-size:11px}
+.meter{height:6px;background:var(--edge);border-radius:3px;margin-top:6px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+.v-thermique .meter{background:repeating-linear-gradient(90deg,var(--edge) 0 6px,transparent 6px 8px)}
+
+/* Dynamic Type AX */
+.ax .item{font-size:22px;min-height:64px}.ax .item .name::after{display:none}.ax .aisle{font-size:15px}.ax .total b{font-size:52px}.ax .item .name{flex-wrap:wrap}
+
+/* ===== Animations de coche ===== */
+@keyframes stampIn{0%,40%{opacity:0;transform:translateY(-50%) rotate(-8deg) scale(1.6)}55%{opacity:1;transform:translateY(-50%) rotate(-8deg) scale(.95)}65%,90%{transform:translateY(-50%) rotate(-8deg) scale(1);opacity:1}100%{opacity:0}}
+@keyframes boxFill{0%,40%{background:transparent;color:transparent}50%,90%{background:var(--ink);color:var(--paper)}100%{background:transparent;color:transparent}}
+@keyframes strike{0%,45%{text-decoration-color:transparent}55%,90%{text-decoration:line-through;text-decoration-color:currentColor}100%{text-decoration-color:transparent}}
+.anim .stamp{animation:stampIn 3s infinite}
+.anim .box{animation:boxFill 3s infinite}
+.anim .name{text-decoration:line-through;animation:strike 3s infinite}
+@keyframes tear{0%,35%{transform:none;opacity:1;clip-path:none}50%{transform:translateX(6px) rotate(1.5deg)}70%,90%{transform:translateX(120%) rotate(6deg);opacity:0}100%{transform:none;opacity:1}}
+.tear{animation:tear 3s infinite}
+.tear::after{content:"";position:absolute;left:-16px;right:-16px;bottom:-1px;height:6px;background:conic-gradient(from 135deg at top,var(--muted) 0 90deg,transparent 0) 0 0/8px 6px repeat-x;opacity:.5}
+@keyframes print{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
+.printing .ticket{animation:print 1.2s steps(12) 1 both}
+@keyframes bead{0%,40%{background:var(--paper)}55%,90%{background:var(--accent)}100%{background:var(--paper)}}
+@keyframes threadGo{0%,40%{height:30%}60%,90%{height:44%}100%{height:30%}}
+.anim .item.target::before{animation:bead 3s infinite}
+.anim .thread i{animation:threadGo 3s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<div class="toolbar" role="group" aria-label="Thème de la page">
+  <button data-t="light">Page claire</button><button data-t="dark">Page sombre</button><button data-t="">Système</button>
+</div>
+<h1>Ticket v2 : trois variantes</h1>
+<p class="lead"><b>Révision :</b> les trois variantes partagent maintenant la même structure, celle de A « Le Fil ». La liste est groupée par rayon dans l'ordre du trajet, et le fil du parcours la traverse de rayon en rayon. Il avance à chaque coche, et l'ordre des rayons se réorganise sous vos yeux : en mode courses, l'Épicerie remonte avant la Crèmerie. Le ticket n'est plus que l'habillage : matière, typographie, perforations, tampons. B3 sert de base, B1 et B2 en déclinent le ton.</p>
+<p class="lead">Issue #6. La direction B plaît, mais elle paraît austère. Voici trois façons de la réchauffer sans perdre ce qui la rend bonne : une lecture mono très rapide, des filets nets et un gros chiffre « RESTE ». Chaque variante montre la liste, le mode courses avec la coche animée et le choix du magasin, en clair et en sombre, sur iOS (Liquid Glass et repli iOS 18) et sur Android (Material 3 Expressive, couleur dynamique et repli). Les tokens sont dans <code>design/tokens-ticket-v2.json</code>.</p>
+
+<div id="variants"></div>
+
+<h2>Comparaison</h2>
+<div class="tablewrap"><table>
+<tr><th></th><th>B1 · Thermique (ton)</th><th>B2 · Fanfare (ton)</th><th>B3 · Ticket filé (base)</th></tr>
+<tr><th>Intention</th><td>Chaleur et matière : on tient un vrai ticket</td><td>Jeu et mouvement : le ticket vit</td><td>Sens : le ticket montre le trajet</td></tr>
+<tr><th>Lisibilité en rayon</th><td>★★★ Très haute, sobre</td><td>★★☆ Les animations sont réservées aux écrans calmes</td><td>★★★ Le fil indique « où j'en suis »</td></tr>
+<tr><th>Structure</th><td colspan="3">Identique pour les trois, celle de A : la liste groupée par rayon dans l'ordre du trajet, le fil qui avance à chaque coche et les rayons qui se réordonnent en direct</td></tr>
+<tr><th>Fatigue au 50ᵉ usage</th><td>Faible</td><td>Moyenne : la déchirure peut lasser (on la désactive après 3 coches rapides)</td><td>Faible</td></tr>
+<tr><th>Coût d'implémentation</th><td>Bas (masques, police mono)</td><td>Élevé (impression, déchirure, illustrations)</td><td>Moyen (gouttière du fil partagée avec A)</td></tr>
+<tr><th>Couleur dynamique Android</th><td>Accent seul</td><td>Accent seul, jaune fixe</td><td>Accent + fil ; couleurs de rayon fixes</td></tr>
+</table></div>
+
+<h2>Specs d'interaction communes</h2>
+<ul class="spec">
+<li><b>Coche</b> : appui sur toute la ligne (≥ 48 pt de haut) ou glisser vers la droite. Ressort de 250 ms, haptique <i>success</i> / <i>CONFIRM</i>. VoiceOver et TalkBack annoncent « Lait, pris. 6 restants ». L'état coché se lit sans couleur : case pleine et texte barré.</li>
+<li><b>Annulation</b> : bannière en verre sur iOS et Snackbar sur Android, pendant 4 s. Un nouvel appui sur la ligne annule aussi.</li>
+<li><b>Réordonnancement</b> : 600 ms après la coche, la ligne touchée reste en place et les autres glissent (400 ms, sans rebond).</li>
+<li><b>Mouvement réduit</b> : un fondu de 150 ms, sans tampon, sans impression ni déchirure. Avec <i>Réduire la transparence</i>, la barre devient opaque (<code>paperEdge</code>) avec un filet.</li>
+<li><b>Dynamic Type AX / police à 200 %</b> : les pointillés de prix disparaissent, le nom passe sur deux lignes et le total reste en haut. Voir l'écran « AX » de chaque variante.</li>
+</ul>
+
+<div class="reco">
+<h2 style="margin-top:0">Recommandation : la base B3 dans le ton B1</h2>
+<p><b>Je recommande de garder la structure B3 et de l'habiller avec la matière de B1.</b> La structure est celle de A : les groupes par rayon, le fil qui avance et l'ordre qui se réorganise. C'est ce qui rend la promesse du produit visible. Le ton B1 apporte la chaleur qui manquait à B sans gêner la lecture : papier crème, fil pointillé façon perforation, petits tampons de rayon et tampon « PRIS ».</p>
+<ul>
+<li><b>B3 seule</b> fonctionne, mais elle reste plus neutre. C'est le bon repli si le crème rend mal sous les néons.</li>
+<li><b>B2</b> : je garde seulement l'impression du ticket récapitulatif en fin de courses. La déchirure à chaque coche fatigue en rayon.</li>
+<li><b>Le réordonnancement</b> se joue à l'échelle du rayon. Le groupe qui change de place glisse en 400 ms, 600 ms après la coche, la ligne touchée ne bouge jamais, et l'étiquette « ↑ appris » reste affichée 3 s.</li>
+</ul>
+<p><b>Questions ouvertes</b> : 1) Les couleurs de rayon sont-elles fixées par catégorie ou par magasin ? 2) Police mono embarquée ou police système ? 3) Le tampon « PRIS » est-il persistant ou bref ?</p>
+</div>
+</main>
+
+<script>
+// Rendu des maquettes : gabarits HTML statiques (pas de logique applicative).
+const V0 = [
+ {id:'thermique',name:'B1 · Thermique (ton chaleureux)',intent:"Le ton chaleureux posé sur la base B3 : même fil et mêmes groupes de rayon, sur un papier thermique crème. Le fil est pointillé comme une perforation, les rayons sont marqués par de petits tampons inclinés, et à la coche un tampon « PRIS » s'imprime."},
+ {id:'fanfare',name:'B2 · Fanfare (ton ludique)',intent:"Le ton ludique posé sur la base B3 : même fil et mêmes groupes de rayon. Le ticket s'imprime à l'ouverture, les rayons ont des pastilles rondes et des pictos au trait, la prochaine perle et la prochaine ligne sont surlignées en jaune, et l'article coché se détache."},
+ {id:'file',name:'B3 · Ticket filé (base)',intent:"La base : la structure de A « Le Fil » habillée en ticket. Les rayons sont groupés dans l'ordre du trajet et reliés par le fil, qui avance d'une perle à chaque coche. Quand le trajet appris change, les rayons se réordonnent : le groupe glisse et une étiquette « ↑ appris » explique pourquoi. Chaque rayon a sa couleur, doublée de son libellé."}
+];
+const CAT=[["produce", "Fruits et légumes", "<path d=\"M12 8c-4-1-7 1.5-7 6s3 7 7 7 7-2.5 7-7-3-7-7-6Z\"/><path d=\"M12 8V4.5\"/><path d=\"M12 6c1-2 3-3 5-2.5-.5 2-2.5 3-5 2.5Z\"/>"], ["bakery", "Boulangerie, pâtisserie", "<path d=\"M3.5 15c0-4.5 3.8-8 8.5-8s8.5 3.5 8.5 8v1.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5Z\"/><path d=\"M8.5 9.5 10 13\"/><path d=\"M12 8.5V13\"/><path d=\"M15.5 9.5 14 13\"/>"], ["butcher", "Boucherie, volaille", "<path d=\"M14.5 4.5c3 0 5 2 5 5 0 4-4 7.5-8 9.5-2 1-4.5.5-5.5-1.5\"/><path d=\"M14.5 4.5c-3 0-5.5 2.5-6.5 6l-2 7\"/><circle cx=\"14\" cy=\"10\" r=\"2\"/><path d=\"M6 17.5 3.5 20\"/>"], ["deli", "Charcuterie, traiteur", "<path d=\"M4 12a8 8 0 0 1 16 0\"/><path d=\"M3 12h18\"/><path d=\"M5 12v3.5A3.5 3.5 0 0 0 8.5 19h7a3.5 3.5 0 0 0 3.5-3.5V12\"/><path d=\"M12 4V3\"/>"], ["seafood", "Poissonnerie", "<path d=\"M3 12c3-4 7-5.5 11-5 2.5.3 4.5 2 6 5-1.5 3-3.5 4.7-6 5-4 .5-8-1-11-5Z\"/><path d=\"M3 12 1.5 9M3 12l-1.5 3\"/><circle cx=\"16\" cy=\"11\" r=\".8\" fill=\"currentColor\"/>"], ["cheese", "Fromages", "<path d=\"M3.5 17V11l14-6.5 3 6.5v6.5H3.5Z\"/><path d=\"M3.5 11h17\"/><circle cx=\"9\" cy=\"14.5\" r=\"1.3\"/><circle cx=\"15\" cy=\"15\" r=\".9\"/>"], ["dairy", "Crèmerie, œufs, ultra-frais", "<path d=\"M8 3.5h8\"/><path d=\"M9 3.5v3L7 9.5v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-10l-2-3v-3\"/><path d=\"M7 13h10\"/>"], ["savory-grocery", "Épicerie salée", "<rect x=\"5\" y=\"7\" width=\"14\" height=\"13.5\" rx=\"2\"/><path d=\"M7 7V4.5h10V7\"/><path d=\"M5 11h14M5 16.5h14\"/>"], ["world-food", "Produits du monde", "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M3.5 12h17\"/><path d=\"M12 3.5c2.5 2.3 3.5 5.2 3.5 8.5s-1 6.2-3.5 8.5c-2.5-2.3-3.5-5.2-3.5-8.5s1-6.2 3.5-8.5Z\"/>"], ["breakfast", "Petit-déjeuner", "<path d=\"M4.5 10h12v4.5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5Z\"/><path d=\"M16.5 11.5h1.5a2 2 0 0 1 0 4h-1.8\"/><path d=\"M8.5 3.5c-.8 1 .8 2 0 3.5M12.5 3.5c-.8 1 .8 2 0 3.5\"/>"], ["sweet-grocery", "Épicerie sucrée, biscuits", "<circle cx=\"12\" cy=\"12\" r=\"8.5\"/><circle cx=\"9\" cy=\"9.5\" r=\"1\"/><circle cx=\"14.5\" cy=\"9\" r=\"1\"/><circle cx=\"15\" cy=\"14.5\" r=\"1\"/><circle cx=\"9.5\" cy=\"15\" r=\"1\"/>"], ["snacks", "Apéritif, confiserie", "<path d=\"M8 9.5 4.5 6M16 14.5l3.5 3.5\"/><path d=\"M4.5 6 3 9l3-1.5M19.5 18l1.5-3-3 1.5\"/><rect x=\"7\" y=\"8\" width=\"10\" height=\"8\" rx=\"4\" transform=\"rotate(45 12 12)\"/>"], ["beverages", "Eaux, jus, sodas", "<path d=\"M10 3.5h4\"/><path d=\"M10.5 3.5v3c-2 1-3 2.5-3 4.5v8.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V11c0-2-1-3.5-3-4.5v-3\"/><path d=\"M7.5 13.5h9\"/>"], ["alcohol", "Bières, vins, spiritueux", "<path d=\"M7.5 3.5h9l-.5 5a4 4 0 0 1-8 0Z\"/><path d=\"M12 12.5v8M8.5 20.5h7\"/><path d=\"M8 7h8\"/>"], ["frozen", "Surgelés, glaces", "<path d=\"M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9\"/><path d=\"M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5\"/>"], ["baby", "Bébé", "<path d=\"M9 9.5h6l-.5 9.5a1.5 1.5 0 0 1-1.5 1.5h-2A1.5 1.5 0 0 1 9.5 19Z\"/><path d=\"M9 9.5c0-1.8.8-3 3-3s3 1.2 3 3\"/><path d=\"M12 6.5v-3\"/><path d=\"M9.5 13.5h2M9.5 16.5h2\"/>"], ["hygiene", "Hygiène, beauté", "<path d=\"M7 11h10v8.5a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1Z\"/><path d=\"M10 11V7.5h4V11\"/><path d=\"M12 7.5V5h4\"/><path d=\"M16 5v1.5\"/>"], ["household", "Entretien, droguerie", "<path d=\"M8 10h7l1.5 9.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1Z\"/><path d=\"M9.5 10V6h3.5l2 2v2\"/><path d=\"M13 6V4h5l-2 2\"/>"], ["pets", "Animaux", "<circle cx=\"7\" cy=\"10\" r=\"1.6\"/><circle cx=\"10.5\" cy=\"6.5\" r=\"1.6\"/><circle cx=\"14.5\" cy=\"6.5\" r=\"1.6\"/><circle cx=\"18\" cy=\"10\" r=\"1.6\"/><path d=\"M12.5 11.5c-2.5 0-5 3.5-5 6 0 1.5 1.2 2.5 2.7 2.2 1-.2 1.7-.5 2.3-.5s1.3.3 2.3.5c1.5.3 2.7-.7 2.7-2.2 0-2.5-2.5-6-5-6Z\"/>"], ["other", "Autres", "<path d=\"M3.5 6.5 6 4h12l2.5 2.5\"/><path d=\"M4 6.5h16l-1.5 13a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5Z\"/><path d=\"M9 10.5a3 3 0 0 0 6 0\"/>"]];
+CAT.splice(CAT.length-1,0,["bio","Bio",'<path d="M5.5 18.5C4 10.5 10 4.5 20 4c.5 10-5 16-14.5 14.5Z"/><path d="M3.5 20.5C6.5 15.5 10 12 15 9.5"/>']);
+const svg=id=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${CAT.find(c=>c[0]===id)[2]}</svg>`;
+const V=[V0[2],V0[0],V0[1]];
+const ic={frais:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21c5 0 8-4 8-9-4 0-8 2-8 9Zm0 0c-5 0-8-4-8-9 4 0 8 2 8 9Zm0-9V4"/></svg>',
+ cremerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3h8v4l2 3v11H6V10l2-3Z"/></svg>',
+ epicerie:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="6" width="14" height="15" rx="2"/><path d="M8 3h8v3"/></svg>'};
+const aisles=[['Fruits et légumes','produce','--a1',[['Tomates','×6'],['Basilic','1']]],['Crèmerie, œufs','dairy','--a2',[['Lait entier','×2'],['Comté','200 g']]],['Épicerie salée','savory-grocery','--a3',[['Pâtes','×1'],['Café moulu','×1']]]];
+const v=(o)=>o;
+function aisleHead(a,vid){
+  const pic = `<span class="node" aria-hidden="true">${svg(a[1])}</span>`;
+  return `<div class="aisle" style="--c:var(${a[2]})">${pic}${a[0]}</div>`;
+}
+function item(n,q,cls=''){return `<div class="item ${cls}" role="checkbox" aria-checked="${cls.includes('done')}"><span class="box" aria-hidden="true">✓</span><span class="name">${n}</span><span class="qty">${q}</span></div>`}
+function listBody(vid,mode){
+  let h='', k=0;
+  const src = vid==='file'&&mode==='list' ? [aisles[0],['Bio','bio','--a5',[['Quinoa','500 g']]],aisles[1],[aisles[2][0],aisles[2][1],aisles[2][2],[aisles[2][3][0]]]] : aisles;
+  src.forEach((a,ai)=>{h+=`<div class="grp g${ai+1}">`+aisleHead(a,vid).replace('</div>',ai===2&&mode==='shop'?'<span class="tag">↑ appris</span></div>':'</div>');a[3].forEach(([n,q])=>{
+    let c='';
+    if(mode==='shop'){ if(k<1)c='done'; else if(k===1)c='next target'+(vid==='fanfare'?' tear':''); }
+    let extra = (mode==='shop'&&k===1&&vid==='thermique')?'<span class="stamp">PRIS</span>':'';
+    h+=item(n,q,c).replace('</div>',extra+'</div>');k++;});h+='</div>';});
+  return h;
+}
+function head(vid,mode){
+  const store='Super U · Rennes Cleunay';
+  return `<div class="head"><div class="store">${mode==='shop'?store:'Ma liste'}</div><div class="meta">${mode==='shop'?'31/10/2026 · 18:42 · trajet connu à 82&nbsp;%':'6 articles · partagée avec Léa'}</div></div>
+  <div class="total"><span>${mode==='shop'?'Reste':'Articles'}</span><b>${mode==='shop'?'05':'06'}</b></div>`;
+}
+function iosBar(mode,mat){
+  const cls=mat==='26'?'bar glass26':'bar mat18';
+  return mode==='shop'?`<div class="${cls}"><span class="grow">Cleunay ▾</span><button class="cta">Terminer</button></div>`
+       :`<div class="${cls}"><span class="grow">＋ Ajouter un article</span><button class="cta" aria-label="Commencer les courses">Go</button></div>`;
+}
+function m3Bar(mode){
+  return `<div class="m3bar"><span class="${mode==='list'?'on':''}">☰${mode==='list'?' Liste':''}</span><span class="${mode==='shop'?'on':''}">🛒${mode==='shop'?' Courses':''}</span><span>⚙</span></div><div class="fab" aria-label="${mode==='shop'?'Terminer':'Ajouter'}">${mode==='shop'?'✓':'+'}</div>`;
+}
+function storesBody(vid){
+  return `<div class="head"><div class="store">Où êtes-vous ?</div><div class="meta">Position utilisée une fois, jamais enregistrée</div></div>
+  <div class="stores">
+   <div class="opt sel"><b>Super U · Cleunay</b><small>350 m · cartographié à 82&nbsp;%</small><div class="meter"><i style="width:82%"></i></div></div>
+   <div class="opt"><b>Carrefour City · Colombier</b><small>900 m · en apprentissage, 24&nbsp;%</small><div class="meter"><i style="width:24%"></i></div></div>
+   <div class="opt"><b>Biocoop · Bréquigny</b><small>1,4 km · nouveau, aidez-nous à l'apprendre</small><div class="meter"><i style="width:3%"></i></div></div>
+  </div>`;
+}
+function phone({vid,theme,plat,mode,mat='26',dyn=false,ax=false,cap}){
+  const body = mode==='store'?storesBody(vid):head(vid,mode)+listBody(vid,mode);
+  const thread = mode!=='store'?`<div class="thread"><i style="--p:${mode==='shop'?'30%':'0%'}"></i></div>`:'';
+  const bottom = plat==='ios'
+     ? (mode==='store'?`<div class="${mat==='26'?'bar glass26':'bar mat18'}"><span class="grow">Autre magasin…</span><button class="cta">Choisir</button></div>`:iosBar(mode,mat))
+     : (mode==='store'?`<div class="m3bar"><span>✕</span><span>⌕</span></div><div class="fab" aria-label="Choisir">→</div>`:m3Bar(mode));
+  const undo = mode==='shop'?(plat==='ios'?`<div class="undo26 ${mat==='26'?'glass26':'mat18'}" style="${mat==='18'?'position:absolute;left:50%;right:auto;height:44px;bottom:96px;border-radius:22px;border:0;padding:0 16px':''}">Tomates prises · <b style="color:var(--accent)">Annuler</b></div>`:`<div class="snack">Tomates prises<b>Annuler</b></div>`):'';
+  const anim = mode==='shop'?'anim'+(ax?'':' reorder'):'';
+  const printing = vid==='fanfare'&&mode==='list'&&theme==='light'?'printing':'';
+  return `<figure><div class="phone ${plat}"><div class="screen v-${vid} ${theme} ${dyn?'dyn':''} ${anim} ${printing} ${ax?'ax':''}">
+   <div class="status"><span>18:42</span><span class="island"></span><span>5G ▮</span></div>
+   <div class="ticket ${mode==='store'?'st':''}">${thread}${body}</div>${undo}${bottom}</div></div><figcaption class="cap">${cap}</figcaption></figure>`;
+}
+let out='';
+V.forEach(x=>{
+  out+=`<section id="${x.id}"><h2>${x.name}</h2><p class="intent">${x.intent}</p>`;
+  out+=`<h3>iOS 26 · Liquid Glass</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'list',cap:'Liste, clair. Barre de saisie en verre.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',cap:'Mode courses, clair. La coche est animée en boucle, avec la bannière « Annuler » en verre.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'shop',cap:'Mode courses, sombre.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'store',cap:'Choix du magasin, sombre. On montre honnêtement ce que l\'app sait de chaque magasin.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',ax:true,cap:'Dynamic Type AX3 : les pointillés disparaissent et les noms passent à la ligne.'})+`</div>`;
+  out+=`<h3>Repli iOS 18 · .regularMaterial</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'shop',mat:'18',cap:'Barre ancrée en bas, en matériau classique.'})+
+    phone({vid:x.id,theme:'dark',plat:'ios',mode:'list',mat:'18',cap:'Liste, sombre, iOS 18.'})+
+    phone({vid:x.id,theme:'light',plat:'ios',mode:'store',mat:'18',cap:'Choix du magasin, iOS 18.'})+`</div>`;
+  out+=`<h3>Android 16 · Material 3 Expressive</h3><div class="row">`+
+    phone({vid:x.id,theme:'light',plat:'android',mode:'list',cap:'Liste, palette Parcourses. Toolbar flottante et FAB.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'shop',cap:'Mode courses, sombre. Snackbar « Annuler ».'})+
+    phone({vid:x.id,theme:'light',plat:'android',mode:'shop',dyn:true,cap:'Couleur dynamique : seul l\'accent suit le fond d\'écran, le papier reste celui de la marque.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'store',dyn:true,cap:'Choix du magasin, sombre, couleur dynamique.'})+
+    phone({vid:x.id,theme:'dark',plat:'android',mode:'list',ax:true,cap:'Police à 200 %.'})+`</div></section>`;
+});
+out=`<section id="icones"><h2>Icônes de rayon</h2><p class="intent">Une icône au trait pour chacune des 20 catégories de <code>shared/categories/</code>, plus le nouveau rayon <code>bio</code> : trait de 1,5 px, extrémités arrondies, grille 24, pensées pour rester lisibles à 20 px. La couleur du rayon ne touche que le trait et l'anneau sur le fil. Le nom du rayon est toujours écrit à côté. Les fichiers sont dans <code>design/icons/categories/&lt;id&gt;.svg</code>.</p>`+
+ ['file light','file dark'].map(t=>`<h3>B3 · ${t.includes('dark')?'sombre':'clair'} · 28 px</h3><div class="screen v-${t}" style="height:auto;border-radius:12px"><div class="cat">${CAT.map(c=>`<div>${svg(c[0])}<span>${c[1]}</span></div>`).join('')}</div></div>`).join('')+
+ `<h3>Taille réelle 20 px</h3><div class="screen v-file light" style="height:auto;border-radius:12px"><div class="cat s20">${CAT.map(c=>`<div>${svg(c[0])}<span>${c[0]}</span></div>`).join('')}</div></div></section>`+out;
+document.getElementById('variants').innerHTML=out;
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const t=b.dataset.t;t?document.documentElement.dataset.theme=t:delete document.documentElement.dataset.theme});
+</script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+{
+  "$description": "Parcourses, direction retenue : B3 « Ticket filé ». Seuls ces tokens font référence. Noms communs iOS/Android.",
+  "shared": {
+    "typography": {
+      "mono": {
+        "family": "JetBrains Mono → repli SF Mono / Roboto Mono",
+        "ios": "Font.system(.body, design:.monospaced)",
+        "compose": "FontFamily.Monospace (police embarquée JetBrains Mono)"
+      },
+      "total": {
+        "size": 52,
+        "weight": 800,
+        "tracking": -0.03,
+        "use": "compteur « RESTE 7 »"
+      },
+      "title": {
+        "size": 26,
+        "weight": 800,
+        "case": "upper",
+        "tracking": 0.04
+      },
+      "itemNext": {
+        "size": 20,
+        "weight": 700
+      },
+      "item": {
+        "size": 17,
+        "weight": 500
+      },
+      "aisle": {
+        "size": 12,
+        "weight": 700,
+        "case": "upper",
+        "tracking": 0.12
+      },
+      "$note": "Toutes les tailles suivent Dynamic Type (jusqu'à AX5) et l'échelle Android 200 %. En AX, les pointillés de prix disparaissent et le nom passe sur 2 lignes."
+    },
+    "size": {
+      "rowMin": 56,
+      "touchMin": {
+        "ios": 44,
+        "android": 48
+      },
+      "checkBox": 28,
+      "primaryAction": 56,
+      "perforation": 6,
+      "zigzag": 8
+    },
+    "space": {
+      "xs": 8,
+      "s": 12,
+      "m": 16,
+      "l": 24,
+      "xl": 32
+    },
+    "motion": {
+      "check": {
+        "ios": "spring(response:0.25, dampingFraction:0.8)",
+        "compose": "MotionScheme.standard().fastSpatialSpec()",
+        "ms": 250
+      },
+      "reorder": {
+        "ios": "spring(response:0.4, dampingFraction:1.0)",
+        "compose": "animateItem(spring(1f, StiffnessMediumLow))",
+        "ms": 400,
+        "delayAfterCheckMs": 600
+      },
+      "undoBannerMs": 4000,
+      "reduced": {
+        "all": "fondu 150 ms, aucun déplacement, pas d'impression ni de déchirure"
+      }
+    },
+    "haptics": {
+      "check": {
+        "ios": ".success",
+        "android": "CONFIRM"
+      },
+      "uncheck": {
+        "ios": ".impact(.light)",
+        "android": "REJECT"
+      }
+    },
+    "material": {
+      "ios26": "glassEffect(.regular) sur la barre basse (saisie / Terminer) et la pastille magasin ; le ticket (contenu) reste opaque",
+      "ios18": ".regularMaterial + filet 0,5 pt",
+      "android": "HorizontalFloatingToolbar + FAB ; couleur dynamique : seul `accent` suit le schéma dynamique, le papier reste celui de la marque"
+    },
+    "structure": {
+      "$note": "Structure de B3 : liste groupée par rayon dans l'ordre du trajet, fil du parcours de rayon en rayon, avancée d'une perle par coche, réordonnancement des groupes en direct. Le ticket n'est que l'habillage.",
+      "threadGutter": 28,
+      "threadWidth": 3,
+      "bead": 14,
+      "beadNext": 18,
+      "aisleNode": 22,
+      "reorderScope": "groupe de rayon ; la ligne touchée ne bouge pas",
+      "learnedTagMs": 3000
+    },
+    "categoryIcon": {
+      "source": "design/icons/categories/<id>.svg",
+      "grid": 24,
+      "stroke": 1.5,
+      "cap": "round",
+      "join": "round",
+      "renderSize": 20,
+      "node": {
+        "size": 28,
+        "ring": 1.5,
+        "color": "aisle.<id> sur le trait et l'anneau uniquement"
+      },
+      "a11y": "icône décorative (masquée), le libellé du rayon est toujours affiché",
+      "ios": "jeu de symboles personnalisés (.svg template, mode monochrome) dans Assets.xcassets, Image(\"cat.<id>\")",
+      "android": "vector drawables res/drawable/ic_cat_<id>.xml, tint = couleur du rayon"
+    }
+  },
+  "variants": {
+    "ticketFile": {
+      "$intent": "Direction retenue : structure de A « Le Fil » habillée en ticket.",
+      "color": {
+        "light": {
+          "paper": "#FBF7F0",
+          "paperEdge": "#EAE2D3",
+          "ink": "#1A1C22",
+          "inkMuted": "#545866",
+          "accent": "#2340C8",
+          "onAccent": "#FFFFFF",
+          "thread": "#2340C8",
+          "threadIdle": "#D5CEC0",
+          "checked": "#545866",
+          "aisle": {
+            "fresh": "#1F7A44",
+            "dairy": "#2A6FB0",
+            "grocery": "#A3520A",
+            "hygiene": "#8A3FA0",
+            "bio": "#4F6F12"
+          }
+        },
+        "dark": {
+          "paper": "#12141A",
+          "paperEdge": "#232631",
+          "ink": "#ECEEF4",
+          "inkMuted": "#A6ABBA",
+          "accent": "#8FA6FF",
+          "onAccent": "#0B1550",
+          "thread": "#8FA6FF",
+          "threadIdle": "#353A48",
+          "checked": "#A6ABBA",
+          "aisle": {
+            "fresh": "#6FD39A",
+            "dairy": "#86BEF2",
+            "grocery": "#F2B06A",
+            "hygiene": "#E0A3F0",
+            "bio": "#C3DC6A"
+          }
+        },
+        "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte"
+      },
+      "signature": {
+        "thread": "fil de 3 pt dans une gouttière de 28 pt ; il avance d'une perle à chaque coche",
+        "check": "la perle se remplit, la ligne est barrée",
+        "radius": 8
+      },
+      "status": "retained"
+    }
+  },
+  "rejected": {
+    "thermique": {
+      "name": "B1 · Thermique",
+      "status": "rejected"
+    },
+    "fanfare": {
+      "name": "B2 · Fanfare",
+      "status": "rejected"
+    },
+    "$note": "Écartées par décision de l'utilisateur : leurs tokens ne font plus référence (historique dans git)."
+  }
+}
