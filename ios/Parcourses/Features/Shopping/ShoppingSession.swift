@@ -20,9 +20,26 @@ struct ShoppingRow: Identifiable, Equatable {
   let label: String
   let quantity: String?
   let isChecked: Bool
+  /// Rayon effectif (bio compris si le magasin en a un) : celui de la section en ordre générique.
+  var aisleId = ""
 
   var accessibilityLabel: String {
     [label, quantity].compactMap(\.self).joined(separator: ", ")
+  }
+}
+
+/// Un rayon du mode courses : titre et articles, dans l'ordre affiché.
+struct ShoppingSection: Identifiable, Equatable {
+  let aisleId: String
+  let title: String
+  let rows: [ShoppingRow]
+
+  var id: String { aisleId }
+  /// Articles encore à prendre : une ligne juste cochée reste dans sa section sans compter.
+  var remainingCount: Int { rows.filter { !$0.isChecked }.count }
+
+  var accessibilityLabel: String {
+    remainingCount == 1 ? "\(title), 1 article" : "\(title), \(remainingCount) articles"
   }
 }
 
@@ -80,6 +97,7 @@ final class ShoppingSession: Identifiable {
   private(set) var summary: ShoppingSummary?
   private(set) var visitId: UUID?
   private(set) var mode = SortOutput.Mode.fallback
+  private var categoryLabels: [String: String] = [:]
   var input = ""
   var errorMessage: String?
 
@@ -160,7 +178,10 @@ final class ShoppingSession: Identifiable {
       )
     }
     let remapped: ([ShoppingRow]) -> [ShoppingRow] = { rows in
-      rows.map { ShoppingRow(id: remap[$0.id], label: $0.label, quantity: $0.quantity, isChecked: $0.isChecked) }
+      rows.map {
+        ShoppingRow(
+          id: remap[$0.id], label: $0.label, quantity: $0.quantity, isChecked: $0.isChecked, aisleId: $0.aisleId)
+      }
     }
     toBuy = remapped(toBuy)
     basket = remapped(basket)
@@ -196,7 +217,9 @@ final class ShoppingSession: Identifiable {
   private func prepare() async {
     perform {
       name = try lists.list(id: listId)?.name ?? ""
-      sortCategories = try categoryRepository.categories().map { SortCategory(id: $0.id, rank: Int64($0.rank)) }
+      let categories = try categoryRepository.categories()
+      sortCategories = categories.map { SortCategory(id: $0.id, rank: Int64($0.rank)) }
+      categoryLabels = Dictionary(categories.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
       if let storeId, let store = try stores.store(id: storeId) {
         storeName = store.name
         storeOrganicAisle = store.organicAisle
@@ -267,6 +290,25 @@ final class ShoppingSession: Identifiable {
       current.snapshot.confidenceQ >= current.params.confThresholdQ ? .learned(percent) : .learning(percent)
   }
 
+  // MARK: - Rayons
+
+  /// Ordre non appris (aucun instantané, graphe en apprentissage, repli) : les articles se lisent par rayon, avec
+  /// un titre. En mode appris, le fil du trajet est continu et sans titres (#9 §6.3).
+  var groupsByAisle: Bool { mode != .learned }
+
+  /// Rayons dans l'ordre des rangs de catégories, articles dans l'ordre affiché. Une ligne juste cochée reste dans
+  /// son rayon jusqu'au tri suivant, comme dans `toBuy`.
+  var sections: [ShoppingSection] {
+    let indices = Dictionary(
+      sortCategories.sorted { ($0.rank, $0.id) < ($1.rank, $1.id) }.enumerated().map { ($1.id, $0) },
+      uniquingKeysWith: { first, _ in first })
+    let fallback = indices["other"] ?? max(0, sortCategories.count - 1)
+    let grouped = Dictionary(grouping: toBuy, by: \.aisleId)
+    return grouped.keys.sorted { (indices[$0] ?? fallback, $0) < (indices[$1] ?? fallback, $1) }.map { aisle in
+      ShoppingSection(aisleId: aisle, title: categoryLabels[aisle] ?? aisle, rows: grouped[aisle] ?? [])
+    }
+  }
+
   // MARK: - Actions
 
   func toggle(_ row: ShoppingRow) {
@@ -292,7 +334,8 @@ final class ShoppingSession: Identifiable {
     guard succeeded else { return }
     // La ligne reste à sa place jusqu'au prochain tri : elle ne bouge jamais sous le doigt.
     settlingIds.insert(row.id)
-    toBuy[index] = ShoppingRow(id: row.id, label: row.label, quantity: row.quantity, isChecked: true)
+    toBuy[index] = ShoppingRow(
+      id: row.id, label: row.label, quantity: row.quantity, isChecked: true, aisleId: row.aisleId)
     adoptPendingSnapshot()
     offerUndo(ShoppingUndo(kind: .check, itemId: row.id, label: row.label, checkId: checkId, index: index))
     scheduleSettle()
@@ -466,16 +509,20 @@ final class ShoppingSession: Identifiable {
     try sortItems(input)
   }
 
+  /// Rayon effectif d'un article pour ce magasin (#28) : celui du tri et des titres de section.
+  private func aisle(of item: ListItem) -> String {
+    effectiveCategory(
+      categoryId: item.categoryId, organic: analyzer.classify(label: item.label).organic,
+      storeOrganicAisle: storeOrganicAisle)
+  }
+
   private func sortInput(items: [ListItem], previous: [UUID]?) -> SortInput {
     SortInput(
       params: current?.params ?? .default, categories: sortCategories, snapshot: current?.snapshot,
       items: items.map { item in
         // Le rayon bio n'existe que pour le tri, et seulement si le magasin en a un (#28).
-        let organic = analyzer.classify(label: item.label).organic
-        return SortItem(
-          id: item.id.sortId, productId: item.productId?.sortId,
-          categoryId: effectiveCategory(
-            categoryId: item.categoryId, organic: organic, storeOrganicAisle: storeOrganicAisle),
+        SortItem(
+          id: item.id.sortId, productId: item.productId?.sortId, categoryId: aisle(of: item),
           normalizedName: item.normalizedName)
       }, start: resolvedStart(), previousOrder: previous?.map(\.sortId))
   }
@@ -510,7 +557,11 @@ final class ShoppingSession: Identifiable {
   private func reloadRows() {
     let items = (try? lists.items(listId: listId)) ?? []
     let rows = items.map {
-      (item: $0, row: ShoppingRow(id: $0.id, label: $0.label, quantity: $0.quantity, isChecked: $0.checkedAt != nil))
+      (
+        item: $0,
+        row: ShoppingRow(
+          id: $0.id, label: $0.label, quantity: $0.quantity, isChecked: $0.checkedAt != nil, aisleId: aisle(of: $0))
+      )
     }
     let settling = settlingIds
     toBuy = Self.ordered(

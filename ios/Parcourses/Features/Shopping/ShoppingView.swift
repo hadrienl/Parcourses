@@ -41,12 +41,29 @@ struct ShoppingView: View {
 
   private var shopping: some View {
     List {
-      Section {
-        ForEach(session.toBuy) { row in
-          itemRow(row)
+      if session.groupsByAisle {
+        // Ordre non appris : un titre par rayon. L'en-tête de la visite ouvre la liste, sans ligne.
+        Section {
+        } header: {
+          header
         }
-      } header: {
-        header
+        ForEach(session.sections) { section in
+          Section {
+            ForEach(section.rows) { row in
+              itemRow(row)
+            }
+          } header: {
+            aisleHeader(section)
+          }
+        }
+      } else {
+        Section {
+          ForEach(session.toBuy) { row in
+            itemRow(row)
+          }
+        } header: {
+          header
+        }
       }
       if !session.notFound.isEmpty {
         Section("Introuvable") {
@@ -117,6 +134,18 @@ struct ShoppingView: View {
     .padding(.bottom, 8)
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("shoppingHeader")
+  }
+
+  /// Titre de rayon : lu comme un en-tête, avec le nombre d'articles à prendre. Taille et casse du système,
+  /// qui suivent Dynamic Type.
+  private func aisleHeader(_ section: ShoppingSection) -> some View {
+    Text(section.title)
+      .font(.headline)
+      .foregroundStyle(.primary)
+      .textCase(nil)
+      .accessibilityLabel(section.accessibilityLabel)
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityIdentifier("aisle-\(section.aisleId)")
   }
 
   private var remainingText: String {
