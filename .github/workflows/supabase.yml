@@ -39,7 +39,7 @@ jobs:
           # Historique complet : le contrôle des migrations compare à la base de la PR.
           fetch-depth: 0
 
-      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+      - uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
           # Version épinglée : la sortie de gen types dépend de la CLI.
           version: 2.121.0
