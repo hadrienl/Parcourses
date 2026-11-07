@@ -904,7 +904,8 @@ extension SnapshotGateway {
   private func seed(_ harness: Harness, checked: Bool) throws {
     for entry in Self.device {
       let item = try harness.lists.addItem(
-        listId: harness.listId, label: entry.label, normalizedName: harness.analyzer.analyze(entry.label).normalizedName,
+        listId: harness.listId, label: entry.label,
+        normalizedName: harness.analyzer.analyze(entry.label).normalizedName,
         quantity: nil, productId: nil, categoryId: entry.category, at: t0)
       if checked && entry.checked { try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0) }
     }

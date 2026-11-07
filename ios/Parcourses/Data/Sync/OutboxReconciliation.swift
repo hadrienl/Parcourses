@@ -40,7 +40,8 @@ enum OutboxReconciliation {
       }
 
       let items = try context.fetch(
-        FetchDescriptor<ListItem>(predicate: #Predicate { $0.syncStateRaw == pending }, sortBy: [SortDescriptor(\.position)]))
+        FetchDescriptor<ListItem>(
+          predicate: #Predicate { $0.syncStateRaw == pending }, sortBy: [SortDescriptor(\.position)]))
       for item in items where missing(item.id, .upsertItem) {
         guard try isActive(list: item.listId, in: context) else { continue }
         try context.enqueueUpsert(of: item, at: now)

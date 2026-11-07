@@ -14,7 +14,9 @@ private let t0 = syncEpoch
   private func seedDeviceState(_ harness: SyncHarness) throws -> (list: ShoppingList, items: [ListItem]) {
     let list = try harness.lists.createList(name: "Courses", at: t0)
     var items: [ListItem] = []
-    for label in ["Moutarde", "Papier toilette", "Lessive", "Lait", "Whey", "Cornichons", "Viande", "Saucisse", "Tomate"] {
+    for label in [
+      "Moutarde", "Papier toilette", "Lessive", "Lait", "Whey", "Cornichons", "Viande", "Saucisse", "Tomate",
+    ] {
       items.append(
         try harness.lists.addItem(
           listId: list.id, label: label, normalizedName: label.lowercased(), quantity: nil, productId: nil,
