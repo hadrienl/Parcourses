@@ -108,7 +108,8 @@ final class AppEnvironment {
     #endif
     return ShoppingSession(
       listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
-      analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay)
+      analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay,
+      activity: ActivityKitShoppingActivity())
   }
 
   private static func storage() -> PersistenceStack.Storage {

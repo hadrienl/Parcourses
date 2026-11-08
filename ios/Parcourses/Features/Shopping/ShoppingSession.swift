@@ -116,6 +116,10 @@ final class ShoppingSession: Identifiable {
   private let highlightDelay: Duration
   private let preloadTimeout: Duration
   private let sendMargin: Duration
+  private let activity: (any ShoppingActivityControlling)?
+  private var activityState: ShoppingActivityAttributes.ContentState?
+  private var isActivityStarted = false
+  private var isActivityEnded = false
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
@@ -146,8 +150,10 @@ final class ShoppingSession: Identifiable {
     stores: any StoreRepository, categories: any CategoryRepository, analyzer: EntryAnalyzer,
     cache: GraphSnapshotCache, now: @escaping () -> Date = { .now }, settleDelay: Duration = .milliseconds(600),
     undoDelay: Duration = .seconds(4), highlightDelay: Duration = .milliseconds(300),
-    preloadTimeout: Duration = .seconds(3), sendMargin: Duration = .seconds(1)
+    preloadTimeout: Duration = .seconds(3), sendMargin: Duration = .seconds(1),
+    activity: (any ShoppingActivityControlling)? = nil
   ) {
+    self.activity = activity
     self.listId = listId
     self.storeId = storeId
     self.lists = lists
@@ -188,6 +194,7 @@ final class ShoppingSession: Identifiable {
     notFound = remapped(notFound)
     generation += 1
     if hasUnsettledChange { scheduleSettle() }
+    publishActivity()
   }
 
   // MARK: - Ouverture
@@ -196,7 +203,10 @@ final class ShoppingSession: Identifiable {
   func start() async {
     startedAt = now()
     await prepare()
-    guard let storeId else { return }
+    guard let storeId else {
+      publishActivity()
+      return
+    }
     perform {
       // `listWasSorted` : le mode du début de visite, celui que la personne a réellement suivi (#9 §6.3).
       let visit = try visits.startVisit(
@@ -204,6 +214,7 @@ final class ShoppingSession: Identifiable {
       visitId = visit.id
       startedAt = visit.startedAt
     }
+    publishActivity()
   }
 
   /// Reprise au lancement. La visite peut avoir expiré pendant que l'app était fermée.
@@ -212,6 +223,7 @@ final class ShoppingSession: Identifiable {
     visitId = visit.id
     await prepare()
     foregrounded()
+    publishActivity()
   }
 
   private func prepare() async {
@@ -339,6 +351,7 @@ final class ShoppingSession: Identifiable {
     adoptPendingSnapshot()
     offerUndo(ShoppingUndo(kind: .check, itemId: row.id, label: row.label, checkId: checkId, index: index))
     scheduleSettle()
+    publishActivity()
   }
 
   /// Ce que désigne la coche : le produit, sinon la catégorie du classifieur, jamais le rayon bio (#28).
@@ -365,6 +378,7 @@ final class ShoppingSession: Identifiable {
     if undo?.itemId == row.id { clearUndo() }
     reloadRows()
     scheduleSettle()
+    publishActivity()
   }
 
   func markNotFound(_ row: ShoppingRow) {
@@ -374,6 +388,7 @@ final class ShoppingSession: Identifiable {
     reloadRows()
     offerUndo(ShoppingUndo(kind: .notFound, itemId: row.id, label: row.label, checkId: nil, index: index))
     scheduleSettle()
+    publishActivity()
   }
 
   /// Remet un article introuvable dans ce qu'il reste à acheter.
@@ -382,6 +397,7 @@ final class ShoppingSession: Identifiable {
     guard perform({ try lists.setNotFound(itemId: row.id, notFoundAt: nil, at: date) }) else { return }
     reloadRows()
     scheduleSettle()
+    publishActivity()
   }
 
   /// Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie.
@@ -407,6 +423,7 @@ final class ShoppingSession: Identifiable {
     order.insert(added, at: (order.lastIndex { predecessors.contains($0) } ?? -1) + 1)
     arrange(order)
     highlight(added)
+    publishActivity()
   }
 
   func performUndo() {
@@ -440,6 +457,7 @@ final class ShoppingSession: Identifiable {
     } else {
       scheduleSettle()
     }
+    publishActivity()
   }
 
   // MARK: - Tri
@@ -489,6 +507,7 @@ final class ShoppingSession: Identifiable {
     settlingIds.removeAll()
     reloadRows()
     arrange(order)
+    publishActivity()
   }
 
   /// Calcul hors du fil principal (#9 §3.3). Une entrée refusée laisse l'ordre actuel, sans jamais bloquer la coche.
@@ -578,6 +597,7 @@ final class ShoppingSession: Identifiable {
     guard !hasUnsettledChange, summary == nil, !expired else { return }
     reloadRows()
     scheduleSettle()
+    publishActivity()
   }
 
   // MARK: - Annulation
@@ -631,7 +651,11 @@ final class ShoppingSession: Identifiable {
     settlingIds.removeAll()
     clearUndo()
     reloadRows()
-    if remainingCount == 0 { finish(keepRemaining: true) }
+    if remainingCount == 0 {
+      finish(keepRemaining: true)
+    } else {
+      endActivity()
+    }
   }
 
   /// Termine les courses. `keepRemaining` : les articles restants attendent la prochaine fois, sinon ils
@@ -659,6 +683,35 @@ final class ShoppingSession: Identifiable {
     summary = ShoppingSummary(
       checkedCount: checked.count, minutes: max(1, Int((end.timeIntervalSince(startedAt) / 60).rounded())),
       storeName: storeName, knowledge: knowledge)
+    endActivity()
+  }
+
+  // MARK: - Live Activity
+
+  private func activityContentState(isFinished: Bool = false) -> ShoppingActivityAttributes.ContentState {
+    .make(
+      toBuy: toBuy, basket: basket, categoryLabel: { [categoryLabels] in categoryLabels[$0] }, isFinished: isFinished)
+  }
+
+  /// Envoie l'état courant à la Live Activity (local, jamais attendu). Sans changement, rien ne part.
+  private func publishActivity() {
+    guard let activity, !isActivityEnded, !expired, summary == nil else { return }
+    let state = activityContentState()
+    guard state != activityState else { return }
+    activityState = state
+    if isActivityStarted {
+      activity.update(state: state)
+    } else {
+      isActivityStarted = true
+      activity.start(attributes: ShoppingActivityAttributes(listName: name, storeName: storeName), state: state)
+    }
+  }
+
+  /// Fin de visite (terminée ou expirée) : message final, puis l'activité disparaît.
+  private func endActivity() {
+    guard let activity, isActivityStarted, !isActivityEnded else { return }
+    isActivityEnded = true
+    activity.end(state: activityContentState(isFinished: true))
   }
 
   // MARK: - Outils
