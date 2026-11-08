@@ -641,6 +641,7 @@ final class ShoppingSession: Identifiable {
   /// Au retour au premier plan : 45 min sans coche terminent la visite. La date de fin est celle de la dernière
   /// coche, pas celle du retour, qui allongerait la visite de tout le temps passé ailleurs.
   func foregrounded() {
+    activity?.retryIfNeeded()
     guard let visitId, !expired, summary == nil else { return }
     let lastActivity = (try? visits.checks(visitId: visitId).last?.checkedAt) ?? startedAt
     guard now().timeIntervalSince(lastActivity) >= Self.expiry else { return }
@@ -703,13 +704,14 @@ final class ShoppingSession: Identifiable {
       activity.update(state: state)
     } else {
       isActivityStarted = true
-      activity.start(attributes: ShoppingActivityAttributes(listName: name, storeName: storeName), state: state)
+      activity.start(
+        attributes: ShoppingActivityAttributes(visitId: visitId, listName: name, storeName: storeName), state: state)
     }
   }
 
   /// Fin de visite (terminée ou expirée) : message final, puis l'activité disparaît.
   private func endActivity() {
-    guard let activity, isActivityStarted, !isActivityEnded else { return }
+    guard let activity, !isActivityEnded else { return }
     isActivityEnded = true
     activity.end(state: activityContentState(isFinished: true))
   }

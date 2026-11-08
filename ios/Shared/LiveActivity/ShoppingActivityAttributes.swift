@@ -15,7 +15,28 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes {
     /// Rayon de ce prochain article.
     var nextCategoryLabel: String?
     /// Visite terminée : l'activité n'affiche plus qu'un message de fin.
-    var isFinished = false
+    var isFinished: Bool
+
+    init(
+      remaining: Int, total: Int, nextItemLabel: String? = nil, nextCategoryLabel: String? = nil,
+      isFinished: Bool = false
+    ) {
+      self.remaining = remaining
+      self.total = total
+      self.nextItemLabel = nextItemLabel
+      self.nextCategoryLabel = nextCategoryLabel
+      self.isFinished = isFinished
+    }
+
+    /// Tolérant : une activité écrite par une autre version de l'app reste lisible, champ manquant ou non.
+    init(from decoder: any Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      remaining = try container.decodeIfPresent(Int.self, forKey: .remaining) ?? 0
+      total = try container.decodeIfPresent(Int.self, forKey: .total) ?? 0
+      nextItemLabel = try container.decodeIfPresent(String.self, forKey: .nextItemLabel)
+      nextCategoryLabel = try container.decodeIfPresent(String.self, forKey: .nextCategoryLabel)
+      isFinished = try container.decodeIfPresent(Bool.self, forKey: .isFinished) ?? false
+    }
 
     /// Part déjà prise, entre 0 et 1.
     var progress: Double {
@@ -23,6 +44,8 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes {
     }
   }
 
+  /// Visite suivie ; `nil` sans magasin choisi. Une activité n'est reprise qu'à la même visite.
+  var visitId: UUID?
   var listName: String
   var storeName: String?
 }

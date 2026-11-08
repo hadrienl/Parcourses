@@ -7,17 +7,19 @@ import WidgetKit
 struct ShoppingLiveActivity: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: ShoppingActivityAttributes.self) { context in
-      LockScreenView(attributes: context.attributes, state: context.state)
+      LockScreenView(attributes: context.attributes, state: context.state, isStale: context.isStale)
         .padding()
         .activityBackgroundTint(nil)
     } dynamicIsland: { context in
       let state = context.state
+      let isStale = context.isStale
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          ProgressRing(state: state).frame(width: 44, height: 44)
+          ProgressRing(state: state)
+            .accessibilityHidden(true)
         }
         DynamicIslandExpandedRegion(.center) {
-          NextItemView(state: state)
+          NextItemView(state: state, isStale: isStale)
         }
         DynamicIslandExpandedRegion(.bottom) {
           Text(summary(state))
@@ -32,7 +34,8 @@ struct ShoppingLiveActivity: Widget {
           .monospacedDigit()
           .accessibilityLabel(summary(state))
       } minimal: {
-        ProgressRing(state: state)
+        ProgressRing(state: state, baseSize: 24)
+          .accessibilityElement(children: .ignore)
           .accessibilityLabel(summary(state))
       }
     }
@@ -49,15 +52,18 @@ private func summary(_ state: ShoppingActivityAttributes.ContentState) -> String
 private struct LockScreenView: View {
   let attributes: ShoppingActivityAttributes
   let state: ShoppingActivityAttributes.ContentState
+  let isStale: Bool
 
   var body: some View {
     HStack(spacing: 12) {
-      ProgressRing(state: state).frame(width: 48, height: 48)
+      // L'anneau répète le texte de dessous : VoiceOver ne le lit pas.
+      ProgressRing(state: state)
+        .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 2) {
         Text(attributes.storeName ?? attributes.listName)
           .font(.caption)
           .foregroundStyle(.secondary)
-        NextItemView(state: state)
+        NextItemView(state: state, isStale: isStale)
         Text(summary(state))
           .font(.footnote)
           .foregroundStyle(.secondary)
@@ -68,16 +74,24 @@ private struct LockScreenView: View {
   }
 }
 
-/// Prochain article et son rayon, ou le message de fin.
+/// Prochain article et son rayon, ou le message de fin. Le libellé reste visible sur l'écran verrouillé (c'est
+/// l'intérêt de l'activité) mais est masqué quand le système juge l'écran sensible.
 private struct NextItemView: View {
   let state: ShoppingActivityAttributes.ContentState
+  let isStale: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       if state.isFinished {
         Text("Courses terminées").font(.headline)
+      } else if isStale {
+        // Plus de coche depuis longtemps : la visite se terminera à la réouverture de l'app.
+        Text("Visite inactive").font(.headline)
       } else if let label = state.nextItemLabel {
-        Text(label).font(.headline).lineLimit(1)
+        Text(label)
+          .font(.headline)
+          .lineLimit(2)
+          .privacySensitive()
         if let category = state.nextCategoryLabel {
           Text(category).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
         }
@@ -88,9 +102,15 @@ private struct NextItemView: View {
   }
 }
 
-/// Anneau de progression avec le nombre d'articles restants.
+/// Anneau de progression avec le nombre d'articles restants. Sa taille suit Dynamic Type, chiffre compris.
 private struct ProgressRing: View {
   let state: ShoppingActivityAttributes.ContentState
+  @ScaledMetric private var size: Double
+
+  init(state: ShoppingActivityAttributes.ContentState, baseSize: Double = 44) {
+    self.state = state
+    _size = ScaledMetric(wrappedValue: baseSize, relativeTo: .caption)
+  }
 
   var body: some View {
     ZStack {
@@ -102,10 +122,14 @@ private struct ProgressRing: View {
       if state.isFinished {
         Image(systemName: "checkmark").font(.caption.bold())
       } else {
-        Text("\(state.remaining)").font(.caption.bold()).monospacedDigit()
+        Text("\(state.remaining)")
+          .font(.caption.bold())
+          .monospacedDigit()
+          .minimumScaleFactor(0.5)
+          .lineLimit(1)
+          .padding(6)
       }
     }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(summary(state))
+    .frame(width: size, height: size)
   }
 }

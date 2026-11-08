@@ -17,6 +17,8 @@ final class AppEnvironment {
   private let graphs: any GraphRepository
   private let gateway: (any RemoteGateway)?
   private let location: any LocationProvider
+  /// Une seule instance pour toutes les sessions : ses appels ActivityKit restent ordonnés.
+  private let shoppingActivity = ActivityKitShoppingActivity()
 
   init(container: ModelContainer, gateway: (any RemoteGateway)? = nil) throws {
     self.container = container
@@ -91,6 +93,12 @@ final class AppEnvironment {
     return session
   }
 
+  /// Au lancement, après la reprise : une Live Activity qui ne suit pas la visite ouverte (visite expirée ou
+  /// disparue pendant que l'app était fermée, crash) est retirée tout de suite.
+  func endOrphanActivities(keeping visitId: UUID?) {
+    shoppingActivity.endAll(except: visitId)
+  }
+
   /// `storeId` à `nil` : ordre générique, sans visite (#9 §8).
   func startShopping(listId: UUID, storeId: UUID?) async -> ShoppingSession {
     let session = makeSession(listId: listId, storeId: storeId)
@@ -109,7 +117,7 @@ final class AppEnvironment {
     return ShoppingSession(
       listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
       analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay,
-      activity: ActivityKitShoppingActivity())
+      activity: shoppingActivity)
   }
 
   private static func storage() -> PersistenceStack.Storage {
