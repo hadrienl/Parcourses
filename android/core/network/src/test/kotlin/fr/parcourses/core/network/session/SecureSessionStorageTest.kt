@@ -171,7 +171,7 @@ class SecureSessionStorageTest {
                     build = { if (built++ == 0) throw GeneralSecurityException("master key gone") else fresh },
                     reset = { resets++ },
                 )
-            val state = store(file, source)
+            val state = storeFrom(file, source)
             assertNull(state.read().session)
             assertEquals("acc", state.read().lastAccountId)
             assertEquals(1, resets)
