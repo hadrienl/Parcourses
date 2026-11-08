@@ -34,8 +34,8 @@ data class ListRow(
     @SerialName("created_at") val createdAt: Instant,
     @SerialName("updated_at") val updatedAt: Instant,
 ) {
-    internal companion object {
-        val spec = TableSpec("lists", serializer())
+    companion object {
+        internal val spec = TableSpec("lists", serializer())
     }
 }
 
@@ -50,8 +50,8 @@ data class ListItemRow(
     @SerialName("created_at") val createdAt: Instant,
     @SerialName("updated_at") val updatedAt: Instant,
 ) {
-    internal companion object {
-        val spec = TableSpec("list_items", serializer())
+    companion object {
+        internal val spec = TableSpec("list_items", serializer())
     }
 }
 
@@ -66,8 +66,8 @@ data class VisitRow(
     @SerialName("ended_at") val endedAt: Instant?,
     @SerialName("processed_at") val processedAt: Instant?,
 ) {
-    internal companion object {
-        val spec = TableSpec("visits", serializer())
+    companion object {
+        internal val spec = TableSpec("visits", serializer())
     }
 }
 
@@ -80,8 +80,8 @@ data class CheckRow(
     @SerialName("checked_at") val checkedAt: Instant,
     val ignored: Boolean,
 ) {
-    internal companion object {
-        val spec = TableSpec("checks", serializer())
+    companion object {
+        internal val spec = TableSpec("checks", serializer())
     }
 }
 
@@ -92,8 +92,8 @@ data class CategoryRow(
     val name: String,
     @SerialName("default_rank") val defaultRank: Short,
 ) {
-    internal companion object {
-        val spec = TableSpec("categories", serializer())
+    companion object {
+        internal val spec = TableSpec("categories", serializer())
     }
 }
 
@@ -106,8 +106,8 @@ data class ProductRow(
     @SerialName("off_code") val offCode: String?,
     @SerialName("created_at") val createdAt: Instant,
 ) {
-    internal companion object {
-        val spec = TableSpec("products", serializer())
+    companion object {
+        internal val spec = TableSpec("products", serializer())
     }
 }
 
@@ -130,8 +130,8 @@ data class ListUpsert(
     val id: Uuid,
     val name: String,
 ) {
-    internal companion object {
-        val spec = TableSpec("lists", serializer())
+    companion object {
+        internal val spec = TableSpec("lists", serializer())
     }
 }
 
@@ -145,8 +145,8 @@ data class ListItemUpsert(
     val quantity: String?,
     @SerialName("checked_at") val checkedAt: Instant?,
 ) {
-    internal companion object {
-        val spec = TableSpec("list_items", serializer())
+    companion object {
+        internal val spec = TableSpec("list_items", serializer())
     }
 }
 
@@ -158,8 +158,8 @@ data class VisitInsert(
     @SerialName("list_was_sorted") val listWasSorted: Boolean,
     @SerialName("started_at") val startedAt: Instant,
 ) {
-    internal companion object {
-        val spec = TableSpec("visits", serializer())
+    companion object {
+        internal val spec = TableSpec("visits", serializer())
     }
 }
 
