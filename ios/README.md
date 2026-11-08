@@ -48,3 +48,9 @@ Ignorées sans ces variables (CI comprise) :
 
 - Parcours et captures : `testShoppingJourney` et les tests d'en-tête de `ParcoursesUITests`, images dans le `.xcresult` (`xcrun xcresulttool export attachments`).
 - Serveur : `scripts/integration-test.sh` publie l'instantané d'un magasin de test, joue une visite, vérifie les lignes reçues en base (`SIMULATOR_UDID` pour réutiliser un simulateur), puis nettoie.
+
+## Accessibilité et confidentialité
+
+- Audit : `ParcoursesAccessibilityUITests` lance `performAccessibilityAudit` sur chaque écran principal (taille par défaut et AX5), en CI avec le reste des tests UI. Les exceptions sont dans `isKnownIssue`, chacune justifiée. Les problèmes sont consignés après l'audit (et journalisés `AUDIT[...]`) : consigner un échec dans le gestionnaire de l'audit le fait bloquer.
+- Si un test UI échoue en local, `XCTest` peut rester bloqué dans la symbolication de l'échec : lancer avec `-test-timeouts-enabled YES -default-test-execution-time-allowance 200` et lire les lignes `AUDIT[`.
+- `PrivacyInfo.xcprivacy` (app et extension) : pas de suivi ; `UserDefaults` `CA92.1` (curseurs de synchro). Test : `PrivacyManifestTests`. À mettre à jour si le code utilise une autre API à raison obligatoire (horodatages de fichiers, espace disque, `systemUptime`…).
