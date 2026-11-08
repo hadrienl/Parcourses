@@ -10,6 +10,7 @@ import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import fr.parcourses.feature.shopping.R
+import fr.parcourses.feature.shopping.frenchQuantity
 import kotlin.time.Duration
 
 /**
@@ -126,11 +127,17 @@ object LiveUpdateNotifications {
             ).setProgress(model.progress)
     }
 
+    /** Singulier jusqu'à 1, comme iOS (`remaining <= 1`), quelle que soit la langue de l'appareil. */
     private fun remainingText(
         context: Context,
         state: ShoppingLiveState,
     ): String =
-        context.resources.getQuantityString(R.plurals.live_remaining, state.remaining, state.remaining, state.total)
+        context.resources.getQuantityString(
+            R.plurals.live_remaining,
+            frenchQuantity(state.remaining),
+            state.remaining,
+            state.total,
+        )
 
     /** Rouvre le mode courses de cette visite (lien profond, pile `[Lists, Shopping]`). */
     private fun open(

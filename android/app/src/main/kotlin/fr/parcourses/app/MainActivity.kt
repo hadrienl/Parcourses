@@ -17,11 +17,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Sans état sauvegardé : lancement à froid, la seule occasion de reprendre une visite restée ouverte.
         val coldStart = savedInstanceState == null
-        // Une recréation garde l'intention du lancement : le lien n'est suivi qu'une fois.
-        if (coldStart) offerLink(intent)
+        // Une recréation garde l'intention du lancement : le lien n'est suivi qu'une fois. Lancée par la Live Update,
+        // l'app ouvre la pile du lien (`[Lists, Shopping]`) et non celle de la reprise au lancement.
+        val linked = coldStart && offerLink(intent)
         setContent {
             ParcoursesTheme {
-                ParcoursesNavHost(container, coldStart)
+                ParcoursesNavHost(container, coldStart = coldStart && !linked)
             }
         }
     }
@@ -38,8 +39,10 @@ class MainActivity : ComponentActivity() {
         container.onForeground()
     }
 
-    private fun offerLink(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_VIEW) return
-        LiveUpdateLinks.visitId(intent.dataString)?.let(container::offerShoppingLink)
+    /** `true` si l'intention est un lien de la Live Update, transmis à la navigation. */
+    private fun offerLink(intent: Intent?): Boolean {
+        val visitId = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.let { LiveUpdateLinks.visitId(it.dataString) }
+        visitId?.let(container::offerShoppingLink)
+        return visitId != null
     }
 }

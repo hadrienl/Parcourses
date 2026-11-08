@@ -125,6 +125,12 @@ class LiveUpdateNotificationsTest {
 
         assertEquals("Tout est pris", n.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertTrue(n.actions.isNullOrEmpty())
+        // Singulier à zéro, comme iOS.
+        val public =
+            n.publicVersion.extras
+                .getCharSequence(Notification.EXTRA_TEXT)
+                .toString()
+        assertEquals("0 article restant sur 1", public)
     }
 
     @Test
