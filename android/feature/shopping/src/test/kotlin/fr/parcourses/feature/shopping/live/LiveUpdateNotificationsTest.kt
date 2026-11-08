@@ -112,6 +112,33 @@ class LiveUpdateNotificationsTest {
     }
 
     @Test
+    fun anUpdateNeverRewritesTheActionOfTheNotificationAlreadyShown() {
+        val first = build()
+        // Après une coche, la notification suivante propose `c` : l'action de la première doit toujours cocher `b`.
+        val second = build(state.copy(pending = state.pending.drop(1), checked = state.checked + state.pending.take(1)))
+
+        assertEquals(
+            "b",
+            shadowOf(first.actions[0].actionIntent).savedIntent.getStringExtra(LiveUpdateReceiver.EXTRA_ITEM_ID),
+        )
+        assertEquals(
+            "c",
+            shadowOf(second.actions[0].actionIntent).savedIntent.getStringExtra(LiveUpdateReceiver.EXTRA_ITEM_ID),
+        )
+    }
+
+    @Test
+    fun manyAislesStayWithinTheTenSegmentsAndroidDraws() {
+        val many = liveState(pending = (0 until 12).map { liveItem("i$it", "aisle$it", it) })
+        val style = Notification.Builder.recoverBuilder(context, build(many)).style as Notification.ProgressStyle
+
+        assertEquals(10, style.progressSegments.size)
+        assertEquals(24, style.progressMax)
+        // Plus de 4 articles : le système n'en dessinerait que 4, aucun point.
+        assertTrue(style.progressPoints.isEmpty())
+    }
+
+    @Test
     fun theNotificationOpensItsVisitInTheApp() {
         val intent = shadowOf(build().contentIntent).savedIntent
 

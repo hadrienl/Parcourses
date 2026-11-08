@@ -136,7 +136,7 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             runCurrent()
 
             assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
-            assertTrue(log.entries.any { "close ou disparue" in it })
+            assertTrue(log.entries.any { "visite close" in it })
         }
 
     @Test
@@ -309,9 +309,59 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             assertEquals(2, notifier.posts.size)
         }
 
+    @Test
+    fun aRekeyAfterTheProcessDiedFollowsTheShownNotification() =
+        runTest(main) {
+            val (visit, state) = shopping()
+            notifier.shown = LiveUpdateNotifier.Active.Shown(state)
+            val remaps = MutableSharedFlow<IdentifierRemap>()
+            controller(remaps = remaps)
+            runCurrent()
+
+            val newVisit = "00000000-0000-4000-8000-00000000abce"
+            db.visits().upsert(visit.copy(id = newVisit))
+            remaps.emit(IdentifierRemap(mapOf(visit.id to newVisit)))
+            runCurrent()
+
+            assertEquals(newVisit, notifier.state?.visitId)
+        }
+
+    @Test
+    fun aDeletedListTakesItsNotificationAway() =
+        runTest(main) {
+            val (_, state) = shopping()
+            val live = controller()
+            live.publish(state)
+            runCurrent()
+
+            lists.deleteList(state.listId, clock())
+            live.reconcile()
+            runCurrent()
+
+            assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+        }
+
     // endregion
 
     // region « Cocher le suivant »
+
+    @Test
+    fun anItemNoLongerToTakeIsNeverChecked() =
+        runTest(main) {
+            val (visit, state) = shopping()
+            val live = controller()
+            live.publish(state)
+            runCurrent()
+            // Passé introuvable à l'écran entre l'affichage et l'appui.
+            lists.setNotFound(state.next!!.id, clock())
+
+            live.checkNext(visit.id, state.next!!.id)
+            live.checkNext(visit.id, "un-article-d-un-ancien-etat")
+            runCurrent()
+
+            assertTrue(visits.checks(visit.id).isEmpty())
+            assertEquals("pain", notifier.state?.next?.label)
+        }
 
     @Test
     fun checkNextChecksTheDisplayedItemAndShowsTheFollowingOne() =

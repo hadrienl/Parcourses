@@ -26,32 +26,32 @@ class LiveUpdateReceiver : BroadcastReceiver() {
             AndroidLiveUpdateLog.error("Action de Live Update illisible : ${intent.action}")
             return
         }
-        when (intent.action) {
-            ACTION_CHECK_NEXT -> {
-                val itemId =
-                    intent.getStringExtra(EXTRA_ITEM_ID) ?: run {
-                        AndroidLiveUpdateLog.error("« Cocher le suivant » sans article")
-                        return
-                    }
-                // `goAsync` garde le processus en vie le temps de l'écriture et de la nouvelle notification. `null`
-                // seulement quand le receiver est appelé à la main (tests).
-                val pending: PendingResult? = goAsync()
-                val done = host.liveUpdates.checkNext(visitId, itemId)
-                scope.launch {
-                    if (withTimeoutOrNull(BUDGET) { done.await() } == null) {
-                        AndroidLiveUpdateLog.warn("« Cocher le suivant » plus long que prévu")
-                    }
-                    pending?.finish()
+        // `goAsync` garde le processus en vie le temps de l'écriture (et de la nouvelle notification) : il a pu être
+        // démarré pour ce seul broadcast. `null` seulement quand le receiver est appelé à la main (tests).
+        val done =
+            when (intent.action) {
+                ACTION_CHECK_NEXT -> {
+                    intent.getStringExtra(EXTRA_ITEM_ID)?.let { host.liveUpdates.checkNext(visitId, it) }
+                }
+
+                ACTION_DISMISSED -> {
+                    host.liveUpdates.dismissed(visitId)
+                }
+
+                else -> {
+                    null
                 }
             }
-
-            ACTION_DISMISSED -> {
-                host.liveUpdates.dismissed(visitId)
+        if (done == null) {
+            AndroidLiveUpdateLog.error("Action de Live Update illisible : ${intent.action}")
+            return
+        }
+        val pending: PendingResult? = goAsync()
+        scope.launch {
+            if (withTimeoutOrNull(BUDGET) { done.await() } == null) {
+                AndroidLiveUpdateLog.warn("Action de Live Update plus longue que prévu : ${intent.action}")
             }
-
-            else -> {
-                AndroidLiveUpdateLog.error("Action de Live Update inconnue : ${intent.action}")
-            }
+            pending?.finish()
         }
     }
 

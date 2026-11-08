@@ -28,6 +28,8 @@ object LiveUpdateNotifications {
     /** État complet de la notification : relu après la mort du processus (voir [ShoppingLiveState]). */
     const val EXTRA_STATE = "fr.parcourses.live.STATE"
 
+    /** Schéma propre aux actions : il ne sert qu'à distinguer leurs intentions, aucune activité ne le reçoit. */
+    private const val ACTION_SCHEME = "parcourses-live"
     private const val REQUEST_OPEN = 1
     private const val REQUEST_CHECK_NEXT = 2
     private const val REQUEST_DISMISSED = 3
@@ -162,17 +164,16 @@ object LiveUpdateNotifications {
         visitId: String,
         itemId: String?,
     ): PendingIntent {
+        // Une intention par visite et par article (`data` distincte) : une mise à jour de la notification ne réécrit
+        // jamais l'article d'une action déjà affichée. Sinon un appui sur l'ancienne notification (double appui, mise à
+        // jour écartée par le système) cocherait l'article suivant, que la personne n'a pas encore vu.
         val intent =
             Intent(context, LiveUpdateReceiver::class.java)
                 .setAction(action)
+                .setData("$ACTION_SCHEME://$action/$visitId/${itemId.orEmpty()}".toUri())
                 .putExtra(LiveUpdateReceiver.EXTRA_VISIT_ID, visitId)
                 .putExtra(LiveUpdateReceiver.EXTRA_ITEM_ID, itemId)
         val request = if (action == LiveUpdateReceiver.ACTION_CHECK_NEXT) REQUEST_CHECK_NEXT else REQUEST_DISMISSED
-        return PendingIntent.getBroadcast(
-            context,
-            request,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
+        return PendingIntent.getBroadcast(context, request, intent, PendingIntent.FLAG_IMMUTABLE)
     }
 }

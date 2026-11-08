@@ -52,7 +52,7 @@ import kotlin.time.Duration
 data class ResumableVisit(
     val listId: String,
     val storeId: String,
-    val visitId: String = "",
+    val visitId: String,
 )
 
 /**

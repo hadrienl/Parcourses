@@ -143,7 +143,7 @@ class ShoppingNavigationTest {
         assertEquals(shopping.slot, moved.slot)
     }
 
-    private val visit = ResumableVisit("a", "s1")
+    private val visit = ResumableVisit("a", "s1", "v1")
 
     @Test
     fun aColdStartResumesTheOpenVisitOnce() =

@@ -120,8 +120,8 @@ class ShoppingLiveUpdates(
 
     override fun end(visitId: String) = send(Command.End(visitId))
 
-    /** La personne a écarté la notification (`deleteIntent`). */
-    fun dismissed(visitId: String) = send(Command.Dismissed(visitId))
+    /** La personne a écarté la notification (`deleteIntent`). Terminé quand c'est retenu. */
+    fun dismissed(visitId: String): Deferred<Unit> = request(Command.Dismissed(visitId))
 
     fun refresh() = send(Command.Refresh)
 
@@ -216,7 +216,8 @@ class ShoppingLiveUpdates(
             }
 
             is Command.Remap -> {
-                current = current?.remapped(command.remap)
+                // Processus relancé : l'état est celui de la notification affichée, à renommer aussi.
+                current = restored()?.remapped(command.remap)
                 preferences.dismissedVisitId?.let { preferences.dismissedVisitId = command.remap[it] }
                 // Les actions portent les anciens identifiants : la notification est reposée.
                 posted = null
@@ -251,8 +252,10 @@ class ShoppingLiveUpdates(
             return
         }
         val item = lists.items(state.listId).firstOrNull { it.id == command.itemId }
-        if (item == null) {
-            log.warn("« Cocher le suivant » ignoré : article disparu de la liste")
+        // Seul un article que la notification montre encore à prendre se coche : ni un article retiré ou passé
+        // introuvable entre-temps, ni un article d'un ancien état.
+        if (item == null || item.notFoundAt != null || state.pending.none { it.id == command.itemId }) {
+            log.warn("« Cocher le suivant » ignoré : article plus à prendre")
             return
         }
         try {
@@ -332,22 +335,26 @@ class ShoppingLiveUpdates(
         }
     }
 
-    /** Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée). */
+    /**
+     * Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée, ou
+     * liste supprimée).
+     */
     private suspend fun lastActivityIfLive(state: ShoppingLiveState): Instant? {
-        val visit = visits.visit(state.visitId)
+        val visit = visits.visit(state.visitId)?.takeIf { lists.list(state.listId) != null }
         val last = visit?.let { visits.lastActivity(it.id) ?: it.startedAt }
         when {
-            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close ou disparue")
+            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close ou sans liste")
             last == null || now() - last >= timings.expiry -> log.info("Live Update retirée : visite périmée (45 min)")
             else -> return last
         }
         return null
     }
 
+    /** Rien à suivre : la notification part, si elle est affichée (sans appel au système à chaque commande). */
     private fun hide() {
         current = null
+        if (posted != null || notifier.active() != LiveUpdateNotifier.Active.None) notifier.cancel()
         posted = null
-        notifier.cancel()
     }
 
     // endregion

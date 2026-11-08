@@ -7,6 +7,10 @@ package fr.parcourses.feature.shopping.live
  * article y occupe [UNIT] unités ; un segment couvre une suite d'articles du même rayon (un par rayon en ordre
  * générique), un point marque le milieu de chaque article quand il y en a [MAX_POINTS] ou moins. La progression
  * s'arrête à la fin du dernier article pris.
+ *
+ * Limites d'Android 16 (`Notification.ProgressStyle`) : au-delà de 10 segments, **tous** sont fondus en un seul ;
+ * seuls les 4 premiers points sont dessinés. Des points sur les 4 premiers articles d'une liste plus longue
+ * fausseraient la lecture : au-delà, aucun point.
  */
 data class LiveProgress(
     val segments: List<Segment>,
@@ -29,11 +33,11 @@ data class LiveProgress(
         /** Deux unités par article : un point tombe au milieu, sur un entier. */
         const val UNIT = 2
 
-        /** Au-delà, des points serrés ne se distinguent plus (#10 §9). */
-        const val MAX_POINTS = 30
+        /** Le système ne dessine que 4 points (#10 §9 en prévoyait jusqu'à 30). */
+        const val MAX_POINTS = 4
 
-        /** `Notification.ProgressStyle` ne compte que les 15 premiers segments dans sa longueur. */
-        const val MAX_SEGMENTS = 15
+        /** Au-delà de 10, le système fond toute la barre en un segment. */
+        const val MAX_SEGMENTS = 10
 
         fun of(state: ShoppingLiveState): LiveProgress {
             val route = state.checked + state.pending
@@ -55,7 +59,7 @@ data class LiveProgress(
                 val last = runs.lastOrNull()
                 if (last != null && last.first().aisleId == item.aisleId) last += item else runs += mutableListOf(item)
             }
-            // Trop de rayons : les derniers rejoignent le quinzième, la longueur totale reste juste.
+            // Trop de rayons : les derniers rejoignent le dixième, la longueur totale reste juste.
             val kept: MutableList<List<LiveItem>> = runs.take(MAX_SEGMENTS - 1).toMutableList()
             if (runs.size >= MAX_SEGMENTS) kept += runs.drop(MAX_SEGMENTS - 1).flatten()
             var previous = -1

@@ -92,7 +92,8 @@ class SharedPreferencesLiveUpdatePreferences(
 
     override var dismissedVisitId: String?
         get() = prefs.getString(KEY_DISMISSED, null)
-        set(value) = prefs.edit { putString(KEY_DISMISSED, value) }
+        // Écrit tout de suite : le processus a pu démarrer pour ce seul geste et s'arrêter juste après.
+        set(value) = prefs.edit(commit = true) { putString(KEY_DISMISSED, value) }
 
     override var permissionAsked: Boolean
         get() = prefs.getBoolean(KEY_ASKED, false)

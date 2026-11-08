@@ -39,9 +39,16 @@ class MainActivity : ComponentActivity() {
         container.onForeground()
     }
 
-    /** `true` si l'intention est un lien de la Live Update, transmis à la navigation. */
+    /**
+     * `true` si l'intention est un lien de la Live Update, transmis à la navigation. Une tâche ouverte par la
+     * notification garde ce lien comme intention de départ : relancée depuis les apps récentes, elle ne le rejoue pas.
+     */
     private fun offerLink(intent: Intent?): Boolean {
-        val visitId = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.let { LiveUpdateLinks.visitId(it.dataString) }
+        val fromHistory = intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        val visitId =
+            intent
+                ?.takeIf { it.action == Intent.ACTION_VIEW && !fromHistory }
+                ?.let { LiveUpdateLinks.visitId(it.dataString) }
         visitId?.let(container::offerShoppingLink)
         return visitId != null
     }

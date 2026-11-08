@@ -35,13 +35,13 @@ class LiveProgressTest {
     }
 
     @Test
-    fun pointsStopAboveThirtyItems() {
-        val thirty = liveState(pending = (1..30).map { liveItem("i$it") })
-        val more = liveState(pending = (1..31).map { liveItem("i$it") })
+    fun pointsStopAboveFourItemsTheMostTheSystemDraws() {
+        val four = liveState(pending = (1..4).map { liveItem("i$it") })
+        val more = liveState(pending = (1..5).map { liveItem("i$it") })
 
-        assertEquals(30, LiveProgress.of(thirty).points.size)
+        assertEquals(4, LiveProgress.of(four).points.size)
         assertTrue(LiveProgress.of(more).points.isEmpty())
-        assertEquals(62, LiveProgress.of(more).max)
+        assertEquals(10, LiveProgress.of(more).max)
     }
 
     @Test
@@ -55,13 +55,13 @@ class LiveProgressTest {
     }
 
     @Test
-    fun beyondFifteenAislesTheLastOnesJoinTheFifteenthSegment() {
+    fun beyondTenAislesTheLastOnesJoinTheTenthSegment() {
         val state = liveState(pending = (0 until 20).map { liveItem("i$it", "aisle$it", it) })
 
         val model = LiveProgress.of(state)
 
         assertEquals(LiveProgress.MAX_SEGMENTS, model.segments.size)
-        assertEquals(12, model.segments.last().length)
+        assertEquals(22, model.segments.last().length)
         assertEquals(40, model.segments.sumOf { it.length })
         assertEquals(model.max, model.segments.sumOf { it.length })
     }
