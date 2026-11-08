@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+. La session (DataStore chiffré) et le jeu de clés Tink ne suivent ni la sauvegarde ni le
+    transfert d'appareil : la clé maîtresse du Keystore reste sur l'appareil, une session restaurée serait illisible.
+    Une restauration redemande une session anonyme (nouveau compte) : comportement accepté au MVP (#10, §6).
+    Les noms sont vérifiés contre SessionStorageFiles par BackupRulesTest.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/parcourses_secure_state.pb" />
+        <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/parcourses_secure_state.pb" />
+        <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
+    </device-transfer>
+</data-extraction-rules>
