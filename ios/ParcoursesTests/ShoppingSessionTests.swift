@@ -58,6 +58,9 @@ private actor SnapshotGateway: RemoteGateway {
   func ensureSession(captchaToken: String?) async throws -> UUID { throw RemoteError.unauthorized }
   func currentAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func verifySession() async throws { throw RemoteError.unauthorized }
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
+    throw RemoteError.unauthorized
+  }
   func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
   func serverDate() async throws -> Date? { throw RemoteError.unauthorized }

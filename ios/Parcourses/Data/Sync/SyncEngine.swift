@@ -31,6 +31,22 @@ nonisolated enum SyncRetryPolicy {
   /// Une descente en échec ne se retente qu'une fois par minute, sans gêner l'envoi.
   static let pullRetryInterval: TimeInterval = 60
 
+  /// Entrées par appel à `resolve_products`, sa limite côté serveur.
+  static let maxResolutionBatch = 100
+  /// Résolution des produits en échec : l'envoi continue, la résolution attend.
+  static let resolutionRetryInterval: TimeInterval = 60
+  /// RPC absente du serveur (`PGRST202`) : l'app peut sortir avant la migration, qui arrivera vite.
+  static let resolutionUnavailableInterval: TimeInterval = 300
+  /// Autre refus définitif (requête refusée) : inutile d'insister à chaque passe.
+  static let resolutionRejectedInterval: TimeInterval = 3600
+
+  /// Délai de la résolution après une erreur.
+  static func resolutionDelay(after error: any Error) -> TimeInterval {
+    guard let remote = error as? RemoteError else { return resolutionRetryInterval }
+    if remote == .rejected(code: RemoteError.functionNotFoundCode) { return resolutionUnavailableInterval }
+    return remote.isRetryable ? resolutionRetryInterval : resolutionRejectedInterval
+  }
+
   static func delay(attempt: Int, jitter: Double) -> TimeInterval {
     let exponent = min(max(attempt, 1) - 1, 16)
     return min(maximumDelay, minimumDelay * pow(2, Double(exponent)) * jitter)
@@ -86,6 +102,10 @@ actor SyncEngine {
   private var backoffUntil: Date?
   private var pullBackoffUntil: Date?
   private var lastPull: Date?
+  /// Libellé déjà soumis à `resolve_products`, par article : sans produit, il n'est pas renvoyé avant le prochain
+  /// lancement (quota du jour, catégorie refusée). Un libellé modifié repart.
+  private var resolutionAttempts: [UUID: String] = [:]
+  private var resolutionBackoffUntil: Date?
 
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
@@ -179,6 +199,8 @@ actor SyncEngine {
     case .recovered: pull = true
     case .ready: break
     }
+    // Avant l'envoi : l'article et ses coches en file partent avec leur produit.
+    await resolveProducts()
     guard let sent = await sendQueue() else {
       if pull { isPullRequested = true }
       return
@@ -345,6 +367,37 @@ actor SyncEngine {
       Self.logger.error("Passe interrompue : \(String(describing: error), privacy: .private)")
       registerTransientFailure()
       return nil
+    }
+  }
+
+  /// Donne un produit partagé aux articles saisis librement (apprentissage sans catalogue). Un échec ne retient
+  /// jamais la file : la résolution attend seule, et l'envoi décide du délai global s'il échoue aussi.
+  private func resolveProducts() async {
+    let now = dependencies.now()
+    if let resolutionBackoffUntil, resolutionBackoffUntil > now { return }
+    do {
+      while !Task.isCancelled {
+        let candidates = try await store.productCandidates(
+          excluding: resolutionAttempts, limit: SyncRetryPolicy.maxResolutionBatch)
+        guard !candidates.isEmpty else { break }
+        let rows = try await gateway.resolveProducts(candidates.map(\.request))
+        guard rows.count == candidates.count else { throw RemoteError.unexpected }
+        for candidate in candidates { resolutionAttempts[candidate.itemId] = candidate.label }
+        let matches = zip(candidates, rows).compactMap { ProductMatch($0, $1) }
+        guard !matches.isEmpty else { continue }
+        let changed = try await MainActor.run { [container] in
+          let changed = try ProductResolution.apply(matches, in: container.mainContext, at: now)
+          if changed { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
+          return changed
+        }
+        if changed { Self.logger.debug("Produits résolus : \(matches.count, privacy: .public)") }
+      }
+      resolutionBackoffUntil = nil
+    } catch {
+      guard !Task.isCancelled else { return }
+      Self.logger.notice("Résolution des produits reportée : \(String(describing: error), privacy: .private)")
+      let delay = SyncRetryPolicy.resolutionDelay(after: error)
+      resolutionBackoffUntil = now.addingTimeInterval(delay * dependencies.jitter())
     }
   }
 

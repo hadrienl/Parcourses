@@ -281,6 +281,11 @@ isOneToOne: false
 "normalize_label":
 { Args: { "label": string }; Returns: string
                            },
+"resolve_products":
+{ Args: { "p_items": Json }; Returns: {
+              "category_slug": string,"id": string,"name": string,"normalized_name": string
+            }[]
+                           },
 "search_stores":
 { Args: { "max_results"?: number,"q": string }; Returns: {
               "address": string,"chain": string,"id": string,"name": string,"organic_aisle": boolean

@@ -27,6 +27,10 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   /// Keychain verrouillé (arrière-plan avant le premier déverrouillage) : la session existe peut-être encore.
   case keychainLocked
 
+  /// PostgREST ne trouve pas la fonction appelée : serveur en retard d'une migration. Reste `rejected`, la file
+  /// n'en dépend pas ; seule la résolution des produits la réessaie plus tôt (`SyncRetryPolicy.resolutionDelay`).
+  static let functionNotFoundCode = "PGRST202"
+
   /// `true` si l'élément doit rester dans la file.
   var isRetryable: Bool {
     switch self {
@@ -148,6 +152,10 @@ nonisolated protocol RemoteGateway: Sendable {
   func fetchItems(updatedAfter: Date?) async throws -> [ListItemRow]
   func fetchCategories() async throws -> [CategoryRow]
   func fetchProducts() async throws -> [RemoteProduct]
+
+  /// Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.
+  /// Au plus `SyncRetryPolicy.maxResolutionBatch` entrées ; une ligne par entrée, dans l'ordre.
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow]
 
   /// La position n'est ni conservée ni journalisée ici.
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow]

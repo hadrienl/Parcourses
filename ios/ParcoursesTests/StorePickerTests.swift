@@ -49,6 +49,9 @@ private actor FakeGateway: RemoteGateway {
   func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
   func visitAccess(id: UUID) async throws -> VisitAccess { .notVisible }
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
+    throw RemoteError.unauthorized
+  }
   struct NearbyCall: Equatable {
     let lat: Double
     let lng: Double

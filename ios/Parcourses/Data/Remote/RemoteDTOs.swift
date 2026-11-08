@@ -199,6 +199,33 @@ nonisolated struct StoreSearchRow: Decodable, Sendable, Equatable {
   }
 }
 
+/// Entrée de la RPC `resolve_products` : libellé sans quantité et catégorie choisie par le classifieur.
+nonisolated struct ProductResolutionRequest: Encodable, Sendable, Equatable {
+  let name: String
+  /// Slug partagé. `bio` ou slug inconnu du serveur : le produit n'est pas créé.
+  let categorySlug: String?
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case categorySlug = "category_slug"
+  }
+}
+
+/// Ligne de la RPC `resolve_products`, une par entrée envoyée et dans le même ordre.
+/// `id` nul : le produit n'existe pas et le serveur ne l'a pas créé (catégorie refusée, quota du jour).
+nonisolated struct ResolvedProductRow: Decodable, Sendable, Equatable {
+  let normalizedName: String?
+  let id: UUID?
+  let name: String?
+  let categorySlug: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id, name
+    case normalizedName = "normalized_name"
+    case categorySlug = "category_slug"
+  }
+}
+
 /// Réponse de la RPC `store_graph_snapshot`, sans interprétation du contenu.
 nonisolated enum GraphSnapshotResponse: Sendable, Equatable {
   /// La version connue est la version courante.

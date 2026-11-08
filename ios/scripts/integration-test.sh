@@ -60,15 +60,19 @@ TEST_RUNNER_PARCOURSES_IT_URL="$url" TEST_RUNNER_PARCOURSES_IT_KEY="$key" \
   xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses -destination "id=$udid" \
   -derivedDataPath DerivedData -only-testing:ParcoursesTests
 
-# Ce que le serveur a réellement reçu : la coche annulée n'y est pas, le rayon bio non plus.
+# Ce que le serveur a réellement reçu : la coche annulée n'y est pas, le rayon bio non plus. L'article saisi
+# librement a reçu son produit avant l'envoi : la coche désigne ce produit, classé dans sa catégorie.
 result=$(sql <<SQL
-select v.list_was_sorted, v.ended_at is not null, count(c.id), string_agg(k.slug, ',')
+select v.list_was_sorted, v.ended_at is not null, count(c.id), string_agg(coalesce(k.slug, pk.slug), ','),
+       bool_and(c.product_id is not null)
 from public.visits as v
 left join public.checks as c on c.visit_id = v.id
 left join public.categories as k on k.id = c.category_id
+left join public.products as p on p.id = c.product_id
+left join public.categories as pk on pk.id = p.category_id
 where v.store_id = '$store'
 group by v.id;
 SQL
 )
 echo "Visite reçue : $result"
-[[ "$result" == "t|t|1|dairy" ]] || { echo "Attendu : t|t|1|dairy" >&2; exit 1; }
+[[ "$result" == "t|t|1|dairy|t" ]] || { echo "Attendu : t|t|1|dairy|t" >&2; exit 1; }

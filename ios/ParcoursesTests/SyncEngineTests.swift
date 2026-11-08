@@ -80,6 +80,19 @@ actor ScriptedSyncGateway: RemoteGateway {
   func setFailingList(_ id: UUID) { failingList = id }
   func clearCalls() { calls = [] }
 
+  /// Produits connus du serveur, par libellé. Hors journal `calls` : la résolution précède chaque envoi.
+  var resolvable: [String: ResolvedProductRow] = [:]
+  var resolveRequests: [[ProductResolutionRequest]] = []
+  func setResolvable(_ rows: [String: ResolvedProductRow]) { resolvable = rows }
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
+    try recordFailureOnly("resolveProducts")
+    resolveRequests.append(items)
+    return items.map {
+      resolvable[$0.name]
+        ?? ResolvedProductRow(normalizedName: $0.name.lowercased(), id: nil, name: nil, categorySlug: nil)
+    }
+  }
+
   private func record(_ name: String) throws {
     calls.append(name)
     if let error = permanent[name] { throw error }

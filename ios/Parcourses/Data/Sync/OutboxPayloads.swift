@@ -36,16 +36,21 @@ nonisolated struct CheckPayload: Codable, Sendable, Equatable {
     checkedAt = check.checkedAt
   }
 
-  private init(_ other: CheckPayload, checkedAt: Date) {
-    id = other.id
-    visitId = other.visitId
-    productId = other.productId
-    categoryId = other.categoryId
+  private init(id: UUID, visitId: UUID, productId: UUID?, categoryId: String?, checkedAt: Date) {
+    self.id = id
+    self.visitId = visitId
+    self.productId = productId
+    self.categoryId = categoryId
     self.checkedAt = checkedAt
   }
 
   func with(checkedAt: Date) -> CheckPayload {
-    CheckPayload(self, checkedAt: checkedAt)
+    CheckPayload(id: id, visitId: visitId, productId: productId, categoryId: categoryId, checkedAt: checkedAt)
+  }
+
+  /// La coche désigne un produit, plus sa catégorie. L'horodatage déjà corrigé (`ServerClock`) est gardé.
+  func with(productId: UUID) -> CheckPayload {
+    CheckPayload(id: id, visitId: visitId, productId: productId, categoryId: nil, checkedAt: checkedAt)
   }
 
   /// `nil` si la coche ne désigne rien : elle ne pourra jamais être envoyée.
