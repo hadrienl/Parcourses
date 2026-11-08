@@ -156,7 +156,7 @@ internal fun ShoppingList(
                 SectionTitle(stringResource(R.string.shopping_not_found_title))
             }
             items(state.notFound, key = { it.id }, contentType = { "not-found" }) { row ->
-                NotFoundRow(row, { actions.onRestore(row) }, rowAnimation(reduceMotion))
+                NotFoundRow(row, { actions.onRestore(row) }, Modifier.rowAnimation(this, reduceMotion))
                 HorizontalDivider()
             }
         }
@@ -180,18 +180,23 @@ internal fun LazyListScope.rows(
             row = row,
             highlighted = state.highlightedItemId == row.id,
             actions = actions,
-            modifier = rowAnimation(reduceMotion),
+            modifier = Modifier.rowAnimation(this, reduceMotion),
         )
         HorizontalDivider()
     }
 }
 
 /** Réordonnancement animé ; « réduire les animations » : plus de glissement, un fondu de 150 ms (#10 §8.2). */
-internal fun LazyItemScope.rowAnimation(reduceMotion: Boolean): Modifier =
-    if (reduceMotion) {
-        Modifier.animateItem(fadeInSpec = tween(FADE_MS), placementSpec = null, fadeOutSpec = tween(FADE_MS))
-    } else {
-        Modifier.animateItem()
+internal fun Modifier.rowAnimation(
+    scope: LazyItemScope,
+    reduceMotion: Boolean,
+): Modifier =
+    with(scope) {
+        if (reduceMotion) {
+            animateItem(fadeInSpec = tween(FADE_MS), placementSpec = null, fadeOutSpec = tween(FADE_MS))
+        } else {
+            animateItem()
+        }
     }
 
 internal const val ANNOUNCEMENT_MS = 2_000L
