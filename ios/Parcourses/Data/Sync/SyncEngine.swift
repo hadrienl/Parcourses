@@ -35,8 +35,17 @@ nonisolated enum SyncRetryPolicy {
   static let maxResolutionBatch = 100
   /// Résolution des produits en échec : l'envoi continue, la résolution attend.
   static let resolutionRetryInterval: TimeInterval = 60
-  /// Refus définitif (serveur sans la RPC, requête refusée) : inutile d'insister à chaque passe.
+  /// RPC absente du serveur (`PGRST202`) : l'app peut sortir avant la migration, qui arrivera vite.
+  static let resolutionUnavailableInterval: TimeInterval = 300
+  /// Autre refus définitif (requête refusée) : inutile d'insister à chaque passe.
   static let resolutionRejectedInterval: TimeInterval = 3600
+
+  /// Délai de la résolution après une erreur.
+  static func resolutionDelay(after error: any Error) -> TimeInterval {
+    guard let remote = error as? RemoteError else { return resolutionRetryInterval }
+    if remote == .rejected(code: RemoteError.functionNotFoundCode) { return resolutionUnavailableInterval }
+    return remote.isRetryable ? resolutionRetryInterval : resolutionRejectedInterval
+  }
 
   static func delay(attempt: Int, jitter: Double) -> TimeInterval {
     let exponent = min(max(attempt, 1) - 1, 16)
@@ -387,11 +396,8 @@ actor SyncEngine {
     } catch {
       guard !Task.isCancelled else { return }
       Self.logger.notice("Résolution des produits reportée : \(String(describing: error), privacy: .private)")
-      let remote = error as? RemoteError
-      let interval =
-        remote?.isRetryable == false
-        ? SyncRetryPolicy.resolutionRejectedInterval : SyncRetryPolicy.resolutionRetryInterval
-      resolutionBackoffUntil = now.addingTimeInterval(interval * dependencies.jitter())
+      let delay = SyncRetryPolicy.resolutionDelay(after: error)
+      resolutionBackoffUntil = now.addingTimeInterval(delay * dependencies.jitter())
     }
   }
 

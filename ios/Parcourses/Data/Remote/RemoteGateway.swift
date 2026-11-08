@@ -27,6 +27,10 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   /// Keychain verrouillé (arrière-plan avant le premier déverrouillage) : la session existe peut-être encore.
   case keychainLocked
 
+  /// PostgREST ne trouve pas la fonction appelée : serveur en retard d'une migration. Reste `rejected`, la file
+  /// n'en dépend pas ; seule la résolution des produits la réessaie plus tôt (`SyncRetryPolicy.resolutionDelay`).
+  static let functionNotFoundCode = "PGRST202"
+
   /// `true` si l'élément doit rester dans la file.
   var isRetryable: Bool {
     switch self {

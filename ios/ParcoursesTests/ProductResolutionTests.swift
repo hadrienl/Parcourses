@@ -86,6 +86,45 @@ private nonisolated let t0 = syncEpoch
     #expect(try harness.fresh(Check.self).allSatisfy { $0.categoryId == "dairy" && $0.productId == nil })
   }
 
+  /// App livrée avant la migration du serveur : `PGRST202` ne retient pas la file et se réessaie vite.
+  @Test func aMissingFunctionRetriesSoonWithoutHoldingTheQueue() async throws {
+    let harness = try SyncHarness()
+    try harness.seedVisit()
+    await harness.gateway.failAlways("resolveProducts", with: .rejected(code: RemoteError.functionNotFoundCode))
+
+    await harness.engine.drain()
+    #expect(try harness.entries().isEmpty)
+    #expect(await harness.gateway.checkBatches.flatMap { $0.map(\.target) } == [.category(slug: "dairy")])
+
+    // Migration appliquée : rien avant le délai, puis reprise bien avant l'heure d'un refus définitif.
+    let productId = UUID()
+    await harness.gateway.failAlways("resolveProducts", with: nil)
+    await harness.gateway.setResolvable(["Lait": resolved(productId, "Lait")])
+    harness.clock.advance(SyncRetryPolicy.resolutionUnavailableInterval - 10)
+    await harness.engine.drain()
+    #expect(await harness.gateway.resolveRequests.isEmpty)
+    harness.clock.advance(20)
+    await harness.engine.drain()
+    #expect(await harness.gateway.resolveRequests.count == 1)
+    #expect(await harness.gateway.savedItems.last?.productId == productId)
+  }
+
+  @Test func theResolutionDelayDependsOnTheError() {
+    #expect(SyncRetryPolicy.resolutionUnavailableInterval < SyncRetryPolicy.resolutionRejectedInterval)
+    #expect(
+      SyncRetryPolicy.resolutionDelay(after: RemoteError.rejected(code: "PGRST202"))
+        == SyncRetryPolicy.resolutionUnavailableInterval)
+    #expect(
+      SyncRetryPolicy.resolutionDelay(after: RemoteError.rejected(code: "22023"))
+        == SyncRetryPolicy.resolutionRejectedInterval)
+    #expect(SyncRetryPolicy.resolutionDelay(after: RemoteError.network) == SyncRetryPolicy.resolutionRetryInterval)
+    #expect(
+      SyncRetryPolicy.resolutionDelay(after: RemoteError.server(code: "500")) == SyncRetryPolicy.resolutionRetryInterval
+    )
+    // Le code PostgREST arrive bien ainsi du gateway.
+    #expect(RemoteError.fromPostgrest(code: "PGRST202") == .rejected(code: RemoteError.functionNotFoundCode))
+  }
+
   @Test func aCorrectedClockSurvivesTheRewrite() throws {
     let harness = try SyncHarness()
     let (_, visit) = try harness.seedVisit()
