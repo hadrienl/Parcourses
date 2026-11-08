@@ -15,6 +15,8 @@ style:
 # Moteur de synchro et file d'envoi (A6) : machines à états portées d'iOS, avec sorties anticipées et
 # interception large (toute erreur locale doit devenir un simple délai, jamais un plantage de la passe).
 complexity:
+  LongMethod:
+    excludes: ['**/test/**']
   CyclomaticComplexMethod:
     allowedComplexity: 20
   TooManyFunctions:

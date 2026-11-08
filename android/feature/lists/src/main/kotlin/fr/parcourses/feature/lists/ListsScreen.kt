@@ -31,20 +31,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.repository.ListSummary
@@ -103,8 +109,19 @@ private val ListDialogSaver =
 
 private fun ListSummary.toSaved(): List<Any?> = listOf(id, name, remaining, total)
 
+// Une liste sauvegardée : le type du dialogue, puis ses quatre champs.
+private const val SAVED_ID = 1
+private const val SAVED_NAME = 2
+private const val SAVED_REMAINING = 3
+private const val SAVED_TOTAL = 4
+
 private fun List<Any?>.toList(): ListSummary =
-    ListSummary(this[1] as String, this[2] as String, this[3] as Int, this[4] as Int)
+    ListSummary(
+        this[SAVED_ID] as String,
+        this[SAVED_NAME] as String,
+        this[SAVED_REMAINING] as Int,
+        this[SAVED_TOTAL] as Int,
+    )
 
 /** Écran Listes : état vide, création, renommage, suppression. Sans état propre hors dialogues. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,6 +169,24 @@ fun ListsScreen(
             }
         }
     }
+    ListDialogs(
+        dialog = dialog,
+        onClose = { dialog = null },
+        onCreate = onCreate,
+        onRename = onRename,
+        onDelete = onDelete,
+    )
+    state.errorDetail?.let { ErrorDialog(it, onDismissError) }
+}
+
+@Composable
+private fun ListDialogs(
+    dialog: ListDialog?,
+    onClose: () -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (id: String, name: String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
     when (val current = dialog) {
         ListDialog.Create -> {
             NameDialog(
@@ -159,10 +194,10 @@ fun ListsScreen(
                 confirmLabel = stringResource(R.string.lists_create),
                 initialName = "",
                 onConfirm = {
-                    dialog = null
+                    onClose()
                     onCreate(it)
                 },
-                onDismiss = { dialog = null },
+                onDismiss = { onClose() },
             )
         }
 
@@ -172,21 +207,21 @@ fun ListsScreen(
                 confirmLabel = stringResource(R.string.lists_rename),
                 initialName = current.list.name,
                 onConfirm = {
-                    dialog = null
+                    onClose()
                     onRename(current.list.id, it)
                 },
-                onDismiss = { dialog = null },
+                onDismiss = { onClose() },
             )
         }
 
         is ListDialog.Delete -> {
             AlertDialog(
-                onDismissRequest = { dialog = null },
+                onDismissRequest = { onClose() },
                 title = { Text(stringResource(R.string.lists_delete_confirm)) },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            dialog = null
+                            onClose()
                             onDelete(current.list.id)
                         },
                         modifier = Modifier.testTag(TAG_CONFIRM_DELETE),
@@ -194,7 +229,7 @@ fun ListsScreen(
                 },
                 dismissButton = {
                     TextButton(
-                        onClick = { dialog = null },
+                        onClick = { onClose() },
                     ) { Text(stringResource(R.string.common_cancel)) }
                 },
             )
@@ -204,7 +239,6 @@ fun ListsScreen(
             Unit
         }
     }
-    state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
 
 @Composable
@@ -309,7 +343,12 @@ private fun NameDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by rememberSaveable { mutableStateOf(initialName) }
+    // Curseur en fin de nom : on complète un nom existant plus souvent qu'on ne le réécrit.
+    var name by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(initialName, TextRange(initialName.length)))
+    }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -324,13 +363,13 @@ private fun NameDialog(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Done,
                     ),
-                modifier = Modifier.testTag(TAG_NAME_FIELD),
+                modifier = Modifier.focusRequester(focus).testTag(TAG_NAME_FIELD),
             )
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name) },
-                enabled = ListsViewModel.isValid(name),
+                onClick = { onConfirm(name.text) },
+                enabled = ListsViewModel.isValid(name.text),
                 modifier = Modifier.testTag(TAG_CONFIRM_NAME),
             ) { Text(confirmLabel) }
         },

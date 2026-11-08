@@ -6,50 +6,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import androidx.savedstate.serialization.SavedStateConfiguration
 import fr.parcourses.feature.lists.ListDetailRoute
 import fr.parcourses.feature.lists.ListDetailViewModel
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
-import kotlin.uuid.Uuid
-
-/** Routes de la pile (#10 §8.1). Les suivantes arrivent avec leurs écrans (A7 à A9). */
-@Serializable
-sealed interface Route : NavKey {
-    @Serializable
-    data object Lists : Route
-
-    /**
-     * [slot] identifie l'écran, pas la liste : si la liste change d'identifiant (reprise de compte), la clé change
-     * mais pas l'écran, qui garde son état et sa saisie en cours.
-     */
-    @Serializable
-    data class ListDetail(
-        val listId: String,
-        val slot: String = Uuid.random().toString(),
-    ) : Route
-}
-
-private val routeConfiguration =
-    SavedStateConfiguration {
-        serializersModule =
-            SerializersModule {
-                polymorphic(NavKey::class) {
-                    subclass(Route.Lists::class)
-                    subclass(Route.ListDetail::class)
-                }
-            }
-    }
 
 /** Une seule activité, une pile de routes, un ViewModel par entrée. */
 @Composable
