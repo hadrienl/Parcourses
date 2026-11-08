@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "f2f39f3d79bd2efa62b89dda534a8702",
+    "identityHash": "c1471b2fbefc2cf7e46a2d5f3b852322",
     "entities": [
       {
         "tableName": "lists",
@@ -139,6 +139,24 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_list_items_listId` ON `${TABLE_NAME}` (`listId`)"
+          },
+          {
+            "name": "index_list_items_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_list_items_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_list_items_categoryId",
+            "unique": false,
+            "columnNames": [
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_list_items_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
           }
         ]
       },
@@ -261,6 +279,24 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_checks_visitId` ON `${TABLE_NAME}` (`visitId`)"
+          },
+          {
+            "name": "index_checks_itemId",
+            "unique": false,
+            "columnNames": [
+              "itemId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_checks_itemId` ON `${TABLE_NAME}` (`itemId`)"
+          },
+          {
+            "name": "index_checks_categoryId",
+            "unique": false,
+            "columnNames": [
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_checks_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
           }
         ]
       },
@@ -402,7 +438,18 @@
           "columnNames": [
             "id"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_products_categoryId",
+            "unique": false,
+            "columnNames": [
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_products_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
+          }
+        ]
       },
       {
         "tableName": "categories",
@@ -577,7 +624,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f2f39f3d79bd2efa62b89dda534a8702')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c1471b2fbefc2cf7e46a2d5f3b852322')"
     ]
   }
 }

@@ -1,5 +1,6 @@
 package fr.parcourses.core.database
 
+import androidx.room3.useWriterConnection
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
@@ -81,8 +82,45 @@ class OutboxDaoTest : DatabaseTest() {
         runBlocking {
             val dao = db.outbox()
             dao.enqueue("a", OutboxKind.CloseVisit, "v", payload, at(1))
-            val entry = dao.all().single()
-            assertEquals(OutboxKind.CloseVisit, entry.kind())
-            assertNull(entry.copy(kindRaw = "fromTheFuture").kind())
+            assertEquals(OutboxKind.CloseVisit, dao.all().single().kind())
+
+            // Une ligne écrite par une version plus récente de l'app, avec un type inconnu d'ici.
+            db.useWriterConnection { connection ->
+                connection.usePrepared("UPDATE outbox SET kindRaw = 'fromTheFuture' WHERE id = 'a'") { it.step() }
+            }
+            val reread = dao.all().single()
+            assertEquals("fromTheFuture", reread.kindRaw)
+            assertNull(reread.kind())
+            // Elle reste lisible parmi les entrées en attente.
+            assertEquals(listOf("a"), dao.pending().map { it.id })
+        }
+
+    @Test
+    fun replacePendingKeepsSequenceAndTheStartOfTheOutage() =
+        runBlocking {
+            val dao = db.outbox()
+            dao.enqueue("item-old", OutboxKind.UpsertItem, "i", payload, at(1))
+            dao.enqueue("other", OutboxKind.UpsertItem, "j", payload, at(2))
+            dao.recordAttempt("item-old", 0, at(5), "500", at(40), SyncState.PENDING)
+
+            val replacement = dao.replacePending("item-new", OutboxKind.UpsertItem, "i", "{1}".toByteArray(), at(9))
+
+            assertEquals(1L, replacement.sequence)
+            assertEquals(at(40), replacement.serverFailingSince)
+            val stored = dao.pending()
+            assertEquals(listOf("item-new", "other"), stored.map { it.id })
+            assertEquals(at(40), stored.first().serverFailingSince)
+            assertEquals(at(9), stored.first().nextAttemptAt)
+        }
+
+    @Test
+    fun replacePendingWithNothingToReplaceAppendsToTheQueue() =
+        runBlocking {
+            val dao = db.outbox()
+            dao.enqueue("a", OutboxKind.UpsertList, "l", payload, at(1))
+            val entry = dao.replacePending("b", OutboxKind.UpsertItem, "i", payload, at(2))
+            assertEquals(2L, entry.sequence)
+            assertNull(entry.serverFailingSince)
+            assertEquals(listOf("a", "b"), dao.pending().map { it.id })
         }
 }

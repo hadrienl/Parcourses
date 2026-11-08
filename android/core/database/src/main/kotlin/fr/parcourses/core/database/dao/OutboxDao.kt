@@ -9,6 +9,8 @@ import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
 import kotlin.time.Instant
 
+// Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
+@Suppress("TooManyFunctions")
 @Dao
 abstract class OutboxDao {
     @Insert
@@ -91,5 +93,37 @@ abstract class OutboxDao {
         val doomed = pendingFor(entityId).filter { it.kind() in kinds }
         doomed.forEach { delete(it.id) }
         return doomed.minOfOrNull { it.sequence }
+    }
+
+    /**
+     * Remplace les entrées en attente de cette entité pour ces natures par une seule, dans une transaction.
+     * La nouvelle entrée reprend la plus petite `sequence` retirée (sinon une liste renommée passerait derrière
+     * ses articles) et le plus ancien départ de panne `serverFailingSince` (sinon chaque retouche relancerait le
+     * délai de grâce). Sans entrée à remplacer, elle est ajoutée en fin de file.
+     */
+    @Transaction
+    open suspend fun replacePending(
+        id: String,
+        kind: OutboxKind,
+        entityId: String,
+        payload: ByteArray,
+        at: Instant,
+        replacing: Set<OutboxKind> = setOf(kind),
+    ): OutboxEntryEntity {
+        val doomed = pendingFor(entityId).filter { it.kind() in replacing }
+        doomed.forEach { delete(it.id) }
+        val entry =
+            OutboxEntryEntity(
+                id = id,
+                sequence = doomed.minOfOrNull { it.sequence } ?: (maxSequence() + 1),
+                kindRaw = kind.raw,
+                entityId = entityId,
+                payload = payload,
+                createdAt = at,
+                nextAttemptAt = at,
+                serverFailingSince = doomed.mapNotNull { it.serverFailingSince }.minOrNull(),
+            )
+        insert(entry)
+        return entry
     }
 }

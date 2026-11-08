@@ -74,8 +74,11 @@ class VisitDaoTest : DatabaseTest() {
             db.checks().upsert(check("a", "v", 10))
             db.checks().upsert(check("c", "other", 5, productId = null, categoryId = "dairy"))
             assertEquals(listOf("a", "b"), db.checks().getByVisit("v").map { it.id })
-            assertEquals("c", db.checks().latestForItem("i-c")?.id)
-            assertEquals(2, db.checks().deleteByVisit("v"))
+            // Deux coches du même article, à des heures différentes : la plus récente l'emporte.
+            db.checks().upsert(check("early", "v", 30).copy(itemId = "same"))
+            db.checks().upsert(check("late", "v", 40).copy(itemId = "same"))
+            assertEquals("late", db.checks().latestForItem("same")?.id)
+            assertEquals(4, db.checks().deleteByVisit("v"))
             assertNull(db.checks().get("a"))
         }
 
@@ -102,7 +105,7 @@ class VisitDaoTest : DatabaseTest() {
             }
             assertEquals(listOf("s7", "s6", "s5", "s4", "s3"), db.graphSnapshots().getAll().map { it.storeId })
 
-            db.graphSnapshots().upsert(GraphSnapshotEntity("s7", 2, 1, 100, at(8), byteArrayOf(9, 9)))
+            db.graphSnapshots().saveSnapshot(GraphSnapshotEntity("s7", 2, 1, 100, at(8), byteArrayOf(9, 9)))
             val replaced = db.graphSnapshots().get("s7")!!
             assertEquals(2L, replaced.snapshotVersion)
             assertArrayEquals(byteArrayOf(9, 9), replaced.payload)

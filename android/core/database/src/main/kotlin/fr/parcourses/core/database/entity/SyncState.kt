@@ -1,6 +1,9 @@
 package fr.parcourses.core.database.entity
 
-/** État d'envoi d'une entité synchronisée (#9 §4.1). Mêmes valeurs que `SyncState` côté iOS. */
+/**
+ * État d'envoi d'une entité synchronisée (#9 §4.1). Mêmes états que `SyncState` côté iOS.
+ * Room stocke le nom de l'enum (`PENDING`…), là où iOS stocke `pending`.
+ */
 enum class SyncState {
     PENDING,
     SYNCED,

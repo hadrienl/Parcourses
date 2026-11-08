@@ -2,6 +2,7 @@ package fr.parcourses.core.database.dao
 
 import androidx.room3.Dao
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Upsert
 import fr.parcourses.core.database.entity.CheckEntity
 import fr.parcourses.core.database.entity.GraphSnapshotEntity
@@ -109,20 +110,35 @@ interface StoreDao {
 }
 
 @Dao
-interface GraphSnapshotDao {
+abstract class GraphSnapshotDao {
     @Query("SELECT * FROM graph_snapshots WHERE storeId = :storeId")
-    suspend fun get(storeId: String): GraphSnapshotEntity?
+    abstract suspend fun get(storeId: String): GraphSnapshotEntity?
 
     @Query("SELECT * FROM graph_snapshots ORDER BY fetchedAt DESC, storeId")
-    suspend fun getAll(): List<GraphSnapshotEntity>
+    abstract suspend fun getAll(): List<GraphSnapshotEntity>
 
     @Upsert
-    suspend fun upsert(snapshot: GraphSnapshotEntity)
+    abstract suspend fun upsert(snapshot: GraphSnapshotEntity)
 
     /** Évince les instantanés les plus anciens : on garde les [keep] derniers (LRU, #9 §4.2). */
     @Query(
         "DELETE FROM graph_snapshots WHERE storeId NOT IN " +
             "(SELECT storeId FROM graph_snapshots ORDER BY fetchedAt DESC, storeId LIMIT :keep)",
     )
-    suspend fun trim(keep: Int): Int
+    abstract suspend fun trim(keep: Int): Int
+
+    /** Remplace l'instantané du magasin et évince les plus anciens, dans la même transaction. */
+    @Transaction
+    open suspend fun saveSnapshot(
+        snapshot: GraphSnapshotEntity,
+        keep: Int = MAX_SNAPSHOTS,
+    ) {
+        upsert(snapshot)
+        trim(keep)
+    }
+
+    companion object {
+        /** Nombre de magasins dont on garde l'instantané (#9 §4.2). */
+        const val MAX_SNAPSHOTS = 5
+    }
 }

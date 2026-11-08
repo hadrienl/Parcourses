@@ -24,7 +24,7 @@ data class ShoppingListEntity(
 /** Article d'une liste (`list_items`). `categoryId`, `notFoundAt` et `position` restent locaux. */
 @Entity(
     tableName = "list_items",
-    indices = [Index("listId")],
+    indices = [Index("listId"), Index("updatedAt"), Index("categoryId")],
 )
 data class ListItemEntity(
     @PrimaryKey val id: String,
@@ -59,7 +59,7 @@ data class VisitEntity(
 /** Coche horodatée (`checks`), immuable. `itemId` ne part pas au serveur. */
 @Entity(
     tableName = "checks",
-    indices = [Index("visitId")],
+    indices = [Index("visitId"), Index("itemId"), Index("categoryId")],
 )
 data class CheckEntity(
     @PrimaryKey val id: String,
@@ -118,7 +118,7 @@ class GraphSnapshotEntity(
 }
 
 /** Produit du catalogue en cache (`products`). */
-@Entity(tableName = "products")
+@Entity(tableName = "products", indices = [Index("categoryId")])
 data class ProductEntity(
     @PrimaryKey val id: String,
     val name: String,
