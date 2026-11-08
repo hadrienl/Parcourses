@@ -59,19 +59,22 @@ fun ShoppingSummaryRoute(
  * Fin des courses (#6, iOS `ShoppingSummaryView`) : « 12 articles en 18 min », puis la contribution en une phrase
  * sincère, dans un écran calme, sans badge ni série. « Retour aux listes » reste en bas, à portée du pouce.
  *
- * Accessibilité : l'écran se présente à TalkBack par son titre de volet (« Courses terminées ») ; le nombre
- * d'articles et la durée forment un seul titre ; à 200 % le contenu défile au-dessus du bouton, toujours visible.
+ * Accessibilité : l'écran se présente à TalkBack par son titre de volet (« Courses terminées »), sauf
+ * [announcesPane] à `false` (repli affiché par le mode courses le temps de la navigation : l'entrée du résumé
+ * s'annonce ensuite, une seule fois) ; le nombre d'articles et la durée forment un seul titre ; à 200 % le contenu
+ * défile au-dessus du bouton, toujours visible.
  */
 @Composable
 fun ShoppingSummaryScreen(
     summary: ShoppingSummary,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    announcesPane: Boolean = true,
 ) {
     val pane = stringResource(R.string.shopping_summary_pane)
     val contribution = contributionText(summary)
     Scaffold(
-        modifier = modifier.semantics { paneTitle = pane },
+        modifier = if (announcesPane) modifier.semantics { paneTitle = pane } else modifier,
         bottomBar = {
             Button(
                 onClick = onClose,
@@ -119,7 +122,11 @@ private fun SummaryHeadline(summary: ShoppingSummary) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            pluralStringResource(R.plurals.shopping_summary_articles, summary.checkedCount, summary.checkedCount),
+            pluralStringResource(
+                R.plurals.shopping_summary_articles,
+                frenchQuantity(summary.checkedCount),
+                summary.checkedCount,
+            ),
             style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
@@ -135,13 +142,11 @@ private fun SummaryHeadline(summary: ShoppingSummary) {
 
 /**
  * Ce que la visite apporte au magasin, d'après ce que l'app en savait pendant la visite (confiance de l'instantané,
- * `store_stats.confidence_q`). Rien sans magasin, ni quand aucune visite n'a été gardée ([ShoppingSummary.visitId]
- * à `null` : aucune coche, donc rien d'appris).
+ * `store_stats.confidence_q`). Rien sans magasin. Comme iOS, la phrase est dite même sans coche.
  */
 @Composable
 private fun contributionText(summary: ShoppingSummary): String? {
-    val store = summary.storeName
-    if (store == null || summary.visitId == null) return null
+    val store = summary.storeName ?: return null
     return when (val knowledge = summary.knowledge) {
         RouteKnowledge.NoStore -> null
         RouteKnowledge.Unknown -> stringResource(R.string.shopping_summary_first, store)
@@ -149,3 +154,11 @@ private fun contributionText(summary: ShoppingSummary): String? {
         is RouteKnowledge.Learned -> stringResource(R.string.shopping_summary_known, store, knowledge.percent)
     }
 }
+
+/**
+ * Quantité à donner au pluriel pour suivre la règle française (0 et 1 au singulier, comme iOS : `count <= 1`) quelle
+ * que soit la langue de l'appareil. Android choisit la règle d'après la langue de l'appareil, pas d'après celle des
+ * textes, et un dossier `values-fr` ne serait même pas choisi sur un appareil en anglais : 0 y serait « other »
+ * (« 0 articles »). 1 donne « one » en français comme en anglais ; 2 et plus, « other ».
+ */
+internal fun frenchQuantity(count: Int): Int = if (count <= 1) 1 else count

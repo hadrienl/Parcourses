@@ -55,7 +55,8 @@ fun ShoppingScreen(
 ) {
     val summary = state.summary
     if (summary != null) {
-        ShoppingSummaryScreen(summary, actions.onClose, modifier)
+        // Repli le temps que la navigation affiche l'entrée du résumé : c'est elle qui s'annonce, pas ce repli.
+        ShoppingSummaryScreen(summary, actions.onClose, modifier, announcesPane = false)
     } else {
         ShoppingContent(state, input, actions, announce, modifier)
     }

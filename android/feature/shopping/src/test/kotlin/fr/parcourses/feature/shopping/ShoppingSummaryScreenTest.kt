@@ -56,7 +56,7 @@ class ShoppingSummaryScreenTest {
         show(ShoppingSummary(12, 18, "Carrefour", RouteKnowledge.Learning(40), "v1"))
         rule.onNodeWithText("12 articles", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("en 18 min", useUnmergedTree = true).assertIsDisplayed()
-        rule.onNodeWithTag(TAG_CONTRIBUTION).assert(hasText("Carrefour est cartographié à 40 %, merci."))
+        rule.onNodeWithTag(TAG_CONTRIBUTION).assert(hasText("Carrefour est cartographié à 40\u202F%, merci."))
         rule.onNodeWithTag(TAG_CLOSE).assert(hasText("Retour aux listes")).performClick()
         assertEquals(1, closed)
     }
@@ -64,7 +64,7 @@ class ShoppingSummaryScreenTest {
     @Test
     fun aLearnedStoreIsThankedWithItsPercentage() {
         show(ShoppingSummary(3, 7, "Leclerc Auch", RouteKnowledge.Learned(82), "v1"))
-        rule.onNodeWithText("Leclerc Auch est cartographié à 82 %, merci.").assertIsDisplayed()
+        rule.onNodeWithText("Leclerc Auch est cartographié à 82\u202F%, merci.").assertIsDisplayed()
     }
 
     @Test
@@ -83,11 +83,34 @@ class ShoppingSummaryScreenTest {
     }
 
     @Test
-    fun aVisitWithoutAnyCheckContributesNothing() {
-        // `closeVisit` a supprimé la visite faute de coche : rien n'est parti au serveur, rien à remercier.
+    fun aVisitWithoutAnyCheckIsThankedLikeOnIos() {
+        // `closeVisit` a supprimé la visite faute de coche : la phrase est dite quand même, comme sur iOS.
         show(ShoppingSummary(0, 2, "Carrefour", RouteKnowledge.Unknown, visitId = null))
-        rule.onNodeWithTag(TAG_SUMMARY, useUnmergedTree = true).assertIsDisplayed()
-        rule.onNodeWithTag(TAG_CONTRIBUTION).assertDoesNotExist()
+        rule.onNodeWithText("Vous avez tracé le premier trajet à Carrefour, merci.").assertIsDisplayed()
+    }
+
+    @Test
+    fun zeroIsSingularOnADeviceInEnglish() {
+        // Langue par défaut de Robolectric : anglais. La règle anglaise mettrait 0 au pluriel (« 0 articles »).
+        show(ShoppingSummary(0, 2, "Carrefour", RouteKnowledge.Unknown))
+        rule.onNodeWithText("0 article", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "fr-rFR-w411dp-h891dp-xxhdpi")
+    fun zeroIsSingularInFrench() {
+        show(ShoppingSummary(0, 2, "Carrefour", RouteKnowledge.Unknown))
+        rule.onNodeWithText("0 article", useUnmergedTree = true).assertIsDisplayed()
+        assertEquals(1, frenchQuantity(0))
+        assertEquals(1, frenchQuantity(1))
+        assertEquals(2, frenchQuantity(2))
+    }
+
+    @Test
+    @Config(qualifiers = "fr-rFR-w411dp-h891dp-xxhdpi")
+    fun twoArticlesArePluralInFrench() {
+        show(ShoppingSummary(2, 3, null, RouteKnowledge.NoStore))
+        rule.onNodeWithText("2 articles", useUnmergedTree = true).assertIsDisplayed()
     }
 
     // endregion

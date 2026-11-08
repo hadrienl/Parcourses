@@ -112,12 +112,17 @@ class AppContainer(
      * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
      * depuis plus de [expiry] : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
      * aucune, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien n'est rouvert.
+     * L'abandon ne lève rien sur une visite disparue entre-temps (reprise de compte) : le lancement ne plante pas,
+     * et une visite redevenue active entre la lecture et l'abandon reste ouverte.
      */
     suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
         val visit = visits.openVisit() ?: return null
+        val now = Clock.System.now()
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
-        val usable = lists.list(visit.listId) != null && Clock.System.now() - last < expiry
-        if (!usable) visits.abandonVisit(visit.id)
+        val listExists = lists.list(visit.listId) != null
+        val usable = listExists && now - last < expiry
+        // Liste disparue : abandon sans condition. Sinon seulement si la visite est encore périmée dans la transaction.
+        if (!usable) visits.abandonVisit(visit.id, now, staleAfter = if (listExists) expiry else Duration.ZERO)
         return if (usable) ResumableVisit(visit.listId, visit.storeId) else null
     }
 

@@ -91,10 +91,18 @@ interface VisitRepository {
     /**
      * Clôt une visite quittée sans « Terminer » (restée ouverte trop longtemps, liste disparue) : à sa dernière coche,
      * supprimée si elle n'en a aucune. Personne n'a répondu à « garder ou retirer » : la réponse par défaut, garder,
-     * s'applique, et les articles introuvables de sa liste reviennent à acheter. Sans effet sur une visite déjà close.
-     * Renvoie `true` si la visite existe encore (elle avait des coches).
+     * s'applique, et les articles introuvables (non cochés) de sa liste reviennent à acheter.
+     *
+     * Sans effet, et sans erreur, si la visite n'existe plus (supprimée faute de coche, renommée par une reprise de
+     * compte), si elle est déjà close, ou si sa dernière activité date de moins de [staleAfter] avant [at] : relue
+     * dans la transaction, une visite redevenue active entre-temps reste ouverte. Renvoie `true` si cet appel l'a
+     * close ou supprimée.
      */
-    suspend fun abandonVisit(id: String): Boolean
+    suspend fun abandonVisit(
+        id: String,
+        at: Instant,
+        staleAfter: Duration = ZERO,
+    ): Boolean
 }
 
 /** Implémentation Room. [onEnqueue] réveille la synchronisation après chaque transaction qui allonge la file. */
@@ -213,13 +221,23 @@ class RoomVisitRepository(
         return enqueued || db.visits().get(id) != null
     }
 
-    override suspend fun abandonVisit(id: String): Boolean {
+    override suspend fun abandonVisit(
+        id: String,
+        at: Instant,
+        staleAfter: Duration,
+    ): Boolean {
+        var abandoned = false
         val enqueued =
             db.withWriteTransaction {
-                abandon(db.visits().get(id) ?: throw RepositoryException.NotFound(id))
+                val visit =
+                    db.visits().get(id)?.takeIf { open ->
+                        open.endedAt == null && (staleAfter <= ZERO || at - activityOf(open) >= staleAfter)
+                    }
+                abandoned = visit != null
+                visit != null && abandon(visit)
             }
         if (enqueued) onEnqueue()
-        return db.visits().get(id) != null
+        return abandoned
     }
 
     /**

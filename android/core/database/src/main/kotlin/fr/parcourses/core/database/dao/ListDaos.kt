@@ -144,10 +144,13 @@ interface ListItemDao {
     ): Int
 
     /**
-     * Les introuvables de la liste reviennent à acheter. Local comme [setNotFound] : ni `updatedAt` ni `syncState`.
-     * Renvoie le nombre d'articles remis.
+     * Les introuvables de la liste reviennent à acheter, comme « garder » : seulement ceux qui ne sont pas cochés.
+     * Local comme [setNotFound] : ni `updatedAt` ni `syncState`. Renvoie le nombre d'articles remis.
      */
-    @Query("UPDATE list_items SET notFoundAt = NULL WHERE listId = :listId AND notFoundAt IS NOT NULL")
+    @Query(
+        "UPDATE list_items SET notFoundAt = NULL " +
+            "WHERE listId = :listId AND notFoundAt IS NOT NULL AND checkedAt IS NULL",
+    )
     suspend fun clearNotFound(listId: String): Int
 
     @Query("UPDATE list_items SET syncState = :state WHERE id = :id")
