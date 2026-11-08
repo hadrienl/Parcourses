@@ -1,71 +1,88 @@
 import XCTest
 
 /// Audit d'accessibilité automatique (`performAccessibilityAudit`, iOS 17+) de chaque écran principal, à la taille
-/// de texte par défaut puis en `AccessibilityXXXL` (AX5). Exécuté avec le reste des tests UI en CI.
+/// de texte par défaut, en `AccessibilityXXXL` (AX5) et en mode sombre. Exécuté avec le reste des tests UI en CI.
 ///
-/// Aucune catégorie n'est exclue globalement. Les exceptions sont filtrées au cas par cas dans `isKnownIssue`,
-/// chacune avec sa justification.
+/// Toutes les catégories d'audit sont actives (`.all`). Les exceptions sont filtrées au cas par cas dans
+/// `isKnownIssue`, chacune bornée à des éléments ou à une situation précise et justifiée.
 nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// Tous les problèmes d'un parcours sont listés d'un coup : on ne s'arrête pas au premier échec.
   override func setUp() {
     continueAfterFailure = true
   }
 
+  override func tearDown() {
+    MainActor.assumeIsolated { XCUIDevice.shared.appearance = .light }
+  }
+
   /// AX5 : la plus grande taille de Dynamic Type.
   private static let ax5 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
 
+  /// Éléments du dock (saisie, « Terminer », bannière « Annuler », suggestions) : ils restent audités.
+  private static let dockIdentifiers: Set<String> = [
+    "quickEntry", "shoppingEntry", "finish", "undo", "undoMessage", "allChecked", "suggestion", "addItem",
+  ]
+
   /// Exceptions documentées. Retourne vrai pour ignorer le problème.
+  @MainActor
   private static func isKnownIssue(_ issue: XCUIAccessibilityAuditIssue, app: XCUIApplication) -> Bool {
+    let keyboard = app.keyboards.firstMatch
+    let keyboardIsShown = keyboard.exists
     // 1. « Contrast nearly passed » : résultat limite, mesuré sur le rendu du système (boutons Liquid Glass,
     //    gris sémantiques des en-têtes de section). Les « Contrast failed » restent bloquants.
     if issue.auditType == .contrast && issue.compactDescription.localizedCaseInsensitiveContains("nearly") {
       return true
     }
-    // 2. Audit Dynamic Type : il signale en « partially unsupported » des textes système (ContentUnavailableView,
-    //    lignes de liste, boutons) qui suivent pourtant Dynamic Type, aux deux tailles (vérifié sur les captures
-    //    AX5 jointes). La tenue du texte est contrôlée par les parcours AX5 : l'audit `textClipped` y reste actif.
-    if issue.auditType == .dynamicType { return true }
-    // 3. Barre de suggestions du clavier système (boutons sans description) : hors de notre code.
-    if issue.auditType == .sufficientElementDescription, let element = issue.element {
-      let keyboard = app.keyboards.firstMatch
-      // La barre de suggestions (44 pt) est au-dessus du cadre annoncé du clavier.
-      if keyboard.exists && keyboard.frame.insetBy(dx: 0, dy: -50).intersects(element.frame) { return true }
+    guard let element = issue.element else {
+      // 2. Contraste ou texte rogné sans élément localisé, clavier ouvert : l'audit mesure les pixels du clavier
+      //    translucide et du contenu qui défile dessous, sans dire lequel (constaté sur iOS 18). Sans clavier,
+      //    ces problèmes restent bloquants.
+      return keyboardIsShown && (issue.auditType == .contrast || issue.auditType == .textClipped)
     }
-    // 5. Contenu qui défile sous le dock ou sous le clavier (matériaux translucides du système) : l'audit mesure le
-    //    contraste sur des pixels mélangés au fond. Un texte réellement lu est hors de cette zone.
-    if issue.auditType == .contrast || issue.auditType == .textClipped, let element = issue.element {
-      let keyboard = app.keyboards.firstMatch
-      if keyboard.exists, keyboard.frame.intersects(element.frame) { return true }
-      for id in ["quickEntry", "shoppingEntry"] {
-        let field = app.textFields[id]
-        if field.exists, field.frame.insetBy(dx: -400, dy: -24).intersects(element.frame),
-          element.frame.minY > field.frame.minY - 300,
-          element.frame.maxY > field.frame.minY
-        {
-          return true
-        }
+    let frame = element.frame
+    switch issue.auditType {
+    case .dynamicType:
+      // 3. Boutons de la barre de navigation : le système les plafonne et leur substitue la visionneuse de grand
+      //    contenu (appui long), comme le recommandent les HIG.
+      if app.navigationBars.firstMatch.exists, app.navigationBars.firstMatch.frame.intersects(frame) { return true }
+      // 4. Textes statiques des composants système (en-têtes et pieds de section, `ContentUnavailableView`,
+      //    `DisclosureGroup`) signalés « partially unsupported » alors qu'ils suivent Dynamic Type : les
+      //    captures AX5 jointes le montrent. Nos boutons et champs restent audités.
+      return element.elementType == .staticText && !dockIdentifiers.contains(element.identifier)
+    case .sufficientElementDescription:
+      // 5. Barre de suggestions du clavier système (boutons sans description), 44 pt au-dessus du clavier.
+      return keyboardIsShown && keyboard.frame.insetBy(dx: 0, dy: -50).intersects(frame)
+    case .contrast, .textClipped:
+      // 6. Contenu de la liste sous le clavier ou sous le dock translucide : l'audit mesure des pixels mélangés au
+      //    fond, ou un texte que le dock recouvre. Le dock lui-même reste audité.
+      if keyboardIsShown && keyboard.frame.intersects(frame) { return true }
+      if !dockIdentifiers.contains(element.identifier), let top = dockTop(app), frame.maxY > top { return true }
+      // 7. Lignes passées sous la barre de navigation en défilant (cadre hors écran).
+      if frame.minY < 0 { return true }
+      // 8. Feuille « articles restants » à détente `.medium` : le système la met à l'échelle pendant sa
+      //    présentation, les cadres fractionnaires faussent la mesure. Les captures montrent un texte entier.
+      if app.buttons["keepRemaining"].exists && frame.origin.x.truncatingRemainder(dividingBy: 1) != 0 {
+        return true
       }
-      // Description d'un ContentUnavailableView comprimée par le clavier (état « Liste vide »).
-      if keyboard.exists, element.elementType == .staticText, issue.auditType == .textClipped { return true }
+      // 9. Champs de texte : l'audit signale le texte « rogné » des `UITextField` SwiftUI au repos et à la taille
+      //    par défaut ; les captures montrent le texte et l'indication entiers.
+      return issue.auditType == .textClipped && element.elementType == .textField
+    default:
+      return false
     }
-    // 7. Contraste signalé sans élément pendant que le clavier est ouvert : mesure sur les pixels du clavier
-    //    translucide, qui se mélangent au contenu défilé dessous.
-    //    Idem sans clavier à AX5 : le dock, translucide, recouvre alors la liste (iOS 18 ne localise pas l'élément).
-    if issue.auditType == .contrast, issue.element == nil { return true }
-    // 8. Texte rogné signalé sans élément (iOS 18 : l'audit ne localise pas le texte concerné, rien d'exploitable).
-    //    Les captures de chaque écran, à la taille par défaut et en AX5, montrent les textes entiers.
-    if issue.auditType == .textClipped, issue.element == nil { return true }
-    // 6. Éléments à cadre fractionnaire ou en partie hors écran : contenu d'une feuille à détente `.medium`
-    //    (transformée à l'affichage) ou défilé sous la barre de navigation. Les mesures y sont faussées ;
-    //    les captures montrent un texte entier et lisible.
-    if let element = issue.element, issue.auditType == .textClipped || issue.auditType == .contrast {
-      let frame = element.frame
-      if frame.minY < 0 || frame.origin.x.truncatingRemainder(dividingBy: 1) != 0 { return true }
+  }
+
+  /// Haut du dock : le plus haut de ses éléments présents, moins sa marge.
+  @MainActor
+  private static func dockTop(_ app: XCUIApplication) -> CGFloat? {
+    let tops = ["quickEntry", "shoppingEntry", "undoMessage", "allChecked"].compactMap { id -> CGFloat? in
+      let element = app.descendants(matching: .any).matching(identifier: id).firstMatch
+      return element.exists ? element.frame.minY : nil
     }
-    // 4. Champs de texte : le texte n'est pas rogné (capture à l'appui), l'audit se trompe sur les `UITextField`
-    //    SwiftUI, même au repos et à la taille par défaut.
-    if issue.auditType == .textClipped && issue.element?.elementType == .textField { return true }
-    return false
+    let suggestion = app.buttons.matching(identifier: "suggestion").firstMatch
+    let all = tops + (suggestion.exists ? [suggestion.frame.minY] : [])
+    // Sans clavier ni dock (écran Listes) : pas de zone exclue.
+    return all.min().map { $0 - 8 }
   }
 
   /// Audit complet d'un écran. Les problèmes sont réunis puis consignés après l'audit, pas depuis son gestionnaire :
@@ -169,14 +186,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 5))
     audit(app, "mode-courses\(suffix)")
 
-    if arguments.isEmpty {
-      // Bannière « Annuler » : à AX5 elle se cumule avec le dock et ne laisse plus de ligne à cocher.
-      let tomatoes = row(app, "tomates", "non coché")
-      reveal(tomatoes, in: app)
-      tomatoes.tap()
-      XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))
-      audit(app, "mode-courses-annuler\(suffix)")
-    }
+    let tomatoes = row(app, "tomates", "non coché")
+    reveal(tomatoes, in: app)
+    tomatoes.tap()
+    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))
+    audit(app, "mode-courses-annuler\(suffix)")
 
     reveal(app.buttons["finish"], in: app)
     app.buttons["finish"].tap()
@@ -195,5 +209,18 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   @MainActor
   func testAuditShoppingAX5() {
     auditShopping(arguments: Self.ax5, suffix: "-ax5")
+  }
+
+  /// Mode sombre : teinte, fonds opaques et textes secondaires sur fond sombre.
+  @MainActor
+  func testAuditListsDark() {
+    XCUIDevice.shared.appearance = .dark
+    auditLists(arguments: [], suffix: "-sombre")
+  }
+
+  @MainActor
+  func testAuditShoppingDark() {
+    XCUIDevice.shared.appearance = .dark
+    auditShopping(arguments: [], suffix: "-sombre")
   }
 }

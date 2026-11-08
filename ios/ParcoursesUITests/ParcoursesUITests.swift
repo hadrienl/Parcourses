@@ -38,7 +38,8 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     // L'autocomplétion retrouve un article coché.
     entry.tap()
     entry.typeText("3 tom")
-    let chip = app.buttons["Ajouter tomates"]
+    // Libellé VoiceOver (l'identifiant de la puce est « suggestion »).
+    let chip = app.buttons.matching(NSPredicate(format: "label == %@", "Ajouter tomates")).firstMatch
     XCTAssertTrue(chip.waitForExistence(timeout: 5))
     capture(app, "3-autocompletion")
     chip.tap()

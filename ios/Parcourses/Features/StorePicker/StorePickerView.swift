@@ -6,17 +6,13 @@ struct StorePickerView: View {
   @State var model: StorePickerModel
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.openURL) private var openURL
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     NavigationStack {
       content
         .navigationTitle("Choisir le magasin")
         .navigationBarTitleDisplayMode(.inline)
-        // Aux tailles d'accessibilité, la barre prendrait la moitié de l'écran : l'attribution suit alors le contenu.
-        .safeAreaInset(edge: .bottom) {
-          if !dynamicTypeSize.isAccessibilitySize { attribution }
-        }
+        .safeAreaInset(edge: .bottom) { attribution }
         .alert("Impossible d'enregistrer ce magasin", isPresented: selectionFailed) {
           Button("OK", role: .cancel) {}
         } message: {
@@ -40,7 +36,6 @@ struct StorePickerView: View {
       VStack(spacing: 24) {
         ProgressView("Recherche des magasins proches…")
         continueWithoutStoreButton
-        if dynamicTypeSize.isAccessibilitySize { OSMAttribution() }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     case .precise(let proposed, let others):
@@ -50,7 +45,7 @@ struct StorePickerView: View {
             StoreRow(store: proposed) { model.select(proposed) }
             Button("Faire mes courses ici") { model.select(proposed) }
               .buttonStyle(.borderedProminent)
-              .touchTarget()
+              .controlSize(.large)
               .frame(maxWidth: .infinity)
               .listRowBackground(Color.clear)
               .accessibilityIdentifier("confirmProposal")
@@ -58,7 +53,6 @@ struct StorePickerView: View {
         }
         stores(others, title: proposed == nil ? "Magasins proches" : "Autres magasins proches")
         recentsSection
-        inlineAttribution
       }
     case .approximate(let candidates):
       List {
@@ -73,7 +67,6 @@ struct StorePickerView: View {
         searchSection
         if !isSearching { stores(candidates, title: "Magasins dans le secteur") }
         recentsSection
-        inlineAttribution
       }
     case .denied:
       fallbackList(
@@ -115,9 +108,12 @@ struct StorePickerView: View {
   }
 
   private var continueWithoutStoreButton: some View {
-    Button("Continuer sans magasin") { model.continueWithoutStore() }
-      .touchTarget()
-      .accessibilityIdentifier("continueWithoutStore")
+    Button {
+      model.continueWithoutStore()
+    } label: {
+      Text("Continuer sans magasin").touchTarget()
+    }
+    .accessibilityIdentifier("continueWithoutStore")
   }
 
   private var isSearching: Bool {
@@ -144,13 +140,6 @@ struct StorePickerView: View {
       } footer: {
         Text("La liste suivra l'ordre générique des rayons.")
       }
-      inlineAttribution
-    }
-  }
-
-  @ViewBuilder private var inlineAttribution: some View {
-    if dynamicTypeSize.isAccessibilitySize {
-      Section { OSMAttribution() }
     }
   }
 
@@ -216,7 +205,6 @@ private struct StoreRow: View {
         }
       }
       .touchTarget()
-      .contentShape(Rectangle())
     }
     // Style neutre : le nom se lit comme un contenu, pas comme un lien teinté.
     .buttonStyle(.plain)

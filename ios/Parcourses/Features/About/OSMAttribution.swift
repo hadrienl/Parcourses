@@ -17,9 +17,8 @@ struct OSMAttribution: View {
             .underline()
             .frame(maxWidth: .infinity)
             .touchTarget()
-            .contentShape(Rectangle())
         }
-        .accessibilityHint("Ouvre la licence ODbL dans Safari")
+        .accessibilityHint("Ouvre la page des droits d'OpenStreetMap")
       } else {
         Text(OpenStreetMap.credit)
       }
@@ -40,9 +39,11 @@ struct AboutView: View {
         Section {
           Text("Les magasins et leurs adresses viennent d'OpenStreetMap, sous licence ODbL.")
           if let url = OpenStreetMap.copyright {
-            Link("© OpenStreetMap contributors (ODbL)", destination: url)
-              .touchTarget()
-              .accessibilityIdentifier("aboutOSMLink")
+            Link(destination: url) {
+              Text("\(OpenStreetMap.credit) (ODbL)").touchTarget()
+            }
+            .accessibilityHint("Ouvre la page des droits d'OpenStreetMap")
+            .accessibilityIdentifier("aboutOSMLink")
           }
         } header: {
           Text("Données cartographiques")
@@ -50,9 +51,11 @@ struct AboutView: View {
         Section {
           Text("Parcourses ne vous suit pas et n'utilise aucun outil d'analyse tiers.")
           Text(
-            "Votre position sert une seule fois à trouver le magasin où vous êtes. Elle n'est ni conservée ni envoyée ailleurs que pour cette recherche."
+            "Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. Ces données sont rattachées à un identifiant anonyme, sans nom ni e-mail."
           )
-          Text("Vos listes et vos coches sont rattachées à un identifiant anonyme, sans nom ni e-mail.")
+          Text(
+            "Seule votre position GPS n'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée."
+          )
         } header: {
           Text("Confidentialité")
         }

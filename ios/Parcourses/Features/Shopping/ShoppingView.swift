@@ -90,7 +90,9 @@ struct ShoppingView: View {
     .animation(motion, value: session.basket.map(\.id))
     .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
     .onChange(of: session.undo) { _, undo in
-      if let undo { ReorderAnnouncement.post(undo.message) }
+      // Une coche se lit déjà dans la valeur de la ligne (« coché ») : seul « introuvable », qui déplace la ligne
+      // dans une autre section, est annoncé.
+      if let undo, undo.kind == .notFound { ReorderAnnouncement.post(undo.message) }
     }
     .scrollDismissesKeyboard(.interactively)
     .onScrollPhaseChange { _, phase in session.setScrolling(phase.isScrolling) }
@@ -206,8 +208,14 @@ struct ShoppingView: View {
     .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
     .accessibilityFocused($focusedRow, equals: row.id)
-    .accessibilityAction(named: "Décocher") { if row.isChecked { session.toggle(row) } }
-    .accessibilityAction(named: "Pas trouvé") { if !row.isChecked { session.markNotFound(row) } }
+    // Chaque action n'est proposée que là où elle a un sens.
+    .accessibilityActions {
+      if row.isChecked {
+        Button("Décocher") { session.toggle(row) }
+      } else {
+        Button("Pas trouvé") { session.markNotFound(row) }
+      }
+    }
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
@@ -239,7 +247,6 @@ struct ShoppingView: View {
       }
       .foregroundStyle(contrast == .increased ? .primary : .secondary)
       .rowHeight()
-      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityElement(children: .combine)
@@ -253,12 +260,12 @@ struct ShoppingView: View {
       if let undo = session.undo {
         ViewThatFits(in: .horizontal) {
           HStack {
-            Text(undo.message).lineLimit(2)
+            Text(undo.message).lineLimit(2).accessibilityIdentifier("undoMessage")
             Spacer()
             undoButton
           }
-          VStack(alignment: .leading) {
-            Text(undo.message)
+          VStack(alignment: .leading, spacing: 0) {
+            Text(undo.message).accessibilityIdentifier("undoMessage")
             undoButton
           }
         }
@@ -267,7 +274,7 @@ struct ShoppingView: View {
         .transition(.opacity)
       }
       if session.isEverythingChecked {
-        Text("Tout est coché !").font(.headline)
+        Text("Tout est coché !").font(.headline).accessibilityIdentifier("allChecked")
       }
       // Aux grandes tailles de texte, « Terminer » passe sous le champ.
       ViewThatFits(in: .horizontal) {
@@ -288,16 +295,17 @@ struct ShoppingView: View {
   }
 
   private var undoButton: some View {
-    Button("Annuler") { session.performUndo() }
-      .fontWeight(.semibold)
-      .touchTarget()
-      .accessibilityIdentifier("undo")
+    Button {
+      session.performUndo()
+    } label: {
+      Text("Annuler").fontWeight(.semibold).touchTarget()
+    }
+    .accessibilityIdentifier("undo")
   }
 
   private var entryField: some View {
     TextField("Ajouter un article", text: $session.input)
-      .entryField()
-      .focused($inputIsFocused)
+      .entryField(focus: $inputIsFocused)
       .submitLabel(.done)
       .accessibilityIdentifier("shoppingEntry")
       .onSubmit(submit)
@@ -306,7 +314,8 @@ struct ShoppingView: View {
   private var finishButton: some View {
     Button("Terminer", action: finishTapped)
       .buttonStyle(.borderedProminent)
-      .touchTarget()
+      // Grande taille de contrôle : bouton de 50 pt, sa propre zone tactile.
+      .controlSize(.large)
       .accessibilityIdentifier("finish")
   }
 
@@ -342,13 +351,15 @@ private struct RemainingItemsSheet: View {
         Text("Les garder pour la prochaine fois ?")
         Button("Les garder", action: onKeep)
           .buttonStyle(.borderedProminent)
-          .touchTarget()
+          .controlSize(.large)
           .accessibilityIdentifier("keepRemaining")
-        Button("Les retirer de la liste", role: .destructive, action: onDrop)
-          .touchTarget()
+        Button(role: .destructive, action: onDrop) {
+          Text("Les retirer de la liste").touchTarget()
+        }
         if canCancel {
-          Button("Continuer mes courses", action: onCancel)
-            .touchTarget()
+          Button(action: onCancel) {
+            Text("Continuer mes courses").touchTarget()
+          }
         }
       }
       .multilineTextAlignment(.center)
@@ -365,34 +376,38 @@ struct ShoppingSummaryView: View {
   @State private var appeared = false
 
   var body: some View {
-    ScrollView {
-      VStack(spacing: 16) {
-        Text(summary.checkedCount <= 1 ? "\(summary.checkedCount) article" : "\(summary.checkedCount) articles")
-          .font(.largeTitle.weight(.bold))
-        Text("en \(summary.minutes) min").font(.title2)
-        if let contribution {
-          Text(contribution).multilineTextAlignment(.center).foregroundStyle(.secondary)
-            .accessibilityIdentifier("contribution")
-        }
-        if summary.storeName != nil { OSMAttribution() }
+    // Centré quand il tient dans l'écran, ouvert en haut quand il déborde (grandes tailles de texte).
+    GeometryReader { proxy in
+      ScrollView {
+        summaryContent
+          .frame(maxWidth: .infinity, minHeight: proxy.size.height)
       }
-      .multilineTextAlignment(.center)
-      .frame(maxWidth: .infinity)
-      .padding()
+      .scrollBounceBehavior(.basedOnSize)
     }
-    .scrollBounceBehavior(.basedOnSize)
-    .defaultScrollAnchor(.center)
     .safeAreaInset(edge: .bottom) {
-      VStack(spacing: 8) {
-        Button("Retour aux listes", action: onClose)
-          .buttonStyle(.borderedProminent)
-          .touchTarget()
-          .accessibilityIdentifier("closeSummary")
-      }
-      .padding()
+      Button("Retour aux listes", action: onClose)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .accessibilityIdentifier("closeSummary")
+        .padding()
     }
     .sensoryFeedback(.success, trigger: appeared)
     .onAppear { appeared = true }
+  }
+
+  private var summaryContent: some View {
+    VStack(spacing: 16) {
+      Text(summary.checkedCount <= 1 ? "\(summary.checkedCount) article" : "\(summary.checkedCount) articles")
+        .font(.largeTitle.weight(.bold))
+      Text("en \(summary.minutes) min").font(.title2)
+      if let contribution {
+        Text(contribution).multilineTextAlignment(.center).foregroundStyle(.secondary)
+          .accessibilityIdentifier("contribution")
+      }
+      if summary.storeName != nil { OSMAttribution() }
+    }
+    .multilineTextAlignment(.center)
+    .padding()
   }
 
   private var contribution: String? {

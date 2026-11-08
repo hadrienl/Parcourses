@@ -1,19 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// Hauteur minimale qui grandit avec Dynamic Type : jamais de hauteur fixe (#9 §11).
-private struct ScaledMinHeight: ViewModifier {
-  @ScaledMetric(relativeTo: .body) private var height = 44.0
-
-  init(_ base: Double) {
-    _height = ScaledMetric(wrappedValue: base, relativeTo: .body)
-  }
-
-  func body(content: Content) -> some View {
-    content.frame(minHeight: height)
-  }
-}
-
 /// Fond de barre : le matériau du système, ou un aplat opaque avec « Réduire la transparence ».
 private struct BarBackground: ViewModifier {
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -40,32 +27,39 @@ private struct BannerBackground: ViewModifier {
   }
 }
 
-/// Champ de saisie : la zone visible fait au moins 44 pt, pas seulement la zone tactile.
+/// Champ de saisie : la case visible fait au moins 44 pt, et toute la case donne le focus, marges comprises.
 private struct EntryFieldStyle: ViewModifier {
+  let focus: FocusState<Bool>.Binding
+
   func body(content: Content) -> some View {
     content
       .textFieldStyle(.plain)
+      .focused(focus)
       .padding(.horizontal, 12)
-      .touchTarget()
+      .frame(minHeight: 44)
       .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
       .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Color(uiColor: .separator)) }
+      .contentShape(RoundedRectangle(cornerRadius: 10))
+      .onTapGesture { focus.wrappedValue = true }
   }
 }
 
 extension View {
-  /// Champ de saisie rapide du dock.
-  func entryField() -> some View {
-    modifier(EntryFieldStyle())
+  /// Champ de saisie rapide du dock, lié à son état de focus.
+  func entryField(focus: FocusState<Bool>.Binding) -> some View {
+    modifier(EntryFieldStyle(focus: focus))
   }
 
-  /// Cible tactile d'au moins 44 pt (48 pt pour les lignes), à l'échelle du texte.
+  /// Cible tactile d'au moins 44 pt, à poser **dans le label** d'un bouton : c'est la zone touchable.
+  /// Minimum constant (#9 §11) : le texte fait grandir la cible de lui-même avec Dynamic Type, un minimum mis à
+  /// l'échelle n'ajouterait que du vide (×3 en AX5).
   func touchTarget(minHeight: Double = 44) -> some View {
-    modifier(ScaledMinHeight(minHeight))
+    frame(minHeight: minHeight).contentShape(Rectangle())
   }
 
-  /// Ligne : 48 pt au moins.
+  /// Ligne : 48 pt au moins, même règle.
   func rowHeight() -> some View {
-    modifier(ScaledMinHeight(48))
+    touchTarget(minHeight: 48)
   }
 
   /// Fond des docks et barres du bas.
@@ -105,7 +99,6 @@ struct ItemLine: View {
       }
     }
     .rowHeight()
-    .contentShape(Rectangle())
   }
 
   private var marker: some View {

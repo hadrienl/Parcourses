@@ -94,7 +94,6 @@ struct ListsView: View {
       Image(systemName: "chevron.right").foregroundStyle(.tertiary).accessibilityHidden(true)
     }
     .rowHeight()
-    .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
   }
 
@@ -105,9 +104,9 @@ struct ListsView: View {
     } label: {
       Label("Nouvelle liste", systemImage: "plus")
         .frame(maxWidth: .infinity)
-        .touchTarget()
     }
     .buttonStyle(.borderedProminent)
+    .controlSize(.large)
     .padding()
     .barBackground()
   }

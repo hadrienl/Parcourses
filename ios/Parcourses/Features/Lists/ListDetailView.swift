@@ -81,7 +81,9 @@ struct ListDetailView: View {
     .accessibilityValue(row.accessibilityState)
     .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
-    .accessibilityAction(named: "Décocher") { if row.isChecked { model.toggle(row) } }
+    .accessibilityActions {
+      if row.isChecked { Button("Décocher") { model.toggle(row) } }
+    }
     .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
       Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
@@ -98,25 +100,28 @@ struct ListDetailView: View {
               Button(suggestion.label) { model.add(suggestion) }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
-                .touchTarget()
+                .controlSize(.large)
                 .accessibilityLabel("Ajouter \(suggestion.label)")
+                .accessibilityIdentifier("suggestion")
             }
           }
         }
       }
       HStack {
         TextField("Ajouter un article", text: $model.input)
-          .entryField()
-          .focused($inputIsFocused)
+          .entryField(focus: $inputIsFocused)
           .submitLabel(.done)
           .accessibilityIdentifier("quickEntry")
           .onSubmit(submit)
-        Button("Ajouter", systemImage: "plus.circle.fill", action: submit)
-          .labelStyle(.iconOnly)
-          .font(.title)
-          .frame(minWidth: 44)
-          .touchTarget()
-          .disabled(model.input.allSatisfy(\.isWhitespace))
+        Button(action: submit) {
+          Label("Ajouter", systemImage: "plus.circle.fill")
+            .labelStyle(.iconOnly)
+            .font(.title)
+            .frame(minWidth: 44)
+            .touchTarget()
+        }
+        .disabled(model.input.allSatisfy(\.isWhitespace))
+        .accessibilityIdentifier("addItem")
       }
     }
     .padding(.horizontal)
