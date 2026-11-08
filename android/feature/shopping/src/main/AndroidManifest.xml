@@ -6,7 +6,10 @@
     <!-- Promotion en Live Update (Android 16+), permission sans dialogue. -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
-    <application>
+    <!-- Mêmes valeurs que :app, pour que le module soit sûr par lui-même (Sonar S6358, S5332). -->
+    <application
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false">
         <!-- « Cocher le suivant » et notification écartée : seule la notification de l'app l'appelle. -->
         <receiver
             android:name=".live.LiveUpdateReceiver"
