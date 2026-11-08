@@ -58,6 +58,9 @@ actor ScriptedSyncGateway: RemoteGateway {
   var failingCheck: UUID?
   var failingList: UUID?
   var failingCheckError: RemoteError = .constraint(code: "23514")
+  /// Comme la RLS : un article n'est accepté que si sa liste existe déjà chez le serveur (`42501` sinon).
+  var itemsNeedTheirList = false
+  func setItemsNeedTheirList(_ value: Bool) { itemsNeedTheirList = value }
 
   func fail(_ name: String, with errors: [RemoteError]) { failures[name] = errors }
   func failAlways(_ name: String, with error: RemoteError?) { permanent[name] = error }
@@ -183,6 +186,7 @@ actor ScriptedSyncGateway: RemoteGateway {
     try record("saveItem")
     try checkAccount()
     try checkServer(item.id)
+    if itemsNeedTheirList, !savedLists.contains(where: { $0.id == item.listId }) { throw RemoteError.forbidden }
     savedItems.append(item)
   }
   func deleteItem(id: UUID) async throws { try record("deleteItem") }

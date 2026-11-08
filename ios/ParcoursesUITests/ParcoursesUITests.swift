@@ -208,6 +208,35 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     capture(app, "9-en-apprentissage")
   }
 
+  /// Ordre non appris : les articles se lisent par rayon, avec un titre par rayon.
+  @MainActor
+  func testUnknownOrderIsGroupedByAisle() {
+    let app = enterShopping(
+      confidenceQ: nil, items: ["lait", "tomates", "saucisse", "lessive", "moutarde", "papier toilette"])
+    XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["aisle-dairy"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["aisle-butcher"].exists)
+    XCTAssertTrue(row(app, "lait", "non coché").exists)
+    capture(app, "10-groupe-par-rayon")
+  }
+
+  /// Instantané en apprentissage : même présentation par rayon.
+  @MainActor
+  func testLearningOrderIsGroupedByAisle() {
+    let app = enterShopping(confidenceQ: 300, items: ["lait", "tomates", "saucisse"])
+    XCTAssertTrue(app.staticTexts["aisle-dairy"].waitForExistence(timeout: 5))
+    capture(app, "11-apprentissage-groupe")
+  }
+
+  /// Instantané appris : fil continu, sans titres de rayon.
+  @MainActor
+  func testLearnedOrderHasNoAisleTitles() {
+    let app = enterShopping(confidenceQ: 720, items: ["lait", "tomates", "saucisse"])
+    XCTAssertTrue(app.staticTexts["Trajet connu à 72 %"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.staticTexts["aisle-dairy"].exists)
+    capture(app, "12-appris-fil-continu")
+  }
+
   /// Une visite ouverte est rouverte au lancement.
   @MainActor
   func testOpenVisitReopensAtLaunch() {
