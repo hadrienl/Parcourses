@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.parcourses.android.application)
     alias(libs.plugins.parcourses.android.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Configuration par environnement (#10, §2.2) : `local`, `staging` ou `prod`. Rien en dur, rien de versionné.
@@ -74,6 +75,16 @@ android {
 dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:network"))
+    implementation(project(":core:data"))
+    implementation(project(":core:location"))
+    implementation(project(":feature:lists"))
+    implementation(project(":feature:storepicker"))
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

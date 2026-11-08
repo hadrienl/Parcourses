@@ -21,6 +21,13 @@ interface ShoppingListDao {
     @Query("SELECT * FROM lists WHERE id = :id")
     suspend fun get(id: String): ShoppingListEntity?
 
+    /** Listes à envoyer (non supprimées ou non), les plus anciennes d'abord. */
+    @Query("SELECT * FROM lists WHERE syncState = 'PENDING' ORDER BY createdAt, id")
+    suspend fun pending(): List<ShoppingListEntity>
+
+    @Query("SELECT id FROM lists WHERE deletedAt IS NOT NULL")
+    suspend fun deletedIds(): List<String>
+
     @Query("SELECT * FROM lists WHERE id = :id")
     fun observe(id: String): Flow<ShoppingListEntity?>
 
@@ -58,9 +65,42 @@ interface ShoppingListDao {
 }
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
+
+/** Nombre d'articles d'une liste et ce qui reste à acheter. */
+data class ListCounts(
+    val listId: String,
+    val total: Int,
+    val remaining: Int,
+)
+
 @Suppress("TooManyFunctions")
 @Dao
 interface ListItemDao {
+    /** Compteurs de toutes les listes, recalculés à chaque écriture sur les articles. */
+    @Query(
+        "SELECT listId, COUNT(*) AS total, SUM(CASE WHEN checkedAt IS NULL THEN 1 ELSE 0 END) AS remaining " +
+            "FROM list_items GROUP BY listId",
+    )
+    fun observeCounts(): Flow<List<ListCounts>>
+
+    /** Historique d'autocomplétion : articles des listes non supprimées. */
+    @Query(
+        "SELECT i.* FROM list_items i JOIN lists l ON l.id = i.listId " +
+            "WHERE l.deletedAt IS NULL ORDER BY i.updatedAt DESC, i.id",
+    )
+    fun observeHistory(): Flow<List<ListItemEntity>>
+
+    @Query("SELECT * FROM list_items ORDER BY position, id")
+    suspend fun getAll(): List<ListItemEntity>
+
+    /** Articles à envoyer, dans l'ordre de saisie. */
+    @Query("SELECT * FROM list_items WHERE syncState = 'PENDING' ORDER BY position, id")
+    suspend fun pending(): List<ListItemEntity>
+
+    /** Articles sans produit partagé, candidats à `resolve_products` : ordre total (date, puis id). */
+    @Query("SELECT * FROM list_items WHERE productId IS NULL ORDER BY updatedAt, id")
+    suspend fun withoutProduct(): List<ListItemEntity>
+
     /** Articles d'une liste, triés par `position`. */
     @Query("SELECT * FROM list_items WHERE listId = :listId ORDER BY position, id")
     fun observeByList(listId: String): Flow<List<ListItemEntity>>
@@ -120,6 +160,12 @@ interface ListItemDao {
 interface ProductDao {
     @Query("SELECT * FROM products ORDER BY normalizedName, id")
     suspend fun getAll(): List<ProductEntity>
+
+    @Query("SELECT * FROM products ORDER BY normalizedName, id")
+    fun observeAll(): Flow<List<ProductEntity>>
+
+    @Query("DELETE FROM products")
+    suspend fun deleteAll(): Int
 
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun get(id: String): ProductEntity?

@@ -30,6 +30,32 @@ abstract class OutboxDao {
     @Query("SELECT * FROM outbox ORDER BY sequence")
     abstract suspend fun all(): List<OutboxEntryEntity>
 
+    @Query("SELECT * FROM outbox WHERE id = :id")
+    abstract suspend fun get(id: String): OutboxEntryEntity?
+
+    /** Entrées abandonnées (`FAILED`), dans l'ordre de la file. */
+    @Query("SELECT * FROM outbox WHERE syncState = 'FAILED' ORDER BY sequence")
+    abstract suspend fun failed(): List<OutboxEntryEntity>
+
+    @Query("UPDATE outbox SET payload = :payload WHERE id = :id")
+    abstract suspend fun setPayload(
+        id: String,
+        payload: ByteArray,
+    ): Int
+
+    @Query("UPDATE outbox SET nextAttemptAt = :at WHERE id = :id")
+    abstract suspend fun setNextAttempt(
+        id: String,
+        at: Instant,
+    ): Int
+
+    @Query("UPDATE outbox SET syncState = :state, lastError = :reason WHERE id = :id")
+    abstract suspend fun setState(
+        id: String,
+        state: SyncState,
+        reason: String?,
+    ): Int
+
     @Query("SELECT * FROM outbox WHERE entityId = :entityId AND syncState = 'PENDING' ORDER BY sequence")
     abstract suspend fun pendingFor(entityId: String): List<OutboxEntryEntity>
 

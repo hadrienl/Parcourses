@@ -15,4 +15,8 @@ Sans URL ou sans clé valide (`https`, ou `http` vers la machine locale), l'app 
 
 ## Tests d'intégration
 
-`scripts/integration-test.sh` lance les tests de `:core:network` contre le Supabase local (`supabase start`). Ils sont ignorés quand `PARCOURSES_IT_URL` et `PARCOURSES_IT_KEY` ne sont pas définies, donc ignorés en CI.
+`scripts/integration-test.sh` lance, contre le Supabase local uniquement (`supabase start`, ports 563xx, jamais le projet hébergé), les tests de la passerelle (`:core:network`, A5) et de la synchronisation complète des listes (`:core:data`, `SyncIntegrationTest`, A6 : deux appareils sur un même compte, dernier écrit gagne, produits partagés, reprise sous un nouveau compte). Ils sont ignorés quand `PARCOURSES_IT_URL` et `PARCOURSES_IT_KEY` ne sont pas définies, donc ignorés en CI.
+
+## Synchronisation (A6)
+
+Room est la source de vérité : une écriture de liste ou d'article et son entrée dans la file d'envoi (`outbox`) partent dans la même transaction. `SyncEngine` (dans `:core:data`) vide la file puis tire les changements ; WorkManager le réveille (`ListSyncWorker`) à chaque écriture, à l'ouverture de l'app, au retour du réseau et toutes les 6 h. Les règles (dépendances, délais, réconciliation, résolution des produits, reprise de compte) sont celles d'iOS : voir `SYNC.md`.

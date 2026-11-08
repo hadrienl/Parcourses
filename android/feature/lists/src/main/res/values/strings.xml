@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Écran Listes -->
+    <string name="lists_title">Mes listes</string>
+    <string name="lists_empty_title">Aucune liste</string>
+    <string name="lists_empty_body">Créez votre première liste de courses.</string>
+    <string name="lists_new">Nouvelle liste</string>
+    <string name="lists_name_label">Nom de la liste</string>
+    <string name="lists_create">Créer</string>
+    <string name="lists_rename_title">Renommer la liste</string>
+    <string name="lists_rename">Renommer</string>
+    <string name="lists_delete">Supprimer</string>
+    <string name="lists_delete_confirm">Supprimer cette liste et ses articles ?</string>
+    <string name="lists_delete_action">Supprimer la liste</string>
+    <string name="lists_more_actions">Actions pour %1$s</string>
+    <string name="lists_subtitle_empty">Aucun article</string>
+    <string name="lists_subtitle_done">Tout est coché</string>
+    <plurals name="lists_subtitle_remaining">
+        <item quantity="one">%1$d article restant</item>
+        <item quantity="other">%1$d articles restants</item>
+    </plurals>
+
+    <!-- Écran Liste -->
+    <string name="detail_back">Retour</string>
+    <string name="detail_missing_title">Liste introuvable</string>
+    <string name="detail_missing_body">Cette liste a été supprimée.</string>
+    <string name="detail_empty_title">Liste vide</string>
+    <string name="detail_empty_body">Ajoutez un article, par exemple « 2 laits demi-écrémé ».</string>
+    <string name="detail_input_label">Ajouter un article</string>
+    <string name="detail_add">Ajouter</string>
+    <string name="detail_add_suggestion">Ajouter %1$s</string>
+    <string name="detail_start_shopping">Faire mes courses</string>
+    <string name="detail_delete_item">Supprimer</string>
+    <string name="detail_item_checked">coché</string>
+    <string name="detail_item_unchecked">non coché</string>
+    <string name="detail_section_count">%1$s, %2$d articles</string>
+
+    <!-- Commun -->
+    <string name="common_cancel">Annuler</string>
+    <string name="common_ok">OK</string>
+    <string name="common_error_title">Erreur</string>
+    <string name="common_error_message">L\'opération a échoué : %1$s</string>
+</resources>
