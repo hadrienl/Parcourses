@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
@@ -36,7 +38,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -84,6 +88,11 @@ internal fun LazyListScope.search(
             state = query,
             label = { Text(stringResource(R.string.picker_search_label)) },
             lineLimits = TextFieldLineLimits.SingleLine,
+            onKeyboardAction =
+                KeyboardActionHandler { performDefault ->
+                    actions.onSubmitSearch()
+                    performDefault()
+                },
             keyboardOptions =
                 KeyboardOptions(
                     capitalization = KeyboardCapitalization.Words,
@@ -106,7 +115,7 @@ internal fun LazyListScope.search(
             if (result.stores.isEmpty()) {
                 searchMessage(R.string.picker_search_none)
             } else {
-                storeSection("results", R.string.picker_search_results, result.stores, actions)
+                resultsSection(result.stores, actions)
             }
         }
 
@@ -160,6 +169,22 @@ internal fun LazyListScope.storeSection(
     }
 }
 
+/** Résultats d'une recherche : le nombre est annoncé (zone vive) pour qui n'en voit pas la liste. */
+private fun LazyListScope.resultsSection(
+    stores: List<StoreCandidate>,
+    actions: StorePickerActions,
+) {
+    item(key = "results-title", contentType = "title") {
+        SectionTitle(
+            pluralStringResource(R.plurals.picker_search_count, stores.size, stores.size),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+    items(stores.size, key = { "results-${stores[it].id}" }, contentType = { "store" }) { index ->
+        StoreRow(stores[index], actions.onSelect)
+    }
+}
+
 internal fun LazyListScope.withoutStore(actions: StorePickerActions) {
     item(key = "without-store", contentType = "action") {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -178,12 +203,16 @@ internal fun LazyListScope.withoutStore(actions: StorePickerActions) {
 }
 
 @Composable
-internal fun SectionTitle(text: String) {
+internal fun SectionTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
+        modifier =
+            modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
     )
 }
 
@@ -226,18 +255,36 @@ internal fun StoreRow(
     }
 }
 
-/** Les magasins viennent d'OpenStreetMap : mention et lien vers la licence (ODbL). */
+/**
+ * Les magasins viennent d'OpenStreetMap : mention et lien vers la licence (ODbL). Toute la barre est une cible
+ * d'au moins 48 dp, annoncée « Ouvrir la page de licence d'OpenStreetMap » par TalkBack.
+ */
 @Composable
 internal fun Attribution() {
     val text = stringResource(R.string.picker_attribution)
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().testTag(TAG_ATTRIBUTION)) {
+    val uriHandler = LocalUriHandler.current
+    Surface(
+        tonalElevation = 2.dp,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .testTag(TAG_ATTRIBUTION)
+                .clickable(onClickLabel = stringResource(R.string.picker_attribution_action)) {
+                    uriHandler.openUri(OSM_COPYRIGHT_URL)
+                },
+    ) {
         Text(
             buildAnnotatedString {
                 withLink(LinkAnnotation.Url(OSM_COPYRIGHT_URL)) { append(text) }
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier =
+                Modifier
+                    .navigationBarsPadding()
+                    .heightIn(min = 48.dp)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }

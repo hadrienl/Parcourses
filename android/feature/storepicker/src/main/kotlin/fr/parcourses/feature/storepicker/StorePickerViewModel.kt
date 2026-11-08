@@ -91,23 +91,12 @@ data class StorePickerUiState(
     /** La demande de précision n'a rien donné : à dire, sinon le bouton semble sans effet. */
     val precisionDeclined: Boolean = false,
 ) {
-    /** La recherche par nom sert de repli quand la position n'a rien donné d'utilisable. */
+    /**
+     * La recherche par nom est offerte dès que la position est traitée : le magasin voulu peut manquer aux plus
+     * proches, et elle sert de repli quand la position n'a rien donné.
+     */
     val offersSearch: Boolean
-        get() =
-            when (phase) {
-                is StorePickerPhase.Denied,
-                StorePickerPhase.PermissionNeeded,
-                StorePickerPhase.LocationUnavailable,
-                StorePickerPhase.NoStore,
-                is StorePickerPhase.Approximate,
-                -> true
-
-                StorePickerPhase.Loading,
-                is StorePickerPhase.Precise,
-                StorePickerPhase.Offline,
-                StorePickerPhase.ServiceError,
-                -> false
-            }
+        get() = phase != StorePickerPhase.Loading
 }
 
 /**
@@ -135,7 +124,7 @@ class StorePickerViewModel(
     private var loadJob: Job? = null
     private var searchJob: Job? = null
     private var started = false
-    private var selecting = false
+    private var finished = false
     private var permissionRequested = false
     private var canAskAgain = true
     private var lastAuthorization: LocationAuthorization? = null
@@ -301,11 +290,15 @@ class StorePickerViewModel(
 
     // MARK: choix
 
-    /** Écrit le magasin dans le cache (sans distance : avec la date, elle situerait l'utilisateur) puis le rend. */
+    /**
+     * Écrit le magasin dans le cache (sans distance : avec la date, elle situerait l'utilisateur) puis le rend.
+     * [finished] est posé avant tout envoi : un double appui, ou un appui sur « sans magasin » pendant l'écriture,
+     * ne produit qu'une sortie. Seul un échec le relève, pour réessayer.
+     */
     @Suppress("TooGenericExceptionCaught") // toute panne de cache est dite à l'utilisateur, l'annulation est relancée
     fun select(store: StoreCandidate) {
-        if (selecting) return
-        selecting = true
+        if (finished) return
+        finished = true
         viewModelScope.launch {
             try {
                 stores.upsertStore(store.id, store.name, store.chain, store.address, store.organicAisle)
@@ -316,9 +309,8 @@ class StorePickerViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (ignored: Exception) {
+                finished = false
                 state.update { it.copy(selectionFailed = true) }
-            } finally {
-                selecting = false
             }
         }
     }
@@ -326,6 +318,8 @@ class StorePickerViewModel(
     fun dismissSelectionFailure() = state.update { it.copy(selectionFailed = false) }
 
     fun continueWithoutStore() {
+        if (finished) return
+        finished = true
         cancel()
         outcomeChannel.trySend(StorePickerOutcome.WithoutStore)
     }
@@ -335,10 +329,16 @@ class StorePickerViewModel(
     fun onQueryChange(text: String) {
         if (text == state.value.query) return
         state.update { it.copy(query = text) }
-        scheduleSearch(text.trim())
+        scheduleSearch(text.trim(), immediate = false)
     }
 
-    private fun scheduleSearch(text: String) {
+    /** Touche « Rechercher » du clavier : lance la recherche sans attendre l'anti-rebond. */
+    fun submitSearch() = scheduleSearch(state.value.query.trim(), immediate = true)
+
+    private fun scheduleSearch(
+        text: String,
+        immediate: Boolean,
+    ) {
         searchJob?.cancel()
         if (text.length < MIN_QUERY_LENGTH) {
             state.update { it.copy(search = StoreSearchState.Idle) }
@@ -352,7 +352,7 @@ class StorePickerViewModel(
         state.update { it.copy(search = StoreSearchState.Searching) }
         searchJob =
             viewModelScope.launch {
-                delay(debounceMs)
+                if (!immediate) delay(debounceMs)
                 val result =
                     try {
                         val rows =

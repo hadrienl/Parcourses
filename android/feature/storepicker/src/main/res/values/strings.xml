@@ -39,6 +39,7 @@
     <string name="picker_error_body">Les magasins proches n\'ont pas pu être chargés. Réessayez dans un instant.</string>
     <string name="picker_no_store_title">Aucun magasin connu ici</string>
     <string name="picker_no_store_body">Cherchez-le par nom, ou continuez sans magasin.</string>
+    <string name="picker_open_location_settings">Ouvrir les réglages de localisation</string>
     <string name="picker_retry">Réessayer</string>
 
     <!-- Recherche -->
@@ -47,7 +48,10 @@
     <string name="picker_search_offline">Recherche impossible hors ligne.</string>
     <string name="picker_search_failed">La recherche a échoué. Réessayez.</string>
     <string name="picker_searching">Recherche en cours…</string>
-    <string name="picker_search_results">Résultats de la recherche</string>
+    <plurals name="picker_search_count">
+        <item quantity="one">%1$d magasin trouvé</item>
+        <item quantity="other">%1$d magasins trouvés</item>
+    </plurals>
 
     <!-- Sortie -->
     <string name="picker_without_store">Continuer sans magasin</string>

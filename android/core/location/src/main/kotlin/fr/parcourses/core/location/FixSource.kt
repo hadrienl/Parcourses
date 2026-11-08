@@ -10,6 +10,7 @@ import android.os.Looper
 import androidx.core.location.LocationManagerCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
@@ -40,14 +41,16 @@ internal fun Location.toFix(): LocationFix =
 
 /** Google Play Services (Fused) : mise à jour toutes les secondes jusqu'à ce que la sélection s'arrête. */
 class FusedFixSource(
-    private val context: Context,
+    private val client: () -> FusedLocationProviderClient,
     private val now: () -> Long = System::currentTimeMillis,
 ) : FixSource {
+    constructor(context: Context) : this({ LocationServices.getFusedLocationProviderClient(context) })
+
     // Les appelants vérifient l'autorisation avant ; une révocation en cours de route lève SecurityException.
     @SuppressLint("MissingPermission")
     override fun updates(precise: Boolean): Flow<LocationFix> =
         callbackFlow {
-            val client = LocationServices.getFusedLocationProviderClient(context)
+            val client = client()
             val priority = if (precise) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
             val request =
                 LocationRequest

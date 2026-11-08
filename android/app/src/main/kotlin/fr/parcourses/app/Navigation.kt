@@ -27,13 +27,7 @@ fun ParcoursesNavHost(container: AppContainer) {
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
         (container.engine?.remaps ?: emptyFlow()).collect { remap ->
-            backStack.forEachIndexed { index, key ->
-                when (key) {
-                    is Route.ListDetail -> backStack[index] = key.copy(listId = remap[key.listId])
-                    is Route.StorePicker -> backStack[index] = key.copy(listId = remap[key.listId])
-                    else -> Unit
-                }
-            }
+            backStack.applyRemap(remap)
         }
     }
 
@@ -89,10 +83,7 @@ fun ParcoursesNavHost(container: AppContainer) {
                     ListDetailRoute(
                         viewModel = model,
                         onBack = { backStack.removeLastOrNull() },
-                        onStartShopping = { listId ->
-                            val top = backStack.lastOrNull()
-                            if (top !is Route.StorePicker) backStack.add(Route.StorePicker(listId))
-                        },
+                        onStartShopping = { listId -> backStack.openStorePicker(listId) },
                     )
                 }
                 entry<Route.StorePicker>(clazzContentKey = { it.slot }) { key ->
@@ -113,8 +104,7 @@ fun ParcoursesNavHost(container: AppContainer) {
                         viewModel = model,
                         // Le mode courses (A8) reprend ce choix ; en attendant on revient à la liste.
                         onOutcome = { outcome ->
-                            container.offerStoreChoice(StoreChoice(key.listId, outcome))
-                            backStack.removeLastOrNull()
+                            backStack.finishStorePicker(key.slot, outcome)?.let(container::offerStoreChoice)
                         },
                         onBack = { backStack.removeLastOrNull() },
                     )

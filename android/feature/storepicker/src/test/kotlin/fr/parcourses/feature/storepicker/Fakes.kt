@@ -73,6 +73,7 @@ class FakeGateway(
 class FakeStoreRepository : StoreRepository {
     val cache = linkedMapOf<String, StoreEntity>()
     var failWrites = false
+    var upserts = 0
 
     override suspend fun store(id: String) = cache[id]
 
@@ -90,6 +91,7 @@ class FakeStoreRepository : StoreRepository {
         organicAisle: Boolean?,
     ) {
         check(!failWrites) { "disque plein" }
+        upserts++
         val known = cache[id]
         cache[id] =
             StoreEntity(id, name, chain, address, known?.lastUsedAt, organicAisle ?: known?.organicAisle ?: false)

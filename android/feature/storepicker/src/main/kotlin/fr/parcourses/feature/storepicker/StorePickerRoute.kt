@@ -2,6 +2,7 @@ package fr.parcourses.feature.storepicker
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -58,6 +59,8 @@ fun StorePickerRoute(
                 onRequestPermission = { launcher.launch(LOCATION_PERMISSIONS) },
                 onOpenSettings = { context.openAppSettings() },
                 onRetry = viewModel::start,
+                onSubmitSearch = viewModel::submitSearch,
+                onOpenLocationSettings = { context.openLocationSettings() },
                 onContinueWithoutStore = viewModel::continueWithoutStore,
                 onDismissSelectionFailure = viewModel::dismissSelectionFailure,
             )
@@ -89,4 +92,14 @@ private fun Context.openAppSettings() {
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     startActivity(intent)
+}
+
+private fun Context.openLocationSettings() {
+    val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    // Certains appareils n'ont pas cet écran : l'utilisateur garde la recherche par nom.
+    try {
+        startActivity(intent)
+    } catch (ignored: ActivityNotFoundException) {
+        // Rien à ouvrir.
+    }
 }

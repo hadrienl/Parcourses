@@ -8,13 +8,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,6 +52,13 @@ class StorePickerViewModelTest {
     }
 
     private val StorePickerViewModel.phase get() = uiState.value.phase
+
+    /** Tous les résultats émis : on lit jusqu'à ce que plus rien n'arrive (temps virtuel). */
+    private suspend fun StorePickerViewModel.drainOutcomes(): List<StorePickerOutcome> {
+        val all = mutableListOf<StorePickerOutcome>()
+        while (true) all += withTimeoutOrNull(1_000) { outcomes.first() } ?: break
+        return all
+    }
 
     // --- Position précise ---
 
@@ -265,7 +275,7 @@ class StorePickerViewModelTest {
                 vm.uiState.value.recents
                     .map { it.name },
             )
-            assertFalse(vm.uiState.value.offersSearch)
+            assertTrue(vm.uiState.value.offersSearch)
         }
 
     @Test
@@ -294,22 +304,90 @@ class StorePickerViewModelTest {
         }
 
     @Test
-    fun retryingReplacesTheLoadInProgress() =
+    fun retryingCancelsTheLoadInProgress() =
         runTest {
-            val gate = CompletableDeferred<Unit>()
+            val firstGate = CompletableDeferred<Unit>()
+            var call = 0
+            var completed = 0
             gateway.nearby = { _, _, _, _ ->
-                gate.await()
-                listOf(nearbyRow("A", 40.0))
+                val index = ++call
+                if (index == 1) firstGate.await()
+                completed++
+                listOf(nearbyRow(if (index == 1) "Premier" else "Second", 40.0))
             }
             val vm = model()
             vm.start()
             advanceUntilIdle()
             vm.start()
-            gate.complete(Unit)
+            advanceUntilIdle()
+            // Même débloquée, la première requête a été annulée : elle ne finit pas et n'écrase rien.
+            firstGate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals("Second", ((vm.phase) as StorePickerPhase.Precise).proposed?.name)
+            assertEquals(1, completed)
+            assertEquals(2, location.reads)
+        }
+
+    @Test
+    fun aDoubleTapReturnsTheStoreOnce() =
+        runTest {
+            val vm = model()
+            val store = StoreCandidate("a", "A")
+            vm.select(store)
+            vm.select(store)
+            advanceUntilIdle()
+            assertEquals(listOf<StorePickerOutcome>(StorePickerOutcome.Store("a")), vm.drainOutcomes())
+            assertEquals(1, cache.upserts)
+        }
+
+    @Test
+    fun tappingWithoutStoreWhileSavingDoesNotReturnTwice() =
+        runTest {
+            val vm = model()
+            vm.select(StoreCandidate("a", "A"))
+            vm.continueWithoutStore()
+            advanceUntilIdle()
+            assertEquals(listOf<StorePickerOutcome>(StorePickerOutcome.Store("a")), vm.drainOutcomes())
+        }
+
+    @Test
+    fun aDoubleTapOnWithoutStoreReturnsOnce() =
+        runTest {
+            val vm = model()
+            vm.continueWithoutStore()
+            vm.continueWithoutStore()
+            vm.select(StoreCandidate("a", "A"))
+            advanceUntilIdle()
+            assertEquals(listOf<StorePickerOutcome>(StorePickerOutcome.WithoutStore), vm.drainOutcomes())
+            assertTrue(cache.cache.isEmpty())
+        }
+
+    @Test
+    fun searchIsOfferedOnceThePositionIsHandled() =
+        runTest {
+            gateway.nearby = { _, _, _, _ -> listOf(nearbyRow("A", 40.0)) }
+            val vm = model()
+            vm.start()
+            assertFalse(vm.uiState.value.offersSearch)
             advanceUntilIdle()
             assertTrue(vm.phase is StorePickerPhase.Precise)
-            // Le premier chargement a été annulé : un seul résultat appliqué.
-            assertEquals(2, location.reads)
+            assertTrue(vm.uiState.value.offersSearch)
+            gateway.nearby = { _, _, _, _ -> throw RemoteError.Server("503") }
+            vm.start()
+            advanceUntilIdle()
+            assertEquals(StorePickerPhase.ServiceError, vm.phase)
+            assertTrue(vm.uiState.value.offersSearch)
+        }
+
+    @Test
+    fun theKeyboardSearchKeyDoesNotWaitForTheDebounce() =
+        runTest {
+            gateway.search = { _, _ -> listOf(searchRow("X")) }
+            val vm = started(model())
+            vm.onQueryChange("carre")
+            vm.submitSearch()
+            runCurrent()
+            assertTrue(vm.uiState.value.search is StoreSearchState.Results)
         }
 
     @Test

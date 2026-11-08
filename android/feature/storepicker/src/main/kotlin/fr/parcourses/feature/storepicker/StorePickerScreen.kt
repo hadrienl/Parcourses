@@ -69,6 +69,10 @@ class StorePickerActions(
     val onRequestPermission: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onRetry: () -> Unit,
+    /** Touche « Rechercher » du clavier. */
+    val onSubmitSearch: () -> Unit,
+    /** Réglages de localisation du système (localisation éteinte ou sans point). */
+    val onOpenLocationSettings: () -> Unit,
     val onContinueWithoutStore: () -> Unit,
     val onDismissSelectionFailure: () -> Unit,
 )
@@ -124,7 +128,7 @@ private fun LazyListScope.phaseContent(
         }
 
         is StorePickerPhase.Precise -> {
-            precise(phase, state, actions)
+            precise(phase, state, query, actions)
         }
 
         is StorePickerPhase.Approximate -> {
@@ -140,7 +144,13 @@ private fun LazyListScope.phaseContent(
         }
 
         StorePickerPhase.LocationUnavailable -> {
-            notice(Notice.Unavailable, R.string.picker_retry, actions.onRetry)
+            notice(
+                Notice.Unavailable,
+                R.string.picker_retry,
+                actions.onRetry,
+                R.string.picker_open_location_settings,
+                actions.onOpenLocationSettings,
+            )
         }
 
         StorePickerPhase.Offline -> {
@@ -208,6 +218,7 @@ private fun LazyListScope.loading() {
 private fun LazyListScope.precise(
     phase: StorePickerPhase.Precise,
     state: StorePickerUiState,
+    query: TextFieldState,
     actions: StorePickerActions,
 ) {
     val proposed = phase.proposed
@@ -223,6 +234,7 @@ private fun LazyListScope.precise(
     }
     val title = if (proposed == null) R.string.picker_nearby else R.string.picker_other_nearby
     storeSection("nearby", title, phase.others, actions)
+    search(state, query, actions)
     storeSection("recents", R.string.picker_recents, state.recents, actions)
     withoutStore(actions)
 }
@@ -274,6 +286,8 @@ private fun LazyListScope.notice(
     notice: Notice,
     actionLabel: Int? = null,
     onAction: () -> Unit = {},
+    secondaryLabel: Int? = null,
+    onSecondary: () -> Unit = {},
 ) {
     item(key = "status", contentType = "status") { Status(notice) }
     if (actionLabel != null) {
@@ -282,6 +296,14 @@ private fun LazyListScope.notice(
                 onClick = onAction,
                 modifier = Modifier.padding(horizontal = 16.dp).testTag(TAG_PRIMARY_ACTION),
             ) { Text(stringResource(actionLabel)) }
+        }
+    }
+    if (secondaryLabel != null) {
+        item(key = "secondary-action", contentType = "action") {
+            TextButton(
+                onClick = onSecondary,
+                modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp),
+            ) { Text(stringResource(secondaryLabel)) }
         }
     }
 }

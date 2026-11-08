@@ -28,9 +28,9 @@ import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.createSupabaseGateway
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -75,17 +75,16 @@ class AppContainer(
     /** Position ponctuelle : Google Play Services, sinon le gestionnaire du système (API 30+). */
     val location: LocationProvider by lazy { SystemLocationProvider(context) }
 
-    private val pendingStoreChoice = MutableStateFlow<StoreChoice?>(null)
+    private val storeChoiceEvents = MutableSharedFlow<StoreChoice>(extraBufferCapacity = 1)
 
-    /** Dernier choix de magasin non repris. Le mode courses (A8) le consomme avec [consumeStoreChoice]. */
-    val storeChoice: StateFlow<StoreChoice?> = pendingStoreChoice.asStateFlow()
+    /**
+     * Choix de magasin, un événement à consommation unique (sans rejeu) lié à sa liste : un choix ancien ne peut
+     * pas rouvrir une visite. Le mode courses (A8) le collecte tant que l'app est ouverte.
+     */
+    val storeChoices: Flow<StoreChoice> = storeChoiceEvents.asSharedFlow()
 
     fun offerStoreChoice(choice: StoreChoice) {
-        pendingStoreChoice.value = choice
-    }
-
-    fun consumeStoreChoice() {
-        pendingStoreChoice.value = null
+        storeChoiceEvents.tryEmit(choice)
     }
 
     /** Lancement : catégories, connexion anonyme, puis synchronisation (en tâche de fond). */

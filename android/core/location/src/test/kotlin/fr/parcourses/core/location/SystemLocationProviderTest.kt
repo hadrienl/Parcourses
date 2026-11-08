@@ -1,5 +1,6 @@
 package fr.parcourses.core.location
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SystemLocationProviderTest {
     private val point = LocationFix(48.0, 2.0, 30.0, timestampMillis = 0)
 

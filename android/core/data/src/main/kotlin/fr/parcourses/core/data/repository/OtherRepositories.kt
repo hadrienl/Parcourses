@@ -1,5 +1,6 @@
 package fr.parcourses.core.data.repository
 
+import androidx.room3.withWriteTransaction
 import fr.parcourses.core.database.CategorySeed
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.CategoryEntity
@@ -110,17 +111,20 @@ class RoomStoreRepository(
         address: String?,
         organicAisle: Boolean?,
     ) {
-        val known = db.stores().get(id)
-        db.stores().upsert(
-            StoreEntity(
-                id = id,
-                name = name,
-                chain = chain,
-                address = address,
-                lastUsedAt = known?.lastUsedAt,
-                organicAisle = organicAisle ?: known?.organicAisle ?: false,
-            ),
-        )
+        // Lecture puis écriture dans une seule transaction : le dernier usage et le rayon bio ne se perdent pas.
+        db.withWriteTransaction {
+            val known = db.stores().get(id)
+            db.stores().upsert(
+                StoreEntity(
+                    id = id,
+                    name = name,
+                    chain = chain,
+                    address = address,
+                    lastUsedAt = known?.lastUsedAt,
+                    organicAisle = organicAisle ?: known?.organicAisle ?: false,
+                ),
+            )
+        }
     }
 
     override suspend fun updateOrganicAisle(
