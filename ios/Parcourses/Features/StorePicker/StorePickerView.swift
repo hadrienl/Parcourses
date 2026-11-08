@@ -13,6 +13,7 @@ struct StorePickerView: View {
         .navigationTitle("Choisir le magasin")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { attribution }
+        .opaqueBottomBar()
         .alert("Impossible d'enregistrer ce magasin", isPresented: selectionFailed) {
           Button("OK", role: .cancel) {}
         } message: {
@@ -44,8 +45,7 @@ struct StorePickerView: View {
           Section("Vous êtes ici ?") {
             StoreRow(store: proposed) { model.select(proposed) }
             Button("Faire mes courses ici") { model.select(proposed) }
-              .buttonStyle(.borderedProminent)
-              .controlSize(.large)
+              .prominentButton()
               .frame(maxWidth: .infinity)
               .listRowBackground(Color.clear)
               .accessibilityIdentifier("confirmProposal")

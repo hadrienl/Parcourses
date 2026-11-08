@@ -103,6 +103,7 @@ struct ShoppingView: View {
     .navigationBarTitleDisplayMode(.inline)
     .sensoryFeedback(.success, trigger: checkTrigger)
     .safeAreaInset(edge: .bottom) { dock }
+    .opaqueBottomBar()
     .sheet(isPresented: remainingIsPresented) {
       RemainingItemsSheet(
         count: session.remainingCount, canCancel: !session.expired,
@@ -146,15 +147,18 @@ struct ShoppingView: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 2) {
+      // `Color.primary`, pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
+      // Aucune ligne tronquée aux grandes tailles de texte.
       VStack(alignment: .leading, spacing: 2) {
         Text(remainingText)
           .font(.title2.weight(.bold))
-          .foregroundStyle(.primary)
         if let store = session.storeName {
           Text(store).font(.subheadline)
         }
         Text(knowledgeText).font(.subheadline)
       }
+      .foregroundStyle(Color.primary)
+      .fixedSize(horizontal: false, vertical: true)
       .accessibilityElement(children: .combine)
       .accessibilityIdentifier("shoppingHeader")
       // Le magasin vient d'OpenStreetMap : l'attribution reste là où son nom s'affiche.
@@ -169,7 +173,8 @@ struct ShoppingView: View {
   private func aisleHeader(_ section: ShoppingSection) -> some View {
     Text(section.title)
       .font(.headline)
-      .foregroundStyle(.primary)
+      .foregroundStyle(Color.primary)
+      .fixedSize(horizontal: false, vertical: true)
       .textCase(nil)
       .accessibilityLabel(section.accessibilityLabel)
       .accessibilityAddTraits(.isHeader)
@@ -260,7 +265,7 @@ struct ShoppingView: View {
       if let undo = session.undo {
         ViewThatFits(in: .horizontal) {
           HStack {
-            Text(undo.message).lineLimit(2).accessibilityIdentifier("undoMessage")
+            Text(undo.message).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("undoMessage")
             Spacer()
             undoButton
           }
@@ -298,13 +303,14 @@ struct ShoppingView: View {
     Button {
       session.performUndo()
     } label: {
-      Text("Annuler").fontWeight(.semibold).touchTarget()
+      // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le message.
+      Text("Annuler").fontWeight(.semibold).fixedSize().touchTarget()
     }
     .accessibilityIdentifier("undo")
   }
 
   private var entryField: some View {
-    TextField("Ajouter un article", text: $session.input)
+    TextField("Ajouter un article", text: $session.input, prompt: EntryPrompt.text)
       .entryField(focus: $inputIsFocused)
       .submitLabel(.done)
       .accessibilityIdentifier("shoppingEntry")
@@ -312,11 +318,12 @@ struct ShoppingView: View {
   }
 
   private var finishButton: some View {
-    Button("Terminer", action: finishTapped)
-      .buttonStyle(.borderedProminent)
-      // Grande taille de contrôle : bouton de 50 pt, sa propre zone tactile.
-      .controlSize(.large)
-      .accessibilityIdentifier("finish")
+    Button(action: finishTapped) {
+      // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le champ.
+      Text("Terminer").fixedSize()
+    }
+    .prominentButton()
+    .accessibilityIdentifier("finish")
   }
 
   private func submit() {
@@ -350,8 +357,7 @@ private struct RemainingItemsSheet: View {
           .font(.title2.weight(.bold))
         Text("Les garder pour la prochaine fois ?")
         Button("Les garder", action: onKeep)
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
+          .prominentButton()
           .accessibilityIdentifier("keepRemaining")
         Button(role: .destructive, action: onDrop) {
           Text("Les retirer de la liste").touchTarget()
@@ -386,8 +392,7 @@ struct ShoppingSummaryView: View {
     }
     .safeAreaInset(edge: .bottom) {
       Button("Retour aux listes", action: onClose)
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .prominentButton()
         .accessibilityIdentifier("closeSummary")
         .padding()
     }

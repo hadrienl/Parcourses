@@ -91,6 +91,23 @@ targets:
       - path: ../supabase/migrations
         type: folder
         buildPhase: resources
+      # Sources de l'app et de l'extension, copiées telles quelles : PrivacyManifestTests y cherche les API à raison
+      # obligatoire (le simulateur n'a pas accès au dossier Documents de l'hôte).
+      - path: Parcourses
+        type: folder
+        buildPhase: resources
+      - path: ParcoursesWidgets
+        type: folder
+        buildPhase: resources
+      - path: Shared
+        type: folder
+        buildPhase: resources
+      - path: Packages/Domain/Sources/Domain
+        type: folder
+        buildPhase: resources
+      - path: Packages/SortEngine/Sources/SortEngine
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: Parcourses
     settings:

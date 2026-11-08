@@ -24,21 +24,21 @@ struct ListDetailView: View {
             itemRow(row)
           }
         } header: {
-          // Titre en couleur principale : le gris des en-têtes du système tient mal le contraste.
-          Text(section.title).foregroundStyle(.primary)
+          // Titre en couleur principale : le gris des en-têtes du système tient mal le contraste. `Color.primary`,
+          // pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
+          Text(section.title).foregroundStyle(Color.primary)
         }
       }
     }
     .scrollDismissesKeyboard(.interactively)
     .overlay {
       if model.isMissing {
-        ContentUnavailableView(
-          "Liste introuvable", systemImage: "questionmark.folder",
-          description: Text("Cette liste a été supprimée."))
+        EmptyState(
+          title: "Liste introuvable", systemImage: "questionmark.folder", description: "Cette liste a été supprimée.")
       } else if model.isLoaded && model.isEmpty {
-        ContentUnavailableView(
-          "Liste vide", systemImage: "basket",
-          description: Text("Ajoutez un article, par exemple « 2 laits demi-écrémé »."))
+        EmptyState(
+          title: "Liste vide", systemImage: "basket",
+          description: "Ajoutez un article, par exemple « 2 laits demi-écrémé ».")
       }
     }
     .navigationTitle(model.name)
@@ -56,6 +56,7 @@ struct ListDetailView: View {
     .safeAreaInset(edge: .bottom) {
       if !model.isMissing { dock }
     }
+    .opaqueBottomBar()
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
     .task {
       model.load()
@@ -108,7 +109,7 @@ struct ListDetailView: View {
         }
       }
       HStack {
-        TextField("Ajouter un article", text: $model.input)
+        TextField("Ajouter un article", text: $model.input, prompt: EntryPrompt.text)
           .entryField(focus: $inputIsFocused)
           .submitLabel(.done)
           .accessibilityIdentifier("quickEntry")

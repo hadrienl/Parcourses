@@ -1,16 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// Fond de barre : le matériau du système, ou un aplat opaque avec « Réduire la transparence ».
+/// Fond de barre opaque : le contenu qui défile dessous est masqué au lieu de transparaître, ce qui garde le
+/// contraste du dock et de la liste (audit d'accessibilité). Le verre revient avec l'habillage du lot 9.11.
 private struct BarBackground: ViewModifier {
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
   func body(content: Content) -> some View {
-    if reduceTransparency {
-      content.background(Color(uiColor: .systemBackground)).overlay(alignment: .top) { Divider() }
-    } else {
-      content.background(.bar)
-    }
+    content.background(Color(uiColor: .systemBackground)).overlay(alignment: .top) { Divider() }
   }
 }
 
@@ -24,6 +19,13 @@ private struct BannerBackground: ViewModifier {
     } else {
       content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
+  }
+}
+
+/// Indication du champ de saisie : plus foncée que le gris clair du système, qui ne tient pas 4,5:1.
+enum EntryPrompt {
+  static var text: Text {
+    Text("Ajouter un article").foregroundStyle(Color.primary.opacity(0.6))
   }
 }
 
@@ -62,6 +64,23 @@ extension View {
     touchTarget(minHeight: 48)
   }
 
+  /// Bouton principal : plein, grande taille (50 pt, sa propre zone tactile). Teinte dédiée, plus sombre que
+  /// `AccentColor` en mode sombre, pour que le texte blanc tienne 4,5:1 ; `AccentColor` reste assez clair pour les
+  /// liens et pictogrammes sur fond sombre.
+  func prominentButton() -> some View {
+    buttonStyle(.borderedProminent).controlSize(.large).tint(Color("ProminentTint"))
+  }
+
+  /// Liste qui défile sous un dock opaque : pas d'effet de bord de défilement (iOS 26), dont le flou rend
+  /// illisible le texte qui passe dessous (l'audit de contraste le rejette, aux grandes tailles de texte).
+  @ViewBuilder func opaqueBottomBar() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectHidden(true, for: .bottom)
+    } else {
+      self
+    }
+  }
+
   /// Fond des docks et barres du bas.
   func barBackground() -> some View {
     modifier(BarBackground())
@@ -70,6 +89,39 @@ extension View {
   /// Fond de la bannière « Annuler » et des surimpressions.
   func bannerBackground() -> some View {
     modifier(BannerBackground())
+  }
+}
+
+/// État vide, à la manière de `ContentUnavailableView` : pictogramme décoratif à la teinte de l'app, titre et
+/// description en éléments distincts, jamais tronqués. `ContentUnavailableView` regroupe pictogramme et titre dans
+/// un seul nœud que l'audit de contraste rejette.
+struct EmptyState: View {
+  let title: String
+  let systemImage: String
+  let description: String
+
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 8) {
+        Image(systemName: systemImage)
+          .font(.largeTitle)
+          .imageScale(.large)
+          .foregroundStyle(.tint)
+          .padding(.bottom, 8)
+          .accessibilityHidden(true)
+        Text(title)
+          .font(.title2.bold())
+          .accessibilityAddTraits(.isHeader)
+        Text(description)
+          .foregroundStyle(.secondary)
+      }
+      .multilineTextAlignment(.center)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding()
+      .frame(maxWidth: .infinity)
+      .containerRelativeFrame(.vertical, alignment: .center) { length, _ in length }
+    }
+    .scrollBounceBehavior(.basedOnSize)
   }
 }
 

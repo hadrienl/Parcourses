@@ -8,8 +8,9 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   }
 
   @MainActor
-  func launch(reset: Bool, launchArguments: [String] = []) -> XCUIApplication {
+  func launch(reset: Bool, launchArguments: [String] = [], dark: Bool = false) -> XCUIApplication {
     let app = XCUIApplication()
+    if dark { app.launchEnvironment["PARCOURSES_TEST_COLOR_SCHEME"] = "dark" }
     app.launchArguments += launchArguments
     app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests"
     if reset { app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1" }
@@ -56,7 +57,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   /// Crée une liste, ouvre le mode courses et choisit le magasin récent, après refus de la localisation.
   @MainActor
   func enterShopping(
-    confidenceQ: Int?, items: [String], launchArguments: [String] = [],
+    confidenceQ: Int?, items: [String], launchArguments: [String] = [], dark: Bool = false,
     atPicker: (XCUIApplication) -> Void = { _ in }
   ) -> XCUIApplication {
     let app = XCUIApplication()
@@ -68,6 +69,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
       app.launchEnvironment["PARCOURSES_TEST_SEED_SNAPSHOT"] = Self.snapshot(confidenceQ: confidenceQ)
     }
     app.launchArguments += launchArguments
+    if dark { app.launchEnvironment["PARCOURSES_TEST_COLOR_SCHEME"] = "dark" }
     app.resetAuthorizationStatus(for: .location)
     app.launch()
 

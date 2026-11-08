@@ -27,6 +27,7 @@ struct ListsView: View {
       }
       .sheet(isPresented: $showsAbout) { AboutView() }
       .safeAreaInset(edge: .bottom) { createButton }
+      .opaqueBottomBar()
       // Relancé à chaque retour sur l'écran, pour des compteurs à jour.
       .task { model.load() }
       .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
@@ -59,9 +60,7 @@ struct ListsView: View {
 
   @ViewBuilder private var content: some View {
     if model.lists.isEmpty {
-      ContentUnavailableView(
-        "Aucune liste", systemImage: "cart",
-        description: Text("Créez votre première liste de courses."))
+      EmptyState(title: "Aucune liste", systemImage: "cart", description: "Créez votre première liste de courses.")
     } else {
       List(model.lists) { list in
         Button {
@@ -105,8 +104,7 @@ struct ListsView: View {
       Label("Nouvelle liste", systemImage: "plus")
         .frame(maxWidth: .infinity)
     }
-    .buttonStyle(.borderedProminent)
-    .controlSize(.large)
+    .prominentButton()
     .padding()
     .barBackground()
   }

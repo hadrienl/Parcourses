@@ -84,15 +84,15 @@ struct PrivacyManifestTests {
   }
 
   /// Toute API à raison obligatoire présente dans le code doit être déclarée dans le manifeste de sa cible, avec
-  /// au moins une raison. Les sources sont lues depuis le dépôt (le simulateur voit le disque de l'hôte).
+  /// au moins une raison. Les sources sont copiées dans le bundle de test (`project.yml`).
   @Test(arguments: [
-    (["Parcourses", "Shared", "Packages/Domain/Sources", "Packages/SortEngine/Sources"], "Parcourses"),
+    (["Parcourses", "Shared", "Domain", "SortEngine"], "Parcourses"),
     (["ParcoursesWidgets", "Shared"], "ParcoursesWidgets"),
   ])
   func requiredReasonAPIsInCodeAreDeclared(sources: [String], target: String) throws {
-    let ios = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-    let found = try RequiredReasonAPI.categories(in: sources.map { ios.appending(path: $0) })
-    let url = ios.appending(path: "\(target)/PrivacyInfo.xcprivacy")
+    let resources = try #require(Bundle(for: BundleToken.self).resourceURL)
+    let found = try RequiredReasonAPI.categories(in: sources.map { resources.appending(path: $0) })
+    let url = resources.appending(path: "\(target)/PrivacyInfo.xcprivacy")
     let data = try Data(contentsOf: url)
     let plist = try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
     let apis = plist["NSPrivacyAccessedAPITypes"] as? [[String: Any]] ?? []
@@ -101,6 +101,10 @@ struct PrivacyManifestTests {
       guard let type = api["NSPrivacyAccessedAPIType"] as? String else { continue }
       #expect(!(api["NSPrivacyAccessedAPITypeReasons"] as? [String] ?? []).isEmpty, "\(type) sans raison")
       declared.insert(type)
+    }
+    if target == "Parcourses" {
+      // Garde-fou : le balayage voit bien le code (les curseurs de synchro utilisent `UserDefaults`).
+      #expect(found["NSPrivacyAccessedAPICategoryUserDefaults"] != nil)
     }
     let missing = found.filter { !declared.contains($0.key) }
     #expect(missing.isEmpty, "API à raison obligatoire non déclarées dans \(target) : \(missing)")
@@ -122,6 +126,8 @@ struct PrivacyManifestTests {
     #expect(OpenStreetMap.credit.contains("OpenStreetMap"))
   }
 }
+
+private final class BundleToken {}
 
 /// Détecteur d'API à raison obligatoire (liste Apple : horodatages de fichiers, démarrage du système, espace disque,
 /// claviers actifs, `UserDefaults`). Les lignes de commentaire sont ignorées.

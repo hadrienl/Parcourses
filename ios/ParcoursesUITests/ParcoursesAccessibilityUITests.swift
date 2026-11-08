@@ -11,10 +11,6 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     continueAfterFailure = true
   }
 
-  override func tearDown() {
-    MainActor.assumeIsolated { XCUIDevice.shared.appearance = .light }
-  }
-
   /// AX5 : la plus grande taille de Dynamic Type.
   private static let ax5 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
 
@@ -25,7 +21,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
   /// Exceptions documentées. Retourne vrai pour ignorer le problème.
   @MainActor
-  private static func isKnownIssue(_ issue: XCUIAccessibilityAuditIssue, app: XCUIApplication) -> Bool {
+  private static func isKnownIssue(_ issue: XCUIAccessibilityAuditIssue, app: XCUIApplication, modal: Bool) -> Bool {
     let keyboard = app.keyboards.firstMatch
     let keyboardIsShown = keyboard.exists
     // 1. « Contrast nearly passed » : résultat limite, mesuré sur le rendu du système (boutons Liquid Glass,
@@ -42,7 +38,12 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let frame = element.frame
     switch issue.auditType {
     case .dynamicType:
-      // 3. Boutons de la barre de navigation : le système les plafonne et leur substitue la visionneuse de grand
+      // 3. Écrans présentés en modal (feuilles, plein écran du mode courses) : l'audit change la taille du texte à
+      //    chaud sur la fenêtre, et ce changement n'atteint pas les contrôleurs présentés (« User will not be able
+      //    to change the font size »), y compris pour un simple `Text`. La tenue du texte y est vérifiée par les
+      //    parcours lancés en AX5, dont les captures sont jointes.
+      if modal { return true }
+      // 3 bis. Boutons de la barre de navigation : le système les plafonne et leur substitue la visionneuse de grand
       //    contenu (appui long), comme le recommandent les HIG.
       if app.navigationBars.firstMatch.exists, app.navigationBars.firstMatch.frame.intersects(frame) { return true }
       // 4. Textes statiques des composants système (en-têtes et pieds de section, `ContentUnavailableView`,
@@ -89,21 +90,23 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// consigner un échec à l'intérieur du gestionnaire bloque l'audit (constaté sur Xcode 26/27, simulateurs
   /// iOS 26.5 et 27.0 : le test dépasse son délai).
   @MainActor
-  private func audit(_ app: XCUIApplication, _ screen: String) {
+  private func audit(
+    _ app: XCUIApplication, _ screen: String, modal: Bool = false, file: StaticString = #filePath, line: UInt = #line
+  ) {
     // Les feuilles s'animent à l'arrivée : l'audit lit les cadres pendant la transition sinon.
     Thread.sleep(forTimeInterval: 1)
     capture(app, "audit-\(screen)")
     var problems: [String] = []
     do {
       try app.performAccessibilityAudit(for: .all) { issue in
-        if Self.isKnownIssue(issue, app: app) { return true }
+        if Self.isKnownIssue(issue, app: app, modal: modal) { return true }
         // `String(describing:)` : lire `label` résoudrait l'élément pendant l'audit, ce qui le bloque.
         let keyboard = app.keyboards.firstMatch
         let keyboardInfo = keyboard.exists ? "\(keyboard.frame)" : "aucun"
         let element =
           issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame) clavier \(keyboardInfo)" }
           ?? "écran"
-        problems.append("\(issue.auditType): \(issue.compactDescription) [\(element)]")
+        problems.append("\(issue.auditType): \(issue.compactDescription) [\(element)] — \(issue.detailedDescription)")
         return true
       }
     } catch {
@@ -111,15 +114,23 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     }
     // Journal : lisible dans la sortie de xcodebuild même si la consignation de l'échec est lente.
     for problem in problems { NSLog("AUDIT[\(screen)] \(problem)") }
-    do {
-      XCTAssertTrue(problems.isEmpty, "Audit d'accessibilité « \(screen) » :\n" + problems.joined(separator: "\n"))
-    }
+    guard !problems.isEmpty else { return }
+    // Échec consigné sans pile d'appels : la symbolication de la pile bloque parfois XCTest en local (constaté
+    // sur Xcode 26, le test dépasse alors son délai). L'emplacement suffit.
+    let context = XCTSourceCodeContext(
+      callStackAddresses: [], location: XCTSourceCodeLocation(filePath: String(describing: file), lineNumber: Int(line))
+    )
+    record(
+      XCTIssue(
+        type: .assertionFailure,
+        compactDescription: "Audit d'accessibilité « \(screen) » :\n" + problems.joined(separator: "\n"),
+        sourceCodeContext: context))
   }
 
   /// Écrans Listes (vide, puis remplie), Liste, À propos.
   @MainActor
-  private func auditLists(arguments: [String], suffix: String) {
-    let app = launch(reset: true, launchArguments: arguments)
+  private func auditLists(arguments: [String], suffix: String, dark: Bool = false) {
+    let app = launch(reset: true, launchArguments: arguments, dark: dark)
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
     audit(app, "listes-vide\(suffix)")
 
@@ -164,7 +175,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     XCTAssertTrue(
       app.links["aboutOSMLink"].exists || app.buttons["aboutOSMLink"].exists
         || app.staticTexts["Données cartographiques"].exists)
-    audit(app, "a-propos")
+    audit(app, "a-propos", modal: true)
   }
 
   @MainActor
@@ -177,28 +188,28 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
   /// Choix du magasin, mode courses, feuille « articles restants » et résumé.
   @MainActor
-  private func auditShopping(arguments: [String], suffix: String) {
+  private func auditShopping(arguments: [String], suffix: String, dark: Bool = false) {
     let app = enterShopping(
-      confidenceQ: nil, items: ["2 laits", "tomates", "yaourts bio", "xyzzy"], launchArguments: arguments
+      confidenceQ: nil, items: ["2 laits", "tomates", "yaourts bio", "xyzzy"], launchArguments: arguments, dark: dark
     ) { app in
-      self.audit(app, "choix-magasin\(suffix)")
+      self.audit(app, "choix-magasin\(suffix)", modal: true)
     }
     XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 5))
-    audit(app, "mode-courses\(suffix)")
+    audit(app, "mode-courses\(suffix)", modal: true)
 
     let tomatoes = row(app, "tomates", "non coché")
     reveal(tomatoes, in: app)
     tomatoes.tap()
     XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))
-    audit(app, "mode-courses-annuler\(suffix)")
+    audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)
     app.buttons["finish"].tap()
     XCTAssertTrue(app.buttons["keepRemaining"].waitForExistence(timeout: 5))
-    audit(app, "articles-restants\(suffix)")
+    audit(app, "articles-restants\(suffix)", modal: true)
     app.buttons["keepRemaining"].tap()
     XCTAssertTrue(app.buttons["closeSummary"].waitForExistence(timeout: 5))
-    audit(app, "resume\(suffix)")
+    audit(app, "resume\(suffix)", modal: true)
   }
 
   @MainActor
@@ -214,13 +225,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// Mode sombre : teinte, fonds opaques et textes secondaires sur fond sombre.
   @MainActor
   func testAuditListsDark() {
-    XCUIDevice.shared.appearance = .dark
-    auditLists(arguments: [], suffix: "-sombre")
+    auditLists(arguments: [], suffix: "-sombre", dark: true)
   }
 
   @MainActor
   func testAuditShoppingDark() {
-    XCUIDevice.shared.appearance = .dark
-    auditShopping(arguments: [], suffix: "-sombre")
+    auditShopping(arguments: [], suffix: "-sombre", dark: true)
   }
 }
