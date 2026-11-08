@@ -515,4 +515,111 @@ class ShoppingViewModelTest : ShoppingTest() {
         }
 
     // endregion
+
+    // region Revue de la PR #56
+
+    @Test
+    fun aDoubleCheckEventChecksOnce() =
+        runTest(main) {
+            val (listId, items) = groceries()
+            val model = model(listId)
+            val stale = started(model).row("lait")
+
+            // Deux événements sur la même ligne, lue avant la première coche (double appui, balayage puis appui).
+            model.toggle(stale)
+            model.toggle(stale)
+            runCurrent()
+
+            val visit = visits.openVisit()!!
+            assertEquals(1, visits.checks(visit.id).size)
+            assertEquals(1, kinds().count { it == OutboxKind.InsertChecks })
+            assertNotNull(db.items().get(items.first().id)?.checkedAt)
+            assertNull(model.uiState.value.errorMessage)
+        }
+
+    @Test
+    fun aHorizontalSwipeSuspendsTheSort() =
+        runTest(main) {
+            val (listId, _) = groceries()
+            val model = model(listId)
+            val state = started(model)
+            model.toggle(state.row("pommes"))
+            runCurrent()
+
+            model.setSwiping(true)
+            after(5_000)
+            assertEquals(listOf("pommes", "pain", "lait"), model.uiState.value.labels())
+            model.setSwiping(false)
+            after(601)
+            assertEquals(listOf("pain", "lait"), model.uiState.value.labels())
+        }
+
+    @Test
+    fun theUndoWindowAndTheSendHoldShareTheirOrigin() =
+        runTest(main) {
+            val (listId, _) = groceries()
+            val model = model(listId)
+            val state = started(model)
+            // Accessibilité : délai d'action allongé à 10 s.
+            model.setUndoDuration(kotlin.time.Duration.parse("10s"))
+            val checkedAt = clock()
+            model.toggle(state.row("pain"))
+            runCurrent()
+
+            val held = db.outbox().pending().first { it.kind() == OutboxKind.InsertChecks }
+            // La coche est retenue jusqu'à la fin de la bannière, plus la marge.
+            assertEquals(checkedAt + kotlin.time.Duration.parse("11s"), held.nextAttemptAt)
+            after(9_999)
+            assertNotNull(model.uiState.value.undo)
+            after(2)
+            assertNull(model.uiState.value.undo)
+        }
+
+    @Test
+    fun aShorterUndoThanTheDefaultIsNotAccepted() =
+        runTest(main) {
+            val (listId, _) = groceries()
+            val model = model(listId)
+            val state = started(model)
+            model.setUndoDuration(kotlin.time.Duration.parse("1s"))
+            model.toggle(state.row("pain"))
+            runCurrent()
+            after(3_000)
+            assertNotNull(model.uiState.value.undo)
+        }
+
+    @Test
+    fun leavingTheScreenRightAfterACheckDoesNotLoseIt() =
+        runTest(main) {
+            val (listId, items) = groceries()
+            val model = model(listId)
+            val state = started(model)
+
+            model.toggle(state.row("lait"))
+            // Retour avant que l'écriture ne soit faite : le modèle est détruit.
+            viewModels.clear()
+            runCurrent()
+
+            assertNotNull(db.items().get(items.first().id)?.checkedAt)
+            assertEquals(1, db.checks().getAll().size)
+        }
+
+    @Test
+    fun aChangeOfSyncStateAloneIsNotAnExternalChange() =
+        runTest(main) {
+            val (listId, items) = groceries()
+            val model = model(listId)
+            started(model)
+            val before = model.externalReloads
+
+            db.items().setSyncState(items.first().id, fr.parcourses.core.database.entity.SyncState.SYNCED)
+            runCurrent()
+            assertEquals(before, model.externalReloads)
+
+            db.items().upsert(db.items().get(items.first().id)!!.copy(label = "lait entier"))
+            runCurrent()
+            assertEquals(before + 1, model.externalReloads)
+        }
+
+    // endregion
 }

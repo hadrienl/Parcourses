@@ -2,6 +2,7 @@ package fr.parcourses.app
 
 import androidx.navigation3.runtime.NavKey
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.feature.shopping.ShoppingSummary
 import fr.parcourses.feature.storepicker.StorePickerOutcome
 
 /** Reprise de compte : les écrans ouverts suivent les nouveaux identifiants de leur liste. */
@@ -11,6 +12,7 @@ internal fun MutableList<NavKey>.applyRemap(remap: IdentifierRemap) {
             is Route.ListDetail -> this[index] = key.copy(listId = remap[key.listId])
             is Route.StorePicker -> this[index] = key.copy(listId = remap[key.listId])
             is Route.Shopping -> this[index] = key.copy(listId = remap[key.listId])
+            is Route.ShoppingSummary -> this[index] = key.copy(listId = remap[key.listId])
             else -> Unit
         }
     }
@@ -61,6 +63,20 @@ internal fun MutableList<NavKey>.resumeShopping(visit: ResumableVisit): Boolean 
 }
 
 /**
+ * Fin des courses : le mode courses identifié par [slot] cède sa place au résumé, s'il est encore au sommet.
+ * Renvoie `true` si la pile a changé.
+ */
+internal fun MutableList<NavKey>.finishShopping(
+    slot: String,
+    summary: ShoppingSummary,
+): Boolean {
+    val top = lastOrNull() as? Route.Shopping
+    if (top == null || top.slot != slot) return false
+    this[lastIndex] = Route.ShoppingSummary(top.listId, summary, top.slot)
+    return true
+}
+
+/**
  * Retour de l'écran identifié par [slot] (sélecteur de magasin ou mode courses). Ne dépile que si cet écran est
  * encore au sommet : un double appui sur Retour (ou un retour système après le bouton) ne fait pas sauter l'écran
  * du dessous.
@@ -71,6 +87,7 @@ internal fun MutableList<NavKey>.popIfTop(slot: String): Boolean {
         when (top) {
             is Route.StorePicker -> top.slot
             is Route.Shopping -> top.slot
+            is Route.ShoppingSummary -> top.slot
             is Route.ListDetail -> top.slot
             else -> null
         }

@@ -25,9 +25,11 @@ import fr.parcourses.core.sorting.sortItems
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +45,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -63,6 +67,10 @@ class ShoppingDependencies(
  * Fil d'exécution : tout se passe sur le fil principal (`viewModelScope`) ; les écritures et les lectures sont
  * sérialisées par un verrou, le tri seul s'exécute sur [computation]. [storeId] à `null` : sans magasin, ordre
  * générique, ni visite ni instantané.
+ *
+ * Les écritures de coche, de décoche, d'annulation et de fin ne sont jamais interrompues par la sortie de l'écran
+ * (`NonCancellable`). Le résumé de fin quitte ce modèle par `ShoppingRoute(onFinished)` : la navigation le garde dans
+ * sa pile, qui survit à la mort du processus.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @Suppress("TooManyFunctions", "LargeClass") // Machine d'états unique : la scinder ferait voyager l'état partagé.
@@ -89,6 +97,9 @@ class ShoppingViewModel(
     private var started = false
     private var startedAt: Instant = Instant.DISTANT_PAST
     private var expiredAt: Instant? = null
+
+    /** Visite close d'office (45 min) et gardée parce qu'elle avait des coches. */
+    private var expiredVisitId: String? = null
     private var name = ""
     private var storeName: String? = null
     private var storeOrganicAisle = false
@@ -124,8 +135,19 @@ class ShoppingViewModel(
     private var isEditing = false
     private var hasUnsettledChange = false
 
-    /** Articles tels que la dernière lecture les a vus : une émission identique n'est pas un changement extérieur. */
-    private var lastItems: List<ListItemEntity> = emptyList()
+    /**
+     * Articles tels que la dernière lecture les a vus, réduits à ce que l'écran montre : une émission qui ne change
+     * que l'état d'envoi (`syncState`, `updatedAt`) n'est pas un changement extérieur.
+     */
+    private var lastItems: List<ItemView> = emptyList()
+
+    /** Durée d'affichage de « Annuler », éventuellement allongée par les réglages d'accessibilité. */
+    private var undoDuration: Duration = timings.undo
+    private var isSwiping = false
+
+    /** Rechargements dus à un changement venu d'ailleurs : lu par les tests seulement. */
+    internal var externalReloads = 0
+        private set
 
     private var settleJob: Job? = null
     private var undoJob: Job? = null
@@ -149,21 +171,39 @@ class ShoppingViewModel(
     }
 
     private suspend fun open() {
-        startedAt = now()
+        // Reprise d'une visite encore active (même liste, même magasin) : son début compte, avant tout tri.
+        val resumed = storeId?.let { resumableVisit(it) }
+        visitId = resumed?.id
+        startedAt = resumed?.startedAt ?: now()
         prepare()
-        if (storeId != null) {
+        if (storeId != null && resumed == null) {
             perform {
                 // `listWasSorted` : le mode du début de visite, celui que la personne a réellement suivi (#9 §6.3).
-                val visit = deps.visits.startVisit(storeId, listId, mode == SortOutput.Mode.Learned, startedAt)
+                // Une visite restée ouverte trop longtemps est close à sa dernière coche, puis une neuve commence.
+                val visit =
+                    deps.visits.startVisit(
+                        storeId,
+                        listId,
+                        mode == SortOutput.Mode.Learned,
+                        startedAt,
+                        staleAfter = timings.expiry,
+                    )
                 visitId = visit.id
                 startedAt = visit.startedAt
             }
-            // Reprise d'une visite ouverte : elle a pu expirer pendant que l'app était fermée.
-            expireIfIdle()
         }
         publish(loaded = true)
         observeExternalChanges()
     }
+
+    /** Visite ouverte pour cette liste et ce magasin, active il y a moins de 45 min. */
+    private suspend fun resumableVisit(storeId: String) =
+        attempt {
+            deps.visits.openVisit()?.takeIf { visit ->
+                val last = deps.visits.lastActivity(visit.id) ?: visit.startedAt
+                visit.storeId == storeId && visit.listId == listId && now() - last < timings.expiry
+            }
+        }
 
     private suspend fun prepare() {
         perform {
@@ -248,7 +288,7 @@ class ShoppingViewModel(
         viewModelScope.launch {
             listIdFlow
                 .flatMapLatest { deps.lists.observeItems(it) }
-                .collect { items -> lock.withLock { if (items != lastItems) syncDidChange() } }
+                .collect { items -> lock.withLock { if (items.map(::ItemView) != lastItems) syncDidChange() } }
         }
     }
 
@@ -256,12 +296,13 @@ class ShoppingViewModel(
 
     // region Actions
 
-    fun toggle(row: ShoppingRow) = act { if (row.isChecked) uncheck(row) else check(row) }
+    fun toggle(row: ShoppingRow) = actDurably { if (row.isChecked) uncheck(row) else check(row) }
 
     private suspend fun check(row: ShoppingRow) {
         val index = toBuy.indexOfFirst { it.id == row.id }
         val item = item(row.id)
-        if (item == null || index < 0) return
+        // Double événement (double appui, balayage puis appui) : un article déjà coché ne l'est pas deux fois.
+        if (item == null || index < 0 || item.checkedAt != null) return
         val date = now()
         var checkId: String? = null
         val succeeded =
@@ -276,7 +317,7 @@ class ShoppingViewModel(
                                 subject = subject(item),
                                 checkedAt = date,
                                 // Marge : l'envoi ne doit pas partir pendant que « Annuler » est encore affiché.
-                                sendAfter = timings.undo + timings.sendMargin,
+                                sendAfter = undoDuration + timings.sendMargin,
                             ).id
                 } else {
                     deps.lists.setChecked(row.id, date, date)
@@ -286,9 +327,10 @@ class ShoppingViewModel(
         // La ligne reste à sa place jusqu'au prochain tri : elle ne bouge jamais sous le doigt.
         settlingIds += row.id
         toBuy = toBuy.toMutableList().also { it[index] = row.copy(isChecked = true) }
-        lastItems = attempt { deps.lists.items(listId) } ?: lastItems
+        lastItems = attempt { deps.lists.items(listId) }?.map(::ItemView) ?: lastItems
         adoptPendingSnapshot()
-        offerUndo(ShoppingUndo(ShoppingUndo.Kind.Check, row.id, row.label, checkId, index))
+        // Même origine que le `notBefore` de la coche : la bannière disparaît avant que la coche puisse partir.
+        offerUndo(ShoppingUndo(ShoppingUndo.Kind.Check, row.id, row.label, checkId, index), until = date + undoDuration)
         scheduleSettle()
         publish()
     }
@@ -327,21 +369,25 @@ class ShoppingViewModel(
     }
 
     fun markNotFound(row: ShoppingRow) =
-        act {
-            if (row.isChecked) return@act
+        actDurably {
+            if (row.isChecked) return@actDurably
             val index = toBuy.indexOfFirst { it.id == row.id }.coerceAtLeast(0)
             val date = now()
-            if (!perform { deps.lists.setNotFound(row.id, date) }) return@act
+            if (!perform { deps.lists.setNotFound(row.id, date) }) return@actDurably
             reloadRows()
-            offerUndo(ShoppingUndo(ShoppingUndo.Kind.NotFound, row.id, row.label, null, index))
+            offerUndo(
+                ShoppingUndo(ShoppingUndo.Kind.NotFound, row.id, row.label, null, index),
+                until =
+                    date + undoDuration,
+            )
             scheduleSettle()
             publish()
         }
 
     /** Remet un article introuvable dans ce qu'il reste à acheter. */
     fun restore(row: ShoppingRow) =
-        act {
-            if (!perform { deps.lists.setNotFound(row.id, null) }) return@act
+        actDurably {
+            if (!perform { deps.lists.setNotFound(row.id, null) }) return@actDurably
             reloadRows()
             scheduleSettle()
             publish()
@@ -349,9 +395,9 @@ class ShoppingViewModel(
 
     /** Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie. */
     fun submit() =
-        act {
+        actDurably {
             val entry = deps.analyzer.analyze(input.text.toString())
-            if (entry.label.isEmpty()) return@act
+            if (entry.label.isEmpty()) return@actDurably
             var added: String? = null
             val succeeded =
                 perform {
@@ -368,7 +414,7 @@ class ShoppingViewModel(
                             ).id
                 }
             val id = added
-            if (!succeeded || id == null) return@act
+            if (!succeeded || id == null) return@actDurably
             input.clearText()
             // Lignes juste cochées comprises : elles gardent leur place.
             val previous = toBuy.map { it.id }
@@ -384,8 +430,8 @@ class ShoppingViewModel(
         }
 
     fun performUndo() =
-        act {
-            val action = undo ?: return@act
+        actDurably {
+            val action = undo ?: return@actDurably
             clearUndo()
             val date = now()
             val succeeded =
@@ -404,7 +450,7 @@ class ShoppingViewModel(
                         }
                     }
                 }
-            if (!succeeded) return@act
+            if (!succeeded) return@actDurably
             settlingIds -= action.itemId
             // La ligne reprend sa place : l'annulation n'est pas un nouveau trajet.
             val order = toBuy.map { it.id }.filter { it != action.itemId }.toMutableList()
@@ -449,6 +495,20 @@ class ShoppingViewModel(
         interactionChanged()
     }
 
+    /** Balayage horizontal en cours sur une ligne : la liste ne bouge pas sous le doigt. */
+    fun setSwiping(value: Boolean) {
+        isSwiping = value
+        interactionChanged()
+    }
+
+    /**
+     * Durée de « Annuler », allongée si l'accessibilité le recommande (`getRecommendedTimeoutMillis`). À fixer avant
+     * la première coche : elle retient aussi l'envoi de la coche.
+     */
+    fun setUndoDuration(value: Duration) {
+        undoDuration = maxOf(value, timings.undo)
+    }
+
     /** Une interaction suspend un tri en attente ; le délai repart de zéro à sa fin. */
     private fun interactionChanged() {
         if (hasUnsettledChange) scheduleSettle()
@@ -460,7 +520,8 @@ class ShoppingViewModel(
         settleJob?.cancel()
         settleJob = null
         // Un clavier resté ouvert sans texte ne doit pas figer la liste : seule une saisie en cours suspend le tri.
-        if (isScrolling || (isEditing && input.text.isNotEmpty())) return
+        val typing = isEditing && input.text.isNotEmpty()
+        if (isScrolling || isSwiping || typing) return
         settleJob =
             viewModelScope.launch {
                 delay(timings.settle)
@@ -557,7 +618,7 @@ class ShoppingViewModel(
     /** Relit la liste en gardant l'ordre affiché. Une ligne juste cochée ne passe au panier qu'au tri suivant. */
     private suspend fun reloadRows() {
         val items = attempt { deps.lists.items(listId) }.orEmpty()
-        lastItems = items
+        lastItems = items.map(::ItemView)
         val rows = items.map { it to ShoppingRow(it.id, it.label, it.quantity, it.checkedAt != null, aisle(it)) }
         val settling = settlingIds
         toBuy =
@@ -578,6 +639,7 @@ class ShoppingViewModel(
     /** Après une descente : les changements venus d'ailleurs, sans toucher à une ligne en attente. */
     private suspend fun syncDidChange() {
         if (hasUnsettledChange || summary != null || expired) return
+        externalReloads++
         reloadRows()
         scheduleSettle()
         publish()
@@ -587,12 +649,16 @@ class ShoppingViewModel(
 
     // region Annulation et repère
 
-    private fun offerUndo(action: ShoppingUndo) {
+    /** Propose d'annuler [action] jusqu'à [until]. */
+    private fun offerUndo(
+        action: ShoppingUndo,
+        until: Instant,
+    ) {
         undoJob?.cancel()
         undo = action
         undoJob =
             viewModelScope.launch {
-                delay(timings.undo)
+                delay((until - now()).coerceAtLeast(ZERO))
                 lock.withLock {
                     undo = null
                     publish()
@@ -639,7 +705,9 @@ class ShoppingViewModel(
                     ?.checkedAt
             } ?: startedAt
         val idleLongEnough = now() - lastActivity >= timings.expiry
-        if (!idleLongEnough || !perform { deps.visits.closeVisit(visit, lastActivity) }) return
+        var kept = false
+        if (!idleLongEnough || !perform { kept = deps.visits.closeVisit(visit, lastActivity) }) return
+        expiredVisitId = visit.takeIf { kept }
         visitId = null
         expiredAt = lastActivity
         expired = true
@@ -654,7 +722,7 @@ class ShoppingViewModel(
      * Termine les courses. [keepRemaining] : les articles restants attendent la prochaine fois, sinon ils quittent
      * la liste.
      */
-    fun finish(keepRemaining: Boolean) = act { finishNow(keepRemaining) }
+    fun finish(keepRemaining: Boolean) = actDurably { finishNow(keepRemaining) }
 
     private suspend fun finishNow(keepRemaining: Boolean) {
         val date = now()
@@ -664,6 +732,8 @@ class ShoppingViewModel(
         clearUndo()
         reloadRows()
         val closing = visitId
+        // `closeVisit` supprime une visite sans coche : le résumé n'a alors aucune visite à désigner.
+        var closed: String? = null
         val succeeded =
             perform {
                 if (keepRemaining) {
@@ -671,7 +741,7 @@ class ShoppingViewModel(
                 } else {
                     (toBuy + notFound).forEach { deps.lists.deleteItem(it.id, date) }
                 }
-                if (closing != null) deps.visits.closeVisit(closing, date)
+                if (closing != null && deps.visits.closeVisit(closing, date)) closed = closing
             }
         if (!succeeded) return
         visitId = null
@@ -685,7 +755,8 @@ class ShoppingViewModel(
                 minutes = maxOf(1, minutes),
                 storeName = storeName,
                 knowledge = knowledge,
-                visitId = closing,
+                // Visite expirée : déjà close par `expireIfIdle`, elle existe encore si elle avait des coches.
+                visitId = closed ?: expiredVisitId,
             )
         reloadRows()
         publish()
@@ -704,6 +775,7 @@ class ShoppingViewModel(
         settlingIds += renamed
         highlighted = highlighted?.let { remap[it] }
         undo = undo?.let { it.copy(itemId = remap[it.itemId], checkId = it.checkId?.let(remap::get)) }
+        expiredVisitId = expiredVisitId?.let { remap[it] }
 
         fun List<ShoppingRow>.remapped() = map { it.copy(id = remap[it.id]) }
         toBuy = toBuy.remapped()
@@ -724,11 +796,22 @@ class ShoppingViewModel(
         viewModelScope.launch { lock.withLock { block() } }
     }
 
-    // Une écriture qui échoue est montrée à l'utilisateur ; l'annulation est relancée.
+    /**
+     * Action qui écrit ce que la personne a fait (coche, introuvable, ajout, annulation, fin) : elle démarre même si
+     * l'écran vient d'être quitté et n'est jamais interrompue, sinon un Retour juste après l'appui perdrait la coche.
+     */
+    private fun actDurably(block: suspend () -> Unit) {
+        viewModelScope.launch(
+            start = CoroutineStart.ATOMIC,
+        ) { withContext(NonCancellable) { lock.withLock { block() } } }
+    }
+
+    // Une écriture qui échoue est montrée à l'utilisateur ; l'annulation est relancée. Une écriture commencée va au
+    // bout, même si l'écran se ferme entre-temps.
     @Suppress("TooGenericExceptionCaught")
     private suspend fun perform(work: suspend () -> Unit): Boolean =
         try {
-            work()
+            withContext(NonCancellable) { work() }
             true
         } catch (e: CancellationException) {
             throw e
@@ -795,4 +878,27 @@ class ShoppingViewModel(
         const val PERCENT_DIVISOR = 10L
         const val SECONDS_PER_MINUTE = 60
     }
+}
+
+/** Ce que l'écran montre d'un article : seuls ces champs comptent pour reconnaître un changement extérieur. */
+private data class ItemView(
+    val id: String,
+    val label: String,
+    val quantity: String?,
+    val productId: String?,
+    val categoryId: String,
+    val normalizedName: String,
+    val checkedAt: Instant?,
+    val notFoundAt: Instant?,
+) {
+    constructor(item: ListItemEntity) : this(
+        item.id,
+        item.label,
+        item.quantity,
+        item.productId,
+        item.categoryId,
+        item.normalizedName,
+        item.checkedAt,
+        item.notFoundAt,
+    )
 }

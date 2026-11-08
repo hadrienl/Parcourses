@@ -18,6 +18,11 @@ sealed class RepositoryException(
         val id: String,
     ) : RepositoryException("Cette liste a été supprimée.")
 
+    /** Un article déjà coché ne reçoit pas de seconde coche (double appui, double événement). */
+    class AlreadyChecked(
+        val id: String,
+    ) : RepositoryException("Cet article est déjà coché.")
+
     /** Une coche ne s'ajoute pas à une visite déjà close. */
     class VisitClosed(
         val id: String,

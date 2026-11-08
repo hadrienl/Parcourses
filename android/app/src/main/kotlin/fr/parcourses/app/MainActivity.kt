@@ -13,9 +13,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Sans état sauvegardé : lancement à froid, la seule occasion de reprendre une visite restée ouverte.
+        val coldStart = savedInstanceState == null
         setContent {
             ParcoursesTheme {
-                ParcoursesNavHost(container)
+                ParcoursesNavHost(container, coldStart)
             }
         }
     }

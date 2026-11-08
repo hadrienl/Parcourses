@@ -63,10 +63,12 @@ class ShoppingScreenTest {
             knowledge = RouteKnowledge.Unknown,
         )
 
+    private val announced = mutableListOf<String>()
+
     private fun show(
         state: ShoppingUiState = base,
-        reduceMotion: Boolean = false,
         fontScale: Float = 1f,
+        announceWithApi: Boolean = true,
     ) {
         val actions =
             ShoppingActions(
@@ -84,7 +86,12 @@ class ShoppingScreenTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                 ParcoursesTheme {
-                    ShoppingScreen(state, TextFieldState(), actions, reduceMotion)
+                    ShoppingScreen(
+                        state,
+                        TextFieldState(),
+                        actions,
+                        announce = if (announceWithApi) ({ announced += it }) else null,
+                    )
                 }
             }
         }
@@ -229,26 +236,36 @@ class ShoppingScreenTest {
     }
 
     @Test
-    fun aReorderIsAnnouncedPolitelyThenForgotten() {
+    fun aReorderIsAnnouncedOnceThroughTheAnnouncementApiWithoutANodeOfItsOwn() {
         show(base.copy(reorder = ReorderAnnouncement(seq = 3, next = "lait demi-écrémé")))
-        val node = rule.onNodeWithTag(TAG_ANNOUNCEMENT)
-        val config = node.fetchSemanticsNode().config
-        assertEquals(LiveRegionMode.Polite, config[SemanticsProperties.LiveRegion])
-        assertEquals(
-            listOf("Liste réordonnée. Prochain : lait demi-écrémé"),
-            config[SemanticsProperties.ContentDescription],
-        )
-        // Ni focalisable ni cliquable : il ne vole pas le focus de TalkBack.
-        assertTrue(!config.contains(SemanticsActions.OnClick))
-        assertTrue(!config.contains(SemanticsProperties.Focused))
+        rule.waitForIdle()
+        assertEquals(listOf("Liste réordonnée. Prochain : lait demi-écrémé"), announced)
+        // Aucun nœud dédié : rien que TalkBack puisse focaliser, et le titre n'est pas une région « live ».
+        rule.onNodeWithContentDescription("Liste réordonnée. Prochain : lait demi-écrémé").assertDoesNotExist()
+        val title = rule.onNodeWithTag(TAG_TITLE).fetchSemanticsNode().config
+        assertTrue(!title.contains(SemanticsProperties.LiveRegion))
         rule.mainClock.advanceTimeBy(2_500)
         assertEquals(listOf(3), shown)
+        assertEquals(1, announced.size)
     }
 
     @Test
-    fun withoutReorderThereIsNoAnnouncementNode() {
+    fun fromApi36TheTitleBecomesAPoliteLiveRegionDuringTheAnnouncement() {
+        show(base.copy(reorder = ReorderAnnouncement(seq = 4, next = "pain")), announceWithApi = false)
+        val title = rule.onNodeWithTag(TAG_TITLE).fetchSemanticsNode().config
+        assertEquals(LiveRegionMode.Polite, title[SemanticsProperties.LiveRegion])
+        assertEquals("Liste réordonnée. Prochain : pain", title[SemanticsProperties.StateDescription])
+        // Le titre reste un texte ordinaire : ni action ni focus déplacé.
+        assertTrue(!title.contains(SemanticsActions.OnClick))
+    }
+
+    @Test
+    fun withoutReorderNothingIsAnnounced() {
         show()
-        rule.onNodeWithTag(TAG_ANNOUNCEMENT).assertDoesNotExist()
+        rule.waitForIdle()
+        assertTrue(announced.isEmpty())
+        val title = rule.onNodeWithTag(TAG_TITLE).fetchSemanticsNode().config
+        assertTrue(!title.contains(SemanticsProperties.LiveRegion))
     }
 
     @Test
@@ -325,7 +342,7 @@ class ShoppingScreenTest {
 
     // endregion
 
-    // region Texte agrandi et mouvement réduit
+    // region Texte agrandi
 
     @Test
     fun at200PercentTheDockStacksAndEverythingStaysReachable() {
@@ -351,13 +368,6 @@ class ShoppingScreenTest {
         val node = rule.onNodeWithContentDescription("tomates cerises en grappe bio du maraîcher, 2")
         node.assertIsDisplayed()
         assertTrue(node.fetchSemanticsNode().size.height > with(rule.density) { 48.dp.roundToPx() })
-    }
-
-    @Test
-    fun reducedMotionStillRendersEveryRow() {
-        show(reduceMotion = true)
-        rule.onNodeWithContentDescription("pain").assertExists()
-        rule.onNodeWithContentDescription("pommes, 2").assertExists()
     }
 
     // endregion

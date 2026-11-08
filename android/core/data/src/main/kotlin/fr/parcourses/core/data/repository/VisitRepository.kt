@@ -36,18 +36,24 @@ interface VisitRepository {
     suspend fun openVisit(): VisitEntity?
 
     /**
-     * Une seule visite reste ouverte : même liste et même magasin, la visite existante est renvoyée ; sinon elle
-     * est d'abord close.
+     * Une seule visite reste ouverte. Même liste et même magasin, et une activité il y a moins de [staleAfter] : la
+     * visite existante est renvoyée. Sinon toute visite ouverte est d'abord close **à sa dernière coche** (jamais à
+     * [at], qui allongerait la visite de tout le temps passé ailleurs), puis une visite neuve est créée.
      */
     suspend fun startVisit(
         storeId: String,
         listId: String,
         listWasSorted: Boolean,
         at: Instant,
+        staleAfter: Duration = Duration.INFINITE,
     ): VisitEntity
 
+    /** Dernière activité d'une visite : sa dernière coche, sinon son début. `null` si elle n'existe pas. */
+    suspend fun lastActivity(visitId: String): Instant?
+
     /**
-     * Coche l'article et ajoute la coche dans une seule transaction : l'un ne va pas sans l'autre.
+     * Coche l'article et ajoute la coche dans une seule transaction : l'un ne va pas sans l'autre. Un article déjà
+     * coché est refusé ([RepositoryException.AlreadyChecked]).
      * `list_items.checked_at` est écrit en plus de `checks` (le détail est partagé avec les autres appareils).
      * [sendAfter] : durée pendant laquelle la coche reste annulable sans jamais partir au serveur.
      */
@@ -99,16 +105,19 @@ class RoomVisitRepository(
         listId: String,
         listWasSorted: Boolean,
         at: Instant,
+        staleAfter: Duration,
     ): VisitEntity {
         var enqueued = false
         val visit =
             db.withWriteTransaction {
                 var reused: VisitEntity? = null
                 for (open in db.visits().getOpen()) {
-                    if (open.storeId == storeId && open.listId == listId && reused == null) {
+                    val last = activityOf(open)
+                    val same = open.storeId == storeId && open.listId == listId
+                    if (same && reused == null && at - last < staleAfter) {
                         reused = open
                     } else {
-                        enqueued = close(open.id, at) || enqueued
+                        enqueued = close(open.id, last) || enqueued
                     }
                 }
                 // Rien en file : la création part avec la première coche (#9 §5.5).
@@ -125,6 +134,11 @@ class RoomVisitRepository(
         return visit
     }
 
+    override suspend fun lastActivity(visitId: String): Instant? = db.visits().get(visitId)?.let { activityOf(it) }
+
+    private suspend fun activityOf(visit: VisitEntity): Instant =
+        db.checks().getByVisit(visit.id).maxOfOrNull { it.checkedAt } ?: visit.startedAt
+
     override suspend fun checkItem(
         visitId: String,
         itemId: String,
@@ -134,9 +148,8 @@ class RoomVisitRepository(
     ): CheckEntity {
         val check =
             db.withWriteTransaction {
-                requireWritableItem(itemId)
-                val visit = db.visits().get(visitId) ?: throw RepositoryException.NotFound(visitId)
-                if (visit.endedAt != null) throw RepositoryException.VisitClosed(visitId)
+                requireUncheckedItem(itemId)
+                val visit = requireOpenVisit(visitId)
                 val isFirst = db.checks().getByVisit(visitId).isEmpty()
                 val check =
                     CheckEntity(
@@ -228,6 +241,17 @@ class RoomVisitRepository(
     ) {
         db.items().setChecked(itemId, checkedAt, at)
         queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at)
+    }
+
+    /** Un double événement ne doit pas compter deux passages devant le même rayon. */
+    private suspend fun requireUncheckedItem(id: String) {
+        if (requireWritableItem(id).checkedAt != null) throw RepositoryException.AlreadyChecked(id)
+    }
+
+    private suspend fun requireOpenVisit(id: String): VisitEntity {
+        val visit = db.visits().get(id) ?: throw RepositoryException.NotFound(id)
+        if (visit.endedAt != null) throw RepositoryException.VisitClosed(id)
+        return visit
     }
 
     private suspend fun requireWritableItem(id: String): ListItemEntity {

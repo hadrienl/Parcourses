@@ -42,6 +42,18 @@ sealed interface Route : NavKey {
         val storeId: String?,
         val slot: String = Uuid.random().toString(),
     ) : Route
+
+    /**
+     * Fin des courses : remplace [Shopping] dans la pile (pas de retour en mode courses, #10 §8.1). Le résumé est
+     * dans la route, donc sauvegardé avec la pile : après la mort du processus, il revient tel quel et aucune visite
+     * n'est rouverte. [slot] : celui du mode courses remplacé.
+     */
+    @Serializable
+    data class ShoppingSummary(
+        val listId: String,
+        val summary: fr.parcourses.feature.shopping.ShoppingSummary,
+        val slot: String = Uuid.random().toString(),
+    ) : Route
 }
 
 internal val routeConfiguration =
@@ -53,6 +65,7 @@ internal val routeConfiguration =
                     subclass(Route.ListDetail::class)
                     subclass(Route.StorePicker::class)
                     subclass(Route.Shopping::class)
+                    subclass(Route.ShoppingSummary::class)
                 }
             }
     }

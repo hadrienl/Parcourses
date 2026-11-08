@@ -334,20 +334,25 @@ class ShoppingLifecycleTest : ShoppingTest() {
         }
 
     @Test
-    fun reopeningAnExpiredVisitEndsItRightAway() =
+    fun reopeningAStaleVisitClosesItAtItsLastCheckAndStartsAFreshOne() =
         runTest(main) {
             val (listId, _) = groceries()
             val first = model(listId)
             val state = started(first)
             first.toggle(state.row("lait"))
             runCurrent()
+            val old = visits.openVisit()!!
+            val lastCheck = visits.checks(old.id).last().checkedAt
 
-            offset += 2.minutes * 30
+            offset += 60.minutes
             val reopened = model(listId)
             started(reopened)
 
-            assertTrue(reopened.uiState.value.expired)
-            assertEquals(1, db.visits().getAll().size)
+            assertFalse(reopened.uiState.value.expired)
+            assertEquals(lastCheck, visits.visit(old.id)?.endedAt)
+            val fresh = visits.openVisit()!!
+            assertTrue(fresh.id != old.id)
+            assertEquals(clock(), fresh.startedAt)
         }
 
     // endregion
@@ -372,6 +377,38 @@ class ShoppingLifecycleTest : ShoppingTest() {
                 listOf("lait"),
                 second.uiState.value.basket
                     .map { it.label },
+            )
+        }
+
+    @Test
+    fun aResumedVisitKeepsItsStartForTheSortAndTheSummary() =
+        runTest(main) {
+            val (listId, _) =
+                newList(Triple("lait", "dairy", P3), Triple("pain", "bakery", P1), Triple("pommes", "produce", P2))
+            cacheSnapshot(learnedPayload(P1, P2, P3))
+            val first = model(listId)
+            val state = started(first)
+            first.toggle(state.row("pain"))
+            runCurrent()
+
+            // Mort du processus puis retour dix minutes plus tard : la visite reprend avec son début d'origine.
+            offset += 10.minutes
+            val resumed = model(listId)
+            val again = started(resumed)
+            // Le départ du tri est le dernier produit coché depuis le début de la visite : le fil continue de là.
+            assertEquals(listOf("pommes", "lait"), again.labels())
+
+            resumed.finish(keepRemaining = true)
+            runCurrent()
+            assertEquals(
+                10,
+                resumed.uiState.value.summary
+                    ?.minutes,
+            )
+            assertEquals(
+                1,
+                resumed.uiState.value.summary
+                    ?.checkedCount,
             )
         }
 

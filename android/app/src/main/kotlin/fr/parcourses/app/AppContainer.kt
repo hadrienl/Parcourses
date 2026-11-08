@@ -32,6 +32,7 @@ import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.createSupabaseGateway
 import fr.parcourses.feature.shopping.GraphSnapshotCache
 import fr.parcourses.feature.shopping.ShoppingDependencies
+import fr.parcourses.feature.shopping.ShoppingTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
+import kotlin.time.Duration
 
 /** Visite ouverte que l'app rouvre au lancement. */
 data class ResumableVisit(
@@ -103,15 +105,20 @@ class AppContainer(
 
     fun offerStoreChoice(choice: StoreChoice) = storeChoiceEvents.offer(choice)
 
+    /** Reprise de la visite ouverte : une fois par processus, au lancement à froid (voir [LaunchResume]). */
+    val launchResume = LaunchResume()
+
     /**
-     * Visite ouverte à reprendre au lancement, vérifiée : sa liste a pu disparaître, auquel cas elle est close.
-     * Une visite sans coche est alors supprimée.
+     * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
+     * depuis plus de [expiry] : elle est alors close à sa dernière coche (supprimée si elle n'en a aucune) et rien
+     * n'est rouvert.
      */
-    suspend fun resumableVisit(): ResumableVisit? {
+    suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
         val visit = visits.openVisit() ?: return null
-        val orphan = lists.list(visit.listId) == null
-        if (orphan) visits.closeVisit(visit.id, Clock.System.now())
-        return if (orphan) null else ResumableVisit(visit.listId, visit.storeId)
+        val last = visits.lastActivity(visit.id) ?: visit.startedAt
+        val usable = lists.list(visit.listId) != null && Clock.System.now() - last < expiry
+        if (!usable) visits.closeVisit(visit.id, last)
+        return if (usable) ResumableVisit(visit.listId, visit.storeId) else null
     }
 
     /** Lancement : catégories, connexion anonyme, puis synchronisation (en tâche de fond). */

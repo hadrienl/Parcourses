@@ -1,24 +1,30 @@
 package fr.parcourses.feature.shopping
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Ce que l'app sait du trajet dans ce magasin (#6). Pourcentages entiers. */
+@Serializable
 sealed interface RouteKnowledge {
     /** Pas de magasin choisi. */
+    @Serializable
     data object NoStore : RouteKnowledge
 
     /** Aucun instantané : ordre générique. */
+    @Serializable
     data object Unknown : RouteKnowledge
 
     /** Graphe trop peu fiable : ordre générique. */
+    @Serializable
     data class Learning(
         val percent: Int,
     ) : RouteKnowledge
 
+    @Serializable
     data class Learned(
         val percent: Int,
     ) : RouteKnowledge
@@ -64,10 +70,12 @@ data class ShoppingUndo(
 }
 
 /**
- * Résumé de fin de visite. [visitId] est celui de la visite qui vient d'être close (`null` sans magasin, ou si
- * aucune coche n'a été faite : la visite n'existe alors pas) : point d'accroche de l'écran de fin complet (A9).
+ * Résumé de fin de visite. [visitId] est celui de la visite qui vient d'être close, `null` sans magasin ou quand
+ * `closeVisit` l'a supprimée faute de coche : point d'accroche de l'écran de fin complet (A9). Sérialisable : il
+ * survit à la mort du processus.
  */
 @Immutable
+@Serializable
 data class ShoppingSummary(
     val checkedCount: Int,
     val minutes: Int,

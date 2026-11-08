@@ -1,6 +1,10 @@
 package fr.parcourses.feature.shopping
 
 import android.content.Context
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
 import fr.parcourses.core.data.EntryAnalyzer
@@ -105,11 +109,23 @@ abstract class ShoppingTest {
         }
     }
 
+    /** Les modèles du test : vidés avant la base, sinon leurs collectes Room continueraient sur une base fermée. */
+    protected val viewModels = ViewModelStore()
+
     @After
     fun tearDown() {
+        viewModels.clear()
+        scheduler.runCurrent()
         db.close()
         Dispatchers.resetMain()
     }
+
+    /** Crée un modèle rattaché à [viewModels], comme le ferait une entrée de navigation. */
+    protected fun tracked(make: () -> ShoppingViewModel): ShoppingViewModel =
+        ViewModelProvider.create(viewModels, viewModelFactory { initializer { make() } })[
+            Uuid.random().toString(),
+            ShoppingViewModel::class,
+        ]
 
     protected fun deps() =
         ShoppingDependencies(
@@ -125,14 +141,18 @@ abstract class ShoppingTest {
         listId: String,
         store: String? = storeId,
         remaps: Flow<IdentifierRemap> = emptyFlow(),
-    ) = ShoppingViewModel(
-        listId = listId,
-        storeId = store,
-        deps = deps(),
-        remaps = remaps,
-        now = clock,
-        computation = main,
-    )
+        timings: ShoppingTimings = ShoppingTimings(),
+    ) = tracked {
+        ShoppingViewModel(
+            listId = listId,
+            storeId = store,
+            deps = deps(),
+            remaps = remaps,
+            timings = timings,
+            now = clock,
+            computation = main,
+        )
+    }
 
     protected suspend fun newList(vararg items: Triple<String, String, String?>): Pair<String, List<ListItemEntity>> {
         val list = lists.createList("Courses", clock())

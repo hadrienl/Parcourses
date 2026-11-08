@@ -14,10 +14,19 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -30,6 +39,27 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+
+/** Signale le début et la fin d'un balayage horizontal ; une ligne retirée en plein geste le termine. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeTracker(
+    state: SwipeToDismissBoxState,
+    onSwiping: (Boolean) -> Unit,
+) {
+    val current by rememberUpdatedState(onSwiping)
+    var swiping by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        snapshotFlow { state.dismissDirection != SwipeToDismissBoxValue.Settled }
+            .distinctUntilChanged()
+            .collect {
+                swiping = it
+                current(it)
+            }
+    }
+    DisposableEffect(state) { onDispose { if (swiping) current(false) } }
+}
 
 /**
  * Une ligne. Action par défaut : « Cocher » (ou « Décocher » si la ligne l'est déjà). Actions personnalisées pour
@@ -44,19 +74,22 @@ internal fun ItemRow(
     actions: ShoppingActions,
     modifier: Modifier = Modifier,
 ) {
+    // L'état du balayage survit aux recompositions : sans cela, il agirait sur la ligne d'avant (cochée entre-temps).
+    val current by rememberUpdatedState(row)
     val swipe =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
+                val latest = current
                 when (value) {
                     SwipeToDismissBoxValue.StartToEnd -> {
-                        if (!row.isChecked) {
+                        if (!latest.isChecked) {
                             actions.onCheckFeedback()
-                            actions.onToggle(row)
+                            actions.onToggle(latest)
                         }
                     }
 
                     SwipeToDismissBoxValue.EndToStart -> {
-                        if (!row.isChecked) actions.onNotFound(row)
+                        if (!latest.isChecked) actions.onNotFound(latest)
                     }
 
                     SwipeToDismissBoxValue.Settled -> {
@@ -67,6 +100,7 @@ internal fun ItemRow(
                 false
             },
         )
+    SwipeTracker(swipe, actions.onSwiping)
     SwipeToDismissBox(
         state = swipe,
         modifier = modifier,

@@ -2,7 +2,10 @@ package fr.parcourses.app
 
 import androidx.navigation3.runtime.NavKey
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.feature.shopping.RouteKnowledge
+import fr.parcourses.feature.shopping.ShoppingSummary
 import fr.parcourses.feature.storepicker.StorePickerOutcome
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -139,15 +142,81 @@ class ShoppingNavigationTest {
         assertEquals(shopping.slot, moved.slot)
     }
 
-    @Test
-    fun anOpenVisitIsResumedOnlyOnAFreshStack() {
-        val visit = ResumableVisit("a", "s1")
-        val fresh = stack(Route.Lists)
-        assertTrue(fresh.resumeShopping(visit))
-        assertEquals(listOf("Lists", "ListDetail", "Shopping"), fresh.map { it::class.simpleName })
+    private val visit = ResumableVisit("a", "s1")
 
+    @Test
+    fun aColdStartResumesTheOpenVisitOnce() =
+        runTest {
+            val gate = LaunchResume()
+            val stack = stack(Route.Lists)
+            assertTrue(stack.resumeOnLaunch(gate, coldStart = true) { visit })
+            assertEquals(listOf("Lists", "ListDetail", "Shopping"), stack.map { it::class.simpleName })
+        }
+
+    @Test
+    fun aRecreationNeverResumesAgain() =
+        runTest {
+            val gate = LaunchResume()
+            val stack = stack(Route.Lists)
+            stack.resumeOnLaunch(gate, coldStart = true) { visit }
+            // La personne revient à l'écran Listes, puis tourne le téléphone : l'effet de lancement est rejoué.
+            stack.removeAt(stack.lastIndex)
+            stack.removeAt(stack.lastIndex)
+            var looked = false
+            assertFalse(stack.resumeOnLaunch(gate, coldStart = false) { visit.also { looked = true } })
+            // Même un second « lancement à froid » du même processus (activité refermée puis rouverte) ne reprend rien.
+            assertFalse(stack.resumeOnLaunch(gate, coldStart = true) { visit.also { looked = true } })
+            assertEquals(listOf(Route.Lists), stack)
+            assertFalse(looked)
+        }
+
+    @Test
+    fun aRestoredActivityDoesNotResumeEvenOnItsFirstComposition() =
+        runTest {
+            // Mort du processus : nouveau conteneur, mais l'activité revient avec son état et sa pile.
+            val gate = LaunchResume()
+            val stack = stack(Route.Lists)
+            assertFalse(stack.resumeOnLaunch(gate, coldStart = false) { visit })
+            assertEquals(1, stack.size)
+        }
+
+    @Test
+    fun withoutAnOpenVisitNothingIsResumed() =
+        runTest {
+            val stack = stack(Route.Lists)
+            assertFalse(stack.resumeOnLaunch(LaunchResume(), coldStart = true) { null })
+            assertEquals(1, stack.size)
+        }
+
+    @Test
+    fun anOpenVisitIsOnlyPushedOnAFreshStack() {
         val navigated = stack(Route.Lists, Route.ListDetail("b"))
         assertFalse(navigated.resumeShopping(visit))
         assertEquals(2, navigated.size)
+    }
+
+    @Test
+    fun theEndOfShoppingReplacesItWithTheSummary() {
+        val shopping = Route.Shopping("a", "s1")
+        val stack = stack(Route.Lists, Route.ListDetail("a"), shopping)
+        val summary = ShoppingSummary(3, 12, "Carrefour", RouteKnowledge.Learning(40), "v1")
+        assertTrue(stack.finishShopping(shopping.slot, summary))
+        val end = stack.last() as Route.ShoppingSummary
+        assertEquals(summary, end.summary)
+        assertEquals("a", end.listId)
+        // Pas de retour en mode courses : le résumé a pris sa place, et un second événement ne fait rien.
+        assertEquals(3, stack.size)
+        assertFalse(stack.finishShopping(shopping.slot, summary))
+        assertTrue(stack.popIfTop(end.slot))
+        assertEquals(Route.ListDetail::class, stack.last()::class)
+        assertFalse(stack.popIfTop(end.slot))
+    }
+
+    @Test
+    fun aRemapFollowsTheSummaryList() {
+        val end = Route.ShoppingSummary("old", ShoppingSummary(1, 1, null, RouteKnowledge.NoStore))
+        val stack = stack(Route.Lists, Route.ListDetail("old"), end)
+        stack.applyRemap(IdentifierRemap(mapOf("old" to "new")))
+        assertEquals("new", (stack.last() as Route.ShoppingSummary).listId)
     }
 }

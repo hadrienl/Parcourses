@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -67,8 +68,50 @@ class RoomVisitRepositoryTest : DataTest() {
             visits.checkItem(first.id, item.id, CheckSubject.Category("dairy"), now)
             val second = visits.startVisit(id(), list.id, false, now + 5.minutes)
             assertEquals(second.id, visits.openVisit()?.id)
-            assertEquals(now + 5.minutes, visits.visit(first.id)?.endedAt)
+            // Close à sa dernière coche, pas au début de la suivante.
+            assertEquals(now, visits.visit(first.id)?.endedAt)
             assertTrue(OutboxKind.CloseVisit in kinds())
+        }
+
+    @Test
+    fun anotherListClosesTheOpenVisitAtItsLastCheckNotNow() =
+        runBlocking {
+            val list = newList()
+            val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val first = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(first.id, item.id, CheckSubject.Category("dairy"), now + 2.minutes)
+            val other = lists.createList("Autre", now)
+            visits.startVisit(store, other.id, false, now + 3.hours)
+            // La visite s'arrête à sa dernière coche : les trois heures passées ailleurs ne comptent pas.
+            assertEquals(now + 2.minutes, visits.visit(first.id)?.endedAt)
+        }
+
+    @Test
+    fun aStaleVisitIsClosedAtItsLastCheckAndReplaced() =
+        runBlocking {
+            val list = newList()
+            val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val first = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(first.id, item.id, CheckSubject.Category("dairy"), now + 1.minutes)
+            assertEquals(now + 1.minutes, visits.lastActivity(first.id))
+
+            // Encore active : la même visite revient.
+            assertEquals(first.id, visits.startVisit(store, list.id, false, now + 30.minutes, 45.minutes).id)
+            // Plus de 45 min sans coche : close à sa dernière coche, une neuve commence.
+            val fresh = visits.startVisit(store, list.id, false, now + 50.minutes, staleAfter = 45.minutes)
+            assertTrue(fresh.id != first.id)
+            assertEquals(now + 1.minutes, visits.visit(first.id)?.endedAt)
+            assertEquals(now + 50.minutes, fresh.startedAt)
+            assertEquals(fresh.id, visits.openVisit()?.id)
+        }
+
+    @Test
+    fun theLastActivityOfAVisitWithoutChecksIsItsStart() =
+        runBlocking {
+            val list = newList()
+            val visit = visits.startVisit(store, list.id, false, now)
+            assertEquals(now, visits.lastActivity(visit.id))
+            assertNull(visits.lastActivity(id()))
         }
 
     @Test
@@ -145,15 +188,33 @@ class RoomVisitRepositoryTest : DataTest() {
         }
 
     @Test
-    fun aClosedVisitRefusesChecks() =
+    fun anItemAlreadyCheckedRefusesASecondCheck() =
         runBlocking {
             val list = newList()
             val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
             val visit = visits.startVisit(store, list.id, false, now)
             visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now)
+            try {
+                visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now + 1.seconds)
+                fail()
+            } catch (expected: RepositoryException.AlreadyChecked) {
+                assertEquals(item.id, expected.id)
+            }
+            assertEquals(1, visits.checks(visit.id).size)
+            assertEquals(1, kinds().count { it == OutboxKind.InsertChecks })
+        }
+
+    @Test
+    fun aClosedVisitRefusesChecks() =
+        runBlocking {
+            val list = newList()
+            val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val visit = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now)
             visits.closeVisit(visit.id, now + 1.minutes)
             try {
-                visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now)
+                visits.checkItem(visit.id, bread.id, CheckSubject.Category("bakery"), now)
                 fail()
             } catch (expected: RepositoryException.VisitClosed) {
                 assertEquals(visit.id, expected.id)
@@ -306,6 +367,32 @@ class RoomVisitRepositoryTest : DataTest() {
             assertEquals(SyncState.SYNCED, db.visits().get(visit.id)?.syncState)
             assertEquals(SyncState.SYNCED, db.visits().get(visit.id)?.endSyncState)
             assertTrue(db.outbox().all().isEmpty())
+        }
+
+    @Test
+    fun theClosureWaitsBehindAHeldCheck() =
+        runBlocking {
+            val list = newList()
+            val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val visit = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now, sendAfter = 5.seconds)
+            // Fin juste après la coche, pendant que « Annuler » est encore affiché.
+            visits.closeVisit(visit.id, now + 1.seconds)
+            advance(2.seconds)
+
+            engine.drain()
+            // Rien ne part : la clôture attend la coche, qui attend la fin de l'annulation.
+            assertTrue(gateway.callsOf("closeVisit").isEmpty())
+            assertTrue(gateway.callsOf("createVisit").isEmpty())
+
+            advance(5.seconds)
+            assertNull(engine.drain())
+            val calls =
+                gateway.calls.filter {
+                    it.substringBefore(':') in
+                        setOf("createVisit", "insertChecks", "closeVisit")
+                }
+            assertEquals(listOf("createVisit:${visit.id}", "insertChecks:1", "closeVisit:${visit.id}"), calls)
         }
 
     @Test

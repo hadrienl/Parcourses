@@ -3,6 +3,11 @@ package fr.parcourses.feature.lists
 import android.content.Context
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
 import fr.parcourses.core.data.EntryAnalyzer
@@ -25,6 +30,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Vraies couches Room sous Robolectric : les modèles sont testés avec leurs repositories. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,27 +54,43 @@ abstract class ListsTest {
         runBlocking { RoomCategoryRepository(db).seedIfNeeded() }
     }
 
+    /**
+     * Les modèles du test, vidés avant la fermeture de la base : sinon leurs collectes Room continuent pendant le
+     * test suivant, sur une base fermée.
+     */
+    protected val viewModels = ViewModelStore()
+
     @After
     fun tearDown() {
+        viewModels.clear()
         db.close()
         Dispatchers.resetMain()
     }
 
-    protected fun listsModel() = ListsViewModel(lists) { clock }
+    /** Crée un modèle rattaché à [viewModels], comme le ferait une entrée de navigation. */
+    protected inline fun <reified T : ViewModel> tracked(noinline make: () -> T): T =
+        ViewModelProvider.create(viewModels, viewModelFactory { initializer { make() } })[
+            Uuid.random().toString(),
+            T::class,
+        ]
+
+    protected fun listsModel() = tracked { ListsViewModel(lists) { clock } }
 
     protected fun detailModel(
         listId: String,
         remaps: Flow<IdentifierRemap> = emptyFlow(),
-    ) = ListDetailViewModel(
-        listId = listId,
-        lists = lists,
-        products = RoomProductRepository(db),
-        categories = RoomCategoryRepository(db),
-        analyzer = analyzer,
-        remaps = remaps,
-        now = { clock },
-        computation = Dispatchers.Unconfined,
-    )
+    ) = tracked {
+        ListDetailViewModel(
+            listId = listId,
+            lists = lists,
+            products = RoomProductRepository(db),
+            categories = RoomCategoryRepository(db),
+            analyzer = analyzer,
+            remaps = remaps,
+            now = { clock },
+            computation = Dispatchers.Unconfined,
+        )
+    }
 
     /**
      * Saisit du texte. Hors Compose, rien n'applique les écritures de l'état global : `snapshotFlow` (suggestions)

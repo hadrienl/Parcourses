@@ -1,6 +1,8 @@
 package fr.parcourses.app
 
 import androidx.navigation3.runtime.NavKey
+import fr.parcourses.feature.shopping.RouteKnowledge
+import fr.parcourses.feature.shopping.ShoppingSummary
 import kotlinx.serialization.PolymorphicSerializer
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -25,6 +27,21 @@ class RouteTest {
         assertEquals(shopping, roundTrip(shopping))
         val withoutStore = Route.Shopping("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11", null)
         assertEquals(withoutStore, roundTrip(withoutStore))
+        // Le résumé de fin est dans la pile : il doit revenir intact après la mort du processus.
+        val end =
+            Route.ShoppingSummary(
+                "0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11",
+                ShoppingSummary(
+                    12,
+                    18,
+                    "Carrefour",
+                    RouteKnowledge.Learned(82),
+                    "9c1b7a42-0000-4000-8000-000000000001",
+                ),
+            )
+        assertEquals(end, roundTrip(end))
+        val unknown = Route.ShoppingSummary("a", ShoppingSummary(0, 1, null, RouteKnowledge.Unknown))
+        assertEquals(unknown, roundTrip(unknown))
     }
 
     @Test

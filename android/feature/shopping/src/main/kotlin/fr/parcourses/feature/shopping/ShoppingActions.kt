@@ -12,6 +12,8 @@ class ShoppingActions(
     val onDismissError: () -> Unit = {},
     val onScrolling: (Boolean) -> Unit = {},
     val onEditing: (Boolean) -> Unit = {},
+    /** Balayage horizontal d'une ligne en cours : le tri attend, comme pendant un défilement. */
+    val onSwiping: (Boolean) -> Unit = {},
     val onAnnouncementShown: (Int) -> Unit = {},
     val onClose: () -> Unit = {},
     /** Retour haptique d'une coche (appelé avant [onToggle], seulement pour cocher). */

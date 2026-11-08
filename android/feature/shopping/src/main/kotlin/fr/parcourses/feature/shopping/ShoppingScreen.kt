@@ -1,13 +1,11 @@
 package fr.parcourses.feature.shopping
 
-import androidx.compose.animation.core.tween
+import android.os.Build
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,36 +23,60 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /**
- * Mode courses. [reduceMotion] : « réduire les animations » du système, les glissements deviennent un fondu de
- * 150 ms. Avec un résumé, l'écran de fin minimal prend la place (l'écran complet est le lot A9).
+ * Mode courses. Avec un résumé, l'écran de fin minimal prend la place (l'écran complet est le lot A9). Les
+ * animations suivent l'échelle d'animation du système : « Supprimer les animations » les rend instantanées.
+ * [announce] : annonce polie à TalkBack (voir [rememberAnnouncer]) ; `null` : région polie sur le titre.
  */
 @Composable
 fun ShoppingScreen(
     state: ShoppingUiState,
     input: TextFieldState,
     actions: ShoppingActions,
-    reduceMotion: Boolean,
     modifier: Modifier = Modifier,
+    announce: ((String) -> Unit)? = rememberAnnouncer(),
 ) {
     val summary = state.summary
     if (summary != null) {
         ShoppingSummaryScreen(summary, actions.onClose, modifier)
     } else {
-        ShoppingContent(state, input, actions, reduceMotion, modifier)
+        ShoppingContent(state, input, actions, announce, modifier)
+    }
+}
+
+/**
+ * Annonce polie sans nœud dédié : `announceForAccessibility` jusqu'à l'API 35. Elle est dépréciée à partir de
+ * l'API 36, qui recommande une région « live » : on rend alors `null` et l'écran pose une région polie sur son titre,
+ * toujours affiché, le temps de l'annonce. Aucun des deux ne déplace le focus de TalkBack.
+ */
+@Composable
+fun rememberAnnouncer(): ((String) -> Unit)? {
+    val view = LocalView.current
+    return remember(view) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+            { text: String ->
+                @Suppress("DEPRECATION") // Déprécié à partir de l'API 36 seulement, jamais appelé au-delà.
+                view.announceForAccessibility(text)
+            }
+        } else {
+            null
+        }
     }
 }
 
@@ -64,15 +86,30 @@ internal fun ShoppingContent(
     state: ShoppingUiState,
     input: TextFieldState,
     actions: ShoppingActions,
-    reduceMotion: Boolean,
+    announce: ((String) -> Unit)?,
     modifier: Modifier,
 ) {
     var showsRemaining by rememberSaveable { mutableStateOf(false) }
+    val reorderText = state.reorder?.let { stringResource(R.string.shopping_reordered, it.next) }
+    ReorderAnnouncer(state.reorder, reorderText, announce, actions.onAnnouncementShown)
+    // Région polie (API 36+) : seulement pendant l'annonce, sinon chaque changement du titre serait relu.
+    val liveTitle = reorderText.takeIf { announce == null }
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(state.name) },
+                title = {
+                    Text(
+                        state.name,
+                        modifier =
+                            Modifier.testTag(TAG_TITLE).semantics {
+                                if (liveTitle != null) {
+                                    liveRegion = LiveRegionMode.Polite
+                                    stateDescription = liveTitle
+                                }
+                            },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = actions.onBack) {
                         Icon(
@@ -93,8 +130,7 @@ internal fun ShoppingContent(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            ShoppingList(state, actions, reduceMotion)
-            ReorderAnnouncementNode(state.reorder, actions.onAnnouncementShown)
+            ShoppingList(state, actions)
         }
     }
     if (showsRemaining || state.expired) {
@@ -108,26 +144,21 @@ internal fun ShoppingContent(
     state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
 }
 
-/** Nœud d'annonce : poli, jamais focalisable, de la taille d'un point. Il ne vole pas le focus de TalkBack. */
+/** Annonce le réordonnancement une fois, puis l'oublie après [ANNOUNCEMENT_MS]. */
 @Composable
-internal fun ReorderAnnouncementNode(
+internal fun ReorderAnnouncer(
     reorder: ReorderAnnouncement?,
+    text: String?,
+    announce: ((String) -> Unit)?,
     onShown: (Int) -> Unit,
 ) {
-    if (reorder == null) return
-    val text = stringResource(R.string.shopping_reordered, reorder.next)
-    Box(
-        Modifier
-            .size(1.dp)
-            .testTag(TAG_ANNOUNCEMENT)
-            .semantics {
-                liveRegion = LiveRegionMode.Polite
-                contentDescription = text
-            },
-    )
-    LaunchedEffect(reorder.seq) {
+    val seq = reorder?.seq ?: return
+    val currentAnnounce by rememberUpdatedState(announce)
+    val currentShown by rememberUpdatedState(onShown)
+    LaunchedEffect(seq) {
+        text?.let { currentAnnounce?.invoke(it) }
         delay(ANNOUNCEMENT_MS)
-        onShown(reorder.seq)
+        currentShown(seq)
     }
 }
 
@@ -136,7 +167,6 @@ internal fun ReorderAnnouncementNode(
 internal fun ShoppingList(
     state: ShoppingUiState,
     actions: ShoppingActions,
-    reduceMotion: Boolean,
 ) {
     val listState = rememberLazyListState()
     var basketExpanded by rememberSaveable { mutableStateOf(false) }
@@ -146,17 +176,17 @@ internal fun ShoppingList(
         if (state.groupsByAisle) {
             state.sections.forEach { section ->
                 stickyHeader(key = "aisle-${section.aisleId}", contentType = "aisle") { AisleHeader(section) }
-                rows(section.rows, state, actions, reduceMotion)
+                rows(section.rows, state, actions)
             }
         } else {
-            rows(state.toBuy, state, actions, reduceMotion)
+            rows(state.toBuy, state, actions)
         }
         if (state.notFound.isNotEmpty()) {
             item(key = "not-found-header", contentType = "title") {
                 SectionTitle(stringResource(R.string.shopping_not_found_title))
             }
             items(state.notFound, key = { it.id }, contentType = { "not-found" }) { row ->
-                NotFoundRow(row, { actions.onRestore(row) }, Modifier.rowAnimation(this, reduceMotion))
+                NotFoundRow(row, { actions.onRestore(row) }, Modifier.animateItem())
                 HorizontalDivider()
             }
         }
@@ -164,7 +194,7 @@ internal fun ShoppingList(
             item(key = "basket-header", contentType = "basket") {
                 BasketHeader(state.basket.size, basketExpanded) { basketExpanded = !basketExpanded }
             }
-            if (basketExpanded) rows(state.basket, state, actions, reduceMotion)
+            if (basketExpanded) rows(state.basket, state, actions)
         }
     }
 }
@@ -173,34 +203,19 @@ internal fun LazyListScope.rows(
     rows: List<ShoppingRow>,
     state: ShoppingUiState,
     actions: ShoppingActions,
-    reduceMotion: Boolean,
 ) {
     items(rows, key = { it.id }, contentType = { "row" }) { row ->
         ItemRow(
             row = row,
             highlighted = state.highlightedItemId == row.id,
             actions = actions,
-            modifier = Modifier.rowAnimation(this, reduceMotion),
+            modifier = Modifier.animateItem(),
         )
         HorizontalDivider()
     }
 }
 
-/** Réordonnancement animé ; « réduire les animations » : plus de glissement, un fondu de 150 ms (#10 §8.2). */
-internal fun Modifier.rowAnimation(
-    scope: LazyItemScope,
-    reduceMotion: Boolean,
-): Modifier =
-    with(scope) {
-        if (reduceMotion) {
-            animateItem(fadeInSpec = tween(FADE_MS), placementSpec = null, fadeOutSpec = tween(FADE_MS))
-        } else {
-            animateItem()
-        }
-    }
-
 internal const val ANNOUNCEMENT_MS = 2_000L
-internal const val FADE_MS = 150
 internal const val STACK_FONT_SCALE = 1.5f
 
 internal const val TAG_ITEMS = "shoppingItems"
@@ -210,7 +225,7 @@ internal const val TAG_ENTRY = "shoppingEntry"
 internal const val TAG_FINISH = "finish"
 internal const val TAG_UNDO = "undo"
 internal const val TAG_UNDO_BANNER = "undoBanner"
-internal const val TAG_ANNOUNCEMENT = "reorderAnnouncement"
+internal const val TAG_TITLE = "shoppingTitle"
 internal const val TAG_REMAINING_SHEET = "remainingSheet"
 internal const val TAG_KEEP = "keepRemaining"
 internal const val TAG_DROP = "dropRemaining"

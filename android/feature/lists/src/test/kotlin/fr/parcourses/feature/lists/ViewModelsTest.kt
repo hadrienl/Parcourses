@@ -371,7 +371,7 @@ class ViewModelsTest : ListsTest() {
             val moved = lists.createList("Courses", clock)
             val remaps = MutableSharedFlow<IdentifierRemap>(replay = 1)
             remaps.tryEmit(IdentifierRemap(mapOf(old.id to moved.id)))
-            val model = ListsViewModel(lists, remaps) { clock }
+            val model = tracked { ListsViewModel(lists, remaps) { clock } }
             model.uiState.await { it.isLoaded }
             model.rename(old.id, "Semaine")
             assertEquals(
