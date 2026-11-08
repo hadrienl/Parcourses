@@ -6,13 +6,17 @@ struct StorePickerView: View {
   @State var model: StorePickerModel
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.openURL) private var openURL
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     NavigationStack {
       content
         .navigationTitle("Choisir le magasin")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) { attribution }
+        // Aux tailles d'accessibilité, la barre prendrait la moitié de l'écran : l'attribution suit alors le contenu.
+        .safeAreaInset(edge: .bottom) {
+          if !dynamicTypeSize.isAccessibilitySize { attribution }
+        }
         .alert("Impossible d'enregistrer ce magasin", isPresented: selectionFailed) {
           Button("OK", role: .cancel) {}
         } message: {
@@ -36,6 +40,7 @@ struct StorePickerView: View {
       VStack(spacing: 24) {
         ProgressView("Recherche des magasins proches…")
         continueWithoutStoreButton
+        if dynamicTypeSize.isAccessibilitySize { OSMAttribution() }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     case .precise(let proposed, let others):
@@ -45,6 +50,7 @@ struct StorePickerView: View {
             StoreRow(store: proposed) { model.select(proposed) }
             Button("Faire mes courses ici") { model.select(proposed) }
               .buttonStyle(.borderedProminent)
+              .touchTarget()
               .frame(maxWidth: .infinity)
               .listRowBackground(Color.clear)
               .accessibilityIdentifier("confirmProposal")
@@ -52,6 +58,7 @@ struct StorePickerView: View {
         }
         stores(others, title: proposed == nil ? "Magasins proches" : "Autres magasins proches")
         recentsSection
+        inlineAttribution
       }
     case .approximate(let candidates):
       List {
@@ -66,6 +73,7 @@ struct StorePickerView: View {
         searchSection
         if !isSearching { stores(candidates, title: "Magasins dans le secteur") }
         recentsSection
+        inlineAttribution
       }
     case .denied:
       fallbackList(
@@ -108,6 +116,7 @@ struct StorePickerView: View {
 
   private var continueWithoutStoreButton: some View {
     Button("Continuer sans magasin") { model.continueWithoutStore() }
+      .touchTarget()
       .accessibilityIdentifier("continueWithoutStore")
   }
 
@@ -135,6 +144,13 @@ struct StorePickerView: View {
       } footer: {
         Text("La liste suivra l'ordre générique des rayons.")
       }
+      inlineAttribution
+    }
+  }
+
+  @ViewBuilder private var inlineAttribution: some View {
+    if dynamicTypeSize.isAccessibilitySize {
+      Section { OSMAttribution() }
     }
   }
 
@@ -175,12 +191,8 @@ struct StorePickerView: View {
 
   /// Les magasins viennent d'OpenStreetMap (#9 §8).
   private var attribution: some View {
-    Link("© contributeurs OpenStreetMap", destination: URL(filePath: "/").osmCopyright)
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 4)
-      .background(.bar)
+    // Aplat opaque : le lien reste lisible quand la liste défile dessous.
+    OSMAttribution().background(Color(uiColor: .systemGroupedBackground))
   }
 }
 
@@ -203,7 +215,7 @@ private struct StoreRow: View {
           Text(StoreDistance.text(metres: distance)).font(.subheadline).foregroundStyle(.secondary)
         }
       }
-      .frame(minHeight: 44)
+      .touchTarget()
       .contentShape(Rectangle())
     }
     // Style neutre : le nom se lit comme un contenu, pas comme un lien teinté.
@@ -211,11 +223,6 @@ private struct StoreRow: View {
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(.isButton)
   }
-}
-
-extension URL {
-  /// Licence ODbL, exigée avec l'attribution.
-  fileprivate var osmCopyright: URL { URL(string: "https://www.openstreetmap.org/copyright") ?? self }
 }
 
 /// Distance lisible et arrondie : le GPS ne justifie pas le mètre près.

@@ -23,6 +23,10 @@ struct ParcoursesApp: App {
       switch environment {
       case .success(let environment):
         RootView(environment: environment)
+          // Teinte de l'app : l'asset AccentColor, plus sombre que le bleu système pour tenir le contraste du texte
+          // blanc. Posée à la racine pour que les feuilles et le plein écran en héritent. Remplacée par les jetons
+          // de couleur au lot 9.11.
+          .tint(Color("AccentColor"))
           .task {
             environment.sync?.start()
             if let gateway {
@@ -121,7 +125,7 @@ struct RootView: View {
           Color.black.opacity(0.2).ignoresSafeArea()
           ProgressView("Préparation de vos courses…")
             .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .bannerBackground()
         }
         .accessibilityIdentifier("shoppingPreparation")
       }

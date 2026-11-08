@@ -19,10 +19,13 @@ struct ListDetailView: View {
   var body: some View {
     List {
       ForEach(model.sections) { section in
-        Section(section.title) {
+        Section {
           ForEach(section.items) { row in
             itemRow(row)
           }
+        } header: {
+          // Titre en couleur principale : le gris des en-têtes du système tient mal le contraste.
+          Text(section.title).foregroundStyle(.primary)
         }
       }
     }
@@ -69,25 +72,16 @@ struct ListDetailView: View {
     Button {
       model.toggle(row)
     } label: {
-      HStack {
-        // L'état se lit sans couleur : forme de l'icône et texte barré.
-        Image(systemName: row.isChecked ? "checkmark.circle.fill" : "circle")
-          .foregroundStyle(row.isChecked ? Color.accentColor : .secondary)
-        Text(row.label)
-          .strikethrough(row.isChecked)
-          .foregroundStyle(row.isChecked ? .secondary : .primary)
-        Spacer()
-        if let quantity = row.quantity {
-          Text(quantity).foregroundStyle(.secondary)
-        }
-      }
-      .frame(minHeight: 48)
-      .contentShape(Rectangle())
+      // L'état se lit sans couleur : forme de l'icône et texte barré.
+      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
     }
     .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.accessibilityState)
+    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
+    .accessibilityAction(named: "Décocher") { if row.isChecked { model.toggle(row) } }
     .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
       Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
@@ -104,6 +98,7 @@ struct ListDetailView: View {
               Button(suggestion.label) { model.add(suggestion) }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
+                .touchTarget()
                 .accessibilityLabel("Ajouter \(suggestion.label)")
             }
           }
@@ -111,7 +106,7 @@ struct ListDetailView: View {
       }
       HStack {
         TextField("Ajouter un article", text: $model.input)
-          .textFieldStyle(.roundedBorder)
+          .entryField()
           .focused($inputIsFocused)
           .submitLabel(.done)
           .accessibilityIdentifier("quickEntry")
@@ -119,13 +114,14 @@ struct ListDetailView: View {
         Button("Ajouter", systemImage: "plus.circle.fill", action: submit)
           .labelStyle(.iconOnly)
           .font(.title)
-          .frame(minWidth: 44, minHeight: 44)
+          .frame(minWidth: 44)
+          .touchTarget()
           .disabled(model.input.allSatisfy(\.isWhitespace))
       }
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
-    .background(.bar)
+    .barBackground()
   }
 
   /// Le clavier reste ouvert : on enchaîne les articles.

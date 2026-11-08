@@ -53,12 +53,16 @@ private struct LockScreenView: View {
   let attributes: ShoppingActivityAttributes
   let state: ShoppingActivityAttributes.ContentState
   let isStale: Bool
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     HStack(spacing: 12) {
-      // L'anneau répète le texte de dessous : VoiceOver ne le lit pas.
-      ProgressRing(state: state)
-        .accessibilityHidden(true)
+      // L'anneau répète le texte de dessous : VoiceOver ne le lit pas. Aux tailles d'accessibilité, il cède la
+      // place au texte, qui reprend toute la largeur.
+      if !dynamicTypeSize.isAccessibilitySize {
+        ProgressRing(state: state)
+          .accessibilityHidden(true)
+      }
       VStack(alignment: .leading, spacing: 2) {
         Text(attributes.storeName ?? attributes.listName)
           .font(.caption)
