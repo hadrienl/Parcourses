@@ -46,10 +46,15 @@ class SecureSessionStorageTest {
     private fun store(
         file: File,
         aead: () -> Aead,
+    ): DataStoreSecureStateStore = storeFrom(file, AeadSource { aead() })
+
+    private fun storeFrom(
+        file: File,
+        source: AeadSource,
     ): DataStoreSecureStateStore {
         val scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
         scopes += scope
-        return DataStoreSecureStateStore.create(file, aead, scope)
+        return DataStoreSecureStateStore.create(file, File(file.parentFile, file.name + ".account"), source, scope)
     }
 
     private fun restart() {
