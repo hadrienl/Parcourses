@@ -14,7 +14,10 @@ if [[ "$url" != "http://127.0.0.1:56321" || -z "$key" ]]; then
 fi
 
 # --rerun : les variables d'environnement ne sont pas des entrées de la tâche de test.
-# Passerelle (A5) puis synchronisation complète des listes (A6), contre le Supabase local uniquement.
+# Passerelle (A5), synchronisation complète des listes (A6), puis visite complète du mode courses (A8) : coches,
+# fin, envoi, calcul du graphe (docker exec sur la base du Supabase local) et lecture de l'instantané.
+# Contre le Supabase local uniquement.
 PARCOURSES_IT_URL="$url" PARCOURSES_IT_KEY="$key" \
   ./gradlew :core:network:testDebugUnitTest --tests '*SupabaseGatewayIntegrationTest' \
-  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' --rerun "$@"
+  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' \
+  :feature:shopping:testDebugUnitTest --tests '*ShoppingIntegrationTest' --rerun "$@"

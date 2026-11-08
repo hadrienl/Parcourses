@@ -4,13 +4,17 @@ import android.content.Context
 import fr.parcourses.core.categorizer.CategoryClassifier
 import fr.parcourses.core.data.EntryAnalyzer
 import fr.parcourses.core.data.repository.CategoryRepository
+import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.ProductRepository
 import fr.parcourses.core.data.repository.RoomCategoryRepository
+import fr.parcourses.core.data.repository.RoomGraphRepository
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.repository.RoomProductRepository
 import fr.parcourses.core.data.repository.RoomStoreRepository
+import fr.parcourses.core.data.repository.RoomVisitRepository
 import fr.parcourses.core.data.repository.StoreRepository
+import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sync.NetworkMonitor
 import fr.parcourses.core.data.sync.PulledItemClassification
 import fr.parcourses.core.data.sync.SharedPreferencesSyncCursors
@@ -26,12 +30,23 @@ import fr.parcourses.core.network.AuthBootstrap
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.createSupabaseGateway
+import fr.parcourses.feature.shopping.GraphSnapshotCache
+import fr.parcourses.feature.shopping.ShoppingDependencies
+import fr.parcourses.feature.shopping.ShoppingTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import kotlin.time.Duration
+
+/** Visite ouverte que l'app rouvre au lancement. */
+data class ResumableVisit(
+    val listId: String,
+    val storeId: String,
+)
 
 /**
  * Racine de l'injection, à la main (une seule instance par processus). Tout est créé à la demande : rien
@@ -75,16 +90,35 @@ class AppContainer(
     /** Position ponctuelle : Google Play Services, sinon le gestionnaire du système (API 30+). */
     val location: LocationProvider by lazy { SystemLocationProvider(context) }
 
-    private val storeChoiceEvents = MutableSharedFlow<StoreChoice>(extraBufferCapacity = 1)
+    val visits: VisitRepository by lazy { RoomVisitRepository(database, onEnqueue = { coordinator?.requestSync() }) }
+    val graphs: GraphRepository by lazy { RoomGraphRepository(database) }
+
+    /** Tout ce que le mode courses lit et écrit (instantané du graphe compris). */
+    val shopping: ShoppingDependencies by lazy {
+        ShoppingDependencies(lists, visits, stores, categories, analyzer, GraphSnapshotCache(graphs, gateway))
+    }
+
+    private val storeChoiceEvents = StoreChoiceEvents()
+
+    /** Choix de magasin à consommation unique : voir [StoreChoiceEvents] pour le contrat du collecteur. */
+    val storeChoices: Flow<StoreChoice> get() = storeChoiceEvents.choices
+
+    fun offerStoreChoice(choice: StoreChoice) = storeChoiceEvents.offer(choice)
+
+    /** Reprise de la visite ouverte : une fois par processus, au lancement à froid (voir [LaunchResume]). */
+    val launchResume = LaunchResume()
 
     /**
-     * Choix de magasin, un événement à consommation unique (sans rejeu) lié à sa liste : un choix ancien ne peut
-     * pas rouvrir une visite. Le mode courses (A8) le collecte tant que l'app est ouverte.
+     * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
+     * depuis plus de [expiry] : elle est alors close à sa dernière coche (supprimée si elle n'en a aucune) et rien
+     * n'est rouvert.
      */
-    val storeChoices: Flow<StoreChoice> = storeChoiceEvents.asSharedFlow()
-
-    fun offerStoreChoice(choice: StoreChoice) {
-        storeChoiceEvents.tryEmit(choice)
+    suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
+        val visit = visits.openVisit() ?: return null
+        val last = visits.lastActivity(visit.id) ?: visit.startedAt
+        val usable = lists.list(visit.listId) != null && Clock.System.now() - last < expiry
+        if (!usable) visits.closeVisit(visit.id, last)
+        return if (usable) ResumableVisit(visit.listId, visit.storeId) else null
     }
 
     /** Lancement : catégories, connexion anonyme, puis synchronisation (en tâche de fond). */
