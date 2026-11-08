@@ -53,4 +53,19 @@
     <string name="shopping_summary_known">%1$s est cartographié à %2$d %%, merci.</string>
     <string name="shopping_summary_close">Retour aux listes</string>
     <string name="shopping_summary_pane">Courses terminées</string>
+    <!-- Live Update (#10 §9) -->
+    <string name="live_channel_name">Courses en cours</string>
+    <string name="live_channel_description">Prochain article et progression pendant vos courses</string>
+    <string name="live_all_taken">Tout est pris</string>
+    <string name="live_finish_in_app">Terminez vos courses dans l\'app</string>
+    <string name="live_check_next">Cocher le suivant</string>
+    <string name="live_public_title">Courses en cours</string>
+    <plurals name="live_remaining">
+        <item quantity="one">%1$d article restant sur %2$d</item>
+        <item quantity="other">%1$d articles restants sur %2$d</item>
+    </plurals>
+    <string name="live_permission_title">Suivre vos courses sans ouvrir l\'app</string>
+    <string name="live_permission_text">Parcourses peut afficher le prochain article et ce qu\'il reste à prendre dans une notification, sur l\'écran verrouillé, et vous laisser le cocher de là. Sans autorisation, le mode courses fonctionne tout pareil.</string>
+    <string name="live_permission_allow">Continuer</string>
+    <string name="live_permission_later">Pas maintenant</string>
 </resources>

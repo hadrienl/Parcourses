@@ -5,12 +5,11 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.categorizer.CategoryClassifier
-import fr.parcourses.core.categorizer.ORGANIC_CATEGORY_ID
 import fr.parcourses.core.categorizer.effectiveCategory
 import fr.parcourses.core.data.EntryAnalyzer
 import fr.parcourses.core.data.repository.CategoryRepository
-import fr.parcourses.core.data.repository.CheckSubject
 import fr.parcourses.core.data.repository.ListRepository
+import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
@@ -22,6 +21,8 @@ import fr.parcourses.core.model.SortOutput
 import fr.parcourses.core.model.SortParams
 import fr.parcourses.core.model.SortStart
 import fr.parcourses.core.sorting.sortItems
+import fr.parcourses.feature.shopping.live.LiveUpdateSink
+import fr.parcourses.feature.shopping.live.ShoppingLiveState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -58,6 +59,8 @@ class ShoppingDependencies(
     val categories: CategoryRepository,
     val analyzer: EntryAnalyzer,
     val cache: GraphSnapshotCache,
+    /** Live Update (#10 §9) ; `null` : aucune (tests, app sans notification). */
+    val liveUpdates: LiveUpdateSink? = null,
 )
 
 /**
@@ -125,6 +128,9 @@ class ShoppingViewModel(
     private var reorder: ReorderAnnouncement? = null
     private var errorMessage: String? = null
     private var announcements = 0
+
+    /** Dernier état envoyé à la Live Update. */
+    private var liveState: ShoppingLiveState? = null
 
     /** Ordre que la personne a vu au dernier tri : seul un changement de place entre articles déjà vus s'annonce. */
     private var settledOrder: List<String> = emptyList()
@@ -304,48 +310,80 @@ class ShoppingViewModel(
     private suspend fun check(row: ShoppingRow) {
         val index = toBuy.indexOfFirst { it.id == row.id }
         val item = item(row.id)
-        // Double événement (double appui, balayage puis appui) : un article déjà coché ne l'est pas deux fois.
-        if (item == null || index < 0 || item.checkedAt != null) return
+        if (item == null || index < 0) return
         val date = now()
-        var checkId: String? = null
-        val succeeded =
-            perform {
-                val visit = visitId
-                if (visit != null) {
-                    checkId =
-                        deps.visits
-                            .checkItem(
-                                visitId = visit,
-                                itemId = row.id,
-                                subject = subject(item),
-                                checkedAt = date,
-                                // Marge : l'envoi ne doit pas partir pendant que « Annuler » est encore affiché.
-                                sendAfter = undoDuration + timings.sendMargin,
-                            ).id
-                } else {
-                    deps.lists.setChecked(row.id, date, date)
-                }
-            }
-        if (!succeeded) return
+        // Double événement (double appui, balayage puis appui), ou coché entre-temps par « Cocher le suivant » de la
+        // Live Update : un article déjà coché ne l'est pas deux fois, l'écran se met à jour.
+        val write = if (item.checkedAt != null) CheckWrite.AlreadyChecked else writeCheck(row, item, date)
+        if (write == CheckWrite.AlreadyChecked) checkedElsewhere()
+        if (write !is CheckWrite.Written) return
         // La ligne reste à sa place jusqu'au prochain tri : elle ne bouge jamais sous le doigt.
         settlingIds += row.id
         toBuy = toBuy.toMutableList().also { it[index] = row.copy(isChecked = true) }
         lastItems = attempt { deps.lists.items(listId) }?.map(::ItemView) ?: lastItems
         adoptPendingSnapshot()
         // Même origine que le `notBefore` de la coche : la bannière disparaît avant que la coche puisse partir.
-        offerUndo(ShoppingUndo(ShoppingUndo.Kind.Check, row.id, row.label, checkId, index), until = date + undoDuration)
+        offerUndo(
+            ShoppingUndo(ShoppingUndo.Kind.Check, row.id, row.label, write.checkId, index),
+            until =
+                date + undoDuration,
+        )
         scheduleSettle()
         publish()
     }
 
-    /** Ce que désigne la coche : le produit, sinon la catégorie du classifieur, jamais le rayon bio (#28). */
-    private fun subject(item: ListItemEntity): CheckSubject =
-        item.productId?.let { CheckSubject.Product(it) }
-            ?: if (item.categoryId == ORGANIC_CATEGORY_ID) {
-                CheckSubject.Category(deps.analyzer.classify(item.label).first)
-            } else {
-                CheckSubject.Category(item.categoryId)
-            }
+    /** Issue de l'écriture d'une coche. */
+    private sealed interface CheckWrite {
+        /** [checkId] : coche de la visite, `null` sans magasin. */
+        data class Written(
+            val checkId: String?,
+        ) : CheckWrite
+
+        data object AlreadyChecked : CheckWrite
+
+        /** Échec montré à la personne (voir [perform]). */
+        data object Failed : CheckWrite
+    }
+
+    private suspend fun writeCheck(
+        row: ShoppingRow,
+        item: ListItemEntity,
+        date: Instant,
+    ): CheckWrite {
+        var write: CheckWrite = CheckWrite.Failed
+        perform {
+            val visit = visitId
+            write =
+                if (visit == null) {
+                    deps.lists.setChecked(row.id, date, date)
+                    CheckWrite.Written(null)
+                } else {
+                    try {
+                        val check =
+                            deps.visits.checkItem(
+                                visitId = visit,
+                                itemId = row.id,
+                                subject = checkSubject(item, deps.analyzer),
+                                checkedAt = date,
+                                // Marge : l'envoi ne doit pas partir pendant que « Annuler » est encore affiché.
+                                sendAfter = undoDuration + timings.sendMargin,
+                            )
+                        CheckWrite.Written(check.id)
+                    } catch (expected: RepositoryException.AlreadyChecked) {
+                        // Coché entre la lecture et l'écriture (Live Update au même instant).
+                        CheckWrite.AlreadyChecked
+                    }
+                }
+        }
+        return write
+    }
+
+    /** L'article a été coché ailleurs (Live Update) : la ligne rejoint le panier, sans erreur ni « Annuler ». */
+    private suspend fun checkedElsewhere() {
+        reloadRows()
+        scheduleSettle()
+        publish()
+    }
 
     /**
      * Nouvel appui sur une ligne cochée. Une coche déjà partie reste au serveur, qui ne retient que la première de
@@ -712,6 +750,7 @@ class ShoppingViewModel(
         if (!idleLongEnough || !perform { kept = deps.visits.closeVisit(visit, lastActivity) }) return
         expiredVisitId = visit.takeIf { kept }
         visitId = null
+        deps.liveUpdates?.end(visit)
         expiredAt = lastActivity
         expired = true
         settlingIds.clear()
@@ -748,6 +787,7 @@ class ShoppingViewModel(
             }
         if (!succeeded) return
         visitId = null
+        closing?.let { deps.liveUpdates?.end(it) }
         val checked =
             deps.lists.items(listId).count { (it.checkedAt ?: Instant.DISTANT_PAST) >= startedAt }
         val end = expiredAt ?: date
@@ -837,6 +877,8 @@ class ShoppingViewModel(
 
     private fun publish(loaded: Boolean = _uiState.value.isLoaded) {
         val groups = mode != SortOutput.Mode.Learned
+        val sections = if (groups) sections() else emptyList()
+        if (loaded) publishLive(if (groups) sections.flatMap { it.rows } else toBuy)
         _uiState.update {
             ShoppingUiState(
                 isLoaded = loaded,
@@ -845,7 +887,7 @@ class ShoppingViewModel(
                 toBuy = toBuy,
                 basket = basket,
                 notFound = notFound,
-                sections = if (groups) sections() else emptyList(),
+                sections = sections,
                 groupsByAisle = groups,
                 knowledge = knowledge,
                 undo = undo,
@@ -859,14 +901,48 @@ class ShoppingViewModel(
     }
 
     /**
-     * Rayons dans l'ordre des rangs de catégories, articles dans l'ordre affiché. Une ligne juste cochée reste dans
-     * son rayon jusqu'au tri suivant, comme dans `toBuy`.
+     * Envoie l'état à la Live Update : la visite en cours seulement (pas sans magasin, ni après la fin ou
+     * l'expiration). [displayed] : les lignes à prendre dans l'ordre où l'écran les montre, si bien que le
+     * « suivant » de la notification est celui de l'écran. Sans changement, rien ne part.
      */
-    private fun sections(): List<ShoppingSection> {
+    private fun publishLive(displayed: List<ShoppingRow>) {
+        val sink = deps.liveUpdates
+        val visit = visitId
+        val over = expired || summary != null
+        if (sink == null || visit == null || over) return
+        val indices = aisleIndices()
+        val state =
+            ShoppingLiveState.make(
+                visitId = visit,
+                listId = listId,
+                listName = name,
+                storeName = storeName,
+                displayed = displayed,
+                basket = basket,
+                aisleLabel = { categoryLabels[it] },
+                aisleIndex = { indices[it] ?: 0 },
+            )
+        if (state != liveState) {
+            liveState = state
+            sink.publish(state)
+        }
+    }
+
+    /** Place de chaque rayon dans l'ordre des rangs : celle des sections, et la couleur de son segment. */
+    private fun aisleIndices(): Map<String, Int> {
         val indices = HashMap<String, Int>()
         sortCategories
             .sortedWith(compareBy<SortCategory> { it.rank }.thenBy { it.id })
             .forEachIndexed { index, category -> indices.putIfAbsent(category.id, index) }
+        return indices
+    }
+
+    /**
+     * Rayons dans l'ordre des rangs de catégories, articles dans l'ordre affiché. Une ligne juste cochée reste dans
+     * son rayon jusqu'au tri suivant, comme dans `toBuy`.
+     */
+    private fun sections(): List<ShoppingSection> {
+        val indices = aisleIndices()
         val fallback = indices[CategoryClassifier.OTHER_CATEGORY_ID] ?: maxOf(0, sortCategories.size - 1)
         val grouped = toBuy.groupBy { it.aisleId }
         return grouped.keys

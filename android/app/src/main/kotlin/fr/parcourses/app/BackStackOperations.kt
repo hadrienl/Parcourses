@@ -67,6 +67,23 @@ internal fun MutableList<NavKey>.resumeShopping(visit: ResumableVisit): Boolean 
 }
 
 /**
+ * Lien de la Live Update vers la visite ouverte [visit] : la pile devient `[Lists, Shopping]` (#10 §8.1). Si ce mode
+ * courses est déjà au sommet (même liste, même magasin), rien ne change : ni second écran ni état perdu. Renvoie
+ * `true` si la pile a changé.
+ */
+internal fun MutableList<NavKey>.openLinkedShopping(visit: ResumableVisit): Boolean {
+    val top = lastOrNull()
+    if (top is Route.Shopping && top.listId == visit.listId && top.storeId == visit.storeId) return false
+    if (firstOrNull() != Route.Lists) {
+        clear()
+        add(Route.Lists)
+    }
+    while (size > 1) removeAt(lastIndex)
+    add(Route.Shopping(visit.listId, visit.storeId))
+    return true
+}
+
+/**
  * Fin des courses : le mode courses identifié par [slot] cède sa place au résumé, s'il est encore au sommet. Le
  * résumé reçoit un slot neuf : l'entrée du mode courses quitte la pile et son `ShoppingViewModel` est détruit.
  * Renvoie `true` si la pile a changé.

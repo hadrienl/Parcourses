@@ -17,6 +17,7 @@ import fr.parcourses.feature.lists.ListsViewModel
 import fr.parcourses.feature.shopping.ShoppingRoute
 import fr.parcourses.feature.shopping.ShoppingSummaryRoute
 import fr.parcourses.feature.shopping.ShoppingViewModel
+import fr.parcourses.feature.shopping.live.NotificationPermissionPrompt
 import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
 import kotlinx.coroutines.flow.emptyFlow
@@ -45,9 +46,18 @@ fun ParcoursesNavHost(
         container.storeChoices.collect { choice -> backStack.openShopping(choice) }
     }
 
-    // Reprise au lancement d'une visite restée ouverte : une fois par processus, jamais sur une recréation.
+    // Reprise au lancement d'une visite restée ouverte : une fois par processus, jamais sur une recréation. Ensuite,
+    // une Live Update qui ne suit pas la visite ouverte (expirée, abandonnée) est retirée.
     LaunchedEffect(container) {
         backStack.resumeOnLaunch(container.launchResume, coldStart) { container.resumableVisit() }
+        container.liveUpdates.reconcile()
+    }
+
+    // Live Update touchée : le mode courses de sa visite, si elle est encore ouverte. Collecteur toujours composé.
+    LaunchedEffect(container) {
+        container.shoppingLinks.collect { visitId ->
+            container.linkedVisit(visitId)?.let { backStack.openLinkedShopping(it) }
+        }
     }
 
     NavDisplay(
@@ -149,6 +159,13 @@ fun ParcoursesNavHost(
                         onClose = { backStack.popIfTop(key.slot) },
                         onFinished = { summary -> backStack.finishShopping(key.slot, summary) },
                     )
+                    // Live Update : seulement avec un magasin (une visite à suivre).
+                    if (key.storeId != null) {
+                        NotificationPermissionPrompt(
+                            container.livePreferences,
+                            onGranted = container.liveUpdates::refresh,
+                        )
+                    }
                 }
                 entry<Route.ShoppingSummary>(clazzContentKey = { it.slot }) { key ->
                     ShoppingSummaryRoute(summary = key.summary, onClose = { backStack.popIfTop(key.slot) })
