@@ -163,8 +163,9 @@ class SecureSessionStorageTest {
         runTest {
             val file = File(folder.root, "s.pb")
             val old = newAead()
-            EncryptedSessionManager(store(file) { old }).saveSession(session)
-            store(file) { old }.update { it.copy(lastAccountId = "acc") }
+            val first = store(file) { old }
+            EncryptedSessionManager(first).saveSession(session)
+            first.update { it.copy(lastAccountId = "acc") }
             restart()
 
             // La clé maîtresse a disparu : la première construction échoue, le jeu de clés est effacé, puis recréé.
