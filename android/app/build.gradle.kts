@@ -79,6 +79,7 @@ dependencies {
     implementation(project(":core:location"))
     implementation(project(":feature:lists"))
     implementation(project(":feature:storepicker"))
+    implementation(project(":feature:shopping"))
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)

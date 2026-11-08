@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shopping_back">Retour</string>
+    <string name="shopping_remaining_header">%1$d à prendre</string>
+    <string name="shopping_knowledge_no_store">Sans magasin : ordre par rayon</string>
+    <string name="shopping_knowledge_unknown">Vous tracez le premier trajet ici</string>
+    <string name="shopping_knowledge_learning">Trajet en apprentissage (%1$d %%)</string>
+    <string name="shopping_knowledge_learned">Trajet connu à %1$d %%</string>
+    <string name="shopping_aisle_count">%1$s, %2$d à prendre</string>
+
+    <string name="shopping_action_check">Cocher</string>
+    <string name="shopping_action_uncheck">Décocher</string>
+    <string name="shopping_action_not_found">Pas trouvé</string>
+    <string name="shopping_state_checked">coché</string>
+    <string name="shopping_state_unchecked">non coché</string>
+
+    <string name="shopping_not_found_title">Introuvable</string>
+    <string name="shopping_restore">Remettre</string>
+    <string name="shopping_restore_hint">Remet l\'article dans la liste</string>
+    <string name="shopping_state_not_found">introuvable</string>
+    <string name="shopping_basket">Dans le panier (%1$d)</string>
+    <string name="shopping_basket_expanded">déplié</string>
+    <string name="shopping_basket_collapsed">replié</string>
+
+    <string name="shopping_undo">Annuler</string>
+    <string name="shopping_undo_checked">%1$s coché</string>
+    <string name="shopping_undo_not_found">%1$s introuvable</string>
+    <string name="shopping_reordered">Liste réordonnée. Prochain : %1$s</string>
+    <string name="shopping_all_checked">Tout est coché !</string>
+    <string name="shopping_input_label">Ajouter un article</string>
+    <string name="shopping_add">Ajouter</string>
+    <string name="shopping_finish">Terminer</string>
+
+    <plurals name="shopping_remaining_title">
+        <item quantity="one">%1$d article non coché</item>
+        <item quantity="other">%1$d articles non cochés</item>
+    </plurals>
+    <string name="shopping_remaining_question">Les garder pour la prochaine fois ?</string>
+    <string name="shopping_keep">Les garder</string>
+    <string name="shopping_drop">Les retirer de la liste</string>
+    <string name="shopping_continue">Continuer mes courses</string>
+    <string name="shopping_expired_note">Votre visite s\'est terminée d\'elle-même après 45 minutes sans coche.</string>
+
+    <string name="shopping_error_title">Erreur</string>
+    <string name="shopping_error_ok">OK</string>
+
+    <plurals name="shopping_summary_articles">
+        <item quantity="one">%1$d article</item>
+        <item quantity="other">%1$d articles</item>
+    </plurals>
+    <string name="shopping_summary_minutes">en %1$d min</string>
+    <string name="shopping_summary_first">Vous avez tracé le premier trajet à %1$s, merci.</string>
+    <string name="shopping_summary_known">%1$s est cartographié à %2$d %%, merci.</string>
+    <string name="shopping_summary_close">Retour aux listes</string>
+</resources>

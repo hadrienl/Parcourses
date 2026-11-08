@@ -14,6 +14,8 @@ import fr.parcourses.feature.lists.ListDetailRoute
 import fr.parcourses.feature.lists.ListDetailViewModel
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
+import fr.parcourses.feature.shopping.ShoppingRoute
+import fr.parcourses.feature.shopping.ShoppingViewModel
 import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
 import kotlinx.coroutines.flow.emptyFlow
@@ -29,6 +31,16 @@ fun ParcoursesNavHost(container: AppContainer) {
         (container.engine?.remaps ?: emptyFlow()).collect { remap ->
             backStack.applyRemap(remap)
         }
+    }
+
+    // Choix du magasin : le collecteur est ici car cette composition ne quitte jamais l'écran (voir `storeChoices`).
+    LaunchedEffect(container) {
+        container.storeChoices.collect { choice -> backStack.openShopping(choice) }
+    }
+
+    // Reprise au lancement d'une visite restée ouverte.
+    LaunchedEffect(container) {
+        container.resumableVisit()?.let { backStack.resumeShopping(it) }
     }
 
     NavDisplay(
@@ -82,7 +94,7 @@ fun ParcoursesNavHost(container: AppContainer) {
                         )
                     ListDetailRoute(
                         viewModel = model,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { backStack.popIfTop(key.slot) },
                         onStartShopping = { listId -> backStack.openStorePicker(listId) },
                     )
                 }
@@ -102,11 +114,32 @@ fun ParcoursesNavHost(container: AppContainer) {
                         )
                     StorePickerRoute(
                         viewModel = model,
-                        // Le mode courses (A8) reprend ce choix ; en attendant on revient à la liste.
+                        // Le mode courses reprend ce choix : voir `storeChoices`.
                         onOutcome = { outcome ->
                             backStack.finishStorePicker(key.slot, outcome)?.let(container::offerStoreChoice)
                         },
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { backStack.popIfTop(key.slot) },
+                    )
+                }
+                entry<Route.Shopping>(clazzContentKey = { it.slot }) { key ->
+                    val model: ShoppingViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        ShoppingViewModel(
+                                            listId = key.listId,
+                                            storeId = key.storeId,
+                                            deps = container.shopping,
+                                            remaps = container.engine?.remaps ?: emptyFlow(),
+                                        )
+                                    }
+                                },
+                        )
+                    ShoppingRoute(
+                        viewModel = model,
+                        onBack = { backStack.popIfTop(key.slot) },
+                        onClose = { backStack.popIfTop(key.slot) },
                     )
                 }
             },
