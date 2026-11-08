@@ -48,6 +48,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       // Description d'un ContentUnavailableView comprimée par le clavier (état « Liste vide »).
       if keyboard.exists, element.elementType == .staticText, issue.auditType == .textClipped { return true }
     }
+    // 7. Contraste signalé sans élément pendant que le clavier est ouvert : mesure sur les pixels du clavier
+    //    translucide, qui se mélangent au contenu défilé dessous.
+    if issue.auditType == .contrast, issue.element == nil, app.keyboards.firstMatch.exists { return true }
     // 6. Éléments à cadre fractionnaire ou en partie hors écran : contenu d'une feuille à détente `.medium`
     //    (transformée à l'affichage) ou défilé sous la barre de navigation. Les mesures y sont faussées ;
     //    les captures montrent un texte entier et lisible.
