@@ -288,6 +288,14 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
+    guard !items.isEmpty else { return [] }
+    let parameters = ResolveProductsParameters(pItems: items)
+    return try await authorized {
+      try await self.rest.rpc("resolve_products", params: parameters).execute().value
+    }
+  }
+
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] {
     let parameters = NearbyStoresParameters(lat: lat, lng: lng, radiusM: radiusM, maxResults: maxResults)
     return try await authorized {
@@ -452,6 +460,14 @@ private nonisolated struct GraphSnapshotParameters: Encodable, Sendable {
   enum CodingKeys: String, CodingKey {
     case storeId = "p_store_id"
     case knownVersion = "p_known_version"
+  }
+}
+
+private nonisolated struct ResolveProductsParameters: Encodable, Sendable {
+  let pItems: [ProductResolutionRequest]
+
+  enum CodingKeys: String, CodingKey {
+    case pItems = "p_items"
   }
 }
 

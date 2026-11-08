@@ -149,6 +149,10 @@ nonisolated protocol RemoteGateway: Sendable {
   func fetchCategories() async throws -> [CategoryRow]
   func fetchProducts() async throws -> [RemoteProduct]
 
+  /// Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.
+  /// Au plus `SyncRetryPolicy.maxResolutionBatch` entrées ; une ligne par entrée, dans l'ordre.
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow]
+
   /// La position n'est ni conservée ni journalisée ici.
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow]
 

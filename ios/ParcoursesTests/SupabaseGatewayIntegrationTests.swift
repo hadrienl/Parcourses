@@ -205,6 +205,27 @@ struct SupabaseGatewayIntegrationTests {
     }
   }
 
+  @Test func freeLabelsResolveToSharedProducts() async throws {
+    let gateway = try await makeGateway()
+    let rows = try await gateway.resolveProducts([
+      ProductResolutionRequest(name: "Baguette", categorySlug: "frozen"),
+      // Nom fixe : créé au premier passage, repris ensuite.
+      ProductResolutionRequest(name: "Produit de test d'intégration", categorySlug: "other"),
+      ProductResolutionRequest(name: "Graines de test bio", categorySlug: "bio"),
+    ])
+    #expect(rows.map(\.normalizedName) == ["baguette", "produit de test d'integration", "graines de test bio"])
+    #expect(rows.map { $0.id != nil } == [true, true, false])
+    #expect(rows.map(\.categorySlug) == ["bakery", "other", nil])
+    let again = try await makeGateway().resolveProducts([
+      ProductResolutionRequest(name: "produit de test d'integration", categorySlug: "snacks")
+    ])
+    #expect(again.first?.id == rows[1].id)
+    await #expect(throws: RemoteError.rejected(code: "22023")) {
+      _ = try await gateway.resolveProducts(
+        (0...100).map { ProductResolutionRequest(name: "x\($0)", categorySlug: nil) })
+    }
+  }
+
   @Test func catalogDecodes() async throws {
     let gateway = try await makeGateway()
     #expect(try await !gateway.fetchCategories().isEmpty)
@@ -301,6 +322,10 @@ private actor SwitchableGateway: RemoteGateway {
   func fetchProducts() async throws -> [RemoteProduct] {
     try check()
     return try await remote.fetchProducts()
+  }
+  func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
+    try check()
+    return try await remote.resolveProducts(items)
   }
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] {
     try await remote.nearbyStores(lat: lat, lng: lng, radiusM: radiusM, maxResults: maxResults)
@@ -500,7 +525,10 @@ struct SyncEngineIntegrationTests {
 
     #expect(try pending(setup).isEmpty)
     #expect(try await setup.remote.visitAccess(id: visitId) == .closed)
-    #expect(try setup.visits.checks(visitId: visitId).map(\.categoryId) == ["dairy"])
+    // L'article saisi librement a reçu son produit avant l'envoi : la coche le désigne.
+    let checks = try setup.visits.checks(visitId: visitId)
+    #expect(checks.count == 1)
+    #expect(checks.allSatisfy { $0.productId != nil && $0.categoryId == nil })
   }
 
   /// Vraie perte de session : un nouveau compte anonyme reçoit tout, sous de nouveaux identifiants.

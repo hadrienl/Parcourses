@@ -220,6 +220,13 @@ actor SyncStore {
     try modelContext.save()
   }
 
+  // MARK: - Produits
+
+  /// Articles à soumettre à `resolve_products`. L'écriture du résultat se fait sur le contexte principal.
+  func productCandidates(excluding attempted: [UUID: String], limit: Int) throws -> [ProductCandidate] {
+    try ProductResolution.candidates(in: modelContext, excluding: attempted, limit: limit)
+  }
+
   // MARK: - Descente
 
   /// La ligne serveur s'applique dès qu'aucune entrée n'attend pour cet id : le local partira sinon ensuite
