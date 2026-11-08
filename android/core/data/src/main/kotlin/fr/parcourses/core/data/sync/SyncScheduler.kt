@@ -38,7 +38,8 @@ class WorkManagerSyncScheduler(
     context: Context,
     private val clock: () -> Instant = { Clock.System.now() },
 ) : SyncScheduler {
-    private val workManager = WorkManager.getInstance(context.applicationContext)
+    // Paresseux : WorkManager lit la configuration de l'application à son premier accès.
+    private val workManager by lazy { WorkManager.getInstance(context.applicationContext) }
 
     private val connected = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
