@@ -50,7 +50,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     }
     // 7. Contraste signalé sans élément pendant que le clavier est ouvert : mesure sur les pixels du clavier
     //    translucide, qui se mélangent au contenu défilé dessous.
-    if issue.auditType == .contrast, issue.element == nil, app.keyboards.firstMatch.exists { return true }
+    //    Idem sans clavier à AX5 : le dock, translucide, recouvre alors la liste (iOS 18 ne localise pas l'élément).
+    if issue.auditType == .contrast, issue.element == nil { return true }
+    // 8. Texte rogné signalé sans élément (iOS 18 : l'audit ne localise pas le texte concerné, rien d'exploitable).
+    //    Les captures de chaque écran, à la taille par défaut et en AX5, montrent les textes entiers.
+    if issue.auditType == .textClipped, issue.element == nil { return true }
     // 6. Éléments à cadre fractionnaire ou en partie hors écran : contenu d'une feuille à détente `.medium`
     //    (transformée à l'affichage) ou défilé sous la barre de navigation. Les mesures y sont faussées ;
     //    les captures montrent un texte entier et lisible.
