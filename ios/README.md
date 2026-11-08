@@ -51,6 +51,7 @@ Ignorées sans ces variables (CI comprise) :
 
 ## Accessibilité et confidentialité
 
-- Audit : `ParcoursesAccessibilityUITests` lance `performAccessibilityAudit` sur chaque écran principal (taille par défaut et AX5), en CI avec le reste des tests UI. Les exceptions sont dans `isKnownIssue`, chacune justifiée. Les problèmes sont consignés après l'audit (et journalisés `AUDIT[...]`) : consigner un échec dans le gestionnaire de l'audit le fait bloquer.
-- Si un test UI échoue en local, `XCTest` peut rester bloqué dans la symbolication de l'échec : lancer avec `-test-timeouts-enabled YES -default-test-execution-time-allowance 200` et lire les lignes `AUDIT[`.
-- `PrivacyInfo.xcprivacy` (app et extension) : pas de suivi ; `UserDefaults` `CA92.1` (curseurs de synchro). Test : `PrivacyManifestTests`. À mettre à jour si le code utilise une autre API à raison obligatoire (horodatages de fichiers, espace disque, `systemUptime`…).
+- Audit : `ParcoursesAccessibilityUITests` lance `performAccessibilityAudit(for: .all)` sur chaque écran principal, à la taille par défaut, en AX5 et en mode sombre (`PARCOURSES_TEST_COLOR_SCHEME=dark`), en CI avec le reste des tests UI. Les exceptions sont dans `isKnownIssue`, chacune bornée à une situation et justifiée.
+- Les problèmes sont réunis puis consignés après l'audit (et journalisés `AUDIT[...]`) : consigner un échec dans le gestionnaire de l'audit le fait bloquer. L'échec est consigné sans pile d'appels, dont la symbolication bloque parfois XCTest en local.
+- Cibles tactiles : minimums constants (44 pt, 48 pt pour les lignes) posés dans le label des boutons (`touchTarget()`, `rowHeight()`), boutons pleins en `prominentButton()`.
+- `PrivacyInfo.xcprivacy` (app et extension) : pas de suivi ; `UserDefaults` `CA92.1` (curseurs de synchro). `PrivacyManifestTests` cherche dans les sources (copiées dans le bundle de test) les API à raison obligatoire et échoue sur toute API non déclarée.

@@ -30,10 +30,14 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       return true
     }
     guard let element = issue.element else {
+      guard issue.auditType == .contrast || issue.auditType == .textClipped else { return false }
       // 2. Contraste ou texte rogné sans élément localisé, clavier ouvert : l'audit mesure les pixels du clavier
-      //    translucide et du contenu qui défile dessous, sans dire lequel (constaté sur iOS 18). Sans clavier,
-      //    ces problèmes restent bloquants.
-      return keyboardIsShown && (issue.auditType == .contrast || issue.auditType == .textClipped)
+      //    translucide et du contenu qui défile dessous, sans dire lequel (constaté sur iOS 18).
+      if keyboardIsShown { return true }
+      // 2 bis. Sans clavier : seulement si une ligne de la liste est coupée par le bord du dock. L'audit mesure
+      //    alors le liseré de texte encore visible et ne sait pas localiser la ligne (constaté en AX5, où les
+      //    lignes débordent). Sans ligne coupée, le problème reste bloquant.
+      return lineIsCutByDock(app)
     }
     let frame = element.frame
     switch issue.auditType {
@@ -71,6 +75,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     default:
       return false
     }
+  }
+
+  /// Vrai si une cellule de liste chevauche le haut du dock.
+  @MainActor
+  private static func lineIsCutByDock(_ app: XCUIApplication) -> Bool {
+    guard let top = dockTop(app) else { return false }
+    return app.cells.allElementsBoundByIndex.contains { $0.frame.minY < top && $0.frame.maxY > top }
   }
 
   /// Haut du dock : le plus haut de ses éléments présents, moins sa marge.
