@@ -14,6 +14,8 @@ import fr.parcourses.feature.lists.ListDetailRoute
 import fr.parcourses.feature.lists.ListDetailViewModel
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
+import fr.parcourses.feature.storepicker.StorePickerRoute
+import fr.parcourses.feature.storepicker.StorePickerViewModel
 import kotlinx.coroutines.flow.emptyFlow
 
 /** Une seule activité, une pile de routes, un ViewModel par entrée. */
@@ -25,9 +27,7 @@ fun ParcoursesNavHost(container: AppContainer) {
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
         (container.engine?.remaps ?: emptyFlow()).collect { remap ->
-            backStack.forEachIndexed { index, key ->
-                if (key is Route.ListDetail) backStack[index] = key.copy(listId = remap[key.listId])
-            }
+            backStack.applyRemap(remap)
         }
     }
 
@@ -80,7 +80,34 @@ fun ParcoursesNavHost(container: AppContainer) {
                                     }
                                 },
                         )
-                    ListDetailRoute(viewModel = model, onBack = { backStack.removeLastOrNull() })
+                    ListDetailRoute(
+                        viewModel = model,
+                        onBack = { backStack.removeLastOrNull() },
+                        onStartShopping = { listId -> backStack.openStorePicker(listId) },
+                    )
+                }
+                entry<Route.StorePicker>(clazzContentKey = { it.slot }) { key ->
+                    val model: StorePickerViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        StorePickerViewModel(
+                                            container.location,
+                                            container.gateway,
+                                            container.stores,
+                                        )
+                                    }
+                                },
+                        )
+                    StorePickerRoute(
+                        viewModel = model,
+                        // Le mode courses (A8) reprend ce choix ; en attendant on revient à la liste.
+                        onOutcome = { outcome ->
+                            backStack.finishStorePicker(key.slot, outcome)?.let(container::offerStoreChoice)
+                        },
+                        onBack = { backStack.removeLastOrNull() },
+                    )
                 }
             },
     )

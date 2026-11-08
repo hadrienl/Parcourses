@@ -19,6 +19,8 @@ class RouteTest {
         val detail = Route.ListDetail("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11")
         assertEquals(Route.Lists, roundTrip(Route.Lists))
         assertEquals(detail, roundTrip(detail))
+        val picker = Route.StorePicker("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11")
+        assertEquals(picker, roundTrip(picker))
     }
 
     @Test
@@ -28,5 +30,12 @@ class RouteTest {
         val moved = detail.copy(listId = "b")
         assertEquals(detail.slot, moved.slot)
         assertNotEquals(detail.slot, Route.ListDetail("a").slot)
+    }
+
+    @Test
+    fun theStorePickerKeepsItsScreenAcrossAnAccountRecovery() {
+        val picker = Route.StorePicker("a")
+        assertEquals(picker.slot, picker.copy(listId = "b").slot)
+        assertNotEquals(picker.slot, Route.StorePicker("a").slot)
     }
 }

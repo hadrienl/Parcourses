@@ -9,6 +9,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
@@ -41,6 +42,8 @@ internal fun createSupabaseClient(
     createSupabaseClient(supabaseUrl = config.url, supabaseKey = config.publishableKey) {
         httpEngine = engine
         coroutineDispatcher = dispatcher
+        // Aucun journal HTTP (corps, en-têtes, jetons), quel que soit le type de build.
+        defaultLogLevel = LogLevel.NONE
         install(Auth) {
             sessionManager = EncryptedSessionManager(store)
             // Pas de flux PKCE ici (connexion anonyme seulement) : rien à persister en clair dans les préférences.
