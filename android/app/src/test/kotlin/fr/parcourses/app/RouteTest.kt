@@ -21,6 +21,10 @@ class RouteTest {
         assertEquals(detail, roundTrip(detail))
         val picker = Route.StorePicker("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11")
         assertEquals(picker, roundTrip(picker))
+        val shopping = Route.Shopping("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11", "9c1b7a42-0000-4000-8000-000000000001")
+        assertEquals(shopping, roundTrip(shopping))
+        val withoutStore = Route.Shopping("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11", null)
+        assertEquals(withoutStore, roundTrip(withoutStore))
     }
 
     @Test

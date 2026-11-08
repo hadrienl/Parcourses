@@ -115,16 +115,19 @@ class GraphSnapshotCache(
         val remote = gateway ?: return null
         val known = cached(storeId)?.version
         val response = remote.graphSnapshot(Uuid.parse(storeId), known)
-        val bytes = (response as? GraphSnapshotResponse.Payload)?.json?.encodeToByteArray() ?: return null
-        val decoded = GraphPayload.decode(bytes) ?: return null
-        graphs.saveSnapshot(
-            storeId = storeId,
-            snapshotVersion = decoded.snapshotVersion,
-            paramsVersion = decoded.paramsVersion,
-            confidenceQ = decoded.confidenceQ,
-            payload = bytes,
-            at = now(),
-        )
-        return decoded.loaded
+        val raw = (response as? GraphSnapshotResponse.Payload)?.json?.encodeToByteArray()
+        return raw?.let { bytes ->
+            GraphPayload.decode(bytes)?.let { decoded ->
+                graphs.saveSnapshot(
+                    storeId = storeId,
+                    snapshotVersion = decoded.snapshotVersion,
+                    paramsVersion = decoded.paramsVersion,
+                    confidenceQ = decoded.confidenceQ,
+                    payload = bytes,
+                    at = now(),
+                )
+                decoded.loaded
+            }
+        }
     }
 }

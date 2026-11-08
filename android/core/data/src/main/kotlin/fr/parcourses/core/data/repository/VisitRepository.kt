@@ -47,9 +47,9 @@ interface VisitRepository {
     ): VisitEntity
 
     /**
-     * Coche l'article et ajoute la coche dans une seule transaction : l'un ne va pas sans l'autre. `list_items.checked_at`
-     * est écrit en plus de `checks` (le détail est partagé avec les autres appareils). [sendAfter] : durée pendant
-     * laquelle la coche reste annulable sans jamais partir au serveur.
+     * Coche l'article et ajoute la coche dans une seule transaction : l'un ne va pas sans l'autre.
+     * `list_items.checked_at` est écrit en plus de `checks` (le détail est partagé avec les autres appareils).
+     * [sendAfter] : durée pendant laquelle la coche reste annulable sans jamais partir au serveur.
      */
     suspend fun checkItem(
         visitId: String,
@@ -193,30 +193,32 @@ class RoomVisitRepository(
         id: String,
         at: Instant,
     ): Boolean {
-        val visit = db.visits().get(id) ?: return false
-        if (visit.endedAt != null) return false
-        if (db.checks().getByVisit(id).isEmpty()) {
+        val open = db.visits().get(id)?.takeIf { it.endedAt == null } ?: return false
+        val hasChecks = db.checks().getByVisit(open.id).isNotEmpty()
+        if (hasChecks) {
+            db.visits().close(id, at)
+            queue.enqueueClosure(id, at, at)
+        } else {
             db.visits().delete(id)
-            return false
         }
-        db.visits().close(id, at)
-        queue.enqueueClosure(id, at, at)
-        return true
+        return hasChecks
     }
 
     /**
-     * Sans enregistrer à part : à appeler dans une transaction. Plus d'entrée en attente : la coche est partie, ou
-     * abandonnée, et le serveur ne sait pas la retirer.
+     * À appeler dans une transaction. Plus d'entrée en attente : la coche est partie, ou abandonnée, et le serveur
+     * ne sait pas la retirer.
      */
     private suspend fun deleteUnsentCheck(id: String): Boolean {
         val check = db.checks().get(id) ?: return false
-        if (db.outbox().cancelPending(id, setOf(OutboxKind.InsertChecks)) == null) return false
-        // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
-        if (db.checks().getByVisit(check.visitId).all { it.id == id }) {
-            db.outbox().cancelPending(check.visitId, setOf(OutboxKind.CreateVisit))
+        val sent = db.outbox().cancelPending(id, setOf(OutboxKind.InsertChecks)) == null
+        if (!sent) {
+            // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
+            if (db.checks().getByVisit(check.visitId).all { it.id == id }) {
+                db.outbox().cancelPending(check.visitId, setOf(OutboxKind.CreateVisit))
+            }
+            db.checks().delete(id)
         }
-        db.checks().delete(id)
-        return true
+        return !sent
     }
 
     private suspend fun write(

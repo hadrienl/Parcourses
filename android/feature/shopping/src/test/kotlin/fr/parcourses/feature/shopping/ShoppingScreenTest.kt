@@ -1,0 +1,364 @@
+package fr.parcourses.feature.shopping
+
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasStateDescription
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.designsystem.ParcoursesTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+
+@RunWith(AndroidJUnit4::class)
+@Config(qualifiers = "w411dp-h1400dp-xxhdpi")
+@Suppress("LargeClass")
+class ShoppingScreenTest {
+    @get:Rule
+    val rule = createComposeRule()
+
+    private val toggled = mutableListOf<String>()
+    private val notFound = mutableListOf<String>()
+    private val restored = mutableListOf<String>()
+    private val finished = mutableListOf<Boolean>()
+    private var undone = 0
+    private var submitted = 0
+    private var closed = 0
+    private var dismissed = 0
+    private var shown = mutableListOf<Int>()
+
+    private val apples = ShoppingRow("1", "pommes", "2", isChecked = false, aisleId = "produce")
+    private val bread = ShoppingRow("2", "pain", null, isChecked = false, aisleId = "bakery")
+    private val milk = ShoppingRow("3", "lait", null, isChecked = true, aisleId = "dairy")
+    private val sections =
+        listOf(
+            ShoppingSection("produce", "Fruits et légumes", listOf(apples)),
+            ShoppingSection("bakery", "Boulangerie, pâtisserie", listOf(bread)),
+        )
+    private val base =
+        ShoppingUiState(
+            isLoaded = true,
+            name = "Semaine",
+            storeName = "Carrefour",
+            toBuy = listOf(apples, bread),
+            sections = sections,
+            groupsByAisle = true,
+            knowledge = RouteKnowledge.Unknown,
+        )
+
+    private fun show(
+        state: ShoppingUiState = base,
+        reduceMotion: Boolean = false,
+        fontScale: Float = 1f,
+    ) {
+        val actions =
+            ShoppingActions(
+                onToggle = { toggled += it.id },
+                onNotFound = { notFound += it.id },
+                onRestore = { restored += it.id },
+                onSubmit = { submitted++ },
+                onUndo = { undone++ },
+                onFinish = { finished += it },
+                onDismissError = { dismissed++ },
+                onAnnouncementShown = { shown += it },
+                onClose = { closed++ },
+            )
+        rule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                ParcoursesTheme {
+                    ShoppingScreen(state, TextFieldState(), actions, reduceMotion)
+                }
+            }
+        }
+    }
+
+    private fun SemanticsNodeInteraction.customActionLabels() =
+        fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsActions.CustomActions)
+            .orEmpty()
+            .map { it.label }
+
+    private fun SemanticsNodeInteraction.invokeCustomAction(label: String) {
+        val action = fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label == label }
+        rule.runOnUiThread { action.action() }
+    }
+
+    // region Lignes et TalkBack
+
+    @Test
+    fun theHeaderShowsWhatRemainsTheStoreAndWhatTheAppKnows() {
+        show()
+        rule.onNodeWithText("2 à prendre").assertExists()
+        rule.onNodeWithText("Carrefour").assertExists()
+        rule.onNodeWithText("Vous tracez le premier trajet ici").assertExists()
+        rule.onNodeWithText("Semaine").assertExists()
+    }
+
+    @Test
+    fun aRowReadsItsLabelAndQuantityAndItsStateWithoutColor() {
+        show(base.copy(basket = listOf(milk)))
+        rule.onNodeWithContentDescription("pommes, 2").assert(hasStateDescription("non coché"))
+        rule.onNodeWithText("2").assertExists()
+    }
+
+    @Test
+    fun theDefaultActionIsCheckAndTheCustomActionsAreNotFoundAndUncheck() {
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), groupsByAisle = false))
+        val unchecked = rule.onNodeWithContentDescription("pain")
+        val onClick = unchecked.fetchSemanticsNode().config[SemanticsActions.OnClick]
+        assertEquals("Cocher", onClick.label)
+        assertEquals(listOf("Pas trouvé"), unchecked.customActionLabels())
+
+        val checked = rule.onNodeWithContentDescription("pommes, 2")
+        checked.assert(hasStateDescription("coché"))
+        assertEquals("Décocher", checked.fetchSemanticsNode().config[SemanticsActions.OnClick].label)
+        assertEquals(listOf("Décocher"), checked.customActionLabels())
+    }
+
+    @Test
+    fun tappingARowChecksIt() {
+        show()
+        rule.onNodeWithContentDescription("pain").performClick()
+        assertEquals(listOf("2"), toggled)
+    }
+
+    @Test
+    fun theTalkBackActionsReachTheModel() {
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), groupsByAisle = false))
+        rule.onNodeWithContentDescription("pain").invokeCustomAction("Pas trouvé")
+        rule.onNodeWithContentDescription("pommes, 2").invokeCustomAction("Décocher")
+        assertEquals(listOf("2"), notFound)
+        assertEquals(listOf("1"), toggled)
+    }
+
+    @Test
+    fun everyRowIsAtLeast48DpHigh() {
+        show()
+        val density = rule.density
+        listOf("pain", "pommes, 2").forEach {
+            val height =
+                rule
+                    .onNodeWithContentDescription(it)
+                    .fetchSemanticsNode()
+                    .size.height
+            assertTrue(height >= with(density) { 48.dp.roundToPx() })
+        }
+    }
+
+    // endregion
+
+    // region Rayons et ordre
+
+    @Test
+    fun outsideTheLearnedOrderAislesGetHeadingsWithTheirCount() {
+        show()
+        val heading = rule.onNodeWithContentDescription("Fruits et légumes, 1 à prendre")
+        assertTrue(heading.fetchSemanticsNode().config.contains(SemanticsProperties.Heading))
+        rule.onNodeWithContentDescription("Boulangerie, pâtisserie, 1 à prendre").assertExists()
+    }
+
+    @Test
+    fun theLearnedThreadHasNoAisleHeadings() {
+        show(base.copy(groupsByAisle = false, sections = emptyList(), knowledge = RouteKnowledge.Learned(80)))
+        rule.onNodeWithContentDescription("Fruits et légumes, 1 à prendre").assertDoesNotExist()
+        rule.onNodeWithText("Trajet connu à 80 %").assertExists()
+        rule.onNodeWithContentDescription("pain").assertExists()
+    }
+
+    @Test
+    fun noStoreSaysSo() {
+        show(base.copy(storeName = null, knowledge = RouteKnowledge.NoStore))
+        rule.onNodeWithText("Sans magasin : ordre par rayon").assertExists()
+    }
+
+    @Test
+    fun theBasketIsCollapsedUntilOpened() {
+        show(base.copy(basket = listOf(milk)))
+        rule.onNodeWithTag(TAG_BASKET).assert(hasStateDescription("replié"))
+        rule.onNodeWithText("Dans le panier (1)").assertExists()
+        rule.onNodeWithContentDescription("lait").assertDoesNotExist()
+        rule.onNodeWithTag(TAG_BASKET).performClick()
+        rule.onNodeWithTag(TAG_BASKET).assert(hasStateDescription("déplié"))
+        rule.onNodeWithContentDescription("lait").assertExists()
+    }
+
+    @Test
+    fun aNotFoundRowCanBePutBack() {
+        show(base.copy(notFound = listOf(ShoppingRow("9", "huile", null, false, "savory-grocery"))))
+        rule.onNodeWithText("Introuvable").assertExists()
+        rule.onNodeWithContentDescription("huile").assert(hasStateDescription("introuvable"))
+        rule.onNodeWithContentDescription("huile").performClick()
+        assertEquals(listOf("9"), restored)
+    }
+
+    // endregion
+
+    // region Annulation, annonce, erreur
+
+    @Test
+    fun theUndoBannerNamesTheActionAndUndoes() {
+        show(base.copy(undo = ShoppingUndo(ShoppingUndo.Kind.Check, "2", "pain", "c1", 1)))
+        rule.onNodeWithText("pain coché").assertExists()
+        rule.onNodeWithTag(TAG_UNDO).performClick()
+        assertEquals(1, undone)
+    }
+
+    @Test
+    fun theNotFoundUndoSaysSo() {
+        show(base.copy(undo = ShoppingUndo(ShoppingUndo.Kind.NotFound, "2", "pain", null, 1)))
+        rule.onNodeWithText("pain introuvable").assertExists()
+    }
+
+    @Test
+    fun aReorderIsAnnouncedPolitelyThenForgotten() {
+        show(base.copy(reorder = ReorderAnnouncement(seq = 3, next = "lait demi-écrémé")))
+        val node = rule.onNodeWithTag(TAG_ANNOUNCEMENT)
+        val config = node.fetchSemanticsNode().config
+        assertEquals(LiveRegionMode.Polite, config[SemanticsProperties.LiveRegion])
+        assertEquals(
+            listOf("Liste réordonnée. Prochain : lait demi-écrémé"),
+            config[SemanticsProperties.ContentDescription],
+        )
+        // Ni focalisable ni cliquable : il ne vole pas le focus de TalkBack.
+        assertTrue(!config.contains(SemanticsActions.OnClick))
+        assertTrue(!config.contains(SemanticsProperties.Focused))
+        rule.mainClock.advanceTimeBy(2_500)
+        assertEquals(listOf(3), shown)
+    }
+
+    @Test
+    fun withoutReorderThereIsNoAnnouncementNode() {
+        show()
+        rule.onNodeWithTag(TAG_ANNOUNCEMENT).assertDoesNotExist()
+    }
+
+    @Test
+    fun anErrorIsShownInADialog() {
+        show(base.copy(errorMessage = "Cette liste a été supprimée."))
+        rule.onNodeWithText("Cette liste a été supprimée.").assertExists()
+        rule.onNodeWithText("OK").performClick()
+        assertEquals(1, dismissed)
+    }
+
+    // endregion
+
+    // region Fin
+
+    @Test
+    fun finishingWithRemainingItemsAsksWhatToDoWithThem() {
+        show(base.copy(notFound = listOf(ShoppingRow("9", "huile", null, false))))
+        rule.onNodeWithTag(TAG_FINISH).performClick()
+        rule.onNodeWithText("3 articles non cochés").assertExists()
+        rule.onNodeWithText("Les garder pour la prochaine fois ?").assertExists()
+        rule.onNodeWithTag(TAG_CONTINUE).performClick()
+        rule.onNodeWithTag(TAG_REMAINING_SHEET).assertDoesNotExist()
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
+    fun keepingOrDroppingTheRemainingItemsFinishes() {
+        show()
+        rule.onNodeWithTag(TAG_FINISH).performClick()
+        rule.onNodeWithTag(TAG_KEEP).performClick()
+        assertEquals(listOf(true), finished)
+    }
+
+    @Test
+    fun droppingTheRemainingItemsFinishesWithoutKeepingThem() {
+        show()
+        rule.onNodeWithTag(TAG_FINISH).performClick()
+        rule.onNodeWithTag(TAG_DROP).performClick()
+        assertEquals(listOf(false), finished)
+    }
+
+    @Test
+    fun finishingWhenEverythingIsCheckedAsksNothing() {
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true)), sections = emptyList()))
+        rule.onNodeWithText("Tout est coché !").assertExists()
+        rule.onNodeWithTag(TAG_FINISH).performClick()
+        assertEquals(listOf(true), finished)
+    }
+
+    @Test
+    fun anExpiredVisitForcesTheChoiceWithoutAWayBack() {
+        show(base.copy(expired = true))
+        rule.onNodeWithTag(TAG_REMAINING_SHEET).assertExists()
+        rule.onNodeWithTag(TAG_CONTINUE).assertDoesNotExist()
+        rule.onNodeWithText("Votre visite s'est terminée d'elle-même après 45 minutes sans coche.").assertExists()
+    }
+
+    @Test
+    fun theMinimalSummaryThanksTheContribution() {
+        show(base.copy(summary = ShoppingSummary(12, 18, "Carrefour", RouteKnowledge.Learning(40), "v1")))
+        rule.onNodeWithText("12 articles").assertExists()
+        rule.onNodeWithText("en 18 min").assertExists()
+        rule.onNodeWithText("Carrefour est cartographié à 40 %, merci.").assertExists()
+        rule.onNodeWithTag(TAG_CLOSE).performClick()
+        assertEquals(1, closed)
+    }
+
+    @Test
+    fun theFirstRouteSummaryAndTheSingularAreWorded() {
+        show(base.copy(summary = ShoppingSummary(1, 1, "Carrefour", RouteKnowledge.Unknown)))
+        rule.onNodeWithText("1 article").assertExists()
+        rule.onNodeWithText("Vous avez tracé le premier trajet à Carrefour, merci.").assertExists()
+    }
+
+    // endregion
+
+    // region Texte agrandi et mouvement réduit
+
+    @Test
+    fun at200PercentTheDockStacksAndEverythingStaysReachable() {
+        show(fontScale = 2f)
+        rule.onNodeWithTag(TAG_ENTRY).assertIsDisplayed()
+        rule.onNodeWithTag(TAG_FINISH).assertIsDisplayed()
+        rule.onNodeWithContentDescription("pain").assertIsDisplayed()
+        val entry = rule.onNodeWithTag(TAG_ENTRY).fetchSemanticsNode().boundsInRoot
+        val finish = rule.onNodeWithTag(TAG_FINISH).fetchSemanticsNode().boundsInRoot
+        assertTrue("Terminer sous le champ", finish.top >= entry.bottom - 1)
+    }
+
+    @Test
+    fun rowsGrowWithTheirTextAt200Percent() {
+        show(
+            base.copy(
+                toBuy = listOf(apples.copy(label = "tomates cerises en grappe bio du maraîcher")),
+                sections = emptyList(),
+                groupsByAisle = false,
+            ),
+            fontScale = 2f,
+        )
+        val node = rule.onNodeWithContentDescription("tomates cerises en grappe bio du maraîcher, 2")
+        node.assertIsDisplayed()
+        assertTrue(node.fetchSemanticsNode().size.height > with(rule.density) { 48.dp.roundToPx() })
+    }
+
+    @Test
+    fun reducedMotionStillRendersEveryRow() {
+        show(reduceMotion = true)
+        rule.onNodeWithContentDescription("pain").assertExists()
+        rule.onNodeWithContentDescription("pommes, 2").assertExists()
+    }
+
+    // endregion
+}

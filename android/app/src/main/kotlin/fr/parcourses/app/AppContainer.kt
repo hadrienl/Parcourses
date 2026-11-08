@@ -96,23 +96,12 @@ class AppContainer(
         ShoppingDependencies(lists, visits, stores, categories, analyzer, GraphSnapshotCache(graphs, gateway))
     }
 
-    private val storeChoiceEvents = Channel<StoreChoice>(Channel.BUFFERED)
+    private val storeChoiceEvents = StoreChoiceEvents()
 
-    /**
-     * Choix de magasin, un événement à consommation unique lié à sa liste : un choix ancien ne peut pas rouvrir une
-     * visite.
-     *
-     * Contrat : un seul collecteur, et il doit être **toujours composé** (le `LaunchedEffect` de
-     * `ParcoursesNavHost`). Le choix est émis puis dépilé dans la même exécution, alors que l'écran Liste n'est pas
-     * encore recomposé : un collecteur placé dans cet écran, ou un `SharedFlow` sans rejeu, le perdrait. Le canal
-     * garde le choix jusqu'à ce que le collecteur le lise. Le collecteur doit toujours filtrer sur
-     * [StoreChoice.listId] (voir [openShopping]).
-     */
-    val storeChoices: Flow<StoreChoice> = storeChoiceEvents.receiveAsFlow()
+    /** Choix de magasin à consommation unique : voir [StoreChoiceEvents] pour le contrat du collecteur. */
+    val storeChoices: Flow<StoreChoice> get() = storeChoiceEvents.choices
 
-    fun offerStoreChoice(choice: StoreChoice) {
-        storeChoiceEvents.trySend(choice)
-    }
+    fun offerStoreChoice(choice: StoreChoice) = storeChoiceEvents.offer(choice)
 
     /**
      * Visite ouverte à reprendre au lancement, vérifiée : sa liste a pu disparaître, auquel cas elle est close.
@@ -120,11 +109,9 @@ class AppContainer(
      */
     suspend fun resumableVisit(): ResumableVisit? {
         val visit = visits.openVisit() ?: return null
-        if (lists.list(visit.listId) == null) {
-            visits.closeVisit(visit.id, Clock.System.now())
-            return null
-        }
-        return ResumableVisit(visit.listId, visit.storeId)
+        val orphan = lists.list(visit.listId) == null
+        if (orphan) visits.closeVisit(visit.id, Clock.System.now())
+        return if (orphan) null else ResumableVisit(visit.listId, visit.storeId)
     }
 
     /** Lancement : catégories, connexion anonyme, puis synchronisation (en tâche de fond). */

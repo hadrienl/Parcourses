@@ -115,6 +115,9 @@ class ShoppingViewModel(
     private var errorMessage: String? = null
     private var announcements = 0
 
+    /** Ordre que la personne a vu au dernier tri : seul un changement de place entre articles déjà vus s'annonce. */
+    private var settledOrder: List<String> = emptyList()
+
     /** Lignes cochées qui restent à leur place jusqu'au prochain tri (600 ms). */
     private val settlingIds = mutableSetOf<String>()
     private var isScrolling = false
@@ -375,6 +378,7 @@ class ShoppingViewModel(
             val order = previous.toMutableList()
             order.add(order.indexOfLast { it in predecessors } + 1, id)
             arrange(order)
+            settledOrder = toBuy.filter { !it.isChecked }.map { it.id }
             highlight(id)
             publish()
         }
@@ -407,6 +411,7 @@ class ShoppingViewModel(
             order.add(minOf(action.index, order.size), action.itemId)
             reloadRows()
             arrange(order)
+            settledOrder = toBuy.filter { !it.isChecked }.map { it.id }
             // Le tri attendu par une autre coche reste dû ; sinon l'annulation ne déclenche aucun trajet.
             if (settlingIds.isEmpty()) {
                 settleJob?.cancel()
@@ -464,13 +469,13 @@ class ShoppingViewModel(
     }
 
     private suspend fun sortNow(previous: List<String>?) {
-        val before = toBuy.filter { !it.isChecked }.map { it.id }
         val order = computeOrder(previous)
         hasUnsettledChange = false
         settlingIds.clear()
         reloadRows()
         arrange(order)
-        if (previous != null) announceReorder(before)
+        if (previous != null) announceReorder(settledOrder)
+        settledOrder = toBuy.filter { !it.isChecked }.map { it.id }
         publish()
     }
 
@@ -483,7 +488,7 @@ class ShoppingViewModel(
         after.firstOrNull()?.let { reorder = ReorderAnnouncement(++announcements, it.label) }
     }
 
-    /** Calcul hors du fil principal (#9 §3.3). Une entrée refusée laisse l'ordre actuel, sans jamais bloquer la coche. */
+    /** Calcul hors du fil principal (#9 §3.3). Une entrée refusée laisse l'ordre actuel : la coche n'attend jamais. */
     private suspend fun computeOrder(previous: List<String>?): List<String> {
         val items = attempt { remainingItems() }.orEmpty()
         val sortInput = sortInput(items, previous)
@@ -633,8 +638,8 @@ class ShoppingViewModel(
                     .lastOrNull()
                     ?.checkedAt
             } ?: startedAt
-        if (now() - lastActivity < timings.expiry) return
-        if (!perform { deps.visits.closeVisit(visit, lastActivity) }) return
+        val idleLongEnough = now() - lastActivity >= timings.expiry
+        if (!idleLongEnough || !perform { deps.visits.closeVisit(visit, lastActivity) }) return
         visitId = null
         expiredAt = lastActivity
         expired = true
