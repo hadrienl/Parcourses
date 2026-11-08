@@ -93,4 +93,36 @@ class ListSyncWorkerTest : DataTest() {
             engine.drain()
             assertEquals(1, gateway.callsOf("fetchLists").size)
         }
+
+    @Test
+    fun aWriteDuringTheEndOfThePassIsNotLeftToThePeriodicWork() =
+        runBlocking {
+            val repository = RoomListRepository(db)
+            repository.createList("A", now)
+            lateinit var racing: SyncEngine
+            var checks = 0
+            val racingDependencies =
+                fr.parcourses.core.data.sync.SyncDependencies(
+                    now = { now },
+                    jitter = { 1.0 },
+                    // 1er appel : la passe ; 2e : le calcul du rappel, après la dernière lecture de la boucle.
+                    isOnline = {
+                        if (++checks == 2) {
+                            runBlocking { repository.createList("B", now) }
+                            racing.request()
+                        }
+                        true
+                    },
+                )
+            racing = SyncEngine(gateway, db, InMemorySyncCursors(), classify, racingDependencies)
+            val racingWorker =
+                TestListenableWorkerBuilder<ListSyncWorker>(ApplicationProvider.getApplicationContext<Context>())
+                    .setWorkerFactory(SyncWorkerFactory({ racing }, scheduler))
+                    .build()
+
+            racingWorker.startWork().get()
+
+            assertEquals(2, gateway.callsOf("saveList").size)
+            assertTrue(scheduler.wakes.isEmpty())
+        }
 }

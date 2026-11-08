@@ -1,3 +1,6 @@
+// Port de `SyncStore` d'iOS : gardes de sortie anticipée dans les parcours de la file.
+@file:Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
+
 package fr.parcourses.core.data.sync
 
 import android.util.Log

@@ -100,15 +100,23 @@ class ListSyncWorker(
     params: WorkerParameters,
     private val engine: SyncEngine,
     private val scheduler: SyncScheduler,
+    private val clock: () -> Instant = { Clock.System.now() },
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val wake = engine.drain(pull = inputData.getBoolean(KEY_PULL, false))
+        var wake = engine.drain(pull = inputData.getBoolean(KEY_PULL, false))
+        // Une écriture faite pendant la passe a été ignorée par `enqueue` (KEEP, ce travail tournait encore) :
+        // on repasse tant qu'une demande est là, au lieu de la laisser attendre le périodique.
+        var rounds = 0
+        while (engine.hasPendingRun && rounds++ < MAX_ROUNDS) wake = engine.drain()
+        // Reste un cas limite (demande après la dernière vérification) : un rappel immédiat le couvre.
+        wake = if (engine.hasPendingRun) clock() else wake
         wake?.let(scheduler::scheduleWake)
         return Result.success()
     }
 
     companion object {
         const val KEY_PULL = "pull"
+        private const val MAX_ROUNDS = 10
     }
 }
 
@@ -117,6 +125,7 @@ class SyncWorkerFactory(
     private val engine: () -> SyncEngine?,
     private val scheduler: SyncScheduler,
 ) : WorkerFactory() {
+    @Suppress("ReturnCount")
     override fun createWorker(
         appContext: Context,
         workerClassName: String,

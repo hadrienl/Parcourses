@@ -1,3 +1,6 @@
+// Port de la réconciliation d'iOS : une garde `continue` par cas écarté, conditions de la règle 42501.
+@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "ComplexCondition")
+
 package fr.parcourses.core.data.sync
 
 import androidx.room3.withWriteTransaction

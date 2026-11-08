@@ -13,6 +13,7 @@ import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -418,7 +419,7 @@ class SyncEngineTest : DataTest() {
                     .single()
                     .id != item.id,
             )
-            assertEquals(newList.id, remaps.single()[list.id])
+            assertEquals(newList.id, remaps.last()[list.id])
             // Tout est reparti vers le nouveau compte.
             assertEquals(2, gateway.callsOf("saveList").size)
             assertTrue(entries().isEmpty())
@@ -464,6 +465,28 @@ class SyncEngineTest : DataTest() {
             )
             assertTrue(gateway.acknowledged.isEmpty())
             assertEquals(OutboxKind.UpsertList, entries().single().kind())
+        }
+
+    @Test
+    fun aScreenOpenedAfterARekeyStillReceivesTheMappingAndRekeysChain() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            engine.drain()
+            repeat(2) {
+                gateway.account = Uuid.random()
+                cursors.accountId = Uuid.random()
+                engine.drain()
+            }
+            // Abonné tardif : tout l'historique, chaque ancien identifiant menant à l'identifiant courant.
+            val latest = engine.remaps.first { it.identifiers.isNotEmpty() }.identifiers
+            val current =
+                db
+                    .lists()
+                    .getAll()
+                    .single()
+                    .id
+            assertEquals(current, latest[list.id])
+            assertEquals(2, latest.size)
         }
 
     // endregion

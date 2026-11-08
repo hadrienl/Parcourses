@@ -1,5 +1,7 @@
 package fr.parcourses.feature.lists
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -131,5 +133,23 @@ class ListsScreenTest {
         rule.onNodeWithText("L'opération a échoué : Cet élément n'existe plus.").assertExists()
         rule.onNodeWithText("OK").performClick()
         assertEquals(1, dismissed)
+    }
+
+    @Test
+    fun aDialogOnAListThatChangedIdentifierCloses() {
+        var state by androidx.compose.runtime.mutableStateOf(ListsUiState(lists = lists, isLoaded = true))
+        rule.setContent {
+            ParcoursesTheme {
+                ListsScreen(state, {}, {}, { _, _ -> }, { deleted += it }, {})
+            }
+        }
+        rule.onNodeWithContentDescription("Actions pour Week-end").performClick()
+        rule.onNodeWithText("Supprimer").performClick()
+        rule.onNodeWithText("Supprimer cette liste et ses articles ?").assertExists()
+        // Reprise de compte : la liste revient sous un autre identifiant.
+        state = ListsUiState(lists = lists.map { if (it.id == "b") it.copy(id = "b2") else it }, isLoaded = true)
+        rule.waitForIdle()
+        rule.onNodeWithText("Supprimer cette liste et ses articles ?").assertDoesNotExist()
+        assertEquals(emptyList<String>(), deleted)
     }
 }

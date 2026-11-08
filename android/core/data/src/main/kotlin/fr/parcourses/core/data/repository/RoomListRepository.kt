@@ -15,6 +15,7 @@ import kotlin.uuid.Uuid
  * Implémentation Room. [onEnqueue] est appelé après chaque transaction qui allonge la file (il réveille la
  * synchronisation) ; [newId] fournit les identifiants (UUID minuscules).
  */
+@Suppress("TooManyFunctions")
 class RoomListRepository(
     private val db: ParcoursesDatabase,
     private val queue: OutboxQueue = OutboxQueue(db.outbox()),
@@ -88,8 +89,9 @@ class RoomListRepository(
         name: String,
         at: Instant,
     ) {
-        requireActiveList(id)
+        // Les vérifications sont dans la transaction : un renvoi ou une reprise de compte ne s'intercale pas.
         db.withWriteTransaction {
+            requireActiveList(id)
             db.lists().rename(id, name, at)
             queue.enqueueUpsert(requireActiveList(id), at)
         }
@@ -100,8 +102,8 @@ class RoomListRepository(
         id: String,
         at: Instant,
     ) {
-        requireActiveList(id)
         db.withWriteTransaction {
+            requireActiveList(id)
             db.lists().markDeleted(id, at)
             queue.enqueueDeletion(id, at)
         }
@@ -117,9 +119,9 @@ class RoomListRepository(
         categoryId: String,
         at: Instant,
     ): ListItemEntity {
-        requireActiveList(listId)
         val item =
             db.withWriteTransaction {
+                requireActiveList(listId)
                 val created =
                     ListItemEntity(
                         id = newId(),
@@ -145,8 +147,8 @@ class RoomListRepository(
         checkedAt: Instant?,
         at: Instant,
     ) {
-        requireWritableItem(itemId)
         db.withWriteTransaction {
+            requireWritableItem(itemId)
             db.items().setChecked(itemId, checkedAt, at)
             queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at)
         }
@@ -165,8 +167,8 @@ class RoomListRepository(
         id: String,
         at: Instant,
     ) {
-        val item = requireWritableItem(id)
         db.withWriteTransaction {
+            val item = requireWritableItem(id)
             queue.enqueueDeletion(ofItem = id, listId = item.listId, at = at)
             db.items().delete(id)
         }

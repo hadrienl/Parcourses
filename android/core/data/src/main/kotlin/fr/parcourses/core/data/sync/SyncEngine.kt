@@ -1,3 +1,7 @@
+// Machine à états portée d'iOS : sorties anticipées par état d'erreur ; toute erreur locale ou distante doit
+// devenir un délai, jamais un plantage de la passe (l'annulation est relancée à chaque fois).
+@file:Suppress("ReturnCount", "TooGenericExceptionCaught", "LoopWithTooManyJumpStatements", "CyclomaticComplexMethod")
+
 package fr.parcourses.core.data.sync
 
 import android.util.Log
@@ -16,8 +20,10 @@ import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -65,10 +71,18 @@ class SyncEngine(
     private val rekey = AccountRekey(db)
     private val reconciliation = OutboxReconciliation(db)
     private val passLock = Mutex()
-    private val _remaps = MutableSharedFlow<IdentifierRemap>(extraBufferCapacity = REMAP_BUFFER)
+    private val remapHistory = MutableStateFlow<Map<String, String>>(emptyMap())
 
-    /** Anciens identifiants vers nouveaux après une reprise de compte : les écrans ouverts s'y alignent. */
-    val remaps: SharedFlow<IdentifierRemap> = _remaps
+    /**
+     * Anciens identifiants vers nouveaux depuis le lancement, tous les rekeys cumulés (chaque ancien identifiant
+     * mène à l'identifiant courant). Un flux avec état : un écran ouvert après un rekey fait en arrière-plan
+     * reçoit tout de même la correspondance. En mémoire : après la mort du processus, les écrans repartent de
+     * la liste des listes.
+     */
+    val remaps: Flow<IdentifierRemap> = remapHistory.map { IdentifierRemap(it) }
+
+    /** Une passe a été demandée pendant ou après la dernière : l'appelant doit relancer [drain]. */
+    val hasPendingRun: Boolean get() = isRunRequested.get()
 
     /** Pas de session valide : seule une passe forcée (`pull`) tente d'en retrouver une. */
     @Volatile
@@ -227,7 +241,7 @@ class SyncEngine(
             // D'abord le compte : sans session établie (stockage verrouillé compris), on ne touche à rien.
             val id = gateway.sessionAccountId()
             val remap = rekey.run(dependencies.now())
-            _remaps.tryEmit(remap)
+            remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
             cursors.items = null
             cursors.accountId = id
@@ -723,6 +737,5 @@ class SyncEngine(
     private companion object {
         const val TAG = "SyncEngine"
         const val CLOCK_CONSTRAINT = "23514"
-        const val REMAP_BUFFER = 8
     }
 }

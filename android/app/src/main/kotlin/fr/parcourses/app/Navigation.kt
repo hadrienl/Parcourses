@@ -17,6 +17,7 @@ import fr.parcourses.feature.lists.ListsViewModel
 import kotlinx.coroutines.flow.emptyFlow
 
 /** Une seule activité, une pile de routes, un ViewModel par entrée. */
+@Suppress("LongMethod")
 @Composable
 fun ParcoursesNavHost(container: AppContainer) {
     val backStack = rememberNavBackStack(routeConfiguration, Route.Lists)
@@ -42,7 +43,17 @@ fun ParcoursesNavHost(container: AppContainer) {
             entryProvider {
                 entry<Route.Lists> {
                     val model: ListsViewModel =
-                        viewModel(factory = viewModelFactory { initializer { ListsViewModel(container.lists) } })
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        ListsViewModel(
+                                            container.lists,
+                                            container.engine?.remaps ?: emptyFlow(),
+                                        )
+                                    }
+                                },
+                        )
                     ListsRoute(
                         viewModel = model,
                         onOpen = { id ->

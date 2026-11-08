@@ -205,7 +205,7 @@ class SyncIntegrationTest {
                     .getAll()
                     .single()
             assertNotEquals(list.id, moved.id)
-            assertEquals(moved.id, remaps.single()[list.id])
+            assertEquals(moved.id, remaps.last()[list.id])
             assertEquals(SyncState.SYNCED, moved.syncState)
             // Sous le nouveau compte, la liste existe désormais côté serveur ; l'ancien identifiant, non.
             val visible = second.fetchLists(null).map { it.id.toString() }

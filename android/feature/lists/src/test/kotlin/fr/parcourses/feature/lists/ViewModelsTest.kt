@@ -112,10 +112,11 @@ class ViewModelsTest : ListsTest() {
             val model = detailModel(id)
             assertTrue(model.uiState.await { it.isLoaded }.isEmpty)
 
-            for (text in listOf("2 laits demi-écrémé", "pommes", "truc inconnu")) {
+            for ((index, text) in listOf("2 laits demi-écrémé", "pommes", "truc inconnu").withIndex()) {
                 model.type(text)
                 model.submit()
-                model.uiState.await { s -> s.sections.sumOf { it.items.size } >= 1 && model.input.text.isEmpty() }
+                // Un ajout à la fois : le suivant attend que le précédent soit écrit.
+                model.uiState.await { s -> s.sections.sumOf { it.items.size } == index + 1 }
             }
             val state = model.uiState.await { s -> s.sections.sumOf { it.items.size } == 3 }
 
@@ -329,4 +330,61 @@ class ViewModelsTest : ListsTest() {
         }
 
     // endregion
+
+    @Test
+    fun aDoubleEnterAddsOneRow() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val model = detailModel(id)
+            model.uiState.await { it.isLoaded }
+            model.type("lait")
+            model.submit()
+            model.submit()
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } >= 1 }
+            assertEquals(1, lists.items(id).size)
+            assertEquals("", model.input.text.toString())
+        }
+
+    @Test
+    fun aSuggestionTappedTwiceAddsOneRow() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val other = lists.createList("Autre", clock).id
+            lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
+            val model = detailModel(id)
+            model.type("to")
+            val suggestion =
+                model.uiState
+                    .await { it.suggestions.isNotEmpty() }
+                    .suggestions
+                    .first()
+            model.add(suggestion)
+            model.add(suggestion)
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } >= 1 }
+            assertEquals(1, lists.items(id).size)
+        }
+
+    @Test
+    fun aRenameOpenedBeforeARekeyFollowsTheNewIdentifier() =
+        runBlocking {
+            val old = lists.createList("Courses", clock)
+            val moved = lists.createList("Courses", clock)
+            val remaps = MutableSharedFlow<IdentifierRemap>(replay = 1)
+            remaps.tryEmit(IdentifierRemap(mapOf(old.id to moved.id)))
+            val model = ListsViewModel(lists, remaps) { clock }
+            model.uiState.await { it.isLoaded }
+            model.rename(old.id, "Semaine")
+            assertEquals(
+                "Semaine",
+                model.uiState
+                    .await { s -> s.lists.any { it.name == "Semaine" } }
+                    .lists
+                    .single {
+                        it.name ==
+                            "Semaine"
+                    }.name,
+            )
+            assertEquals("Semaine", lists.list(moved.id)?.name)
+            assertNull(model.uiState.value.errorDetail)
+        }
 }

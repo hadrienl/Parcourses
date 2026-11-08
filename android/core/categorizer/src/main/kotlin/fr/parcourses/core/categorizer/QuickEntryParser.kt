@@ -1,3 +1,6 @@
+// Port littéral de `QuickEntryParser` d'iOS (gardes successives).
+@file:Suppress("ReturnCount")
+
 package fr.parcourses.core.categorizer
 
 /** Résultat de l'analyse d'une saisie rapide. */

@@ -1,3 +1,6 @@
+// Port de `ProductResolution` d'iOS : une garde par raison d'ignorer une réponse du serveur.
+@file:Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
+
 package fr.parcourses.core.data.sync
 
 import androidx.room3.withWriteTransaction

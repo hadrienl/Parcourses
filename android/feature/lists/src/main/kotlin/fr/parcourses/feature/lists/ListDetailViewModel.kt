@@ -2,6 +2,7 @@ package fr.parcourses.feature.lists
 
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
@@ -138,18 +139,25 @@ class ListDetailViewModel(
         viewModelScope.launch { remaps.collect { remap -> currentListId.update { remap[it] } } }
     }
 
-    /** Ajoute la saisie en cours. Sans effet si elle est vide. La saisie n'est effacée qu'en cas de succès. */
+    /** Une écriture d'ajout est en cours : tout nouvel ajout est ignoré (double Entrée, double appui). */
+    private var isAdding = false
+
+    /** Ajoute la saisie en cours. Sans effet si elle est vide. */
     fun submit() {
-        val entry = analyzer.analyze(input.text.toString())
+        if (isAdding) return
+        val text = input.text.toString()
+        val entry = analyzer.analyze(text)
         if (entry.label.isEmpty()) return
-        add(entry.label, entry.normalizedName, entry.quantity, productId = null, categoryId = entry.categoryId)
+        add(text, entry.label, entry.normalizedName, entry.quantity, productId = null, categoryId = entry.categoryId)
     }
 
     /** Ajoute une proposition en gardant la quantité déjà tapée. */
     fun add(suggestion: ItemSuggestion) {
-        val entry = analyzer.analyze(input.text.toString())
+        if (isAdding) return
+        val text = input.text.toString()
+        val entry = analyzer.analyze(text)
         val categoryId = suggestion.categoryId ?: analyzer.analyze(suggestion.label).categoryId
-        add(suggestion.label, suggestion.normalizedName, entry.quantity, suggestion.productId, categoryId)
+        add(text, suggestion.label, suggestion.normalizedName, entry.quantity, suggestion.productId, categoryId)
     }
 
     fun toggle(row: ItemRow) {
@@ -163,7 +171,12 @@ class ListDetailViewModel(
 
     fun dismissError() = errorDetail.update { null }
 
+    /**
+     * La saisie est vidée tout de suite (un second appel ne la retrouve pas) et rendue si l'écriture échoue, sauf
+     * si l'utilisateur a déjà retapé autre chose.
+     */
     private fun add(
+        text: String,
         label: String,
         normalizedName: String,
         quantity: String?,
@@ -171,12 +184,20 @@ class ListDetailViewModel(
         categoryId: String,
     ) {
         val id = currentListId.value
+        isAdding = true
+        input.clearText()
         viewModelScope.launch {
-            val added = perform { lists.addItem(id, label, normalizedName, quantity, productId, categoryId, now()) }
-            if (added != null) input.clearText()
+            try {
+                val added = perform { lists.addItem(id, label, normalizedName, quantity, productId, categoryId, now()) }
+                if (added == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
+            } finally {
+                isAdding = false
+            }
         }
     }
 
+    // Toute erreur d'écriture est montrée à l'utilisateur ; l'annulation est relancée.
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun <T> perform(work: suspend () -> T): T? =
         try {
             work()

@@ -136,6 +136,16 @@ fun ListsScreen(
     modifier: Modifier = Modifier,
 ) {
     var dialog by rememberSaveable(stateSaver = ListDialogSaver) { mutableStateOf<ListDialog?>(null) }
+    // Reprise de compte : la liste visée par un dialogue a changé d'identifiant ou disparu, il se ferme.
+    LaunchedEffect(state.lists, state.isLoaded) {
+        val target =
+            when (val open = dialog) {
+                is ListDialog.Rename -> open.list.id
+                is ListDialog.Delete -> open.list.id
+                else -> null
+            }
+        if (state.isLoaded && target != null && state.lists.none { it.id == target }) dialog = null
+    }
     Scaffold(
         modifier = modifier,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.lists_title)) }) },
