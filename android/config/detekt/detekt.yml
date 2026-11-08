@@ -5,3 +5,5 @@ naming:
 style:
   UnusedParameter:
     active: true
+  MaxLineLength:
+    excludes: ['**/test/**']
