@@ -7,3 +7,7 @@ style:
     active: true
   MaxLineLength:
     excludes: ['**/test/**']
+complexity:
+  LongMethod:
+    # Les tests de scénario (une histoire par test) dépassent 60 lignes sans que cela nuise à leur lecture.
+    excludes: ['**/test/**']

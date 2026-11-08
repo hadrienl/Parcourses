@@ -71,6 +71,10 @@ interface CheckDao {
     @Query("SELECT * FROM checks ORDER BY checkedAt, id")
     suspend fun getAll(): List<CheckEntity>
 
+    /** Coches d'un article encore à envoyer et qui désignent sa catégorie (pas encore de produit). */
+    @Query("SELECT * FROM checks WHERE itemId = :itemId AND productId IS NULL AND syncState = 'PENDING'")
+    suspend fun pendingWithoutProduct(itemId: String): List<CheckEntity>
+
     @Upsert
     suspend fun upsert(check: CheckEntity)
 

@@ -34,6 +34,10 @@ abstract class CategoryDao {
         remoteId: Int,
     ): Int
 
+    /** Le serveur ne connaît pas ce slug (pas encore migré) : l'appariement est retiré. */
+    @Query("UPDATE categories SET remoteId = NULL WHERE slug = :slug")
+    abstract suspend fun clearRemoteId(slug: String): Int
+
     @Query("SELECT * FROM category_seed_state WHERE id = :id")
     abstract suspend fun seedState(id: String = CategorySeedStateEntity.SINGLETON_ID): CategorySeedStateEntity?
 
