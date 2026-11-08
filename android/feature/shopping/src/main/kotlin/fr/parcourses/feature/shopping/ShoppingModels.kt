@@ -71,8 +71,8 @@ data class ShoppingUndo(
 
 /**
  * Résumé de fin de visite. [visitId] est celui de la visite qui vient d'être close, `null` sans magasin ou quand
- * `closeVisit` l'a supprimée faute de coche : point d'accroche de l'écran de fin complet (A9). Sérialisable : il
- * survit à la mort du processus.
+ * `closeVisit` l'a supprimée faute de coche : l'écran de fin ne remercie alors d'aucune contribution. Sérialisable :
+ * il survit à la mort du processus.
  */
 @Immutable
 @Serializable

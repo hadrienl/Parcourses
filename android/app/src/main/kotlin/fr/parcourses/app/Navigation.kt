@@ -15,7 +15,7 @@ import fr.parcourses.feature.lists.ListDetailViewModel
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
 import fr.parcourses.feature.shopping.ShoppingRoute
-import fr.parcourses.feature.shopping.ShoppingSummaryScreen
+import fr.parcourses.feature.shopping.ShoppingSummaryRoute
 import fr.parcourses.feature.shopping.ShoppingViewModel
 import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
@@ -151,7 +151,7 @@ fun ParcoursesNavHost(
                     )
                 }
                 entry<Route.ShoppingSummary>(clazzContentKey = { it.slot }) { key ->
-                    ShoppingSummaryScreen(summary = key.summary, onClose = { backStack.popIfTop(key.slot) })
+                    ShoppingSummaryRoute(summary = key.summary, onClose = { backStack.popIfTop(key.slot) })
                 }
             },
     )

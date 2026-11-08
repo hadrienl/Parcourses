@@ -19,7 +19,7 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Mode courses branché sur son [ShoppingViewModel]. [onBack] quitte l'écran (la visite reste ouverte, elle expire
  * après 45 min sans coche) ; [onFinished] reçoit le résumé de la visite terminée (la navigation remplace alors cet
- * écran par celui de fin, point d'accroche de A9) ; [onClose] ferme l'écran de fin s'il est affiché ici.
+ * écran par celui de fin, `ShoppingSummaryRoute`) ; [onClose] ferme l'écran de fin s'il est affiché ici.
  */
 @Composable
 fun ShoppingRoute(

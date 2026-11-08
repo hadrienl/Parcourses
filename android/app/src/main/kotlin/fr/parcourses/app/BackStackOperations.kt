@@ -12,11 +12,15 @@ internal fun MutableList<NavKey>.applyRemap(remap: IdentifierRemap) {
             is Route.ListDetail -> this[index] = key.copy(listId = remap[key.listId])
             is Route.StorePicker -> this[index] = key.copy(listId = remap[key.listId])
             is Route.Shopping -> this[index] = key.copy(listId = remap[key.listId])
-            is Route.ShoppingSummary -> this[index] = key.copy(listId = remap[key.listId])
+            is Route.ShoppingSummary -> this[index] = key.remapped(remap)
             else -> Unit
         }
     }
 }
+
+/** Le résumé suit sa liste et sa visite ; l'écran (son slot) ne change pas. */
+private fun Route.ShoppingSummary.remapped(remap: IdentifierRemap) =
+    copy(listId = remap[listId], summary = summary.copy(visitId = summary.visitId?.let(remap::get)))
 
 /** Ouvre le choix du magasin, une seule fois même sur un double appui. */
 internal fun MutableList<NavKey>.openStorePicker(listId: String) {
@@ -63,7 +67,8 @@ internal fun MutableList<NavKey>.resumeShopping(visit: ResumableVisit): Boolean 
 }
 
 /**
- * Fin des courses : le mode courses identifié par [slot] cède sa place au résumé, s'il est encore au sommet.
+ * Fin des courses : le mode courses identifié par [slot] cède sa place au résumé, s'il est encore au sommet. Le
+ * résumé reçoit un slot neuf : l'entrée du mode courses quitte la pile et son `ShoppingViewModel` est détruit.
  * Renvoie `true` si la pile a changé.
  */
 internal fun MutableList<NavKey>.finishShopping(
@@ -72,7 +77,7 @@ internal fun MutableList<NavKey>.finishShopping(
 ): Boolean {
     val top = lastOrNull() as? Route.Shopping
     if (top == null || top.slot != slot) return false
-    this[lastIndex] = Route.ShoppingSummary(top.listId, summary, top.slot)
+    this[lastIndex] = Route.ShoppingSummary(top.listId, summary)
     return true
 }
 

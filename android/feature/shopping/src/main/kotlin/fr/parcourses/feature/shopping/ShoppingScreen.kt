@@ -40,8 +40,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /**
- * Mode courses. Avec un résumé, l'écran de fin minimal prend la place (l'écran complet est le lot A9). Les
- * animations suivent l'échelle d'animation du système : « Supprimer les animations » les rend instantanées.
+ * Mode courses. Avec un résumé, l'écran de fin prend la place le temps que la navigation le remplace par sa
+ * propre entrée (`ShoppingSummaryRoute`). Les animations suivent l'échelle d'animation du système : « Supprimer les
+ * animations » les rend instantanées.
  * [announce] : annonce polie à TalkBack (voir [rememberAnnouncer]) ; `null` : région polie sur le titre.
  */
 @Composable
@@ -232,3 +233,5 @@ internal const val TAG_DROP = "dropRemaining"
 internal const val TAG_CONTINUE = "continueShopping"
 internal const val TAG_SUMMARY = "summaryCount"
 internal const val TAG_CLOSE = "closeSummary"
+internal const val TAG_SUMMARY_HEADLINE = "summaryHeadline"
+internal const val TAG_CONTRIBUTION = "contribution"

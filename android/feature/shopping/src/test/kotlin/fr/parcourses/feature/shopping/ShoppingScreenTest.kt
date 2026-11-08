@@ -324,20 +324,12 @@ class ShoppingScreenTest {
     }
 
     @Test
-    fun theMinimalSummaryThanksTheContribution() {
+    fun aSummaryInTheStateShowsTheEndScreen() {
         show(base.copy(summary = ShoppingSummary(12, 18, "Carrefour", RouteKnowledge.Learning(40), "v1")))
-        rule.onNodeWithText("12 articles").assertExists()
-        rule.onNodeWithText("en 18 min").assertExists()
         rule.onNodeWithText("Carrefour est cartographié à 40 %, merci.").assertExists()
+        rule.onNodeWithTag(TAG_ENTRY).assertDoesNotExist()
         rule.onNodeWithTag(TAG_CLOSE).performClick()
         assertEquals(1, closed)
-    }
-
-    @Test
-    fun theFirstRouteSummaryAndTheSingularAreWorded() {
-        show(base.copy(summary = ShoppingSummary(1, 1, "Carrefour", RouteKnowledge.Unknown)))
-        rule.onNodeWithText("1 article").assertExists()
-        rule.onNodeWithText("Vous avez tracé le premier trajet à Carrefour, merci.").assertExists()
     }
 
     // endregion

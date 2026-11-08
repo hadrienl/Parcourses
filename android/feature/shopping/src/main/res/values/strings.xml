@@ -52,4 +52,5 @@
     <string name="shopping_summary_first">Vous avez tracé le premier trajet à %1$s, merci.</string>
     <string name="shopping_summary_known">%1$s est cartographié à %2$d %%, merci.</string>
     <string name="shopping_summary_close">Retour aux listes</string>
+    <string name="shopping_summary_pane">Courses terminées</string>
 </resources>
