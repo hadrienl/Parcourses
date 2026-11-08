@@ -70,6 +70,22 @@ actor SyncStore {
     return nil
   }
 
+  /// Liste d'un article ou d'une visite en file si elle existe encore et n'a pas été reçue par le serveur.
+  func unsentListId(of work: OutboxWork) throws -> UUID? {
+    guard let payload = work.payloads.first else { return nil }
+    let listId: UUID?
+    switch work.kind {
+    case .upsertItem: listId = (try? OutboxCoding.decode(ListItemUpsert.self, from: payload))?.listId
+    case .createVisit: listId = (try? OutboxCoding.decode(VisitInsert.self, from: payload))?.listId
+    default: listId = nil
+    }
+    guard let listId,
+      let list = try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId })).first,
+      list.deletedAt == nil, list.syncState == .pending
+    else { return nil }
+    return listId
+  }
+
   /// Prochaine échéance future d'une entrée en attente.
   func nextDueDate(after now: Date) throws -> Date? {
     try pendingEntries().map(\.nextAttemptAt).filter { $0 > now }.min()

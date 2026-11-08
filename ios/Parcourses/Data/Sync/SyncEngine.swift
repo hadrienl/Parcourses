@@ -22,6 +22,8 @@ nonisolated enum SyncRetryPolicy {
   static let serverFailureGrace: TimeInterval = 4 * 3600
   /// Délai avant de réessayer une ligne mise de côté. Reste `pending`.
   static let parkedRetryDelay: TimeInterval = 6 * 3600
+  /// Article refusé (`42501`) parce que sa liste n'est pas encore reçue : il attend la liste, sans consommer d'essai.
+  static let listWaitDelay: TimeInterval = 30
   /// Catalogue : une fois par jour (#9 §5.4).
   static let catalogInterval: TimeInterval = 86_400
   /// Descente après un envoi : l'envoi d'une coche ne doit pas relire les listes à chaque fois.
@@ -73,6 +75,8 @@ actor SyncEngine {
   private var isServerOutageSuspected = false
   /// Le compte a changé : réidentifier avant tout envoi.
   private var needsAccountRecovery = false
+  /// La file n'a pas encore été confrontée aux données locales depuis ce lancement.
+  private var needsReconciliation = true
 
   private var runner: Task<Void, Never>?
   private var wake: Task<Void, Never>?
@@ -150,6 +154,7 @@ actor SyncEngine {
 
   private func pass(pull requested: Bool) async {
     var pull = requested
+    await reconcileQueueIfNeeded()
     // Une descente demandée reste due si la passe s'arrête avant elle.
     guard dependencies.isOnline() else {
       if pull { isPullRequested = true }
@@ -188,6 +193,28 @@ actor SyncEngine {
       isPullRequested = true
     } else {
       await pullAll(at: now)
+    }
+  }
+
+  /// Au lancement, avant tout envoi : une donnée `pending` sans entrée active reçoit la sienne. Purement local,
+  /// donc aussi hors ligne. Un échec local laisse l'indicateur levé : la passe suivante recommence.
+  private func reconcileQueueIfNeeded() async {
+    guard needsReconciliation else { return }
+    guard await reconcileQueue() else { return }
+    needsReconciliation = false
+  }
+
+  private func reconcileQueue() async -> Bool {
+    let now = dependencies.now()
+    do {
+      let queued = try await MainActor.run { [container] in
+        try OutboxReconciliation.run(in: container.mainContext, now: now)
+      }
+      if queued > 0 { Self.logger.notice("File réconciliée : \(queued, privacy: .public) entrée(s) ajoutée(s)") }
+      return true
+    } catch {
+      Self.logger.error("Réconciliation impossible : \(String(describing: error), privacy: .private)")
+      return false
     }
   }
 
@@ -490,6 +517,7 @@ actor SyncEngine {
   private func handleForbidden(_ work: OutboxWork) async throws -> Next {
     switch work.kind {
     case .createVisit:
+      if try await waitForList(work) { return .proceed }
       // Liste supprimée entre-temps : la visite reste utile au graphe, on la renvoie sans liste.
       let row = try OutboxCoding.decode(VisitInsert.self, from: work.payloads[0])
       guard row.listId == nil else {
@@ -503,11 +531,32 @@ actor SyncEngine {
     case .insertChecks:
       return try await handleForbiddenChecks(work)
 
+    case .upsertItem:
+      if try await waitForList(work) { return .proceed }
+      return try await failForbidden(work)
+
     default:
-      if let stopped = await confirmSession() { return stopped }
-      try await store.fail(work, reason: "42501")
-      return .proceed
+      return try await failForbidden(work)
     }
+  }
+
+  private func failForbidden(_ work: OutboxWork) async throws -> Next {
+    if let stopped = await confirmSession() { return stopped }
+    try await store.fail(work, reason: OutboxReconciliation.forbiddenReason)
+    return .proceed
+  }
+
+  /// `42501` sur un article dont la liste n'est pas encore arrivée au serveur : la RLS ne voit pas la liste, ce
+  /// n'est pas un refus de l'article (ni de la visite). Il attend la liste, sans essai consommé ; la liste est remise en file si
+  /// elle n'y est plus. Faux si la liste est reçue (ou abandonnée) : le refus est alors bien celui de l'article.
+  private func waitForList(_ work: OutboxWork) async throws -> Bool {
+    guard let listId = try await store.unsentListId(of: work) else { return false }
+    guard await reconcileQueue() else { return false }
+    try await store.postpone(
+      work, attempts: work.attempts,
+      until: dependencies.now().addingTimeInterval(SyncRetryPolicy.listWaitDelay * dependencies.jitter()),
+      reason: "\(OutboxReconciliation.forbiddenReason), liste \(listId) pas encore reçue")
+    return true
   }
 
   /// Visite close et à nous : coche « reçue » (contrat hors ligne). Visite invisible : elle vient d'un autre

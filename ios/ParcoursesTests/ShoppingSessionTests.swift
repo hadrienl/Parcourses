@@ -888,3 +888,140 @@ extension SnapshotGateway {
     #expect(try harness.lists.lists().first?.id == remap[harness.listId])
   }
 }
+
+/// Premières courses réelles : magasin sans instantané, aucun produit, catégories locales correctes.
+@Suite(.serialized) struct ShoppingGroupingTests {
+  /// position | libellé | catégorie | coché, tels que relevés sur l'iPhone.
+  private static let device: [(label: String, category: String, checked: Bool)] = [
+    ("Moutarde", "savory-grocery", true), ("Papier toilette", "hygiene", true),
+    ("Lessive rainett 0%", "household", false), ("Lait demi écrémé", "dairy", true),
+    ("Whey protein deluxe vanilla flavor", "other", false), ("Cornichons", "savory-grocery", true),
+    ("Viande pot au feu", "butcher", true), ("Saucisse de Toulouse", "butcher", true),
+    ("Concentré de tomate", "savory-grocery", true),
+  ]
+
+  @MainActor
+  private func seed(_ harness: Harness, checked: Bool) throws {
+    for entry in Self.device {
+      let item = try harness.lists.addItem(
+        listId: harness.listId, label: entry.label,
+        normalizedName: harness.analyzer.analyze(entry.label).normalizedName,
+        quantity: nil, productId: nil, categoryId: entry.category, at: t0)
+      if checked && entry.checked { try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0) }
+    }
+  }
+
+  @MainActor @Test func theGenericOrderFollowsTheCategoryRanksOnTheDeviceItems() async throws {
+    let harness = try Harness()
+    try seed(harness, checked: false)
+    let session = harness.session()
+    await session.start()
+
+    #expect(session.knowledge == .unknown)
+    #expect(session.mode == .fallback)
+    let ranks = Dictionary(uniqueKeysWithValues: try harness.categories.categories().map { ($0.id, $0.rank) })
+    #expect(ranks["butcher"] == 30 && ranks["dairy"] == 70 && ranks["other"] == 999)
+    let shown = session.toBuy.map(\.label)
+    #expect(
+      shown == [
+        "Saucisse de Toulouse", "Viande pot au feu", "Lait demi écrémé", "Concentré de tomate", "Cornichons",
+        "Moutarde", "Papier toilette", "Lessive rainett 0%", "Whey protein deluxe vanilla flavor",
+      ])
+  }
+
+  @MainActor @Test func theRemainingDeviceItemsAreInRankOrderToo() async throws {
+    let harness = try Harness()
+    try seed(harness, checked: true)
+    let session = harness.session()
+    await session.start()
+    #expect(session.toBuy.map(\.label) == ["Lessive rainett 0%", "Whey protein deluxe vanilla flavor"])
+    #expect(session.basket.count == 7)
+  }
+
+  @MainActor @Test func unknownOrderIsShownByAisleWithTheCategoryLabels() async throws {
+    let harness = try Harness()
+    try seed(harness, checked: false)
+    let session = harness.session()
+    await session.start()
+
+    #expect(session.groupsByAisle)
+    let sections = session.sections
+    #expect(
+      sections.map(\.aisleId) == ["butcher", "dairy", "savory-grocery", "hygiene", "household", "other"])
+    let labels = Dictionary(uniqueKeysWithValues: try harness.categories.categories().map { ($0.id, $0.label) })
+    #expect(sections.map(\.title) == sections.map { labels[$0.aisleId] ?? "" })
+    #expect(sections.allSatisfy { !$0.title.isEmpty && $0.title != $0.aisleId })
+    #expect(sections[2].rows.map(\.label) == ["Concentré de tomate", "Cornichons", "Moutarde"])
+    #expect(sections[0].accessibilityLabel == "\(sections[0].title), 2 articles")
+    #expect(sections.flatMap(\.rows).map(\.label) == session.toBuy.map(\.label))
+  }
+
+  @MainActor @Test func aCheckedRowStaysInItsAisleUntilTheNextSort() async throws {
+    let harness = try Harness()
+    try seed(harness, checked: false)
+    let session = harness.session()
+    await session.start()
+
+    session.toggle(try row(session, "Cornichons"))
+    let tomatoes = try #require(session.sections.first { $0.aisleId == "savory-grocery" })
+    #expect(tomatoes.rows.map(\.label) == ["Concentré de tomate", "Cornichons", "Moutarde"])
+    #expect(tomatoes.rows[1].isChecked)
+    #expect(tomatoes.remainingCount == 2)
+
+    await session.waitUntilSettled()
+    #expect(try #require(session.sections.first { $0.aisleId == "savory-grocery" }).rows.count == 2)
+    #expect(session.basket.map(\.label) == ["Cornichons"])
+  }
+
+  @MainActor @Test func theOrganicAisleHasItsOwnSectionWhenTheStoreHasOne() async throws {
+    let harness = try Harness(organicAisle: true)
+    try harness.add("tomates bio")
+    try harness.add("lait")
+    let session = harness.session()
+    await session.start()
+    let sections = session.sections
+    #expect(sections.map(\.aisleId).contains("bio"))
+    #expect(sections.first { $0.aisleId == "bio" }?.rows.map(\.label) == ["tomates bio"])
+    #expect(sections.first { $0.aisleId == "bio" }?.title == "Bio")
+  }
+
+  @MainActor @Test func withoutStoreTheListIsAlsoGroupedByAisle() async throws {
+    let harness = try Harness()
+    try seed(harness, checked: false)
+    let session = harness.session(withStore: false)
+    await session.start()
+    #expect(session.knowledge == .noStore)
+    #expect(session.groupsByAisle)
+    #expect(session.sections.count == 6)
+  }
+
+  @MainActor @Test func aLearnedOrderKeepsOneContinuousFlowWithoutTitles() async throws {
+    let harness = try Harness()
+    try harness.add("farine", product: productA)
+    try harness.add("lait", product: productB)
+    try harness.add("pommes", product: productC)
+    try harness.saveSnapshot()
+    let session = harness.session()
+    await session.start()
+
+    #expect(session.knowledge == .learned(72))
+    #expect(session.mode == .learned)
+    #expect(!session.groupsByAisle)
+    #expect(session.toBuy.map(\.label) == ["pommes", "farine", "lait"])
+  }
+
+  @MainActor @Test func aLearningOrderIsGroupedByAisle() async throws {
+    let harness = try Harness()
+    try harness.add("farine", product: productA)
+    try harness.add("lait", product: productB)
+    try harness.graphs.saveSnapshot(
+      storeId: harness.storeId, snapshotVersion: 7, paramsVersion: 1, confidenceQ: 300,
+      payload: snapshotJSON(confidenceQ: 300), at: t0)
+    let session = harness.session()
+    await session.start()
+
+    #expect(session.knowledge == .learning(30))
+    #expect(session.groupsByAisle)
+    #expect(session.sections.count == 2)
+  }
+}
