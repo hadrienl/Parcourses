@@ -31,6 +31,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_nearby_stores.sql` | RPC `nearby_stores` |
 | `…_reference_categories.sql` | 12 catégories de référence, remplacées par `…_align_categories.sql` |
 | `…_align_categories.sql` | 21 catégories générées depuis `shared/categories/` (#36) |
+| `…_resolve_products.sql` | RPC `resolve_products`, schéma interne `catalog` (quota de créations) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -86,6 +87,21 @@ reçue n'est ni stockée ni renvoyée. Réservée à `authenticated`.
 ## RPC `search_stores(q, max_results = 20)`
 
 Repli sans position : renvoie `id, name, chain, address, organic_aisle` des magasins dont le nom ou l'adresse contient `q`, sans casse ni accents (`normalize_label`), triés par nom, 20 au plus. La saisie est lue comme du texte, sans joker. Moins de 2 caractères : aucun résultat. Réservée à `authenticated`.
+
+## RPC `resolve_products(p_items)`
+
+Apprentissage sans catalogue : donne un produit partagé aux articles saisis librement, pour que leurs coches
+nourrissent le graphe. `p_items` est un tableau d'au plus 100 objets `{ "name", "category_slug" }` (libellé
+sans quantité, catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entrée, dans l'ordre :
+`normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`.
+
+- Forme normalisée déjà connue : le produit existant est renvoyé, sa catégorie n'est pas modifiée.
+- Sinon le produit est créé avec le libellé et la catégorie reçus, sauf si le libellé est vide ou dépasse
+  200 caractères, si la catégorie est absente, inconnue ou `bio` (le rayon bio dépend du magasin, #28), ou si
+  l'utilisateur a déjà créé 300 produits ce jour (Europe/Paris, compteur `catalog.product_creations`).
+  Dans ces cas `id` est nul.
+- Deux entrées de même forme donnent le même produit ; une création concurrente reprend la ligne existante.
+- `SECURITY DEFINER` (les clients ne peuvent pas écrire `products`), réservée à `authenticated`.
 
 ## Types et contrat
 
