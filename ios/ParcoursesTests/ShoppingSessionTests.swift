@@ -122,14 +122,14 @@ private final class Harness {
 
   func session(
     withStore: Bool = true, gateway: (any RemoteGateway)? = nil, preloadTimeout: Duration = .seconds(3),
-    settleDelay: Duration = .milliseconds(1)
+    settleDelay: Duration = .milliseconds(1), activity: (any ShoppingActivityControlling)? = nil
   ) -> ShoppingSession {
     ShoppingSession(
       listId: listId, storeId: withStore ? storeId : nil, lists: lists, visits: visits, stores: stores,
       categories: categories, analyzer: analyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway),
       // Capture forte : un tri encore en attente ne doit pas survivre au conteneur (fetch fatal après sa libération).
       now: { [self] in date }, settleDelay: settleDelay, highlightDelay: .milliseconds(1),
-      preloadTimeout: preloadTimeout)
+      preloadTimeout: preloadTimeout, activity: activity)
   }
 
   func outbox(_ kind: OutboxKind) throws -> [OutboxEntry] {
@@ -1026,5 +1026,457 @@ extension SnapshotGateway {
     #expect(session.knowledge == .learning(30))
     #expect(session.groupsByAisle)
     #expect(session.sections.count == 2)
+  }
+}
+
+// MARK: - Live Activity (9.10)
+
+private typealias ActivityState = ShoppingActivityAttributes.ContentState
+
+/// Enregistre ce que le mode courses demande à la Live Activity.
+@MainActor
+private final class RecordingActivity: ShoppingActivityControlling {
+  enum Call {
+    case start(ShoppingActivityAttributes, ActivityState)
+    case update(ActivityState)
+    case end(ActivityState)
+  }
+
+  private(set) var calls: [Call] = []
+  private(set) var retryCount = 0
+  private(set) var endAllKeeping: [UUID?] = []
+
+  func start(attributes: ShoppingActivityAttributes, state: ActivityState) { calls.append(.start(attributes, state)) }
+  func update(state: ActivityState) { calls.append(.update(state)) }
+  func end(state: ActivityState) { calls.append(.end(state)) }
+  func retryIfNeeded() { retryCount += 1 }
+  func endAll(except visitId: UUID?) { endAllKeeping.append(visitId) }
+
+  var endCount: Int {
+    calls.filter {
+      if case .end = $0 { true } else { false }
+    }.count
+  }
+
+  var states: [ActivityState] {
+    calls.map {
+      switch $0 {
+      case .start(_, let state), .update(let state), .end(let state): state
+      }
+    }
+  }
+}
+
+private func rows(_ labels: [String], checked: Set<String> = [], aisle: String = "dairy") -> [ShoppingRow] {
+  labels.map { ShoppingRow(id: UUID(), label: $0, quantity: nil, isChecked: checked.contains($0), aisleId: aisle) }
+}
+
+@Suite struct ShoppingActivityStateTests {
+  @Test func theStateCountsRemainingAndTotalAndNamesTheNextItem() {
+    let state = ActivityState.make(
+      toBuy: rows(["lait", "beurre", "pain"], checked: ["lait"]), basket: rows(["riz"], checked: ["riz"]),
+      categoryLabel: { $0 == "dairy" ? "Crèmerie" : nil })
+    #expect(state.remaining == 2)
+    #expect(state.total == 4)
+    #expect(state.nextItemLabel == "beurre")
+    #expect(state.nextCategoryLabel == "Crèmerie")
+    #expect(!state.isFinished)
+    #expect(state.progress == 0.5)
+  }
+
+  @Test func aRowJustCheckedNoLongerCountsNorIsNext() {
+    let state = ActivityState.make(
+      toBuy: rows(["lait", "pain"], checked: ["lait"]), basket: [], categoryLabel: { _ in nil })
+    #expect(state.remaining == 1)
+    #expect(state.nextItemLabel == "pain")
+    #expect(state.nextCategoryLabel == nil)
+  }
+
+  @Test func withNothingLeftThereIsNoNextItem() {
+    let state = ActivityState.make(
+      toBuy: rows(["lait"], checked: ["lait"]), basket: [], categoryLabel: { _ in "x" })
+    #expect(state.remaining == 0)
+    #expect(state.nextItemLabel == nil)
+    #expect(state.nextCategoryLabel == nil)
+    #expect(state.progress == 1)
+  }
+
+  @Test func anEmptyVisitHasNoProgress() {
+    let state = ActivityState.make(toBuy: [], basket: [], categoryLabel: { _ in nil })
+    #expect(state.total == 0)
+    #expect(state.progress == 0)
+  }
+
+  @Test func theStateSurvivesEncoding() throws {
+    let state = ActivityState(remaining: 3, total: 5, nextItemLabel: "lait", nextCategoryLabel: "Crèmerie")
+    let decoded = try JSONDecoder().decode(ActivityState.self, from: JSONEncoder().encode(state))
+    #expect(decoded == state)
+  }
+}
+
+@Suite(.serialized) @MainActor struct ShoppingActivityTriggerTests {
+  @Test func startingPublishesTheFirstStateOnce() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+
+    guard case .start(let attributes, let state)? = activity.calls.first else {
+      Issue.record("pas de démarrage")
+      return
+    }
+    #expect(activity.calls.count == 1)
+    #expect(attributes.listName == "Semaine")
+    #expect(attributes.storeName == "Leclerc Auch")
+    #expect(state.remaining == 2)
+    #expect(state.total == 2)
+    #expect(state.nextItemLabel != nil)
+  }
+
+  @Test func checkingUpdatesTheProgressAndTheNextItem() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let labels = session.toBuy.map(\.label)
+    #expect(labels.count == 2)
+    #expect(activity.states.last?.nextItemLabel == labels[0])
+    let before = activity.calls.count
+    session.toggle(try row(session, labels[0]))
+
+    #expect(activity.calls.count == before + 1)
+    guard case .update(let state)? = activity.calls.last else {
+      Issue.record("pas de mise à jour")
+      return
+    }
+    #expect(state.remaining == 1)
+    #expect(state.total == 2)
+    #expect(state.nextItemLabel == labels[1])
+  }
+
+  @Test func undoAndUncheckGoBack() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    #expect(activity.states.last?.remaining == 0)
+    session.performUndo()
+    #expect(activity.states.last?.remaining == 1)
+    #expect(activity.states.last?.nextItemLabel == "lait")
+  }
+
+  @Test func addingAndMarkingNotFoundChangeTheCount() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+
+    session.input = "pain"
+    await session.submit()
+    #expect(activity.states.last?.remaining == 2)
+    #expect(activity.states.last?.total == 2)
+
+    session.markNotFound(try row(session, "pain"))
+    #expect(activity.states.last?.remaining == 1)
+    #expect(activity.states.last?.total == 1)
+  }
+
+  @Test func anUnchangedStateIsNotSentAgain() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    #expect(activity.calls.count == 1)
+
+    // Relectures, tris et interactions qui ne changent rien à l'état : rien ne part.
+    session.syncDidChange()
+    session.syncDidChange()
+    session.setScrolling(true)
+    session.setScrolling(false)
+    await session.waitUntilSettled()
+    #expect(activity.calls.count == 1)
+
+    // Preuve que l'enregistreur voit bien un vrai changement.
+    session.toggle(try row(session, "lait"))
+    #expect(activity.calls.count == 2)
+  }
+
+  @Test func finishingEndsTheActivityWithAFinalState() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    session.toggle(try row(session, "lait"))
+    session.finish(keepRemaining: true)
+
+    guard case .end(let state)? = activity.calls.last else {
+      Issue.record("pas de fin")
+      return
+    }
+    #expect(state.isFinished)
+    #expect(activity.endCount == 1)
+    let count = activity.calls.count
+    session.syncDidChange()
+    #expect(activity.calls.count == count)
+  }
+
+  @Test func anExpiredVisitEndsTheActivity() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    harness.date = t0.addingTimeInterval(600)
+    session.toggle(try row(session, "lait"))
+    harness.date = t0.addingTimeInterval(600 + ShoppingSession.expiry)
+    session.foregrounded()
+
+    #expect(session.expired)
+    #expect(activity.endCount == 1)
+    guard case .end? = activity.calls.last else {
+      Issue.record("pas de fin")
+      return
+    }
+  }
+
+  @Test func resumingAnExpiredVisitEndsTheOrphanActivityWithoutStartingOne() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let first = harness.session()
+    await first.start()
+    harness.date = t0.addingTimeInterval(600)
+    first.toggle(try row(first, "lait"))
+    let visit = try #require(try harness.visits.openVisit())
+
+    // L'app était fermée plus de 45 min : la visite expire à la reprise.
+    harness.date = t0.addingTimeInterval(600 + ShoppingSession.expiry + 1)
+    let activity = RecordingActivity()
+    let resumed = harness.session(activity: activity)
+    await resumed.resume(visit: visit)
+
+    #expect(resumed.expired)
+    #expect(activity.calls.count == 1)
+    guard case .end(let state)? = activity.calls.first else {
+      Issue.record("l'activité orpheline n'est pas terminée")
+      return
+    }
+    #expect(state.isFinished)
+  }
+
+  @Test func comingBackToTheForegroundRetriesTheActivity() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    session.foregrounded()
+    #expect(activity.retryCount == 1)
+  }
+
+  @Test func theAttributesCarryTheVisit() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    guard case .start(let attributes, _)? = activity.calls.first else {
+      Issue.record("pas de démarrage")
+      return
+    }
+    #expect(attributes.visitId == session.visitId)
+    #expect(attributes.visitId != nil)
+  }
+
+  @Test func resumingStartsTheActivityAgainWithTheRemainingItems() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let first = harness.session()
+    await first.start()
+    first.toggle(try row(first, "lait"))
+    await first.waitUntilSettled()
+
+    let activity = RecordingActivity()
+    let resumed = harness.session(activity: activity)
+    await resumed.resume(visit: try #require(try harness.visits.openVisit()))
+    guard case .start(_, let state)? = activity.calls.first else {
+      Issue.record("pas de démarrage")
+      return
+    }
+    #expect(state.remaining == 1)
+    #expect(state.total == 2)
+    #expect(state.nextItemLabel == "tomates")
+  }
+
+  @Test func withoutStoreTheActivityStillRuns() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(withStore: false, activity: activity)
+    await session.start()
+    #expect(activity.calls.count == 1)
+  }
+}
+
+// MARK: - Reprise et nettoyage des Live Activities
+
+private actor FakeBackend: ActivityBackend {
+  enum Call: Equatable {
+    case request(UUID?)
+    case update(String)
+    case end(String, immediate: Bool)
+  }
+
+  private var infos: [ActivityInfo]
+  private(set) var calls: [Call] = []
+  private let requestResult: String?
+
+  init(_ infos: [ActivityInfo] = [], requestResult: String? = "new") {
+    self.infos = infos
+    self.requestResult = requestResult
+  }
+
+  func current() -> [ActivityInfo] { infos }
+
+  func request(attributes: ShoppingActivityAttributes, state: ActivityState, staleDate: Date?) -> String? {
+    calls.append(.request(attributes.visitId))
+    return requestResult
+  }
+
+  func update(id: String, state: ActivityState, staleDate: Date?) { calls.append(.update(id)) }
+
+  func end(id: String, state: ActivityState?, policy: ActivityEndPolicy) {
+    calls.append(.end(id, immediate: policy == .immediate))
+  }
+}
+
+@Suite @MainActor struct ActivityControllerTests {
+  private let visitA = UUID()
+  private let visitB = UUID()
+  private let state = ActivityState(remaining: 2, total: 3)
+
+  private func attributes(_ visit: UUID?) -> ShoppingActivityAttributes {
+    ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: nil)
+  }
+
+  @Test func theActivityOfTheSameVisitIsReused() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(visitA), state: state)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.update("a")])
+  }
+
+  @Test func theActivityOfAnotherVisitIsEndedThenReplaced() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(visitB), state: state)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("a", immediate: true), .request(visitB)])
+  }
+
+  @Test func anEndedActivityOfTheSameVisitIsNotReused() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: false)])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(visitA), state: state)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("a", immediate: true), .request(visitA)])
+  }
+
+  @Test func aVisitlessSessionNeverReusesAnActivity() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: nil, isActive: true)])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(nil), state: state)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("a", immediate: true), .request(nil)])
+  }
+
+  @Test func extraActivitiesAreEndedAndOnlyOneIsKept() async {
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visitA, isActive: true), ActivityInfo(id: "b", visitId: visitA, isActive: true),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(visitA), state: state)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("b", immediate: true), .update("a")])
+  }
+
+  @Test func orphansAreEndedAtLaunchExceptTheOpenVisit() async {
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visitA, isActive: true), ActivityInfo(id: "b", visitId: visitB, isActive: true),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.endAll(except: visitA)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("b", immediate: true)])
+
+    controller.endAll(except: nil)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls.suffix(2) == [.end("a", immediate: true), .end("b", immediate: true)])
+  }
+
+  @Test func endingWithoutAKnownActivityEndsTheOneLeftByAPreviousLaunch() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.end(state: ActivityState(remaining: 0, total: 0, isFinished: true))
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("a", immediate: false)])
+  }
+
+  @Test func aRefusedRequestIsRetriedOnForeground() async {
+    let refusing = FakeBackend(requestResult: nil)
+    let controller = ActivityKitShoppingActivity(backend: refusing)
+    controller.start(attributes: attributes(visitA), state: state)
+    controller.update(state: ActivityState(remaining: 1, total: 3))
+    controller.retryIfNeeded()
+    await controller.waitUntilIdle()
+    // Démarrage, puis chaque mise à jour et chaque retour au premier plan retentent tant que rien n'existe.
+    #expect(await refusing.calls == [.request(visitA), .request(visitA), .request(visitA)])
+  }
+
+  @Test func updatesAfterTheEndAreIgnored() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.start(attributes: attributes(visitA), state: state)
+    await controller.waitUntilIdle()
+    controller.end(state: state)
+    controller.update(state: state)
+    controller.retryIfNeeded()
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitA), .end("new", immediate: false)])
+  }
+}
+
+@Suite struct ActivityStateEncodingTests {
+  @Test func aMissingFieldFallsBackToADefault() throws {
+    let json = Data(#"{"remaining": 2}"#.utf8)
+    let state = try JSONDecoder().decode(ActivityState.self, from: json)
+    #expect(state == ActivityState(remaining: 2, total: 0))
+  }
+
+  @Test func anUnknownFieldIsIgnored() throws {
+    let json = Data(#"{"remaining": 1, "total": 4, "nextItemLabel": "lait", "future": true}"#.utf8)
+    let state = try JSONDecoder().decode(ActivityState.self, from: json)
+    #expect(state.nextItemLabel == "lait")
+  }
+
+  @Test func aLongLabelIsTruncated() {
+    let long = String(repeating: "x", count: 500)
+    let state = ActivityState.make(
+      toBuy: [ShoppingRow(id: UUID(), label: long, quantity: nil, isChecked: false, aisleId: "a")], basket: [],
+      categoryLabel: { _ in long })
+    #expect(state.nextItemLabel?.count == ActivityState.maxLabelLength)
+    #expect(state.nextCategoryLabel?.count == ActivityState.maxLabelLength)
   }
 }

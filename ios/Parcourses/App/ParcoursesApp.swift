@@ -156,6 +156,7 @@ struct RootView: View {
       didResume = true
       isStarting = true
       session = await environment.resumeShopping()
+      environment.endOrphanActivities(keeping: session?.visitId)
       isStarting = false
     }
   }
