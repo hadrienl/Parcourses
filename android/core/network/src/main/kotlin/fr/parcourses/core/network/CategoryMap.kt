@@ -23,13 +23,19 @@ class CategoryMap(
 
     fun slug(remoteId: Short): String? = slugsById[remoteId]
 
-    fun shouldReload(slug: String, now: Instant): Boolean {
+    fun shouldReload(
+        slug: String,
+        now: Instant,
+    ): Boolean {
         if (idsBySlug.containsKey(slug)) return false
         val since = _missingSlugs[slug] ?: return true
         return now - since >= MISSING_SLUG_LIFETIME
     }
 
-    fun markMissing(slug: String, at: Instant) {
+    fun markMissing(
+        slug: String,
+        at: Instant,
+    ) {
         _missingSlugs[slug] = at
     }
 

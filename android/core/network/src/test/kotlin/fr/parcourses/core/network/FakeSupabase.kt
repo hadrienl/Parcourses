@@ -20,7 +20,9 @@ import kotlinx.coroutines.sync.withLock
 import java.util.Base64
 
 /** Stockage de session en mémoire, partageable entre deux « lancements » de l'app. */
-class MemorySecureStateStore(initial: SecureState = SecureState()) : SecureStateStore {
+class MemorySecureStateStore(
+    initial: SecureState = SecureState(),
+) : SecureStateStore {
     private val lock = Mutex()
     private var state = initial
 
@@ -40,9 +42,16 @@ class FakeSupabase {
     /** Réponses REST, par `méthode chemin`. Absent : `200 []`. */
     val rest = mutableMapOf<String, MutableList<Reply>>()
 
-    class Reply(val status: HttpStatusCode = HttpStatusCode.OK, val body: String = "[]", val headers: Map<String, String> = emptyMap())
+    class Reply(
+        val status: HttpStatusCode = HttpStatusCode.OK,
+        val body: String = "[]",
+        val headers: Map<String, String> = emptyMap(),
+    )
 
-    fun reply(route: String, vararg replies: Reply) {
+    fun reply(
+        route: String,
+        vararg replies: Reply,
+    ) {
         rest.getOrPut(route) { mutableListOf() }.addAll(replies)
     }
 
@@ -58,12 +67,27 @@ class FakeSupabase {
             failWith?.let { throw it }
             val path = request.url.encodedPath
             when {
-                path.endsWith("/auth/v1/signup") -> json(sessionJson())
-                path.endsWith("/auth/v1/user") -> json("""{"id":"$userId","aud":"authenticated"}""")
+                path.endsWith("/auth/v1/signup") -> {
+                    json(sessionJson())
+                }
+
+                path.endsWith("/auth/v1/user") -> {
+                    json("""{"id":"$userId","aud":"authenticated"}""")
+                }
+
                 path.startsWith("/rest/v1/") -> {
                     val key = "${request.method.value} ${path.removePrefix("/rest/v1/")}"
                     val queue = rest[key]
-                    val reply = if (queue.isNullOrEmpty()) Reply() else if (queue.size > 1) queue.removeAt(0) else queue.first()
+                    val reply =
+                        if (queue.isNullOrEmpty()) {
+                            Reply()
+                        } else if (queue.size >
+                            1
+                        ) {
+                            queue.removeAt(0)
+                        } else {
+                            queue.first()
+                        }
                     respond(
                         reply.body,
                         reply.status,
@@ -73,7 +97,10 @@ class FakeSupabase {
                         ),
                     )
                 }
-                else -> respond("{}", HttpStatusCode.NotFound)
+
+                else -> {
+                    respond("{}", HttpStatusCode.NotFound)
+                }
             }
         }
 
@@ -88,8 +115,11 @@ class FakeSupabase {
 
     private fun jwt(exp: Long): String {
         val encoder = Base64.getUrlEncoder().withoutPadding()
+
         fun part(s: String) = encoder.encodeToString(s.toByteArray())
-        return part("""{"alg":"HS256","typ":"JWT"}""") + "." + part("""{"sub":"$userId","exp":$exp,"role":"authenticated"}""") + ".sig"
+        return part("""{"alg":"HS256","typ":"JWT"}""") + "." +
+            part("""{"sub":"$userId","exp":$exp,"role":"authenticated"}""") +
+            ".sig"
     }
 }
 

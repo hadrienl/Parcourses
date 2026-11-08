@@ -26,7 +26,10 @@ class SupabaseConfig private constructor(
         internal val CLEARTEXT_HOSTS: Set<String> = setOf("127.0.0.1", "localhost", "[::1]", "10.0.2.2")
 
         /** `null` si l'environnement n'est pas renseigné : l'app reste alors entièrement locale. */
-        fun create(url: String?, publishableKey: String?): SupabaseConfig? {
+        fun create(
+            url: String?,
+            publishableKey: String?,
+        ): SupabaseConfig? {
             if (url.isNullOrBlank() || publishableKey.isNullOrBlank()) return null
             val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return null
             val host = uri.host ?: return null

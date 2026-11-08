@@ -19,7 +19,8 @@ class ParcoursesApp : Application() {
 
     /** `null` si l'environnement n'est pas configuré : l'app reste alors entièrement locale. */
     val gateway: RemoteGateway? by lazy {
-        SupabaseConfig.create(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+        SupabaseConfig
+            .create(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_PUBLISHABLE_KEY)
             ?.let { createSupabaseGateway(this, it) }
     }
 

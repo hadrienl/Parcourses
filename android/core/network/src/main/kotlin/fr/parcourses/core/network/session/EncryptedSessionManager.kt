@@ -5,7 +5,9 @@ import io.github.jan.supabase.auth.exception.NoSessionFoundException
 import io.github.jan.supabase.auth.user.UserSession
 
 /** [SessionManager] de supabase-kt : la session vit dans le stockage chiffré, jamais dans des préférences en clair. */
-class EncryptedSessionManager(private val store: SecureStateStore) : SessionManager {
+class EncryptedSessionManager(
+    private val store: SecureStateStore,
+) : SessionManager {
     override suspend fun saveSession(session: UserSession) {
         store.update { it.copy(session = session) }
     }

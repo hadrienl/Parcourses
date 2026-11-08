@@ -14,8 +14,11 @@ val repositoryRoot = rootProject.projectDir.parentFile
 tasks.withType<Test>().configureEach {
     systemProperty("parcourses.repoRoot", repositoryRoot.absolutePath)
     // Les migrations et le contrat sont des entrées : un changement relance le test de contrat.
-    inputs.files(fileTree(repositoryRoot.resolve("supabase/migrations")), repositoryRoot.resolve("shared/contract/tables.json"))
-        .withPropertyName("sharedContract")
+    inputs
+        .files(
+            fileTree(repositoryRoot.resolve("supabase/migrations")),
+            repositoryRoot.resolve("shared/contract/tables.json"),
+        ).withPropertyName("sharedContract")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

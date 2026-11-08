@@ -44,7 +44,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-/** Les `null` sont explicites : toutes les lignes d'un lot ont les mêmes colonnes, et une mise à jour peut vider une colonne. */
+/** Les `null` sont explicites : colonnes identiques dans un lot, et une mise à jour peut vider une colonne. */
 internal val RemoteJson: Json =
     Json {
         ignoreUnknownKeys = true
@@ -219,10 +219,13 @@ class SupabaseGateway internal constructor(
     private suspend fun wireChecks(checks: List<CheckUpload>): List<CheckInsert> =
         checks.map { check ->
             when (val target = check.target) {
-                is CheckUpload.Target.Product ->
+                is CheckUpload.Target.Product -> {
                     CheckInsert.forProduct(check.id, check.visitId, target.id, check.checkedAt)
-                is CheckUpload.Target.Category ->
+                }
+
+                is CheckUpload.Target.Category -> {
                     CheckInsert.forCategory(check.id, check.visitId, remoteCategoryId(target.slug), check.checkedAt)
+                }
             }
         }
 
@@ -236,7 +239,10 @@ class SupabaseGateway internal constructor(
     }
 
     /** Sans effet si la visite est déjà close : la RLS ne laisse voir que les visites ouvertes. */
-    override suspend fun closeVisit(id: Uuid, endedAt: Instant) {
+    override suspend fun closeVisit(
+        id: Uuid,
+        endedAt: Instant,
+    ) {
         authorized {
             rest
                 .from(VisitInsert.spec.table)
@@ -266,8 +272,7 @@ class SupabaseGateway internal constructor(
 
     // region Lecture
 
-    override suspend fun fetchLists(updatedAfter: Instant?): List<ListRow> =
-        fetchUpdated(ListRow.spec, updatedAfter)
+    override suspend fun fetchLists(updatedAfter: Instant?): List<ListRow> = fetchUpdated(ListRow.spec, updatedAfter)
 
     override suspend fun fetchItems(updatedAfter: Instant?): List<ListItemRow> =
         fetchUpdated(ListItemRow.spec, updatedAfter)
@@ -278,10 +283,12 @@ class SupabaseGateway internal constructor(
         authorized {
             val rows =
                 fetchAllPages(ProductRow.serializer()) { from, to ->
-                    rest.from(ProductRow.spec.table).select(Columns.raw(ProductRow.spec.selection)) {
-                        order("id", Order.ASCENDING)
-                        range(from, to)
-                    }.data
+                    rest
+                        .from(ProductRow.spec.table)
+                        .select(Columns.raw(ProductRow.spec.selection)) {
+                            order("id", Order.ASCENDING)
+                            range(from, to)
+                        }.data
                 }
             var map = currentCategoryMap()
             if (rows.any { row -> row.categoryId?.let { map.slug(it) } == null && row.categoryId != null }) {
@@ -306,7 +313,12 @@ class SupabaseGateway internal constructor(
         return authorized { decodeRpc("resolve_products", parameters, ListSerializer(ResolvedProductRow.serializer())) }
     }
 
-    override suspend fun nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int): List<NearbyStoreRow> {
+    override suspend fun nearbyStores(
+        lat: Double,
+        lng: Double,
+        radiusM: Int,
+        maxResults: Int,
+    ): List<NearbyStoreRow> {
         val parameters =
             buildJsonObject {
                 put("lat", lat)
@@ -317,7 +329,10 @@ class SupabaseGateway internal constructor(
         return authorized { decodeRpc("nearby_stores", parameters, ListSerializer(NearbyStoreRow.serializer())) }
     }
 
-    override suspend fun searchStores(query: String, limit: Int): List<StoreSearchRow> {
+    override suspend fun searchStores(
+        query: String,
+        limit: Int,
+    ): List<StoreSearchRow> {
         val parameters =
             buildJsonObject {
                 put("q", query)
@@ -337,7 +352,10 @@ class SupabaseGateway internal constructor(
             (row?.get("organic_aisle") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toBooleanStrictOrNull()
         }
 
-    override suspend fun graphSnapshot(storeId: Uuid, knownVersion: Long?): GraphSnapshotResponse {
+    override suspend fun graphSnapshot(
+        storeId: Uuid,
+        knownVersion: Long?,
+    ): GraphSnapshotResponse {
         val parameters =
             buildJsonObject {
                 put("p_store_id", storeId.toString())
@@ -368,18 +386,23 @@ class SupabaseGateway internal constructor(
         return categoryLock.withLock { categoryMap } ?: error("categories")
     }
 
-    private suspend fun <T : Any> fetchUpdated(spec: TableSpec<T>, updatedAfter: Instant?): List<T> =
+    private suspend fun <T : Any> fetchUpdated(
+        spec: TableSpec<T>,
+        updatedAfter: Instant?,
+    ): List<T> =
         authorized {
             fetchAllPages(spec.serializer) { from, to ->
-                rest.from(spec.table).select(Columns.raw(spec.selection)) {
-                    if (updatedAfter != null) {
-                        filter { gte("updated_at", (updatedAfter - CURSOR_OVERLAP).toString()) }
-                    }
-                    // `id` départage les lignes de même date : sans lui, une page pourrait en sauter.
-                    order("updated_at", Order.ASCENDING)
-                    order("id", Order.ASCENDING)
-                    range(from, to)
-                }.data
+                rest
+                    .from(spec.table)
+                    .select(Columns.raw(spec.selection)) {
+                        if (updatedAfter != null) {
+                            filter { gte("updated_at", (updatedAfter - CURSOR_OVERLAP).toString()) }
+                        }
+                        // `id` départage les lignes de même date : sans lui, une page pourrait en sauter.
+                        order("updated_at", Order.ASCENDING)
+                        order("id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
             }
         }
 
@@ -399,11 +422,17 @@ class SupabaseGateway internal constructor(
         }
     }
 
-    private suspend fun <T> decodeRpc(function: String, parameters: JsonObject, serializer: KSerializer<T>): T =
-        RemoteJson.decodeFromString(serializer, rest.rpc(function, parameters).data)
+    private suspend fun <T> decodeRpc(
+        function: String,
+        parameters: JsonObject,
+        serializer: KSerializer<T>,
+    ): T = RemoteJson.decodeFromString(serializer, rest.rpc(function, parameters).data)
 
     /** `on conflict (id) do nothing` : un renvoi après une perte de réseau ne crée pas de doublon. */
-    private suspend fun <T : Any> insertIgnoringDuplicates(spec: TableSpec<T>, values: List<T>) {
+    private suspend fun <T : Any> insertIgnoringDuplicates(
+        spec: TableSpec<T>,
+        values: List<T>,
+    ) {
         val body = RemoteJson.encodeToJsonElement(ListSerializer(spec.serializer), values) as JsonArray
         rest.from(spec.table).upsert(body) {
             onConflict = "id"
@@ -425,7 +454,7 @@ class SupabaseGateway internal constructor(
     // endregion
 
     private companion object {
-        /** `max_rows` côté serveur. La pagination avance du nombre de lignes reçues : un plafond plus bas passe aussi. */
+        /** `max_rows` côté serveur. La pagination avance du nombre de lignes reçues. */
         const val PAGE_SIZE = 1000
 
         /** Recouvrement du curseur : deux transactions proches peuvent valider dans le désordre. */
@@ -436,7 +465,9 @@ class SupabaseGateway internal constructor(
 
         fun parseHttpDate(value: String): Instant? =
             try {
-                Instant.fromEpochMilliseconds(DateTimeFormatter.RFC_1123_DATE_TIME.parse(value, java.time.Instant::from).toEpochMilli())
+                Instant.fromEpochMilliseconds(
+                    DateTimeFormatter.RFC_1123_DATE_TIME.parse(value, java.time.Instant::from).toEpochMilli(),
+                )
             } catch (_: DateTimeParseException) {
                 null
             }

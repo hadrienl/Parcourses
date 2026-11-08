@@ -2,6 +2,14 @@
 naming:
   FunctionNaming:
     ignoreAnnotated: ['Composable']
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
 style:
+  ReturnCount:
+    max: 5
+    excludeGuardClauses: true
   UnusedParameter:
     active: true
+  MaxLineLength:
+    excludes: ['**/test/**']

@@ -24,7 +24,10 @@ object SessionStorageFiles {
 }
 
 /** Le Keystore ou le fichier est inaccessible pour l'instant : la session existe peut-être encore. */
-class SecureStorageUnavailableException(message: String, cause: Throwable? = null) : IOException(message, cause)
+class SecureStorageUnavailableException(
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
 /** Stockage chiffré de [SecureState]. Les écritures sont atomiques et sérialisées. */
 interface SecureStateStore {

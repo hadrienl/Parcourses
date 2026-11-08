@@ -15,17 +15,42 @@ import java.io.IOException
  */
 internal fun Throwable.toRemoteError(): RemoteError =
     when (this) {
-        is RemoteError -> this
-        is PostgrestRestException ->
+        is RemoteError -> {
+            this
+        }
+
+        is PostgrestRestException -> {
             // Sans code PostgREST, le statut HTTP se perdrait.
             if (code == null) RemoteError.fromHttp(statusCode, this) else RemoteError.fromPostgrest(code, this)
-        is AuthRestException -> classifyAuth(this)
-        is RestException -> RemoteError.fromHttp(statusCode, this)
-        is NoSessionFoundException -> RemoteError.Unauthorized(this)
-        is SecureStorageUnavailableException -> RemoteError.SecureStorageLocked(this)
-        is IOException -> RemoteError.Network(this)
-        else -> RemoteError.Unexpected(this)
+        }
+
+        is AuthRestException -> {
+            classifyAuth(this)
+        }
+
+        is RestException -> {
+            RemoteError.fromHttp(statusCode, this)
+        }
+
+        is NoSessionFoundException -> {
+            RemoteError.Unauthorized(this)
+        }
+
+        is SecureStorageUnavailableException -> {
+            RemoteError.SecureStorageLocked(this)
+        }
+
+        is IOException -> {
+            RemoteError.Network(this)
+        }
+
+        else -> {
+            RemoteError.Unexpected(this)
+        }
     }
+
+private const val HTTP_UNAUTHORIZED = 401
+private const val HTTP_FORBIDDEN = 403
 
 private val sessionGoneCodes =
     setOf(
@@ -43,7 +68,9 @@ private fun classifyAuth(error: AuthRestException): RemoteError {
     if (error.isSessionGone()) return RemoteError.Unauthorized(error)
     // Côté Auth, 401 et 403 signifient une session refusée, jamais une donnée refusée.
     val status = error.statusCode
-    return if (status == 401 || status == 403 || error.errorCode == AuthErrorCode.UserNotFound) {
+    return if (status == HTTP_UNAUTHORIZED || status == HTTP_FORBIDDEN ||
+        error.errorCode == AuthErrorCode.UserNotFound
+    ) {
         RemoteError.Unauthorized(error)
     } else {
         RemoteError.Server(status.toString(), error)

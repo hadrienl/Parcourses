@@ -11,11 +11,16 @@ class BackupRulesTest {
     private val datastore = "datastore/${SessionStorageFiles.DATASTORE_FILE}"
     private val keyset = "${SessionStorageFiles.KEYSET_PREFS}.xml"
 
-    private fun excludes(file: String, section: String? = null): Set<String> {
+    private fun excludes(
+        file: String,
+        section: String? = null,
+    ): Set<String> {
         val xml = File("src/main/res/xml/$file").readText()
         val scope = section?.let { xml.substringAfter("<$it>").substringBefore("</$it>") } ?: xml
-        return Regex("""<exclude domain="(\w+)" path="([^"]+)"""").findAll(scope)
-            .map { "${it.groupValues[1]}:${it.groupValues[2]}" }.toSet()
+        return Regex("""<exclude domain="(\w+)" path="([^"]+)"""")
+            .findAll(scope)
+            .map { "${it.groupValues[1]}:${it.groupValues[2]}" }
+            .toSet()
     }
 
     private val expected = setOf("file:$datastore", "sharedpref:$keyset")

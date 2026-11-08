@@ -35,7 +35,10 @@ internal class AeadStateSerializer(
         }
     }
 
-    override suspend fun writeTo(t: SecureState, output: OutputStream) {
+    override suspend fun writeTo(
+        t: SecureState,
+        output: OutputStream,
+    ) {
         val plain = json.encodeToString(SecureState.serializer(), t).encodeToByteArray()
         val encrypted =
             try {

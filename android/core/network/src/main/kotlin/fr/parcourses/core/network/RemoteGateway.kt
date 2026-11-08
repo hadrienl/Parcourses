@@ -57,7 +57,10 @@ interface RemoteGateway {
 
     suspend fun insertChecks(checks: List<CheckUpload>)
 
-    suspend fun closeVisit(id: Uuid, endedAt: Instant)
+    suspend fun closeVisit(
+        id: Uuid,
+        endedAt: Instant,
+    )
 
     /** Ce que la RLS laisse voir d'une visite : distingue une coche tardive d'une visite d'un autre compte. */
     suspend fun visitAccess(id: Uuid): VisitAccess
@@ -78,14 +81,25 @@ interface RemoteGateway {
     suspend fun resolveProducts(items: List<ProductResolutionRequest>): List<ResolvedProductRow>
 
     /** La position n'est ni conservée ni journalisée ici. */
-    suspend fun nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int): List<NearbyStoreRow>
+    suspend fun nearbyStores(
+        lat: Double,
+        lng: Double,
+        radiusM: Int,
+        maxResults: Int,
+    ): List<NearbyStoreRow>
 
     /** Repli sans position (refus de localisation) : RPC `search_stores`, par nom ou adresse. */
-    suspend fun searchStores(query: String, limit: Int): List<StoreSearchRow>
+    suspend fun searchStores(
+        query: String,
+        limit: Int,
+    ): List<StoreSearchRow>
 
     /** Rayon bio d'un magasin connu par son identifiant. `null` si le serveur ne le connaît pas. */
     suspend fun storeOrganicAisle(id: Uuid): Boolean?
 
     /** Instantané du graphe d'un magasin, s'il diffère de [knownVersion]. Exige une session, jamais créée ici. */
-    suspend fun graphSnapshot(storeId: Uuid, knownVersion: Long?): GraphSnapshotResponse
+    suspend fun graphSnapshot(
+        storeId: Uuid,
+        knownVersion: Long?,
+    ): GraphSnapshotResponse
 }

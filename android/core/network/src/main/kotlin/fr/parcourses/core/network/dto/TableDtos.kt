@@ -14,7 +14,10 @@ import kotlin.uuid.Uuid
  * DTO lié à une table : ses colonnes (les `@SerialName`) sont contrôlées contre
  * `shared/contract/tables.json` par le test de contrat.
  */
-internal class TableSpec<T : Any>(val table: String, val serializer: KSerializer<T>) {
+internal class TableSpec<T : Any>(
+    val table: String,
+    val serializer: KSerializer<T>,
+) {
     val columns: List<String> get() = serializer.descriptor.elementNames.toList()
 
     /** Liste de colonnes pour `select=`. */
@@ -171,11 +174,19 @@ data class CheckInsert private constructor(
     @SerialName("checked_at") val checkedAt: Instant,
 ) {
     companion object {
-        fun forProduct(id: Uuid, visitId: Uuid, productId: Uuid, checkedAt: Instant) =
-            CheckInsert(id, visitId, productId, null, checkedAt)
+        fun forProduct(
+            id: Uuid,
+            visitId: Uuid,
+            productId: Uuid,
+            checkedAt: Instant,
+        ) = CheckInsert(id, visitId, productId, null, checkedAt)
 
-        fun forCategory(id: Uuid, visitId: Uuid, categoryId: Short, checkedAt: Instant) =
-            CheckInsert(id, visitId, null, categoryId, checkedAt)
+        fun forCategory(
+            id: Uuid,
+            visitId: Uuid,
+            categoryId: Short,
+            checkedAt: Instant,
+        ) = CheckInsert(id, visitId, null, categoryId, checkedAt)
 
         internal val spec = TableSpec("checks", serializer())
     }
@@ -189,9 +200,13 @@ data class CheckUpload(
     val checkedAt: Instant,
 ) {
     sealed interface Target {
-        data class Product(val id: Uuid) : Target
+        data class Product(
+            val id: Uuid,
+        ) : Target
 
-        data class Category(val slug: String) : Target
+        data class Category(
+            val slug: String,
+        ) : Target
     }
 }
 
@@ -199,7 +214,9 @@ data class CheckUpload(
 // réécrirait (`on conflict do update set id = …`), d'où mise à jour puis insertion.
 
 @Serializable
-internal data class ListPatch(val name: String)
+internal data class ListPatch(
+    val name: String,
+)
 
 @Serializable
 internal data class ListItemPatch(
@@ -211,6 +228,8 @@ internal data class ListItemPatch(
 )
 
 @Serializable
-internal data class VisitClose(@SerialName("ended_at") val endedAt: Instant)
+internal data class VisitClose(
+    @SerialName("ended_at") val endedAt: Instant,
+)
 
 // endregion

@@ -64,14 +64,18 @@ sealed interface GraphSnapshotResponse {
     data object None : GraphSnapshotResponse
 
     /** JSON brut, à conserver tel quel (#9 §4.3). */
-    data class Payload(val json: String) : GraphSnapshotResponse
+    data class Payload(
+        val json: String,
+    ) : GraphSnapshotResponse
 
     companion object {
         fun parse(body: String): GraphSnapshotResponse {
             if (body.isBlank()) return Unchanged
             val element = Json.parseToJsonElement(body)
             if (element is JsonNull) return Unchanged
-            if (element is JsonObject && element["none"]?.jsonPrimitive?.let { runCatching { it.boolean }.getOrNull() } == true) {
+            if (element is JsonObject &&
+                element["none"]?.jsonPrimitive?.let { runCatching { it.boolean }.getOrNull() } == true
+            ) {
                 return None
             }
             return Payload(body)

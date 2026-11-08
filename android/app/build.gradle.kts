@@ -12,7 +12,10 @@ plugins {
 val defaultLocalUrl = "http://10.0.2.2:56321"
 val selectedEnvironment = providers.gradleProperty("parcourses.env")
 
-fun supabaseSetting(environment: String, name: String): String =
+fun supabaseSetting(
+    environment: String,
+    name: String,
+): String =
     providers
         .gradleProperty("parcourses.supabase.$environment.$name")
         .orElse(providers.environmentVariable("PARCOURSES_SUPABASE_${environment.uppercase()}_${name.uppercase()}"))
@@ -32,16 +35,33 @@ android {
     buildTypes {
         debug {
             val environment = selectedEnvironment.getOrElse("local")
-            val url = supabaseSetting(environment, "url").ifEmpty { if (environment == "local") defaultLocalUrl else "" }
+            val url =
+                supabaseSetting(environment, "url").ifEmpty {
+                    if (environment ==
+                        "local"
+                    ) {
+                        defaultLocalUrl
+                    } else {
+                        ""
+                    }
+                }
             buildConfigField("String", "ENVIRONMENT", environment.asBuildConfigString())
             buildConfigField("String", "SUPABASE_URL", url.asBuildConfigString())
-            buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", supabaseSetting(environment, "key").asBuildConfigString())
+            buildConfigField(
+                "String",
+                "SUPABASE_PUBLISHABLE_KEY",
+                supabaseSetting(environment, "key").asBuildConfigString(),
+            )
         }
         release {
             val environment = selectedEnvironment.getOrElse("prod")
             buildConfigField("String", "ENVIRONMENT", environment.asBuildConfigString())
             buildConfigField("String", "SUPABASE_URL", supabaseSetting(environment, "url").asBuildConfigString())
-            buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", supabaseSetting(environment, "key").asBuildConfigString())
+            buildConfigField(
+                "String",
+                "SUPABASE_PUBLISHABLE_KEY",
+                supabaseSetting(environment, "key").asBuildConfigString(),
+            )
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
