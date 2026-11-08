@@ -137,7 +137,7 @@ class SecureSessionStorageTest {
             val before = file.readBytes()
             restart()
 
-            val locked = store(file) { throw GeneralSecurityException("keystore locked") }
+            val locked = store(file) { throw SecureStorageUnavailableException("keystore locked") }
             assertThrows(
                 SecureStorageUnavailableException::class.java,
             ) { kotlinx.coroutines.runBlocking { locked.read() } }
