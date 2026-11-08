@@ -126,6 +126,165 @@ class RoomVisitRepositoryTest : DataTest() {
 
     // endregion
 
+    // region Visite abandonnée (#54, M3)
+
+    @Test
+    fun aStaleVisitReplacedByAFreshOneLeavesNoNotFound() =
+        runBlocking {
+            val list = newList()
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val first = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(first.id, milk.id, CheckSubject.Category("dairy"), now + 1.minutes)
+            lists.setNotFound(bread.id, now + 2.minutes)
+            val before = db.items().get(bread.id)!!
+
+            visits.startVisit(store, list.id, false, now + 60.minutes, staleAfter = 45.minutes)
+
+            // Comme « garder » : le pain revient à acheter, sans rien envoyer pour autant (champ local).
+            val after = db.items().get(bread.id)!!
+            assertNull(after.notFoundAt)
+            assertEquals(before.updatedAt, after.updatedAt)
+            assertEquals(before.syncState, after.syncState)
+            assertEquals(now + 1.minutes, visits.visit(first.id)?.endedAt)
+        }
+
+    @Test
+    fun aVisitStillActiveKeepsItsNotFound() =
+        runBlocking {
+            val list = newList()
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val first = visits.startVisit(store, list.id, false, now)
+            lists.setNotFound(bread.id, now + 1.minutes)
+
+            assertEquals(first.id, visits.startVisit(store, list.id, false, now + 10.minutes, 45.minutes).id)
+            assertEquals(now + 1.minutes, db.items().get(bread.id)?.notFoundAt)
+        }
+
+    @Test
+    fun aVisitReplacedForAnotherListPutsItsOwnNotFoundBackAndNoOtherList() =
+        runBlocking {
+            val list = newList()
+            val other = lists.createList("Apéro", now)
+            val untouched = lists.createList("Bricolage", now)
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val chips = lists.addItem(other.id, "chips", "chips", null, null, "savory-grocery", now)
+            val screws = lists.addItem(untouched.id, "vis", "vis", null, null, "other", now)
+            lists.setNotFound(chips.id, now)
+            lists.setNotFound(screws.id, now)
+            val first = visits.startVisit(store, list.id, false, now)
+            lists.setNotFound(bread.id, now + 1.minutes)
+            // Introuvable puis trouvé quand même : coché, il garde son `notFoundAt`, comme avec « garder ».
+            lists.setNotFound(milk.id, now + 1.minutes)
+            visits.checkItem(first.id, milk.id, CheckSubject.Category("dairy"), now + 2.minutes)
+
+            visits.startVisit(store, other.id, false, now + 5.minutes)
+
+            assertNull(db.items().get(bread.id)?.notFoundAt)
+            assertEquals(now + 1.minutes, db.items().get(milk.id)?.notFoundAt)
+            assertNull(db.items().get(chips.id)?.notFoundAt)
+            // Liste sans visite, ni close ni ouverte : son introuvable reste.
+            assertEquals(now, db.items().get(screws.id)?.notFoundAt)
+        }
+
+    @Test
+    fun aFreshVisitStartsWithoutTheNotFoundOfAVisitClosedWithoutDecision() =
+        runBlocking {
+            // Visite expirée (close à sa dernière coche) puis processus tué avant « garder » ou « retirer ».
+            val list = newList()
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val first = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(first.id, milk.id, CheckSubject.Category("dairy"), now)
+            lists.setNotFound(bread.id, now)
+            visits.closeVisit(first.id, now)
+            assertEquals(now, db.items().get(bread.id)?.notFoundAt)
+
+            visits.startVisit(store, list.id, false, now + 2.hours)
+            assertNull(db.items().get(bread.id)?.notFoundAt)
+        }
+
+    @Test
+    fun abandoningAVisitClosesItAtItsLastCheckAndPutsTheNotFoundBack() =
+        runBlocking {
+            val list = newList()
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val visit = visits.startVisit(store, list.id, false, now)
+            visits.checkItem(visit.id, milk.id, CheckSubject.Category("dairy"), now + 3.minutes)
+            lists.setNotFound(bread.id, now + 4.minutes)
+            wakeUps = 0
+
+            assertTrue(visits.abandonVisit(visit.id, now + 2.hours, staleAfter = 45.minutes))
+
+            assertEquals(now + 3.minutes, visits.visit(visit.id)?.endedAt)
+            assertNull(db.items().get(bread.id)?.notFoundAt)
+            assertTrue(OutboxKind.CloseVisit in kinds())
+            assertEquals(1, wakeUps)
+            assertNull(visits.openVisit())
+        }
+
+    @Test
+    fun aVisitActiveAgainIsNotAbandoned() =
+        runBlocking {
+            // Lue périmée au lancement, mais cochée entre-temps : la transaction relit et la laisse ouverte.
+            val list = newList()
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val visit = visits.startVisit(store, list.id, false, now)
+            lists.setNotFound(bread.id, now)
+            visits.checkItem(visit.id, milk.id, CheckSubject.Category("dairy"), now + 50.minutes)
+
+            assertFalse(visits.abandonVisit(visit.id, now + 60.minutes, staleAfter = 45.minutes))
+
+            assertEquals(visit.id, visits.openVisit()?.id)
+            assertEquals(now, db.items().get(bread.id)?.notFoundAt)
+            assertFalse(OutboxKind.CloseVisit in kinds())
+        }
+
+    @Test
+    fun abandoningAVisitWithoutChecksDeletesItAndAClosedOneIsLeftAlone() =
+        runBlocking {
+            val list = newList()
+            val milk = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val empty = visits.startVisit(store, list.id, false, now)
+            lists.setNotFound(bread.id, now)
+            assertTrue(visits.abandonVisit(empty.id, now + 1.minutes))
+            assertNull(visits.visit(empty.id))
+            assertNull(db.items().get(bread.id)?.notFoundAt)
+
+            // Déjà close : la décision a été prise (« garder » ou « retirer »), rien ne change.
+            val closed = visits.startVisit(store, list.id, false, now + 1.minutes)
+            visits.checkItem(closed.id, milk.id, CheckSubject.Category("dairy"), now + 1.minutes)
+            visits.closeVisit(closed.id, now + 2.minutes)
+            lists.setNotFound(bread.id, now + 3.minutes)
+            assertFalse(visits.abandonVisit(closed.id, now + 2.hours))
+            assertEquals(now + 2.minutes, visits.visit(closed.id)?.endedAt)
+            assertEquals(now + 3.minutes, db.items().get(bread.id)?.notFoundAt)
+        }
+
+    @Test
+    fun abandoningAVisitThatNoLongerExistsDoesNothing() =
+        runBlocking {
+            // Supprimée faute de coche, ou renommée par une reprise de compte : le lancement ne doit pas planter.
+            val list = newList()
+            val bread = lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            val gone = visits.startVisit(store, list.id, false, now)
+            visits.closeVisit(gone.id, now)
+            lists.setNotFound(bread.id, now)
+            wakeUps = 0
+
+            assertFalse(visits.abandonVisit(gone.id, now + 2.hours))
+            assertFalse(visits.abandonVisit(id(), now + 2.hours, staleAfter = 45.minutes))
+
+            assertEquals(now, db.items().get(bread.id)?.notFoundAt)
+            assertEquals(0, wakeUps)
+        }
+
+    // endregion
+
     // region Coches
 
     @Test

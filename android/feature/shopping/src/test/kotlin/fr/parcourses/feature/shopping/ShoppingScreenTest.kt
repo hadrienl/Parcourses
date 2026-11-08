@@ -7,6 +7,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
@@ -324,20 +325,14 @@ class ShoppingScreenTest {
     }
 
     @Test
-    fun theMinimalSummaryThanksTheContribution() {
+    fun aSummaryInTheStateShowsTheEndScreen() {
         show(base.copy(summary = ShoppingSummary(12, 18, "Carrefour", RouteKnowledge.Learning(40), "v1")))
-        rule.onNodeWithText("12 articles").assertExists()
-        rule.onNodeWithText("en 18 min").assertExists()
-        rule.onNodeWithText("Carrefour est cartographié à 40 %, merci.").assertExists()
+        rule.onNodeWithText("Carrefour est cartographié à 40\u202F%, merci.").assertExists()
+        // Repli du mode courses : c'est l'entrée du résumé qui s'annonce à TalkBack, pas lui.
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle)).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_ENTRY).assertDoesNotExist()
         rule.onNodeWithTag(TAG_CLOSE).performClick()
         assertEquals(1, closed)
-    }
-
-    @Test
-    fun theFirstRouteSummaryAndTheSingularAreWorded() {
-        show(base.copy(summary = ShoppingSummary(1, 1, "Carrefour", RouteKnowledge.Unknown)))
-        rule.onNodeWithText("1 article").assertExists()
-        rule.onNodeWithText("Vous avez tracé le premier trajet à Carrefour, merci.").assertExists()
     }
 
     // endregion

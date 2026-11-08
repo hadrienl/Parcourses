@@ -355,6 +355,34 @@ class ShoppingLifecycleTest : ShoppingTest() {
             assertEquals(clock(), fresh.startedAt)
         }
 
+    @Test
+    fun aStaleVisitLeavesNoNotFoundToTheNextOne() =
+        runTest(main) {
+            // #54, M3 : visite quittée par Retour avec un introuvable, puis rouverte une heure plus tard.
+            val (listId, items) = groceries()
+            val first = model(listId)
+            val state = started(first)
+            first.toggle(state.row("pommes"))
+            runCurrent()
+            first.markNotFound(first.uiState.value.row("lait"))
+            runCurrent()
+            assertEquals(
+                listOf("lait"),
+                first.uiState.value.notFound
+                    .map { it.label },
+            )
+
+            offset += 60.minutes
+            val reopened = model(listId)
+            val fresh = started(reopened)
+
+            assertTrue(fresh.notFound.isEmpty())
+            assertTrue("lait" in fresh.toBuy.map { it.label })
+            assertNull(db.items().get(items.first().id)?.notFoundAt)
+            // Déjà juste au premier affichage : aucun rechargement « venu d'ailleurs » ne rattrape la liste.
+            assertEquals(0, reopened.externalReloads)
+        }
+
     // endregion
 
     // region Reprise

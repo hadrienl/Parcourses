@@ -8,6 +8,7 @@ import fr.parcourses.feature.storepicker.StorePickerOutcome
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -204,6 +205,8 @@ class ShoppingNavigationTest {
         val end = stack.last() as Route.ShoppingSummary
         assertEquals(summary, end.summary)
         assertEquals("a", end.listId)
+        // Slot neuf : l'entrée du mode courses quitte la pile, son ViewModel avec (#54, M5).
+        assertNotEquals(shopping.slot, end.slot)
         // Pas de retour en mode courses : le résumé a pris sa place, et un second événement ne fait rien.
         assertEquals(3, stack.size)
         assertFalse(stack.finishShopping(shopping.slot, summary))
@@ -218,5 +221,15 @@ class ShoppingNavigationTest {
         val stack = stack(Route.Lists, Route.ListDetail("old"), end)
         stack.applyRemap(IdentifierRemap(mapOf("old" to "new")))
         assertEquals("new", (stack.last() as Route.ShoppingSummary).listId)
+    }
+
+    @Test
+    fun aRemapFollowsTheSummaryVisitAndKeepsTheScreen() {
+        val end = Route.ShoppingSummary("old", ShoppingSummary(2, 5, "Carrefour", RouteKnowledge.Unknown, "v-old"))
+        val stack = stack(Route.Lists, Route.ListDetail("old"), end)
+        stack.applyRemap(IdentifierRemap(mapOf("old" to "new", "v-old" to "v-new")))
+        val moved = stack.last() as Route.ShoppingSummary
+        assertEquals("v-new", moved.summary.visitId)
+        assertEquals(end.slot, moved.slot)
     }
 }

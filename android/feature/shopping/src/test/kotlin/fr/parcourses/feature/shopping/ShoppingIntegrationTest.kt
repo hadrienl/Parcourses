@@ -208,7 +208,42 @@ class ShoppingIntegrationTest : ShoppingTest() {
             assertNotNull(graphs.snapshot(fixture.shop))
             assertTrue(loaded.snapshot.confidenceQ > 0)
             assertTrue(loaded.snapshot.edges.isNotEmpty())
+
+            // Contribution (A9) : la visite suivante dans ce magasin part de l'instantané publié, et son résumé
+            // remercie avec la confiance du serveur (`store_stats.confidence_q`, en millièmes).
+            val next =
+                shoppingModel(fixture.copyWithList(nextList(fixture)), undo = Duration.ZERO) { Clock.System.now() }
+            next.awaitLoaded()
+            next.toggle(next.uiState.value.row("lait"))
+            scheduler.runCurrent()
+            next.finish(keepRemaining = true)
+            scheduler.runCurrent()
+            val end = checkNotNull(next.uiState.value.summary)
+            val percent = (loaded.snapshot.confidenceQ / 10).toInt()
+            val expected =
+                if (loaded.snapshot.confidenceQ >= loaded.params.confThresholdQ) {
+                    RouteKnowledge.Learned(percent)
+                } else {
+                    RouteKnowledge.Learning(percent)
+                }
+            assertEquals(expected, end.knowledge)
+            assertNotNull(end.visitId)
+            assertEquals(null, fixture.engine.drain())
         }
+
+    private fun Fixture.copyWithList(listId: String) = Fixture(gateway, engine, shop, listId, products)
+
+    private suspend fun nextList(fixture: Fixture): String {
+        val at = Clock.System.now()
+        val listId = lists.createList("Courses IT, suite", at).id
+        val milk =
+            fixture.products
+                .getValue("lait")
+                .id
+                .toString()
+        lists.addItem(listId, "lait", "lait", null, milk, "dairy", at)
+        return listId
+    }
 
     @Test
     fun anUndoneCheckNeverReachesTheServerAndTheRestLeavesAfterTheUndoWindow() =

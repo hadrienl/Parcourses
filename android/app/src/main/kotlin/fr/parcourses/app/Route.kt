@@ -8,7 +8,7 @@ import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 import kotlin.uuid.Uuid
 
-/** Routes de la pile (#10 §8.1). L'écran de fin complet arrive avec A9. */
+/** Routes de la pile (#10 §8.1). */
 @Serializable
 sealed interface Route : NavKey {
     @Serializable
@@ -46,7 +46,8 @@ sealed interface Route : NavKey {
     /**
      * Fin des courses : remplace [Shopping] dans la pile (pas de retour en mode courses, #10 §8.1). Le résumé est
      * dans la route, donc sauvegardé avec la pile : après la mort du processus, il revient tel quel et aucune visite
-     * n'est rouverte. [slot] : celui du mode courses remplacé.
+     * n'est rouverte. [slot] : neuf, jamais celui du mode courses remplacé. La clé de contenu de l'entrée porte son
+     * `ViewModelStore` : la reprendre garderait le `ShoppingViewModel` en vie tant que le résumé est affiché (#54, M5).
      */
     @Serializable
     data class ShoppingSummary(

@@ -37,8 +37,9 @@ interface VisitRepository {
 
     /**
      * Une seule visite reste ouverte. Même liste et même magasin, et une activité il y a moins de [staleAfter] : la
-     * visite existante est renvoyée. Sinon toute visite ouverte est d'abord close **à sa dernière coche** (jamais à
-     * [at], qui allongerait la visite de tout le temps passé ailleurs), puis une visite neuve est créée.
+     * visite existante est renvoyée. Sinon toute visite ouverte est d'abord abandonnée (voir [abandonVisit] : close
+     * **à sa dernière coche**, jamais à [at], qui allongerait la visite de tout le temps passé ailleurs), puis une
+     * visite neuve est créée. Une visite neuve commence sans introuvable : ceux de [listId] reviennent à acheter.
      */
     suspend fun startVisit(
         storeId: String,
@@ -86,6 +87,22 @@ interface VisitRepository {
         id: String,
         at: Instant,
     ): Boolean
+
+    /**
+     * Clôt une visite quittée sans « Terminer » (restée ouverte trop longtemps, liste disparue) : à sa dernière coche,
+     * supprimée si elle n'en a aucune. Personne n'a répondu à « garder ou retirer » : la réponse par défaut, garder,
+     * s'applique, et les articles introuvables (non cochés) de sa liste reviennent à acheter.
+     *
+     * Sans effet, et sans erreur, si la visite n'existe plus (supprimée faute de coche, renommée par une reprise de
+     * compte), si elle est déjà close, ou si sa dernière activité date de moins de [staleAfter] avant [at] : relue
+     * dans la transaction, une visite redevenue active entre-temps reste ouverte. Renvoie `true` si cet appel l'a
+     * close ou supprimée.
+     */
+    suspend fun abandonVisit(
+        id: String,
+        at: Instant,
+        staleAfter: Duration = ZERO,
+    ): Boolean
 }
 
 /** Implémentation Room. [onEnqueue] réveille la synchronisation après chaque transaction qui allonge la file. */
@@ -112,12 +129,11 @@ class RoomVisitRepository(
             db.withWriteTransaction {
                 var reused: VisitEntity? = null
                 for (open in db.visits().getOpen()) {
-                    val last = activityOf(open)
                     val same = open.storeId == storeId && open.listId == listId
-                    if (same && reused == null && at - last < staleAfter) {
+                    if (same && reused == null && at - activityOf(open) < staleAfter) {
                         reused = open
                     } else {
-                        enqueued = close(open.id, last) || enqueued
+                        enqueued = abandon(open) || enqueued
                     }
                 }
                 // Rien en file : la création part avec la première coche (#9 §5.5).
@@ -128,7 +144,11 @@ class RoomVisitRepository(
                         listId = listId,
                         listWasSorted = listWasSorted,
                         startedAt = at,
-                    ).also { db.visits().upsert(it) }
+                    ).also {
+                        // Introuvables laissés par une visite close sans décision (expirée puis processus tué).
+                        db.items().clearNotFound(listId)
+                        db.visits().upsert(it)
+                    }
             }
         if (enqueued) onEnqueue()
         return visit
@@ -199,6 +219,35 @@ class RoomVisitRepository(
             }
         if (enqueued) onEnqueue()
         return enqueued || db.visits().get(id) != null
+    }
+
+    override suspend fun abandonVisit(
+        id: String,
+        at: Instant,
+        staleAfter: Duration,
+    ): Boolean {
+        var abandoned = false
+        val enqueued =
+            db.withWriteTransaction {
+                val visit =
+                    db.visits().get(id)?.takeIf { open ->
+                        open.endedAt == null && (staleAfter <= ZERO || at - activityOf(open) >= staleAfter)
+                    }
+                abandoned = visit != null
+                visit != null && abandon(visit)
+            }
+        if (enqueued) onEnqueue()
+        return abandoned
+    }
+
+    /**
+     * À appeler dans une transaction. Clôture sans décision, à la dernière coche : « garder » par défaut, donc les
+     * introuvables de la liste reviennent à acheter (#54, M3). `true` si une clôture a été mise en file.
+     */
+    private suspend fun abandon(visit: VisitEntity): Boolean {
+        if (visit.endedAt != null) return false
+        db.items().clearNotFound(visit.listId)
+        return close(visit.id, activityOf(visit))
     }
 
     /** `true` si une clôture a été mise en file. Une visite sans coche est supprimée, une visite close est laissée. */

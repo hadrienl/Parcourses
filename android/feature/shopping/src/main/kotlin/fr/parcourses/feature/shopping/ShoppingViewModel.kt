@@ -191,6 +191,9 @@ class ShoppingViewModel(
                 visitId = visit.id
                 startedAt = visit.startedAt
             }
+            // Une visite neuve commence sans introuvable (`startVisit` les remet à acheter) : la liste lue plus haut
+            // en montrait peut-être encore, laissés par une visite close sans décision.
+            if (notFound.isNotEmpty()) sortNow(previous = null)
         }
         publish(loaded = true)
         observeExternalChanges()
