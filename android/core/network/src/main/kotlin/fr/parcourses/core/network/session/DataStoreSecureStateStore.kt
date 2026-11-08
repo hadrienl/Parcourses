@@ -1,28 +1,23 @@
 package fr.parcourses.core.network.session
 
 import android.content.Context
-import android.os.UserManager
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
-import com.google.crypto.tink.Aead
-import com.google.crypto.tink.KeyTemplates
-import com.google.crypto.tink.RegistryConfiguration
-import com.google.crypto.tink.aead.AeadConfig
-import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.KeyStore
 
 /**
  * [SecureStateStore] sur deux DataStore :
@@ -34,12 +29,22 @@ class DataStoreSecureStateStore internal constructor(
     private val sessions: DataStore<SessionHolder>,
     private val accounts: DataStore<AccountMarker>,
 ) : SecureStateStore {
-    override suspend fun read(): SecureState =
+    // Lecture, transformation et écriture forment un tout : un rafraîchissement et une déconnexion en parallèle
+    // ne doivent pas s'écraser (ni ressusciter une session supprimée).
+    private val lock = Mutex()
+
+    override suspend fun read(): SecureState = lock.withLock { readUnlocked() }
+
+    private suspend fun readUnlocked(): SecureState =
         readingErrors { SecureState(sessions.data.first().session, accounts.data.first().lastAccountId) }
 
     override suspend fun update(transform: (SecureState) -> SecureState) {
+        lock.withLock { updateUnlocked(transform) }
+    }
+
+    private suspend fun updateUnlocked(transform: (SecureState) -> SecureState) {
         readingErrors {
-            val before = read()
+            val before = readUnlocked()
             val after = transform(before)
             if (after.session != before.session) sessions.updateData { SessionHolder(after.session) }
             if (after.lastAccountId != before.lastAccountId) {
@@ -67,7 +72,7 @@ class DataStoreSecureStateStore internal constructor(
             dispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): DataStoreSecureStateStore {
             val appContext = context.applicationContext
-            val source = RecoveringAeadSource(build = { keystoreAead(appContext) }, reset = { resetKeys(appContext) })
+            val source = KeystoreAeadSource(AndroidKeysetEnvironment(appContext))
             val aead = lazy(LazyThreadSafetyMode.SYNCHRONIZED) { source.get() }
             val directory = File(appContext.filesDir, "datastore")
             return create(
@@ -99,40 +104,6 @@ class DataStoreSecureStateStore internal constructor(
                     produceFile = { accountFile },
                 ),
             )
-
-        private fun keystoreAead(context: Context): Aead {
-            // Stockage chiffré par l'appareil pas encore déverrouillé (démarrage direct) : le jeu de clés
-            // paraîtrait absent et une nouvelle clé serait créée à tort.
-            val users = context.getSystemService(UserManager::class.java)
-            if (users != null && !users.isUserUnlocked) {
-                throw SecureStorageUnavailableException("Appareil verrouillé")
-            }
-            AeadConfig.register()
-            val handle =
-                AndroidKeysetManager
-                    .Builder()
-                    .withSharedPref(context, SessionStorageFiles.KEYSET_NAME, SessionStorageFiles.KEYSET_PREFS)
-                    .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-                    .withMasterKeyUri(SessionStorageFiles.MASTER_KEY_URI)
-                    .build()
-                    .keysetHandle
-            // Le jeu de clés doit être protégé par une clé du Keystore : jamais de repli silencieux en clair.
-            if (!androidKeyStore().containsAlias(SessionStorageFiles.MASTER_KEY_ALIAS)) {
-                throw SecureStorageUnavailableException("Clé maîtresse absente du Keystore")
-            }
-            return handle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
-        }
-
-        /** Efface le jeu de clés et la clé maîtresse : la session chiffrée avec eux est perdue. */
-        private fun resetKeys(context: Context) {
-            context.deleteSharedPreferences(SessionStorageFiles.KEYSET_PREFS)
-            val keyStore = androidKeyStore()
-            if (keyStore.containsAlias(SessionStorageFiles.MASTER_KEY_ALIAS)) {
-                keyStore.deleteEntry(SessionStorageFiles.MASTER_KEY_ALIAS)
-            }
-        }
-
-        private fun androidKeyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     }
 }
 

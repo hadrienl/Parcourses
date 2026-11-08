@@ -54,7 +54,7 @@ class SecureStorageUnavailableException(
     cause: Throwable? = null,
 ) : IOException(message, cause)
 
-/** Stockage chiffré de [SecureState]. Les écritures sont atomiques et sérialisées. */
+/** Stockage chiffré de [SecureState]. Chaque [update] (lecture, transformation, écriture) est atomique et exclusif. */
 interface SecureStateStore {
     /** @throws SecureStorageUnavailableException si le stockage est inaccessible (jamais remplacé par un état vide). */
     suspend fun read(): SecureState

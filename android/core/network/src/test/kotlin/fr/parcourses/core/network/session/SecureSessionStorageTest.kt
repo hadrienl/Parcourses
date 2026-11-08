@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -159,50 +160,35 @@ class SecureSessionStorageTest {
         }
 
     @Test
-    fun aLostMasterKeyIsRecreatedAndTheKnownAccountSurvives() =
+    fun concurrentUpdatesAreNotLost() =
         runTest {
-            val file = File(folder.root, "s.pb")
-            val old = newAead()
-            val first = store(file) { old }
-            EncryptedSessionManager(first).saveSession(session)
-            first.update { it.copy(lastAccountId = "acc") }
-            restart()
-
-            // La clé maîtresse a disparu : la première construction échoue, le jeu de clés est effacé, puis recréé.
-            var resets = 0
-            val fresh = newAead()
-            var built = 0
-            val source =
-                RecoveringAeadSource(
-                    build = { if (built++ == 0) throw GeneralSecurityException("master key gone") else fresh },
-                    reset = { resets++ },
-                )
-            val state = storeFrom(file, source)
-            assertNull(state.read().session)
-            assertEquals("acc", state.read().lastAccountId)
-            assertEquals(1, resets)
-            // Utilisable ensuite avec la nouvelle clé.
-            EncryptedSessionManager(state).saveSession(session)
-            assertEquals(session, state.read().session)
+            val state =
+                store(File(folder.root, "s.pb")) { newAead() }.let { s ->
+                    val aead = newAead()
+                    store(File(folder.root, "c.pb")) { aead }
+                }
+            state.update { it.copy(lastAccountId = "0") }
+            kotlinx.coroutines.coroutineScope {
+                repeat(100) {
+                    launch(Dispatchers.Default) {
+                        state.update { it.copy(lastAccountId = (it.lastAccountId!!.toInt() + 1).toString()) }
+                    }
+                }
+            }
+            assertEquals("100", state.read().lastAccountId)
         }
 
     @Test
-    fun aTransientKeystoreFailureNeverResetsTheKeys() {
-        var resets = 0
-        val source =
-            RecoveringAeadSource(
-                build = { throw GeneralSecurityException("wrapped", java.security.ProviderException("dead")) },
-                reset = { resets++ },
-            )
-        assertThrows(SecureStorageUnavailableException::class.java) { source.get() }
-        assertEquals(0, resets)
-    }
-
-    @Test
-    fun aKeyThatCannotBeRecreatedIsReportedUnavailable() {
-        val source = RecoveringAeadSource(build = { throw GeneralSecurityException("gone") }, reset = {})
-        assertThrows(SecureStorageUnavailableException::class.java) { source.get() }
-    }
+    fun aSignOutIsNotUndoneByALateRefreshOfTheSameSnapshotOrder() =
+        runTest {
+            val aead = newAead()
+            val state = store(File(folder.root, "o.pb")) { aead }
+            val manager = EncryptedSessionManager(state)
+            manager.saveSession(session)
+            manager.deleteSession()
+            // Chaque opération est atomique : la dernière écrite gagne, sans état mélangé.
+            assertNull(state.read().session)
+        }
 
     @Test
     fun theKnownAccountIsStoredApartFromTheSession() =

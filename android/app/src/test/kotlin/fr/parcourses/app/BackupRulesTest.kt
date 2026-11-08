@@ -24,8 +24,14 @@ class BackupRulesTest {
             .toSet()
     }
 
-    private val expected =
-        setOf("file:$datastore", "file:datastore/${SessionStorageFiles.ACCOUNT_FILE}", "sharedpref:$keyset")
+    // Dossier entier : fichiers `.tmp` du DataStore compris.
+    private val expected = setOf("file:datastore/", "sharedpref:$keyset")
+
+    @Test
+    fun theSessionFilesLiveInTheExcludedDirectory() {
+        assertTrue(datastore.startsWith("datastore/"))
+        assertTrue(SessionStorageFiles.ACCOUNT_FILE.isNotBlank())
+    }
 
     @Test
     fun cloudBackupExcludesTheSessionAndItsKeyset() {
