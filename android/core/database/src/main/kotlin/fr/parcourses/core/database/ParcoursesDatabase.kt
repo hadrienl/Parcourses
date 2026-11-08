@@ -26,6 +26,7 @@ import fr.parcourses.core.database.entity.StoreEntity
 import fr.parcourses.core.database.entity.VisitEntity
 
 // Projet Android seul : pas de `@ConstructedBy` (réservé au multiplateforme), Room retrouve `_Impl` par la classe.
+
 /** Base locale, source de vérité de l'app (#10, §2.2). Le schéma exporté est dans `schemas/`. */
 @Database(
     entities = [

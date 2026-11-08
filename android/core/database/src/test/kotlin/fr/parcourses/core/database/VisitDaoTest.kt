@@ -95,7 +95,9 @@ class VisitDaoTest : DatabaseTest() {
     fun graphSnapshotIsReplacedAndOnlyTheNewestFiveAreKept() =
         runBlocking {
             for (n in 1..7) {
-                db.graphSnapshots().upsert(GraphSnapshotEntity("s$n", 1, 1, 100, at(n.toLong()), byteArrayOf(n.toByte())))
+                db.graphSnapshots().upsert(
+                    GraphSnapshotEntity("s$n", 1, 1, 100, at(n.toLong()), byteArrayOf(n.toByte())),
+                )
                 db.graphSnapshots().trim(5)
             }
             assertEquals(listOf("s7", "s6", "s5", "s4", "s3"), db.graphSnapshots().getAll().map { it.storeId })

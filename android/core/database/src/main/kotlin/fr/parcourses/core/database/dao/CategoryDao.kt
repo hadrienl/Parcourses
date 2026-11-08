@@ -4,12 +4,14 @@ import androidx.room3.Dao
 import androidx.room3.Query
 import androidx.room3.Transaction
 import androidx.room3.Upsert
-import fr.parcourses.core.database.entity.CategoryEntity
-import fr.parcourses.core.database.entity.CategorySeedStateEntity
 import fr.parcourses.core.categorizer.CategoryClassifier
 import fr.parcourses.core.database.CategorySeed
+import fr.parcourses.core.database.entity.CategoryEntity
+import fr.parcourses.core.database.entity.CategorySeedStateEntity
 import kotlinx.coroutines.flow.Flow
 
+// Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
+@Suppress("TooManyFunctions")
 @Dao
 abstract class CategoryDao {
     /** Catégories dans l'ordre générique des rayons. */
@@ -27,7 +29,10 @@ abstract class CategoryDao {
 
     /** Apparie l'identifiant serveur par slug. Ne supprime jamais rien. */
     @Query("UPDATE categories SET remoteId = :remoteId WHERE slug = :slug")
-    abstract suspend fun setRemoteId(slug: String, remoteId: Int): Int
+    abstract suspend fun setRemoteId(
+        slug: String,
+        remoteId: Int,
+    ): Int
 
     @Query("SELECT * FROM category_seed_state WHERE id = :id")
     abstract suspend fun seedState(id: String = CategorySeedStateEntity.SINGLETON_ID): CategorySeedStateEntity?
@@ -37,13 +42,22 @@ abstract class CategoryDao {
 
     /** Renvoie un identifiant de catégorie vers un autre dans les tables qui le portent. */
     @Query("UPDATE list_items SET categoryId = :to WHERE categoryId = :from")
-    abstract suspend fun remapItems(from: String, to: String): Int
+    abstract suspend fun remapItems(
+        from: String,
+        to: String,
+    ): Int
 
     @Query("UPDATE products SET categoryId = :to WHERE categoryId = :from")
-    abstract suspend fun remapProducts(from: String, to: String): Int
+    abstract suspend fun remapProducts(
+        from: String,
+        to: String,
+    ): Int
 
     @Query("UPDATE checks SET categoryId = :to WHERE categoryId = :from")
-    abstract suspend fun remapChecks(from: String, to: String): Int
+    abstract suspend fun remapChecks(
+        from: String,
+        to: String,
+    ): Int
 
     @Query("SELECT DISTINCT categoryId FROM list_items")
     abstract suspend fun itemCategoryIds(): List<String>

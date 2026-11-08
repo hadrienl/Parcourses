@@ -7,6 +7,11 @@ plugins {
 android {
     namespace = "fr.parcourses.core.database"
     testOptions.unitTests.isIncludeAndroidResources = true
+    // Les schémas exportés servent de ressources aux tests de migration sous Robolectric.
+    sourceSets
+        .getByName("test")
+        .assets.directories
+        .add("schemas")
 }
 
 // Les schémas JSON sont versionnés : ils servent aux tests de migration (#10, §3.2).

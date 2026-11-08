@@ -32,19 +32,33 @@ interface ShoppingListDao {
     suspend fun upsert(list: ShoppingListEntity)
 
     @Query("UPDATE lists SET name = :name, updatedAt = :at, syncState = :state WHERE id = :id")
-    suspend fun rename(id: String, name: String, at: Instant, state: SyncState = SyncState.PENDING): Int
+    suspend fun rename(
+        id: String,
+        name: String,
+        at: Instant,
+        state: SyncState = SyncState.PENDING,
+    ): Int
 
     /** Suppression douce : la liste disparaît de [observeActive] et reste en base jusqu'à l'envoi. */
     @Query("UPDATE lists SET deletedAt = :at, updatedAt = :at, syncState = :state WHERE id = :id")
-    suspend fun markDeleted(id: String, at: Instant, state: SyncState = SyncState.PENDING): Int
+    suspend fun markDeleted(
+        id: String,
+        at: Instant,
+        state: SyncState = SyncState.PENDING,
+    ): Int
 
     @Query("UPDATE lists SET syncState = :state WHERE id = :id")
-    suspend fun setSyncState(id: String, state: SyncState): Int
+    suspend fun setSyncState(
+        id: String,
+        state: SyncState,
+    ): Int
 
     @Query("DELETE FROM lists WHERE id = :id")
     suspend fun delete(id: String): Int
 }
 
+// Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
+@Suppress("TooManyFunctions")
 @Dao
 interface ListItemDao {
     /** Articles d'une liste, triés par `position`. */
@@ -75,14 +89,25 @@ interface ListItemDao {
     suspend fun upsertAll(items: List<ListItemEntity>)
 
     @Query("UPDATE list_items SET checkedAt = :checkedAt, updatedAt = :at, syncState = :state WHERE id = :id")
-    suspend fun setChecked(id: String, checkedAt: Instant?, at: Instant, state: SyncState = SyncState.PENDING): Int
+    suspend fun setChecked(
+        id: String,
+        checkedAt: Instant?,
+        at: Instant,
+        state: SyncState = SyncState.PENDING,
+    ): Int
 
     /** Ne touche pas `updatedAt` ni `syncState` : « introuvable » reste local (#9.9). */
     @Query("UPDATE list_items SET notFoundAt = :notFoundAt WHERE id = :id")
-    suspend fun setNotFound(id: String, notFoundAt: Instant?): Int
+    suspend fun setNotFound(
+        id: String,
+        notFoundAt: Instant?,
+    ): Int
 
     @Query("UPDATE list_items SET syncState = :state WHERE id = :id")
-    suspend fun setSyncState(id: String, state: SyncState): Int
+    suspend fun setSyncState(
+        id: String,
+        state: SyncState,
+    ): Int
 
     @Query("DELETE FROM list_items WHERE id = :id")
     suspend fun delete(id: String): Int

@@ -18,7 +18,14 @@ class ListDaoTest : DatabaseTest() {
             db.lists().upsert(list("a", updatedAt = 10))
             db.lists().upsert(list("b", updatedAt = 30))
             db.lists().upsert(list("c", updatedAt = 20))
-            assertEquals(listOf("b", "c", "a"), db.lists().observeActive().first().map { it.id })
+            assertEquals(
+                listOf("b", "c", "a"),
+                db
+                    .lists()
+                    .observeActive()
+                    .first()
+                    .map { it.id },
+            )
         }
 
     @Test
@@ -26,7 +33,14 @@ class ListDaoTest : DatabaseTest() {
         runBlocking {
             db.lists().upsert(list("a"))
             db.lists().markDeleted("a", at(5))
-            assertEquals(emptyList<String>(), db.lists().observeActive().first().map { it.id })
+            assertEquals(
+                emptyList<String>(),
+                db
+                    .lists()
+                    .observeActive()
+                    .first()
+                    .map { it.id },
+            )
             val kept = db.lists().get("a")
             assertNotNull(kept?.deletedAt)
             assertEquals(SyncState.PENDING, kept?.syncState)
@@ -61,7 +75,14 @@ class ListDaoTest : DatabaseTest() {
             assertEquals(0, db.items().nextPosition("l"))
             db.items().upsertAll(listOf(item("x", "l", 2), item("y", "l", 0), item("z", "l", 1)))
             assertEquals(listOf("y", "z", "x"), db.items().getByList("l").map { it.id })
-            assertEquals(listOf("y", "z", "x"), db.items().observeByList("l").first().map { it.id })
+            assertEquals(
+                listOf("y", "z", "x"),
+                db
+                    .items()
+                    .observeByList("l")
+                    .first()
+                    .map { it.id },
+            )
             assertEquals(3, db.items().nextPosition("l"))
         }
 

@@ -31,13 +31,23 @@ interface VisitDao {
 
     /** Idempotent : une visite déjà close garde son `endedAt`. */
     @Query("UPDATE visits SET endedAt = :endedAt, endSyncState = :state WHERE id = :id AND endedAt IS NULL")
-    suspend fun close(id: String, endedAt: Instant, state: SyncState = SyncState.PENDING): Int
+    suspend fun close(
+        id: String,
+        endedAt: Instant,
+        state: SyncState = SyncState.PENDING,
+    ): Int
 
     @Query("UPDATE visits SET syncState = :state WHERE id = :id")
-    suspend fun setSyncState(id: String, state: SyncState): Int
+    suspend fun setSyncState(
+        id: String,
+        state: SyncState,
+    ): Int
 
     @Query("UPDATE visits SET endSyncState = :state WHERE id = :id")
-    suspend fun setEndSyncState(id: String, state: SyncState): Int
+    suspend fun setEndSyncState(
+        id: String,
+        state: SyncState,
+    ): Int
 
     @Query("DELETE FROM visits WHERE id = :id")
     suspend fun delete(id: String): Int
@@ -64,7 +74,10 @@ interface CheckDao {
     suspend fun upsert(check: CheckEntity)
 
     @Query("UPDATE checks SET syncState = :state WHERE id = :id")
-    suspend fun setSyncState(id: String, state: SyncState): Int
+    suspend fun setSyncState(
+        id: String,
+        state: SyncState,
+    ): Int
 
     @Query("DELETE FROM checks WHERE id = :id")
     suspend fun delete(id: String): Int
@@ -89,7 +102,10 @@ interface StoreDao {
     suspend fun upsert(store: StoreEntity)
 
     @Query("UPDATE stores SET lastUsedAt = :at WHERE id = :id")
-    suspend fun markUsed(id: String, at: Instant): Int
+    suspend fun markUsed(
+        id: String,
+        at: Instant,
+    ): Int
 }
 
 @Dao

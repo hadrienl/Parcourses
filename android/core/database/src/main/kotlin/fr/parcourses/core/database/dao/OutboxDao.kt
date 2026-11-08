@@ -84,7 +84,10 @@ abstract class OutboxDao {
      * la remplaçante la reprend.
      */
     @Transaction
-    open suspend fun cancelPending(entityId: String, kinds: Set<OutboxKind>): Long? {
+    open suspend fun cancelPending(
+        entityId: String,
+        kinds: Set<OutboxKind>,
+    ): Long? {
         val doomed = pendingFor(entityId).filter { it.kind() in kinds }
         doomed.forEach { delete(it.id) }
         return doomed.minOfOrNull { it.sequence }
