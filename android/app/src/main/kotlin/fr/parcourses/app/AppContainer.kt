@@ -33,10 +33,16 @@ import fr.parcourses.core.network.createSupabaseGateway
 import fr.parcourses.feature.shopping.GraphSnapshotCache
 import fr.parcourses.feature.shopping.ShoppingDependencies
 import fr.parcourses.feature.shopping.ShoppingTimings
+import fr.parcourses.feature.shopping.live.LiveUpdatePreferences
+import fr.parcourses.feature.shopping.live.SharedPreferencesLiveUpdatePreferences
+import fr.parcourses.feature.shopping.live.ShoppingLiveUpdates
+import fr.parcourses.feature.shopping.live.SystemLiveUpdateNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
@@ -46,6 +52,7 @@ import kotlin.time.Duration
 data class ResumableVisit(
     val listId: String,
     val storeId: String,
+    val visitId: String,
 )
 
 /**
@@ -95,7 +102,49 @@ class AppContainer(
 
     /** Tout ce que le mode courses lit et écrit (instantané du graphe compris). */
     val shopping: ShoppingDependencies by lazy {
-        ShoppingDependencies(lists, visits, stores, categories, analyzer, GraphSnapshotCache(graphs, gateway))
+        ShoppingDependencies(
+            lists,
+            visits,
+            stores,
+            categories,
+            analyzer,
+            GraphSnapshotCache(graphs, gateway),
+            liveUpdates,
+        )
+    }
+
+    val livePreferences: LiveUpdatePreferences by lazy { SharedPreferencesLiveUpdatePreferences(context) }
+
+    /** Live Update du mode courses : **une seule instance** par processus, pour l'écran comme pour le receiver. */
+    val liveUpdates: ShoppingLiveUpdates by lazy {
+        ShoppingLiveUpdates(
+            notifier = SystemLiveUpdateNotifier(context),
+            visits = visits,
+            lists = lists,
+            analyzer = analyzer,
+            preferences = livePreferences,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            remaps = engine?.remaps ?: emptyFlow(),
+        )
+    }
+
+    private val deepLinks = Channel<String>(Channel.BUFFERED)
+
+    /** Visites demandées par la Live Update (`parcourses://shopping/<id>`) : un seul collecteur, toujours composé. */
+    val shoppingLinks: Flow<String> = deepLinks.receiveAsFlow()
+
+    fun offerShoppingLink(visitId: String) {
+        deepLinks.trySend(visitId)
+    }
+
+    /**
+     * Visite à rouvrir pour un lien de la Live Update : seulement si c'est la visite ouverte et encore active (mêmes
+     * règles qu'au lancement, voir [resumableVisit]). Sinon la notification, périmée, est retirée.
+     */
+    suspend fun linkedVisit(visitId: String): ResumableVisit? {
+        val visit = resumableVisit()
+        liveUpdates.reconcile()
+        return visit?.takeIf { it.visitId == visitId }
     }
 
     private val storeChoiceEvents = StoreChoiceEvents()
@@ -123,13 +172,15 @@ class AppContainer(
         val usable = listExists && now - last < expiry
         // Liste disparue : abandon sans condition. Sinon seulement si la visite est encore périmée dans la transaction.
         if (!usable) visits.abandonVisit(visit.id, now, staleAfter = if (listExists) expiry else Duration.ZERO)
-        return if (usable) ResumableVisit(visit.listId, visit.storeId) else null
+        return if (usable) ResumableVisit(visit.listId, visit.storeId, visit.id) else null
     }
 
     /** Lancement : catégories, connexion anonyme, puis synchronisation (en tâche de fond). */
     fun start(scope: CoroutineScope) {
         scope.launch {
             categories.seedIfNeeded()
+            // Une Live Update restée d'un lancement précédent ne survit que si sa visite est encore ouverte.
+            liveUpdates.reconcile()
             gateway?.let { remote ->
                 networkMonitor.start()
                 coordinator?.start()

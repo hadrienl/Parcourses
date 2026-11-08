@@ -135,7 +135,11 @@ abstract class ShoppingTest {
             categories = RoomCategoryRepository(db),
             analyzer = analyzer,
             cache = GraphSnapshotCache(graphs, gateway, clock),
+            liveUpdates = liveSink,
         )
+
+    /** Live Update branchée sur les modèles du test ; aucune par défaut. */
+    protected var liveSink: fr.parcourses.feature.shopping.live.LiveUpdateSink? = null
 
     protected fun model(
         listId: String,

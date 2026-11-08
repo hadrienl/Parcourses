@@ -8,6 +8,8 @@ android {
     namespace = "fr.parcourses.feature.shopping"
     // Robolectric a besoin des ressources fusionnées pour les tests Compose.
     testOptions.unitTests.isIncludeAndroidResources = true
+    // Robolectric sous Android 16 (tests de `ProgressStyle`) lit la mémoire partagée par un accès interne au JDK.
+    testOptions.unitTests.all { it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED") }
 }
 
 dependencies {
@@ -17,6 +19,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.core)

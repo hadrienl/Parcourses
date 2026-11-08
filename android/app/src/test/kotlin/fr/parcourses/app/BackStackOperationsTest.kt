@@ -143,7 +143,7 @@ class ShoppingNavigationTest {
         assertEquals(shopping.slot, moved.slot)
     }
 
-    private val visit = ResumableVisit("a", "s1")
+    private val visit = ResumableVisit("a", "s1", "v1")
 
     @Test
     fun aColdStartResumesTheOpenVisitOnce() =
@@ -232,4 +232,47 @@ class ShoppingNavigationTest {
         assertEquals("v-new", moved.summary.visitId)
         assertEquals(end.slot, moved.slot)
     }
+
+    // region Lien de la Live Update
+
+    private val linked = ResumableVisit("a", "s1", "v1")
+
+    @Test
+    fun aLiveUpdateLinkOpensListsThenShopping() {
+        val stack = stack(Route.Lists, Route.ListDetail("b"))
+
+        assertTrue(stack.openLinkedShopping(linked))
+
+        assertEquals(2, stack.size)
+        assertEquals(Route.Lists, stack.first())
+        val shopping = stack.last() as Route.Shopping
+        assertEquals("a", shopping.listId)
+        assertEquals("s1", shopping.storeId)
+    }
+
+    @Test
+    fun aLiveUpdateLinkToTheShoppingScreenAlreadyOpenChangesNothing() {
+        val open = Route.Shopping("a", "s1")
+        val stack = stack(Route.Lists, Route.ListDetail("a"), open)
+
+        assertFalse(stack.openLinkedShopping(linked))
+
+        // Même écran, même slot : son état et son modèle sont gardés.
+        assertEquals(
+            listOf(Route.Lists, Route.ListDetail("a").copy(slot = (stack[1] as Route.ListDetail).slot), open),
+            stack,
+        )
+    }
+
+    @Test
+    fun aLiveUpdateLinkReplacesTheSummaryOfAnotherVisit() {
+        val summary = ShoppingSummary(3, 12, "Carrefour", RouteKnowledge.Unknown, "v0")
+        val stack = stack(Route.Lists, Route.ListDetail("b"), Route.ShoppingSummary("b", summary))
+
+        assertTrue(stack.openLinkedShopping(linked))
+
+        assertEquals(listOf("Lists", "Shopping"), stack.map { it::class.simpleName })
+    }
+
+    // endregion
 }
