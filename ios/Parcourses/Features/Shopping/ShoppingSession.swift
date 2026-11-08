@@ -120,6 +120,8 @@ final class ShoppingSession: Identifiable {
   private var activityState: ShoppingActivityAttributes.ContentState?
   private var isActivityStarted = false
   private var isActivityEnded = false
+  /// Les attributs de l'activité sont immuables : rien ne part avant que la visite soit connue (ni expirée).
+  private var isActivityReady = false
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
@@ -204,6 +206,7 @@ final class ShoppingSession: Identifiable {
     startedAt = now()
     await prepare()
     guard let storeId else {
+      isActivityReady = true
       publishActivity()
       return
     }
@@ -214,6 +217,7 @@ final class ShoppingSession: Identifiable {
       visitId = visit.id
       startedAt = visit.startedAt
     }
+    isActivityReady = true
     publishActivity()
   }
 
@@ -223,6 +227,7 @@ final class ShoppingSession: Identifiable {
     visitId = visit.id
     await prepare()
     foregrounded()
+    isActivityReady = true
     publishActivity()
   }
 
@@ -696,7 +701,7 @@ final class ShoppingSession: Identifiable {
 
   /// Envoie l'état courant à la Live Activity (local, jamais attendu). Sans changement, rien ne part.
   private func publishActivity() {
-    guard let activity, !isActivityEnded, !expired, summary == nil else { return }
+    guard let activity, isActivityReady, !isActivityEnded, !expired, summary == nil else { return }
     let state = activityContentState()
     guard state != activityState else { return }
     activityState = state
