@@ -96,11 +96,27 @@ sans quantité, catégorie choisie par le classifieur de l'appareil). Renvoie un
 `normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`.
 
 - Forme normalisée déjà connue : le produit existant est renvoyé, sa catégorie n'est pas modifiée.
-- Sinon le produit est créé avec le libellé et la catégorie reçus, sauf si le libellé est vide ou dépasse
-  200 caractères, si la catégorie est absente, inconnue ou `bio` (le rayon bio dépend du magasin, #28), ou si
-  l'utilisateur a déjà créé 300 produits ce jour (Europe/Paris, compteur `catalog.product_creations`).
-  Dans ces cas `id` est nul.
+- Sinon le produit est créé avec le libellé et la catégorie reçus, sauf si le libellé est vide, si la catégorie
+  est absente, inconnue ou `bio` (le rayon bio dépend du magasin, #28), ou si un plafond du jour est atteint
+  (voir ci-dessous). Dans ces cas `id` est nul.
+- Un libellé de plus de 200 caractères (longueur brute, espaces compris) est écarté avant toute normalisation :
+  `normalized_name` et `id` sont nuls.
 - Deux entrées de même forme donnent le même produit ; une création concurrente reprend la ligne existante.
+  Les produits sont insérés dans l'ordre de leur forme normalisée, pas des entrées : deux appels qui créent
+  les mêmes formes ne s'interbloquent pas.
+
+Plafonds de créations par jour (Europe/Paris), constantes de `public.resolve_products` (une migration qui
+recrée la fonction les change) :
+
+| Constante | Valeur | Compteur | Portée |
+| --- | --- | --- | --- |
+| `c_daily_quota` | 300 | `catalog.product_creations` | par compte |
+| `c_daily_global_quota` | 2 000 | `catalog.daily_product_creations` | tous comptes, anonymes compris |
+
+Un plafond atteint n'empêche que les créations : les produits existants restent renvoyés, et les premières
+entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés (`for update`), toujours dans
+le même ordre : compte, puis global. Le compteur global n'est verrouillé que si l'appel peut créer quelque chose,
+et il sérialise les créations du jour.
 - `SECURITY DEFINER` (les clients ne peuvent pas écrire `products`), réservée à `authenticated`.
 
 ## Types et contrat

@@ -1,6 +1,6 @@
 begin;
 \ir 00_helpers.psql
-select plan(26);
+select plan(34);
 
 -- Droits.
 select ok(has_function_privilege('authenticated', 'public.resolve_products(jsonb)', 'EXECUTE'), 'authenticated peut appeler resolve_products');
@@ -73,9 +73,42 @@ select is((select count(*)::int from public.products where normalized_name in ('
           'bio, slug inconnu ou absent : rien de créé');
 select is(tests.creations(:'bob'), 1, 'doublon compté une fois');
 
-select is((select id from public.resolve_products(jsonb_build_array(jsonb_build_object('name', repeat('a', 201), 'category_slug', 'other')))),
-          null, 'libellé trop long : rien de créé');
+-- Longueur brute : écartée avant toute normalisation, même si l'entrée tient en 200 caractères une fois rognée.
+select results_eq($$
+  select normalized_name, id is not null
+  from public.resolve_products(jsonb_build_array(
+    jsonb_build_object('name', repeat('a', 201), 'category_slug', 'other'),
+    jsonb_build_object('name', repeat(' ', 300) || 'Tisane', 'category_slug', 'beverages'),
+    jsonb_build_object('name', repeat('b', 200), 'category_slug', 'other')))
+$$, $$ values (null::text, false), (null, false), (repeat('b', 200), true) $$,
+   'libellé de plus de 200 caractères bruts : ni normalisé ni créé');
+select is((select count(*)::int from public.products where normalized_name in (repeat('a', 201), 'tisane')), 0,
+          'rien de créé pour un libellé trop long');
 select is((select count(*)::int from public.resolve_products('[]')), 0, 'tableau vide');
+
+-- Insertion dans l'ordre des formes (pas d'interblocage entre deux appels concurrents), retour dans l'ordre reçu.
+select tests.clear_authentication();
+create table tests.insert_log (n serial primary key, norm text not null);
+create function tests.log_insert() returns trigger language plpgsql as $$
+begin
+  insert into tests.insert_log (norm) values (new.normalized_name);
+  return new;
+end;
+$$;
+create trigger log_insert before insert on public.products for each row execute function tests.log_insert();
+select tests.authenticate_as(:'bob');
+select results_eq($$
+  select normalized_name from public.resolve_products($j$[
+    {"name": "Zeste", "category_slug": "produce"},
+    {"name": "Mangue", "category_slug": "produce"},
+    {"name": "Abricot sec", "category_slug": "produce"}
+  ]$j$)
+$$, $$ values ('zeste'), ('mangue'), ('abricot sec') $$, 'retour dans l''ordre des entrées');
+select tests.clear_authentication();
+select results_eq($$ select norm from tests.insert_log order by n $$,
+                  $$ values ('abricot sec'), ('mangue'), ('zeste') $$, 'insertion dans l''ordre des formes');
+drop trigger log_insert on public.products;
+select tests.authenticate_as(:'bob');
 
 -- Entrées invalides.
 select throws_ok($$ select * from public.resolve_products('{}') $$, '22023', null, 'objet refusé');
@@ -110,6 +143,39 @@ update catalog.product_creations set day = day - 1 where user_id = :'alice';
 select tests.authenticate_as(:'alice');
 select isnt((select id from public.resolve_products('[{"name": "Quota quatre", "category_slug": "other"}]')), null,
             'nouveau jour : création possible');
+
+-- Plafond global du jour (2 000), tous comptes confondus, anonymes compris.
+select tests.clear_authentication();
+create function tests.global_creations() returns integer
+language sql security definer set search_path = '' as $$
+  select d.created from catalog.daily_product_creations as d where d.day = (now() at time zone 'Europe/Paris')::date
+$$;
+grant execute on function tests.global_creations() to authenticated;
+select tests.create_user(null, true) as carol \gset
+insert into catalog.daily_product_creations (day, created)
+values ((now() at time zone 'Europe/Paris')::date, 1998)
+on conflict (day) do update set created = excluded.created;
+
+select tests.authenticate_as(:'alice');
+select isnt((select id from public.resolve_products('[{"name": "Global un", "category_slug": "other"}]')), null,
+            'sous le plafond global : création possible');
+select tests.authenticate_as(:'bob');
+select results_eq($$
+  select normalized_name, id is not null
+  from public.resolve_products('[{"name": "Global deux", "category_slug": "other"}, {"name": "Global trois", "category_slug": "other"}]')
+$$, $$ values ('global deux', true), ('global trois', false) $$, 'plafond global atteint en cours d''appel, par un autre compte');
+select tests.authenticate_as(:'carol');
+select results_eq($$
+  select normalized_name, id is not null
+  from public.resolve_products($j$[
+    {"name": "Global quatre", "category_slug": "other"},
+    {"name": "Baguette", "category_slug": "bakery"},
+    {"name": "Global un", "category_slug": "other"}
+  ]$j$)
+$$, $$ values ('global quatre', false), ('baguette', true), ('global un', true) $$,
+   'plafond global atteint : rien de créé, les produits existants restent renvoyés (compte anonyme)');
+select is(tests.global_creations(), 2000, 'compteur global au plafond');
+select is(coalesce(tests.creations(:'carol'), 0), 0, 'rien compté pour le compte anonyme');
 
 select tests.authenticate_as_anon();
 select throws_ok($$ select * from public.resolve_products('[]') $$, '42501', null, 'anon refusé');
