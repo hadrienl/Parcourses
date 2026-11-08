@@ -85,11 +85,18 @@ class PlatformFixSource(
 ) : FixSource {
     @SuppressLint("MissingPermission")
     override fun updates(precise: Boolean): Flow<LocationFix> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyFlow()
-        val manager = context.getSystemService(LocationManager::class.java) ?: return emptyFlow()
-        val providers = providers(manager, precise)
-        if (providers.isEmpty()) return emptyFlow()
-        return callbackFlow {
+        val manager = context.getSystemService(LocationManager::class.java)
+        val supported = manager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val providers = if (supported) providers(manager, precise) else emptyList()
+        return if (manager == null || providers.isEmpty()) emptyFlow() else single(manager, providers)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun single(
+        manager: LocationManager,
+        providers: List<String>,
+    ): Flow<LocationFix> =
+        callbackFlow {
             val signal = CancellationSignal()
             val pending = AtomicInteger(providers.size)
             providers.forEach { provider ->
@@ -100,7 +107,6 @@ class PlatformFixSource(
             }
             awaitClose { signal.cancel() }
         }
-    }
 
     // Précis : GPS puis réseau ; approximatif : réseau (ou fusionné dès Android 12), jamais le GPS.
     private fun providers(

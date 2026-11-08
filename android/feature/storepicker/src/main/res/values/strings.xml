@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picker_title">Choisir le magasin</string>
+    <string name="picker_back">Retour</string>
+
+    <!-- Chargement -->
+    <string name="picker_loading">Recherche des magasins proches…</string>
+
+    <!-- Position précise -->
+    <string name="picker_here_title">Vous êtes ici ?</string>
+    <string name="picker_confirm_here">Faire mes courses ici</string>
+    <string name="picker_nearby">Magasins proches</string>
+    <string name="picker_other_nearby">Autres magasins proches</string>
+    <string name="picker_recents">Récents</string>
+
+    <!-- Position approximative -->
+    <string name="picker_approximate_title">Position approximative</string>
+    <string name="picker_approximate_body">Votre position est approximative : choisissez votre magasin.</string>
+    <string name="picker_use_precise">Utiliser ma position précise</string>
+    <string name="picker_precise_declined">Position précise non accordée : choisissez dans la liste.</string>
+    <string name="picker_sector">Magasins dans le secteur</string>
+
+    <!-- Autorisation -->
+    <string name="picker_permission_title">Trouver votre magasin</string>
+    <string name="picker_permission_body">Parcourses utilise votre position une seule fois, maintenant, pour trouver les magasins autour de vous. Elle n\'est pas conservée. Vous pouvez aussi chercher votre magasin par son nom.</string>
+    <string name="picker_permission_allow">Utiliser ma position</string>
+    <string name="picker_denied_title">Localisation désactivée</string>
+    <string name="picker_denied_body">Cherchez votre magasin par nom ou par adresse, ou autorisez la position pour voir les magasins proches.</string>
+    <string name="picker_denied_blocked_body">La localisation est refusée pour Parcourses. Cherchez votre magasin par nom ou par adresse, ou autorisez-la dans les réglages de l\'application.</string>
+    <string name="picker_allow_again">Autoriser la position</string>
+    <string name="picker_open_settings">Ouvrir les réglages</string>
+
+    <!-- Autres états -->
+    <string name="picker_unavailable_title">Position introuvable</string>
+    <string name="picker_unavailable_body">Cherchez votre magasin par nom ou par adresse.</string>
+    <string name="picker_offline_title">Hors ligne</string>
+    <string name="picker_offline_body">Choisissez un magasin récent, ou continuez sans magasin.</string>
+    <string name="picker_error_title">Service indisponible</string>
+    <string name="picker_error_body">Les magasins proches n\'ont pas pu être chargés. Réessayez dans un instant.</string>
+    <string name="picker_no_store_title">Aucun magasin connu ici</string>
+    <string name="picker_no_store_body">Cherchez-le par nom, ou continuez sans magasin.</string>
+    <string name="picker_retry">Réessayer</string>
+
+    <!-- Recherche -->
+    <string name="picker_search_label">Nom ou adresse du magasin</string>
+    <string name="picker_search_none">Aucun magasin trouvé.</string>
+    <string name="picker_search_offline">Recherche impossible hors ligne.</string>
+    <string name="picker_search_failed">La recherche a échoué. Réessayez.</string>
+    <string name="picker_searching">Recherche en cours…</string>
+    <string name="picker_search_results">Résultats de la recherche</string>
+
+    <!-- Sortie -->
+    <string name="picker_without_store">Continuer sans magasin</string>
+    <string name="picker_without_store_footer">La liste suivra l\'ordre générique des rayons.</string>
+
+    <!-- Ligne de magasin -->
+    <string name="picker_store_action">Choisir ce magasin</string>
+
+    <!-- Échec d'enregistrement -->
+    <string name="picker_save_failed_title">Impossible d\'enregistrer ce magasin</string>
+    <string name="picker_save_failed_body">Réessayez, ou continuez sans magasin.</string>
+    <string name="picker_ok">OK</string>
+
+    <!-- Attribution OpenStreetMap (ODbL) -->
+    <string name="picker_attribution">© contributeurs OpenStreetMap, licence ODbL</string>
+    <string name="picker_attribution_action">Ouvrir la page de licence d\'OpenStreetMap</string>
+</resources>
