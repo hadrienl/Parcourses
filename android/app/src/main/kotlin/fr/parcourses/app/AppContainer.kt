@@ -110,14 +110,14 @@ class AppContainer(
 
     /**
      * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
-     * depuis plus de [expiry] : elle est alors close à sa dernière coche (supprimée si elle n'en a aucune) et rien
-     * n'est rouvert.
+     * depuis plus de [expiry] : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
+     * aucune, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien n'est rouvert.
      */
     suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
         val visit = visits.openVisit() ?: return null
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
         val usable = lists.list(visit.listId) != null && Clock.System.now() - last < expiry
-        if (!usable) visits.closeVisit(visit.id, last)
+        if (!usable) visits.abandonVisit(visit.id)
         return if (usable) ResumableVisit(visit.listId, visit.storeId) else null
     }
 
