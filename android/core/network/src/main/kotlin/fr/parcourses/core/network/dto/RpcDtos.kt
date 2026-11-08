@@ -70,15 +70,18 @@ sealed interface GraphSnapshotResponse {
 
     companion object {
         fun parse(body: String): GraphSnapshotResponse {
-            if (body.isBlank()) return Unchanged
-            val element = Json.parseToJsonElement(body)
-            if (element is JsonNull) return Unchanged
-            if (element is JsonObject &&
-                element["none"]?.jsonPrimitive?.let { runCatching { it.boolean }.getOrNull() } == true
-            ) {
-                return None
+            val element = if (body.isBlank()) JsonNull else Json.parseToJsonElement(body)
+            val none =
+                (element as? JsonObject)
+                    ?.get(
+                        "none",
+                    )?.jsonPrimitive
+                    ?.let { runCatching { it.boolean }.getOrNull() }
+            return when {
+                element is JsonNull -> Unchanged
+                none == true -> None
+                else -> Payload(body)
             }
-            return Payload(body)
         }
     }
 }

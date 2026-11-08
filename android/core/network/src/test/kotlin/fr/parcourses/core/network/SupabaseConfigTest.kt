@@ -1,3 +1,5 @@
+@file:Suppress("ktlint:standard:max-line-length")
+
 package fr.parcourses.core.network
 
 import org.junit.Assert.assertEquals
@@ -31,5 +33,22 @@ class SupabaseConfigTest {
         val config = SupabaseConfig.create("https://abc.supabase.co/", "secret-key")!!
         assertEquals("https://abc.supabase.co", config.url)
         assertFalse(config.toString().contains("secret-key"))
+    }
+
+    @Test
+    fun refusesSecretKeys() {
+        assertNull(SupabaseConfig.create("https://abc.supabase.co", "sb_secret_abc"))
+        val payload =
+            java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                """{"role":"service_role"}""".toByteArray(),
+            )
+        assertNull(SupabaseConfig.create("https://abc.supabase.co", "eyJhbGciOiJIUzI1NiJ9.$payload.sig"))
+        val anon =
+            java.util.Base64
+                .getUrlEncoder()
+                .withoutPadding()
+                .encodeToString("""{"role":"anon"}""".toByteArray())
+        assertNotNull(SupabaseConfig.create("https://abc.supabase.co", "eyJhbGciOiJIUzI1NiJ9.$anon.sig"))
+        assertNotNull(SupabaseConfig.create("https://abc.supabase.co", "sb_publishable_abc"))
     }
 }

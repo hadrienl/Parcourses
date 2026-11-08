@@ -152,4 +152,68 @@ class SecureSessionStorageTest {
             // Même clé, autres données associées : refusé (corruption), donc état vide.
             assertNull(EncryptedSessionManager(store(file) { aead }).loadSessionOrNull())
         }
+
+    @Test
+    fun aLostMasterKeyIsRecreatedAndTheKnownAccountSurvives() =
+        runTest {
+            val file = File(folder.root, "s.pb")
+            val old = newAead()
+            EncryptedSessionManager(store(file) { old }).saveSession(session)
+            store(file) { old }.update { it.copy(lastAccountId = "acc") }
+            restart()
+
+            // La clé maîtresse a disparu : la première construction échoue, le jeu de clés est effacé, puis recréé.
+            var resets = 0
+            val fresh = newAead()
+            var built = 0
+            val source =
+                RecoveringAeadSource(
+                    build = { if (built++ == 0) throw GeneralSecurityException("master key gone") else fresh },
+                    reset = { resets++ },
+                )
+            val state = store(file, source)
+            assertNull(state.read().session)
+            assertEquals("acc", state.read().lastAccountId)
+            assertEquals(1, resets)
+            // Utilisable ensuite avec la nouvelle clé.
+            EncryptedSessionManager(state).saveSession(session)
+            assertEquals(session, state.read().session)
+        }
+
+    @Test
+    fun aTransientKeystoreFailureNeverResetsTheKeys() {
+        var resets = 0
+        val source =
+            RecoveringAeadSource(
+                build = { throw GeneralSecurityException("wrapped", java.security.ProviderException("dead")) },
+                reset = { resets++ },
+            )
+        assertThrows(SecureStorageUnavailableException::class.java) { source.get() }
+        assertEquals(0, resets)
+    }
+
+    @Test
+    fun aKeyThatCannotBeRecreatedIsReportedUnavailable() {
+        val source = RecoveringAeadSource(build = { throw GeneralSecurityException("gone") }, reset = {})
+        assertThrows(SecureStorageUnavailableException::class.java) { source.get() }
+    }
+
+    @Test
+    fun theKnownAccountIsStoredApartFromTheSession() =
+        runTest {
+            val file = File(folder.root, "s.pb")
+            val aead = newAead()
+            store(file) { aead }.update { it.copy(session = session, lastAccountId = "account-123") }
+            val marker = File(folder.root, "s.pb.account").readText()
+            assertTrue(marker.contains("account-123"))
+            assertFalse(marker.contains("secret-token"))
+            assertFalse(String(file.readBytes(), Charsets.ISO_8859_1).contains("account-123"))
+        }
+
+    @Test
+    fun tokensNeverReachToString() {
+        val text = SecureState(session, "acc").toString()
+        assertFalse(text.contains("secret-token"))
+        assertTrue(text.contains("acc"))
+    }
 }

@@ -8,10 +8,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="datastore/parcourses_secure_state.pb" />
+        <exclude domain="file" path="datastore/parcourses_account_marker.json" />
         <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="datastore/parcourses_secure_state.pb" />
+        <exclude domain="file" path="datastore/parcourses_account_marker.json" />
         <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
     </device-transfer>
 </data-extraction-rules>

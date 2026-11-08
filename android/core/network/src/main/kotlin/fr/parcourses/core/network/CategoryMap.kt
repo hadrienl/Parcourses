@@ -27,9 +27,12 @@ class CategoryMap(
         slug: String,
         now: Instant,
     ): Boolean {
-        if (idsBySlug.containsKey(slug)) return false
-        val since = _missingSlugs[slug] ?: return true
-        return now - since >= MISSING_SLUG_LIFETIME
+        val since = _missingSlugs[slug]
+        return when {
+            idsBySlug.containsKey(slug) -> false
+            since == null -> true
+            else -> now - since >= MISSING_SLUG_LIFETIME
+        }
     }
 
     fun markMissing(

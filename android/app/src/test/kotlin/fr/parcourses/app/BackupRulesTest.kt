@@ -1,5 +1,6 @@
 package fr.parcourses.app
 
+import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.session.SessionStorageFiles
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -23,7 +24,8 @@ class BackupRulesTest {
             .toSet()
     }
 
-    private val expected = setOf("file:$datastore", "sharedpref:$keyset")
+    private val expected =
+        setOf("file:$datastore", "file:datastore/${SessionStorageFiles.ACCOUNT_FILE}", "sharedpref:$keyset")
 
     @Test
     fun cloudBackupExcludesTheSessionAndItsKeyset() {
@@ -46,5 +48,13 @@ class BackupRulesTest {
         assertTrue(manifest.contains("@xml/data_extraction_rules"))
         assertTrue(manifest.contains("@xml/backup_rules"))
         assertTrue(manifest.contains("""android:allowBackup="false""""))
+    }
+
+    @Test
+    fun debugCleartextHostsMatchTheConfigAccepted() {
+        val xml = File("src/debug/res/xml/network_security_config.xml").readText()
+        val domains = Regex("""<domain[^>]*>([^<]+)</domain>""").findAll(xml).map { it.groupValues[1].trim() }.toSet()
+        val accepted = SupabaseConfig.CLEARTEXT_HOSTS.map { it.removeSurrounding("[", "]") }.toSet()
+        assertEquals(accepted, domains)
     }
 }

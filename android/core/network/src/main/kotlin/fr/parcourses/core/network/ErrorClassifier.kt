@@ -78,6 +78,7 @@ private fun classifyAuth(error: AuthRestException): RemoteError {
 }
 
 /** Relance l'annulation, classe le reste. */
+@Suppress("TooGenericExceptionCaught")
 internal inline fun <T> mapped(block: () -> T): T =
     try {
         block()

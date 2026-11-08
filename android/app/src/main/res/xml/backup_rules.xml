@@ -2,5 +2,6 @@
 <!-- Android 11 et moins : mêmes exclusions que data_extraction_rules.xml. -->
 <full-backup-content>
     <exclude domain="file" path="datastore/parcourses_secure_state.pb" />
+    <exclude domain="file" path="datastore/parcourses_account_marker.json" />
     <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
 </full-backup-content>

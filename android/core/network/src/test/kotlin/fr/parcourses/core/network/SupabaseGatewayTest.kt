@@ -332,11 +332,52 @@ class SupabaseGatewayTest {
         }
 
     @Test
-    fun aNetworkFailureIsClassifiedAndCancellationIsNot() =
+    fun aNetworkFailureIsClassifiedAsNetwork() =
         runBlocking<Unit> {
             gateway.ensureSession()
             server.failWith = IOException("unreachable")
             expectError<RemoteError.Network> { gateway.fetchCategories() }
+        }
+
+    @Test
+    fun aReplacedSessionFileIsReportedAsAnAccountChange() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            // Clé perdue : la session disparaît mais le dernier compte connu reste.
+            harness.store.update { it.copy(session = null) }
+            val restarted =
+                GatewayHarness(FakeSupabase().apply { userId = "bbbbbbbb-0000-4000-8000-000000000002" }, harness.store)
+            try {
+                expectError<RemoteError.AccountChanged> { restarted.gateway.ensureSession() }
+            } finally {
+                restarted.close()
+            }
+        }
+
+    @Test
+    fun anUnavailableSecureStorageCreatesNoSecondAccount() =
+        runBlocking<Unit> {
+            val locked =
+                object : fr.parcourses.core.network.session.SecureStateStore {
+                    override suspend fun read(): fr.parcourses.core.network.session.SecureState =
+                        throw fr.parcourses.core.network.session
+                            .SecureStorageUnavailableException("locked")
+
+                    override suspend fun update(
+                        transform: (
+                            fr.parcourses.core.network.session.SecureState,
+                        ) -> fr.parcourses.core.network.session.SecureState,
+                    ) = throw fr.parcourses.core.network.session
+                        .SecureStorageUnavailableException("locked")
+                }
+            val other = GatewayHarness(FakeSupabase(), locked)
+            try {
+                expectError<RemoteError.SecureStorageLocked> { other.gateway.ensureSession() }
+                expectError<RemoteError.SecureStorageLocked> { other.gateway.sessionAccountId() }
+                assertEquals(0, other.server.signUps)
+            } finally {
+                other.close()
+            }
         }
 
     // endregion
