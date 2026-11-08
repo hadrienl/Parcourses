@@ -58,7 +58,9 @@ class FakeRemoteGateway : RemoteGateway {
     ) {
         calls += if (detail == null) method else "$method:$detail"
         beforeCall(method)
-        failures[method]?.removeFirstOrNull()?.let { throw it }
+        // Une panne vise une méthode (`saveItem`) ou un appel précis (`saveItem:<id>`).
+        val queue = failures["$method:$detail"]?.takeIf { it.isNotEmpty() } ?: failures[method]
+        queue?.removeFirstOrNull()?.let { throw it }
     }
 
     override suspend fun ensureSession(captchaToken: String?): Uuid = account.also { enter("ensureSession") }

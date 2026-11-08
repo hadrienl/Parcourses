@@ -23,7 +23,7 @@ object SyncRetryPolicy {
     /** Délai avant de réessayer une ligne mise de côté. Reste `PENDING`. */
     val parkedRetryDelay: Duration = 6.hours
 
-    /** Article refusé (`42501`) parce que sa liste n'est pas encore reçue : il attend la liste, sans consommer d'essai. */
+    /** Article refusé (`42501`) car sa liste n'est pas encore reçue : il l'attend, sans consommer d'essai. */
     val listWaitDelay: Duration = 30.seconds
 
     /** Catalogue : une fois par jour (#9 §5.4). */

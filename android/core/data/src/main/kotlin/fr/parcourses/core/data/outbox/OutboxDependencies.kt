@@ -34,7 +34,7 @@ object OutboxDependencies {
                 OutboxDependency(waits = setOf(key, "items:${entry.entityId}"), blocks = setOf(key))
             }
 
-            // Un article en retard ne retient pas les autres articles de sa liste, seulement la suppression de celle-ci.
+            // Un article en retard ne retient pas ses voisins de liste, seulement la suppression de celle-ci.
             OutboxKind.UpsertItem, OutboxKind.DeleteItem -> {
                 listId(entry)?.let { listId ->
                     val own = "item:${entry.entityId}"
@@ -120,7 +120,7 @@ data class ServerClock(
     }
 
     companion object {
-        /** Marge sous les 5 min de `guard_visit` et `guard_check` : l'en-tête arrondit à la seconde et le trajet compte. */
+        /** Marge sous les 5 min de `guard_visit` et `guard_check` (en-tête arrondi à la seconde, trajet compris). */
         val FUTURE_MARGIN: Duration = 240.seconds
     }
 }

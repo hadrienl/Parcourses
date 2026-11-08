@@ -124,6 +124,7 @@ class SyncEngine(
 
     // region Passe
 
+    @Suppress("ReturnCount")
     private suspend fun pass(pull: Boolean) {
         var pullDue = pull
         reconcileQueueIfNeeded()

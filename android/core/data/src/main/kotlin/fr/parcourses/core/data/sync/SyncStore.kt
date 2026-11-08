@@ -457,7 +457,7 @@ class SyncStore(
             db.products().deleteAll()
             db.products().upsertAll(
                 rows.map { row ->
-                    // Serveur en avance sur le référentiel embarqué : pas de catégorie, le classifieur prendra le relais.
+                    // Serveur en avance sur le référentiel embarqué : pas de catégorie, le classifieur prend le relais.
                     val category = row.categorySlug?.takeIf { it in known }
                     ProductEntity(row.id.toString(), row.name, row.normalizedName, category)
                 },

@@ -88,7 +88,7 @@ class AccountRekey(
                 db.visits().delete(visit.id)
                 val newVisitId = fresh(visit.id)
                 val listId = identifiers[visit.listId] ?: visit.listId
-                // Reçue et close : elle a pu nourrir le graphe partagé, et la renvoyer l'y apprendrait une seconde fois.
+                // Reçue et close : elle a pu nourrir le graphe partagé, la renvoyer l'y apprendrait deux fois.
                 // Elle reste en local. Visite ouverte ou clôture non reçue : jamais apprise, elle repart en entier.
                 val keepLocal = visit.id in received
                 val state = if (keepLocal) SyncState.SYNCED else SyncState.PENDING

@@ -5,5 +5,24 @@ naming:
 style:
   UnusedParameter:
     active: true
+  ReturnCount:
+    max: 6
+    excludeGuardClauses: true
+  LoopWithTooManyJumpStatements:
+    maxJumpCount: 3
   MaxLineLength:
     excludes: ['**/test/**']
+# Moteur de synchro et file d'envoi (A6) : machines à états portées d'iOS, avec sorties anticipées et
+# interception large (toute erreur locale doit devenir un simple délai, jamais un plantage de la passe).
+complexity:
+  CyclomaticComplexMethod:
+    allowedComplexity: 20
+  TooManyFunctions:
+    allowedFunctionsPerClass: 20
+    allowedFunctionsPerFile: 20
+    allowedFunctionsPerInterface: 20
+  ComplexCondition:
+    allowedConditions: 4
+exceptions:
+  TooGenericExceptionCaught:
+    active: false

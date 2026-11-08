@@ -135,7 +135,7 @@ class OutboxReconciliation(
         db.lists().get(listId)?.let { it.deletedAt == null } ?: false
 
     companion object {
-        /** Cause d'un article abandonné à tort : le serveur refuse (`42501`) tant que la liste n'existe pas chez lui. */
+        /** Cause d'un article abandonné à tort : `42501` tant que sa liste n'existe pas chez le serveur. */
         const val FORBIDDEN_REASON = "42501"
     }
 }
