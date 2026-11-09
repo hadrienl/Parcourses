@@ -5,10 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import fr.parcourses.feature.shopping.live.LiveUpdateLinks
 
 /** Seule activité de l'app : le thème, puis la navigation. */
+@OptIn(ExperimentalComposeUiApi::class)
 class MainActivity : ComponentActivity() {
     private val container get() = (application as ParcoursesApp).container
 
@@ -22,7 +28,11 @@ class MainActivity : ComponentActivity() {
         val linked = coldStart && offerLink(intent)
         setContent {
             ParcoursesTheme {
-                ParcoursesNavHost(container, coldStart = coldStart && !linked)
+                // Les `testTag` deviennent des identifiants de ressource : UI Automator (Baseline Profile,
+                // Macrobenchmark) les retrouve sur l'APK minifié. Les dialogues, fenêtres à part, n'en héritent pas.
+                Box(Modifier.semantics { testTagsAsResourceId = true }) {
+                    ParcoursesNavHost(container, coldStart = coldStart && !linked)
+                }
             }
         }
     }

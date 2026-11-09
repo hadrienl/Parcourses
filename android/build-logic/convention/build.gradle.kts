@@ -23,6 +23,10 @@ gradlePlugin {
             id = "parcourses.android.compose"
             implementationClass = "AndroidComposeConventionPlugin"
         }
+        register("androidTest") {
+            id = "parcourses.android.test"
+            implementationClass = "AndroidTestConventionPlugin"
+        }
         register("jvmLibrary") {
             id = "parcourses.jvm.library"
             implementationClass = "JvmLibraryConventionPlugin"
