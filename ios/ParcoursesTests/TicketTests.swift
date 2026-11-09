@@ -63,16 +63,36 @@ struct TicketLineTests {
       ])
   }
 
-  @Test func raisedSectionsAreThoseThatOvertakeAnother() {
-    #expect(TicketLine.raisedSections(previous: ["a", "b", "c"], current: ["a", "c", "b"]) == ["c"])
-    #expect(TicketLine.raisedSections(previous: ["a", "b", "c"], current: ["c", "a", "b"]) == ["c"])
+  @Test func raisedSectionsAreThoseWhoseItemsOvertakeAnotherAisle() {
+    let milk = row("lait", "dairy")
+    let pasta = row("pâtes", "savory-grocery")
+    let soap = row("savon", "hygiene")
+    let after = ShoppingSession.runs(of: [milk, soap, pasta], titles: [:])
+    #expect(TicketLine.raisedSections(previous: [milk.id, pasta.id, soap.id], current: after) == ["hygiene"])
   }
 
-  /// Un rayon vidé ou nouveau ne fait rien remonter : les autres ne font que se rapprocher du haut.
-  @Test func removalOrAdditionRaisesNothing() {
-    #expect(TicketLine.raisedSections(previous: ["a", "b", "c"], current: ["b", "c"]).isEmpty)
-    #expect(TicketLine.raisedSections(previous: ["a", "b"], current: ["d", "a", "b"]).isEmpty)
-    #expect(TicketLine.raisedSections(previous: ["a", "b"], current: ["a", "b"]).isEmpty)
+  /// Reprise de rayon renumérotée : [produce, dairy, produce#1], on coche le premier article ; la suite « dairy »
+  /// n'a pas bougé (cas relevé sur Android, A11).
+  @Test func renumberedRunRaisesNothing() {
+    let tomato = row("tomates", "produce")
+    let milk = row("lait", "dairy")
+    let apple = row("pommes", "produce")
+    let after = ShoppingSession.runs(of: [milk, apple], titles: [:])
+    #expect(after.map(\.id) == ["dairy", "produce"])
+    #expect(TicketLine.raisedSections(previous: [tomato.id, milk.id, apple.id], current: after).isEmpty)
+  }
+
+  /// Un article ajouté en route, ou un article retiré, ne fait rien remonter.
+  @Test func additionOrRemovalRaisesNothing() {
+    let milk = row("lait", "dairy")
+    let pasta = row("pâtes", "savory-grocery")
+    let added = row("savon", "hygiene")
+    let withAddition = ShoppingSession.runs(of: [added, milk, pasta], titles: [:])
+    #expect(TicketLine.raisedSections(previous: [milk.id, pasta.id], current: withAddition).isEmpty)
+    let withRemoval = ShoppingSession.runs(of: [pasta], titles: [:])
+    #expect(TicketLine.raisedSections(previous: [milk.id, pasta.id], current: withRemoval).isEmpty)
+    let unchanged = ShoppingSession.runs(of: [milk, pasta], titles: [:])
+    #expect(TicketLine.raisedSections(previous: [milk.id, pasta.id], current: unchanged).isEmpty)
   }
 }
 

@@ -4,14 +4,16 @@ import SwiftUI
 /// le verre est réservé à la couche de contrôle.
 /// - iOS 26+ : Liquid Glass (`glassEffect(.regular)`).
 /// - iOS 18 : `.regularMaterial` et un filet de 0,5 pt.
-/// - Réduire la transparence : papier opaque et filet, sur toutes les versions.
+/// - Réduire la transparence ou Contraste augmenté : papier opaque et filet, sur toutes les versions. Le verre laisse
+///   transparaître la liste qui défile dessous : le texte posé dessus (« Annuler » à l'accent) n'y tient pas le
+///   contraste renforcé.
 private struct ParcoursesGlass<S: InsettableShape>: ViewModifier {
   let shape: S
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
   @Environment(\.colorSchemeContrast) private var contrast
 
   func body(content: Content) -> some View {
-    if reduceTransparency {
+    if reduceTransparency || contrast == .increased {
       content
         .background(Palette.paper, in: shape)
         .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: contrast == .increased ? 1 : 0.5) }
@@ -20,7 +22,7 @@ private struct ParcoursesGlass<S: InsettableShape>: ViewModifier {
     } else {
       content
         .background(.regularMaterial, in: shape)
-        .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: contrast == .increased ? 1 : 0.5) }
+        .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: 0.5) }
     }
   }
 }

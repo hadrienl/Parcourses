@@ -95,8 +95,10 @@ struct ShoppingView: View {
     .accessibilityIdentifier("shoppingList")
     .animation(Motion.reorder(reduced: reduceMotion), value: lines.map(\.id))
     .animation(Motion.reorder(reduced: reduceMotion), value: session.basket.map(\.id))
-    .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
-    .onChange(of: sections.map(\.id)) { old, new in sectionsDidChange(from: old, to: new) }
+    .onChange(of: session.toBuy.map(\.id)) { old, new in
+      listDidChange(from: old, to: new)
+      routeDidChange(from: old)
+    }
     .onChange(of: session.undo) { _, undo in
       // Une coche se lit déjà dans la valeur de la ligne (« coché ») : seul « introuvable », qui déplace la ligne
       // dans une autre section, est annoncé.
@@ -134,9 +136,9 @@ struct ShoppingView: View {
   }
 
   /// En ordre appris, un rayon qui remonte après un tri porte « ↑ appris » pendant 3 s : le mouvement s'explique.
-  private func sectionsDidChange(from old: [String], to new: [String]) {
+  private func routeDidChange(from old: [UUID]) {
     guard !session.groupsByAisle else { return }
-    let raised = TicketLine.raisedSections(previous: old, current: new)
+    let raised = TicketLine.raisedSections(previous: old, current: session.routeSections)
     guard !raised.isEmpty else { return }
     withAnimation(Motion.fade) { learnedTags.formUnion(raised) }
     Task {
@@ -360,7 +362,9 @@ struct ShoppingView: View {
           }
         }
         .foregroundStyle(Palette.ink)
+        // Le bouton reste à l'intérieur du verre : son liseré et son ombre ne passent pas sous le texte.
         .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.xs / 2)
         .parcoursesGlass()
         .transition(.opacity)
       }

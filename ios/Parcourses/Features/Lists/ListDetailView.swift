@@ -124,7 +124,8 @@ struct ListDetailView: View {
       model.toggle(row)
     } label: {
       ThreadRow(place: place) {
-        Bead(state: row.isChecked ? .done : .idle)
+        // Préparation : rien n'est parcouru, la case seule porte l'état coché.
+        Bead(state: .idle)
       } content: {
         // L'état se lit sans couleur : case pleine avec coche, et texte barré.
         ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)

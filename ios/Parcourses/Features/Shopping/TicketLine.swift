@@ -18,18 +18,21 @@ enum TicketLine: Identifiable, Equatable {
     sections.flatMap { [.aisle($0)] + $0.rows.map(TicketLine.item) }
   }
 
-  /// Rayons qui sont remontés après un tri : parmi les rayons présents avant et après, ceux qui passent devant un
-  /// rayon qui les précédait. Un rayon vidé (tout coché) ou nouveau ne fait rien remonter.
-  static func raisedSections(previous: [String], current: [String]) -> Set<String> {
-    let common = Set(previous).intersection(current)
-    let before = previous.filter(common.contains)
-    let after = current.filter(common.contains)
-    let rank = Dictionary(uniqueKeysWithValues: before.enumerated().map { ($1, $0) })
+  /// Rayons qui sont remontés après un tri : ceux dont un article passe devant un article d'un autre rayon qu'il
+  /// suivait. Le calcul porte sur les articles, pas sur les identités de rayons : une reprise de rayon renumérotée
+  /// (`produce#1` devenu `produce`) ou un article ajouté en route ne fait rien remonter. Les articles absents de
+  /// l'ordre précédent sont ignorés. Même règle qu'Android (A11).
+  static func raisedSections(previous: [UUID], current: [ShoppingSection]) -> Set<String> {
+    let before = Dictionary(previous.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+    let items = current.flatMap { section in section.rows.map { (section: section, row: $0) } }
     var raised: Set<String> = []
-    for (index, id) in after.enumerated() {
-      // Remonté : un rayon qui le précédait est maintenant derrière lui.
-      let overtaken = after[(index + 1)...].contains { (rank[$0] ?? 0) < (rank[id] ?? 0) }
-      if overtaken { raised.insert(id) }
+    for (index, item) in items.enumerated() {
+      guard !raised.contains(item.section.id), let was = before[item.row.id] else { continue }
+      // Un article d'un autre rayon, autrefois devant lui, est maintenant derrière.
+      let overtakes = items[(index + 1)...].contains { other in
+        other.row.aisleId != item.row.aisleId && (before[other.row.id].map { $0 < was } ?? false)
+      }
+      if overtakes { raised.insert(item.section.id) }
     }
     return raised
   }

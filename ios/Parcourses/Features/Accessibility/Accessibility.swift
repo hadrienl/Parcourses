@@ -112,29 +112,32 @@ struct EmptyState: View {
   let description: String
 
   var body: some View {
-    ScrollView {
-      VStack(spacing: 8) {
-        Image(systemName: systemImage)
-          .font(.largeTitle)
-          .imageScale(.large)
-          .foregroundStyle(.tint)
-          .padding(.bottom, 8)
-          .accessibilityHidden(true)
-        Text(title)
-          .font(TicketFont.title)
-          .foregroundStyle(Palette.ink)
-          .accessibilityAddTraits(.isHeader)
-        Text(description)
-          .font(.system(.body, design: .monospaced))
-          .foregroundStyle(Palette.inkMuted)
+    // Centré quand il tient, ouvert en haut quand il déborde (AX5, clavier ouvert) : un cadre de hauteur fixe le
+    // centrerait en débordant sous la barre de navigation.
+    GeometryReader { proxy in
+      ScrollView {
+        VStack(spacing: 8) {
+          Image(systemName: systemImage)
+            .font(.largeTitle)
+            .imageScale(.large)
+            .foregroundStyle(.tint)
+            .padding(.bottom, 8)
+            .accessibilityHidden(true)
+          Text(title)
+            .font(TicketFont.title)
+            .foregroundStyle(Palette.ink)
+            .accessibilityAddTraits(.isHeader)
+          Text(description)
+            .font(.system(.body, design: .monospaced))
+            .foregroundStyle(Palette.inkMuted)
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding()
+        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
       }
-      .multilineTextAlignment(.center)
-      .fixedSize(horizontal: false, vertical: true)
-      .padding()
-      .frame(maxWidth: .infinity)
-      .containerRelativeFrame(.vertical, alignment: .center) { length, _ in length }
+      .scrollBounceBehavior(.basedOnSize)
     }
-    .scrollBounceBehavior(.basedOnSize)
   }
 }
 
@@ -188,6 +191,8 @@ struct ItemLine: View {
       .strikethrough(isChecked)
       .foregroundStyle(isChecked ? Palette.checked : Palette.ink)
       .fixedSize(horizontal: false, vertical: true)
+      // Le libellé passe avant les points de conduite, qui ne prennent que la place restante.
+      .layoutPriority(1)
   }
 
   @ViewBuilder private var quantityText: some View {
