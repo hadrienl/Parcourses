@@ -38,10 +38,6 @@ struct CheckNextItemIntent: LiveActivityIntent {
     self.itemId = itemId.uuidString
   }
 
-  /// iOS 27 : l'exécution dans l'app est demandée explicitement. Avant, c'est la règle de `LiveActivityIntent`.
-  @available(iOS 27.0, *)
-  static var allowedExecutionTargets: IntentExecutionTargets { .main }
-
   @MainActor
   func perform() async throws -> some IntentResult {
     if let visit = UUID(uuidString: visitId), let item = UUID(uuidString: itemId) {
