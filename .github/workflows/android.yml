@@ -3,10 +3,10 @@ name: Android
 
 on:
   pull_request:
-    paths: ["android/**", "shared/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "shared/**", "design/icons/**", ".github/workflows/android.yml"]
   push:
     branches: [main]
-    paths: ["android/**", "shared/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "shared/**", "design/icons/**", ".github/workflows/android.yml"]
 
 permissions:
   contents: read
@@ -35,12 +35,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - name: Dictionnaire embarqué identique à shared/categories
         run: scripts/sync-categories.sh --check
+      - name: Icônes de rayon identiques à design/icons/categories
+        run: python3 scripts/sync-category-icons.py --check
       - name: Style (ktlint + detekt)
         run: ./gradlew spotlessCheck detekt
       - name: Lint Android
         run: ./gradlew lintDebug
-      - name: Tests unitaires
-        run: ./gradlew testDebugUnitTest
+      # Les captures Roborazzi (app/src/test/screenshots) sont comparées dans la même passe.
+      - name: Tests unitaires et captures
+        run: ./gradlew testDebugUnitTest -Proborazzi.test.verify=true
       - name: Build debug et release
         run: ./gradlew assembleDebug assembleRelease
       - name: Annotations JUnit

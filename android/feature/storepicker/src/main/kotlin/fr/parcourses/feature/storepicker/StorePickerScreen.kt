@@ -1,37 +1,28 @@
 package fr.parcourses.feature.storepicker
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -39,16 +30,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketSheet
 
 const val TAG_CONFIRM_PROPOSAL = "storepicker.confirm"
 const val TAG_WITHOUT_STORE = "storepicker.withoutStore"
@@ -58,7 +45,7 @@ const val TAG_PRECISION = "storepicker.precision"
 const val TAG_ATTRIBUTION = "storepicker.attribution"
 
 /** Contenu de la page de licence demandée par l'ODbL. */
-const val OSM_COPYRIGHT_URL = "https://www.openstreetmap.org/copyright"
+const val OSM_COPYRIGHT_URL = fr.parcourses.core.designsystem.OSM_COPYRIGHT_URL
 
 /** Actions de l'écran, regroupées pour garder des signatures lisibles. */
 @Immutable
@@ -89,10 +76,13 @@ fun StorePickerScreen(
     actions: StorePickerActions,
     modifier: Modifier = Modifier,
 ) {
+    val colors = Ticket.colors
     Scaffold(
         modifier = modifier,
+        containerColor = colors.desk,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.desk),
                 title = { Text(stringResource(R.string.picker_title)) },
                 navigationIcon = {
                     IconButton(onClick = actions.onBack) {
@@ -106,11 +96,13 @@ fun StorePickerScreen(
         },
         bottomBar = { Attribution() },
     ) { padding ->
-        LazyColumn(
-            contentPadding = padding,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            phaseContent(state, query, actions)
+        TicketSheet(Modifier.padding(padding)) {
+            LazyColumn(
+                contentPadding = PaddingValues(top = TicketDimens.spaceXs, bottom = TicketDimens.spaceL),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                phaseContent(state, query, actions)
+            }
         }
     }
     if (state.selectionFailed) SelectionFailedDialog(actions)
@@ -224,7 +216,10 @@ private fun LazyListScope.precise(
     val proposed = phase.proposed
     if (proposed != null) {
         item(key = "here-title", contentType = "title") { SectionTitle(stringResource(R.string.picker_here_title)) }
-        item(key = "here-${proposed.id}", contentType = "store") { StoreRow(proposed, actions.onSelect) }
+        item(
+            key = "here-${proposed.id}",
+            contentType = "store",
+        ) { StoreRow(proposed, actions.onSelect, proposed = true) }
         item(key = "here-confirm", contentType = "action") {
             Button(
                 onClick = { actions.onSelect(proposed) },

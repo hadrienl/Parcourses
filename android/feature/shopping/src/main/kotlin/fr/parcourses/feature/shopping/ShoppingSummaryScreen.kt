@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,9 +31,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.DashedRule
+import fr.parcourses.core.designsystem.OsmAttribution
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketSheet
 
 /**
  * Écran de fin branché sur la navigation : la vibration de réussite (iOS : `sensoryFeedback(.success)`) ne part
@@ -73,40 +78,47 @@ fun ShoppingSummaryScreen(
 ) {
     val pane = stringResource(R.string.shopping_summary_pane)
     val contribution = contributionText(summary)
+    val colors = Ticket.colors
     Scaffold(
         modifier = if (announcesPane) modifier.semantics { paneTitle = pane } else modifier,
+        containerColor = colors.desk,
         bottomBar = {
             Button(
                 onClick = onClose,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.onAccent),
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .heightIn(min = 48.dp)
+                        .heightIn(min = TicketDimens.primaryAction)
                         .testTag(TAG_CLOSE),
             ) { Text(stringResource(R.string.shopping_summary_close), textAlign = TextAlign.Center) }
         },
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .heightIn(min = maxHeight)
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                SummaryHeadline(summary)
-                contribution?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.testTag(TAG_CONTRIBUTION),
-                    )
+        TicketSheet(Modifier.padding(padding)) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .heightIn(min = maxHeight)
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    SummaryHeadline(summary)
+                    DashedRule()
+                    contribution?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.testTag(TAG_CONTRIBUTION),
+                        )
+                    }
+                    if (summary.storeName != null) OsmAttribution()
                 }
             }
         }
@@ -128,13 +140,14 @@ private fun SummaryHeadline(summary: ShoppingSummary) {
                 summary.checkedCount,
             ),
             style = MaterialTheme.typography.displaySmall,
-            fontWeight = FontWeight.Bold,
+            color = Ticket.colors.ink,
             textAlign = TextAlign.Center,
             modifier = Modifier.testTag(TAG_SUMMARY),
         )
         Text(
             stringResource(R.string.shopping_summary_minutes, summary.minutes),
             style = MaterialTheme.typography.titleLarge,
+            color = Ticket.colors.inkMuted,
             textAlign = TextAlign.Center,
         )
     }

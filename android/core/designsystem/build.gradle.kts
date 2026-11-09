@@ -6,3 +6,9 @@ plugins {
 android {
     namespace = "fr.parcourses.core.designsystem"
 }
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+
+    testImplementation(libs.junit)
+}

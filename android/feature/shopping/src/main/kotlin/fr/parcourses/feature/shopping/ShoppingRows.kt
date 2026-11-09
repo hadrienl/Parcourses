@@ -6,12 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -20,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +35,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.ThreadLayout
+import fr.parcourses.core.designsystem.ThreadPiece
+import fr.parcourses.core.designsystem.ThreadStyle
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketCheckBox
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketType
+import fr.parcourses.core.designsystem.thread
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** Signale le début et la fin d'un balayage horizontal ; une ligne retirée en plein geste le termine. */
@@ -70,7 +75,7 @@ private fun SwipeTracker(
 @Composable
 internal fun ItemRow(
     row: ShoppingRow,
-    highlighted: Boolean,
+    look: RowLook,
     actions: ShoppingActions,
     modifier: Modifier = Modifier,
 ) {
@@ -108,16 +113,26 @@ internal fun ItemRow(
         enableDismissFromEndToStart = !row.isChecked,
         backgroundContent = {},
     ) {
-        ItemRowContent(row, highlighted, actions)
+        ItemRowContent(row, look, actions)
     }
 }
+
+/** Apparence d'une ligne sur le fil : son morceau de fil, le style du fil, et si c'est l'article suivant. */
+@Immutable
+internal data class RowLook(
+    val piece: ThreadPiece,
+    val style: ThreadStyle,
+    val isNext: Boolean = false,
+    val highlighted: Boolean = false,
+)
 
 @Composable
 internal fun ItemRowContent(
     row: ShoppingRow,
-    highlighted: Boolean,
+    look: RowLook,
     actions: ShoppingActions,
 ) {
+    val colors = Ticket.colors
     val checkedText = stringResource(R.string.shopping_state_checked)
     val uncheckedText = stringResource(R.string.shopping_state_unchecked)
     val checkLabel = stringResource(R.string.shopping_action_check)
@@ -133,9 +148,9 @@ internal fun ItemRowContent(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(
-                    if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                ).heightIn(min = 48.dp)
+                .background(if (look.highlighted) colors.accent.copy(alpha = HIGHLIGHT_ALPHA) else colors.paper)
+                .thread(look.piece, look.style)
+                .heightIn(min = TicketDimens.rowMin)
                 .clickable(onClickLabel = if (row.isChecked) uncheckLabel else checkLabel, role = Role.Checkbox) {
                     if (!row.isChecked) actions.onCheckFeedback()
                     actions.onToggle(row)
@@ -143,22 +158,19 @@ internal fun ItemRowContent(
                     contentDescription = row.accessibilityLabel
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
                     customActions = custom
-                }.padding(horizontal = 16.dp, vertical = 4.dp),
+                }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // L'état se lit sans couleur : forme de l'icône et texte barré.
-        Checkbox(checked = row.isChecked, onCheckedChange = null, modifier = Modifier.clearAndSetSemantics { })
-        Text(
-            text = row.label,
-            style = MaterialTheme.typography.bodyLarge,
-            textDecoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            color =
-                if (row.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+        // L'état se lit sans couleur : case pleine et cochée, texte barré.
+        TicketCheckBox(row.isChecked)
+        ItemLine(
+            name = row.label,
+            quantity = row.quantity,
+            style = if (look.isNext) TicketType.itemNext else TicketType.item,
+            color = if (row.isChecked) colors.checked else colors.ink,
+            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
         )
-        row.quantity?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 
@@ -168,26 +180,42 @@ internal fun NotFoundRow(
     onRestore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = Ticket.colors
     val state = stringResource(R.string.shopping_state_not_found)
     val hint = stringResource(R.string.shopping_restore_hint)
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .heightIn(min = TicketDimens.touchMin)
                 .clickable(onClickLabel = hint, role = Role.Button, onClick = onRestore)
                 .semantics(mergeDescendants = true) {
                     contentDescription = row.accessibilityLabel
                     stateDescription = state
-                }.padding(horizontal = 16.dp, vertical = 4.dp),
+                }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.clearAndSetSemantics { })
-        Text(row.label, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+        // Introuvable : un « ? » à la place de la case, pour ne pas le dire par la seule couleur.
+        Text(
+            "?",
+            style = TicketType.item,
+            color = colors.inkMuted,
+            modifier = Modifier.padding(horizontal = 9.dp).clearAndSetSemantics { },
+        )
+        ItemLine(
+            name = row.label,
+            quantity = null,
+            style = TicketType.item,
+            color = colors.inkMuted,
+            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS).clearAndSetSemantics { },
+        )
         Text(
             stringResource(R.string.shopping_restore),
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.accent,
+            modifier = Modifier.clearAndSetSemantics { },
         )
     }
 }
+
+private const val HIGHLIGHT_ALPHA = 0.12f

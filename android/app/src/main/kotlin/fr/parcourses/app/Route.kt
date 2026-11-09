@@ -14,6 +14,10 @@ sealed interface Route : NavKey {
     @Serializable
     data object Lists : Route
 
+    /** « À propos » : attribution des données, confidentialité, version. */
+    @Serializable
+    data object About : Route
+
     /**
      * [slot] identifie l'écran, pas la liste : si la liste change d'identifiant (reprise de compte), la clé change
      * mais pas l'écran, qui garde son état et sa saisie en cours.
@@ -63,6 +67,7 @@ internal val routeConfiguration =
             SerializersModule {
                 polymorphic(NavKey::class) {
                     subclass(Route.Lists::class)
+                    subclass(Route.About::class)
                     subclass(Route.ListDetail::class)
                     subclass(Route.StorePicker::class)
                     subclass(Route.Shopping::class)
