@@ -53,21 +53,27 @@ final class ShoppingActivityActions: CheckNextItemHandling {
       Self.log.info("« Cocher le suivant » ignoré : article déjà pris")
       return
     }
+    // Visite close, sans liste ou périmée : l'activité n'a plus rien à suivre et part, comme la Live Update
+    // Android (`lastActivityIfLive`), au lieu de garder un bouton sans effet.
     guard let visit = try? visits.visit(id: visitId), visit.endedAt == nil,
       (try? lists.list(id: visit.listId)) != nil
     else {
-      Self.log.info("« Cocher le suivant » ignoré : visite close ou sans liste")
+      Self.log.info("« Cocher le suivant » ignoré : visite close ou sans liste, activité retirée")
+      activity.endAll(except: nil)
       return
     }
     let last = (try? visits.lastActivity(visitId: visitId)) ?? visit.startedAt
     // Une visite périmée n'est pas reprise (elle sera close à sa dernière coche) : une coche ne la ranime pas.
     guard now().timeIntervalSince(last) < ShoppingSession.expiry else {
-      Self.log.info("« Cocher le suivant » ignoré : visite périmée")
+      Self.log.info("« Cocher le suivant » ignoré : visite périmée, activité retirée")
+      activity.endAll(except: nil)
       return
     }
     let items = (try? lists.items(listId: visit.listId)) ?? []
+    // Supprimé ou introuvable entre-temps (synchro, écran) : rien n'est coché, l'affichage suit la base.
     guard let item = items.first(where: { $0.id == itemId }), item.notFoundAt == nil else {
       Self.log.info("« Cocher le suivant » ignoré : article plus à prendre")
+      resync(state, visit: visit)
       return
     }
     do {
@@ -81,7 +87,12 @@ final class ShoppingActivityActions: CheckNextItemHandling {
       Self.log.error("« Cocher le suivant » refusé : \(error.localizedDescription, privacy: .public)")
       return
     }
-    if let session = session(), session.visitId == visitId {
+    resync(state, visit: visit)
+  }
+
+  /// Mode courses ouvert sur cette visite : il relit et retrie. Sinon, l'état affiché est confronté à la base.
+  private func resync(_ state: ShoppingActivityAttributes.ContentState, visit: Visit) {
+    if let session = session(), session.visitId == visit.id {
       session.checkedElsewhere()
     } else {
       refresh(state, visit: visit)

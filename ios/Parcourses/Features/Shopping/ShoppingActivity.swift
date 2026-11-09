@@ -210,6 +210,8 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
       self.attributes = attributes
       self.lastState = state
       self.activityId = info.id
+      // Inconnue ici : la mise à jour suivante la fournit, seule source de la `staleDate`.
+      self.lastActivity = .distantPast
       return state
     }
     // Les appels suivants attendent la reprise : ils doivent voir l'activité retrouvée.
@@ -245,7 +247,12 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     enqueue {
       for info in await self.backend.current() where visitId == nil || info.visitId != visitId {
         await self.backend.end(id: info.id, state: nil, policy: .immediate)
-        if info.id == self.activityId { self.activityId = nil }
+        if info.id == self.activityId {
+          // L'activité suivie est retirée : rien ne doit la rouvrir (retour au premier plan) avec un état ancien.
+          self.activityId = nil
+          self.attributes = nil
+          self.lastState = nil
+        }
       }
     }
   }

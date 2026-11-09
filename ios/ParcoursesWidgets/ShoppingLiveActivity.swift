@@ -69,9 +69,12 @@ private struct LockScreenView: View {
             .accessibilityHidden(true)
         }
         VStack(alignment: .leading, spacing: 2) {
-          Text(attributes.storeName ?? attributes.listName)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          // La carte est limitée en hauteur : aux tailles d'accessibilité, le magasin cède la place au bouton.
+          if !dynamicTypeSize.isAccessibilitySize {
+            Text(attributes.storeName ?? attributes.listName)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
           NextItemView(state: state, isStale: isStale)
           Text(summary(state))
             .font(.footnote)
@@ -92,6 +95,13 @@ private struct CheckNextButton: View {
   let attributes: ShoppingActivityAttributes
   let state: ShoppingActivityAttributes.ContentState
   let isStale: Bool
+  @Environment(\.redactionReasons) private var redactionReasons
+
+  /// VoiceOver nomme l'article, sauf quand l'écran verrouillé le masque.
+  private var accessibilityName: String {
+    guard !redactionReasons.contains(.privacy), let label = state.nextItemLabel else { return "Cocher le suivant" }
+    return "Cocher \(label)"
+  }
 
   var body: some View {
     if let visitId = attributes.visitId, let itemId = state.nextItemId, !isStale, !state.isFinished {
@@ -104,6 +114,7 @@ private struct CheckNextButton: View {
       }
       .buttonStyle(.bordered)
       .tint(.accentColor)
+      .accessibilityLabel(accessibilityName)
     }
   }
 }

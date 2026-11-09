@@ -387,6 +387,8 @@ final class ShoppingSession: Identifiable {
   /// ni « Annuler ».
   func checkedElsewhere() {
     guard summary == nil, !expired else { return }
+    // Comme une coche à l'écran : un instantané arrivé pendant la visite s'applique maintenant.
+    adoptPendingSnapshot()
     reloadRows()
     scheduleSettle()
     publishActivity()

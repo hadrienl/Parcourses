@@ -1872,10 +1872,14 @@ extension Harness {
     activity.restored[visit] = ActivityState(remaining: 1, total: 2, pendingItemIds: [milk])
     let checkNext = actions(harness, activity: activity)
     await checkNext.checkNext(visitId: visit, itemId: bread)
+    #expect(activity.calls.isEmpty)
+
+    // Passé introuvable ailleurs : rien n'est coché, et l'affichage suit la base au lieu de garder le lait.
     try harness.lists.setNotFound(itemId: milk, notFoundAt: t0, at: t0)
     await checkNext.checkNext(visitId: visit, itemId: milk)
     #expect(try harness.visits.checks(visitId: visit).isEmpty)
-    #expect(activity.calls.isEmpty)
+    #expect(activity.states.last?.nextItemId == bread)
+    #expect(activity.states.last?.remaining == 1)
   }
 
   @Test func aStaleClosedOrUnknownVisitIsLeftAlone() async throws {
@@ -1887,15 +1891,40 @@ extension Harness {
 
     // Rien ne suit cette visite.
     await checkNext.checkNext(visitId: UUID(), itemId: milk)
-    // Périmée : une coche ne la ranime pas.
+    #expect(activity.endAllKeeping.isEmpty)
+    // Périmée : une coche ne la ranime pas, et l'activité part.
     harness.date = t0.addingTimeInterval(ShoppingSession.expiry)
     await checkNext.checkNext(visitId: visit, itemId: milk)
-    // Close.
+    #expect(activity.endAllKeeping == [nil])
+    // Close : l'activité part aussi.
     harness.date = t0
     try harness.visits.closeVisit(id: visit, at: t0)
     await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(activity.endAllKeeping == [nil, nil])
     #expect(try harness.visits.checks(visitId: visit).isEmpty)
     #expect(try harness.item(milk).checkedAt == nil)
+  }
+
+  /// App relancée par le système : le vrai contrôleur reprend l'activité laissée, puis la met à jour.
+  @Test func theActivityLeftByAPreviousLaunchFollowsTheCheck() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let attributes = ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: "Leclerc Auch")
+    let shown = ActivityState(remaining: 2, total: 2, nextItemLabel: "lait", pendingItemIds: [milk, bread])
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visit, isActive: true, attributes: attributes, state: shown)
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    harness.date = t0.addingTimeInterval(60)
+    let checkNext = ShoppingActivityActions(
+      lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
+      analyzer: harness.analyzer, activity: controller, session: { nil }, now: { [harness] in harness.date })
+
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).map(\.itemId) == [milk])
+    #expect(await backend.calls == [.update("a")])
+    #expect(await backend.staleDates == [t0.addingTimeInterval(60 + ShoppingSession.expiry)])
+    #expect(await controller.restore(visitId: visit)?.nextItemId == bread)
   }
 
   @Test func anOpenShoppingModeLearnsTheCheckAndKeepsItsOrder() async throws {

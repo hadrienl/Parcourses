@@ -15,12 +15,19 @@ nonisolated final class LiveActivityUITests: ParcoursesUITestCase {
       app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "2 restants")).firstMatch
         .waitForExistence(timeout: 10))
     app.terminate()
+    // Pause demandée pour changer la taille du texte depuis l'hôte (`xcrun simctl ui … content_size`) : la
+    // carte se vérifie aussi aux tailles d'accessibilité, que la demande de localisation empêche de traverser.
+    if let pause = ProcessInfo.processInfo.environment["PARCOURSES_LIVE_ACTIVITY_PAUSE"].flatMap(Double.init) {
+      print("PARCOURSES_LIVE_ACTIVITY_PAUSE \(pause)")
+      _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pause")], timeout: pause)
+    }
 
     // Centre de notifications : la Live Activity y figure, avec son bouton.
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.005))
     top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
-    let button = springboard.buttons["Cocher le suivant"]
+    // VoiceOver nomme l'article quand l'écran n'est pas verrouillé : « Cocher lait ».
+    let button = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Cocher ")).firstMatch
     XCTAssertTrue(button.waitForExistence(timeout: 10), "bouton de la Live Activity introuvable")
     let capture = XCTAttachment(screenshot: springboard.screenshot())
     capture.name = "live-activity-avant"
