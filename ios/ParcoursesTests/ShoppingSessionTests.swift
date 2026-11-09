@@ -998,7 +998,8 @@ extension SnapshotGateway {
     #expect(session.sections.count == 6)
   }
 
-  @MainActor @Test func aLearnedOrderKeepsOneContinuousFlowWithoutTitles() async throws {
+  /// Ordre appris : l'ordre du tri est gardé, les rayons se posent le long du trajet (B3, lot 9.11).
+  @MainActor @Test func aLearnedOrderKeepsTheRouteWithAislesAlongIt() async throws {
     let harness = try Harness()
     try harness.add("farine", product: productA)
     try harness.add("lait", product: productB)
@@ -1011,6 +1012,11 @@ extension SnapshotGateway {
     #expect(session.mode == .learned)
     #expect(!session.groupsByAisle)
     #expect(session.toBuy.map(\.label) == ["pommes", "farine", "lait"])
+    let sections = session.displayedSections
+    #expect(sections == session.routeSections)
+    #expect(sections.flatMap(\.rows) == session.toBuy)
+    #expect(zip(sections, sections.dropFirst()).allSatisfy { $0.aisleId != $1.aisleId })
+    #expect(sections.allSatisfy { !$0.title.isEmpty })
   }
 
   @MainActor @Test func aLearningOrderIsGroupedByAisle() async throws {

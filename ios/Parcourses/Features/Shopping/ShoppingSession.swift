@@ -33,8 +33,16 @@ struct ShoppingSection: Identifiable, Equatable {
   let aisleId: String
   let title: String
   let rows: [ShoppingRow]
+  /// Identité stable : le rayon, suivi de « #n » pour sa n-ième reprise sur le trajet appris (un trajet peut repasser
+  /// par un rayon).
+  let id: String
 
-  var id: String { aisleId }
+  init(aisleId: String, title: String, rows: [ShoppingRow], occurrence: Int = 0) {
+    self.aisleId = aisleId
+    self.title = title
+    self.rows = rows
+    id = occurrence == 0 ? aisleId : "\(aisleId)#\(occurrence)"
+  }
   /// Articles encore à prendre : une ligne juste cochée reste dans sa section sans compter.
   var remainingCount: Int { rows.filter { !$0.isChecked }.count }
 
@@ -325,8 +333,9 @@ final class ShoppingSession: Identifiable {
 
   // MARK: - Rayons
 
-  /// Ordre non appris (aucun instantané, graphe en apprentissage, repli) : les articles se lisent par rayon, avec
-  /// un titre. En mode appris, le fil du trajet est continu et sans titres (#9 §6.3).
+  /// Ordre non appris (aucun instantané, graphe en apprentissage, repli) : les articles sont regroupés par rayon,
+  /// dans l'ordre des rangs. En mode appris, l'ordre du tri est gardé et les rayons se lisent le long du trajet
+  /// (`routeSections`).
   var groupsByAisle: Bool { mode != .learned }
 
   /// Rayons dans l'ordre des rangs de catégories, articles dans l'ordre affiché. Une ligne juste cochée reste dans
@@ -340,6 +349,35 @@ final class ShoppingSession: Identifiable {
     return grouped.keys.sorted { (indices[$0] ?? fallback, $0) < (indices[$1] ?? fallback, $1) }.map { aisle in
       ShoppingSection(aisleId: aisle, title: categoryLabels[aisle] ?? aisle, rows: grouped[aisle] ?? [])
     }
+  }
+
+  /// Rayons dans l'ordre du trajet appris : chaque suite d'articles consécutifs du même rayon forme un rayon, sans
+  /// rien déplacer (B3, #6). Le tri garde la main sur l'ordre ; le ticket ne fait que poser les rayons sur le fil.
+  var routeSections: [ShoppingSection] {
+    Self.runs(of: toBuy, titles: categoryLabels)
+  }
+
+  /// Rayons affichés : par rang hors ordre appris, le long du trajet en ordre appris.
+  var displayedSections: [ShoppingSection] {
+    groupsByAisle ? sections : routeSections
+  }
+
+  /// Suites d'articles consécutifs du même rayon, dans l'ordre donné.
+  static func runs(of rows: [ShoppingRow], titles: [String: String]) -> [ShoppingSection] {
+    var result: [ShoppingSection] = []
+    var occurrences: [String: Int] = [:]
+    var start = rows.startIndex
+    while start < rows.endIndex {
+      let aisle = rows[start].aisleId
+      let end = rows[start...].firstIndex { $0.aisleId != aisle } ?? rows.endIndex
+      let occurrence = occurrences[aisle, default: 0]
+      occurrences[aisle] = occurrence + 1
+      result.append(
+        ShoppingSection(
+          aisleId: aisle, title: titles[aisle] ?? aisle, rows: Array(rows[start..<end]), occurrence: occurrence))
+      start = end
+    }
+    return result
   }
 
   // MARK: - Actions

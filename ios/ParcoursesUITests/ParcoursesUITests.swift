@@ -149,13 +149,13 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "11-apprentissage-groupe")
   }
 
-  /// Instantané appris : fil continu, sans titres de rayon.
+  /// Instantané appris : l'ordre du trajet est gardé, et ses rayons se lisent le long du fil (B3, lot 9.11).
   @MainActor
-  func testLearnedOrderHasNoAisleTitles() {
+  func testLearnedOrderShowsAislesAlongTheRoute() {
     let app = enterShopping(confidenceQ: 720, items: ["lait", "tomates", "saucisse"])
     XCTAssertTrue(app.staticTexts["Trajet connu à 72 %"].waitForExistence(timeout: 5))
-    XCTAssertFalse(app.staticTexts["aisle-dairy"].exists)
-    capture(app, "12-appris-fil-continu")
+    XCTAssertTrue(app.staticTexts["aisle-dairy"].exists)
+    capture(app, "12-appris-rayons-sur-le-fil")
   }
 
   /// Une visite ouverte est rouverte au lancement.
