@@ -6,6 +6,7 @@ import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.CheckEntity
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
+import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.database.entity.VisitEntity
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
@@ -26,7 +27,7 @@ sealed interface CheckSubject {
 /**
  * Visites et coches (`VisitRepository` d'iOS). Les écritures passent par la base **et** la file d'envoi dans une
  * seule transaction. Une visite ne part au serveur qu'avec sa première coche : sans coche, elle reste locale et
- * [closeVisit] la supprime (#9 §5.5).
+ * [closeVisit] la supprime (#9 §5.5). Si elle est déjà partie, elle est close et sa clôture part (#62).
  */
 @Suppress("TooManyFunctions")
 interface VisitRepository {
@@ -80,8 +81,9 @@ interface VisitRepository {
     suspend fun checks(visitId: String): List<CheckEntity>
 
     /**
-     * Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche, elle est supprimée et jamais envoyée :
-     * renvoie alors `false`.
+     * Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche et jamais reçue par le serveur, elle est
+     * supprimée : renvoie alors `false`. Reçue puis vidée de ses coches, elle est close à son début et la clôture
+     * part, sinon elle resterait ouverte chez lui (#62).
      */
     suspend fun closeVisit(
         id: String,
@@ -90,8 +92,9 @@ interface VisitRepository {
 
     /**
      * Clôt une visite quittée sans « Terminer » (restée ouverte trop longtemps, liste disparue) : à sa dernière coche,
-     * supprimée si elle n'en a aucune. Personne n'a répondu à « garder ou retirer » : la réponse par défaut, garder,
-     * s'applique, et les articles introuvables (non cochés) de sa liste reviennent à acheter.
+     * ou supprimée si elle n'en a aucune et n'est jamais partie (sinon close à son début, comme [closeVisit], #62).
+     * Personne n'a répondu à « garder ou retirer » : la réponse par défaut, garder, s'applique, et les articles
+     * introuvables (non cochés) de sa liste reviennent à acheter.
      *
      * Sans effet, et sans erreur, si la visite n'existe plus (supprimée faute de coche, renommée par une reprise de
      * compte), si elle est déjà close, ou si sa dernière activité date de moins de [staleAfter] avant [at] : relue
@@ -250,21 +253,32 @@ class RoomVisitRepository(
         return close(visit.id, activityOf(visit))
     }
 
-    /** `true` si une clôture a été mise en file. Une visite sans coche est supprimée, une visite close est laissée. */
+    /**
+     * À appeler dans une transaction. `true` si une clôture a été mise en file. Une visite close est laissée.
+     *
+     * Une visite sans coche n'est supprimée que si le serveur ne l'a jamais reçue. Reçue, puis vidée de ses coches pas
+     * encore parties (#62), elle est close à sa dernière activité, donc à son début : supprimée en local, elle
+     * resterait ouverte chez lui.
+     */
     private suspend fun close(
         id: String,
         at: Instant,
     ): Boolean {
         val open = db.visits().get(id)?.takeIf { it.endedAt == null } ?: return false
-        val hasChecks = db.checks().getByVisit(open.id).isNotEmpty()
-        if (hasChecks) {
-            db.visits().close(id, at)
-            queue.enqueueClosure(id, at, at)
+        val isEmpty = db.checks().getByVisit(open.id).isEmpty()
+        val closing = !isEmpty || wasReceived(open)
+        if (closing) {
+            val endedAt = if (isEmpty) activityOf(open) else at
+            db.visits().close(id, endedAt)
+            queue.enqueueClosure(id, endedAt, at)
         } else {
             db.visits().delete(id)
         }
-        return hasChecks
+        return closing
     }
+
+    /** Création reçue par le serveur. Lue dans la transaction de [close] : jamais un état périmé. */
+    private fun wasReceived(visit: VisitEntity): Boolean = visit.syncState == SyncState.SYNCED
 
     /**
      * À appeler dans une transaction. Plus d'entrée en attente : la coche est partie, ou abandonnée, et le serveur
@@ -274,7 +288,8 @@ class RoomVisitRepository(
         val check = db.checks().get(id) ?: return false
         val sent = db.outbox().cancelPending(id, setOf(OutboxKind.InsertChecks)) == null
         if (!sent) {
-            // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
+            // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide. Déjà partie, elle sera
+            // close à son début ([close], #62).
             if (db.checks().getByVisit(check.visitId).all { it.id == id }) {
                 db.outbox().cancelPending(check.visitId, setOf(OutboxKind.CreateVisit))
             }

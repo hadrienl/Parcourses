@@ -45,6 +45,7 @@ actor ScriptedSyncGateway: RemoteGateway {
   var access: VisitAccess = .closed
   var account = UUID()
   var afterSaveList: (@Sendable () async -> Void)?
+  var afterCreateVisit: (@Sendable () async -> Void)?
   var losesCheckResponses = false
   var visits: [VisitInsert] = []
   var checkBatches: [[CheckUpload]] = []
@@ -165,6 +166,7 @@ actor ScriptedSyncGateway: RemoteGateway {
   }
   func verifySession() async throws { try record("verifySession") }
   func setAfterSaveList(_ hook: (@Sendable () async -> Void)?) { afterSaveList = hook }
+  func setAfterCreateVisit(_ hook: (@Sendable () async -> Void)?) { afterCreateVisit = hook }
   func setLosesCheckResponses(_ value: Bool) { losesCheckResponses = value }
   func saveList(_ list: ListUpsert) async throws {
     try record("saveList")
@@ -196,6 +198,10 @@ actor ScriptedSyncGateway: RemoteGateway {
     try checkServer(visit.id)
     try checkClock(visit.startedAt)
     visits.append(visit)
+    if let hook = afterCreateVisit {
+      afterCreateVisit = nil
+      await hook()
+    }
   }
   func insertChecks(_ checks: [CheckUpload]) async throws {
     try record("insertChecks")
@@ -908,5 +914,147 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     await harness.gateway.setPull()
     await harness.engine.drain(pull: true)
     #expect(await harness.gateway.listCursors == [nil, nil])
+  }
+}
+
+/// Visite reçue par le serveur, puis vidée de ses coches pas encore parties : close et clôture envoyée, jamais
+/// supprimée en local, sinon elle resterait ouverte chez lui (#62). Jamais envoyée, elle est toujours supprimée.
+@MainActor
+@Suite(.serialized) struct SentThenEmptiedVisitTests {
+  private struct Seed {
+    let visit: Visit
+    let item: ListItem
+    let check: Check
+  }
+
+  /// Liste, article, visite commencée à `t0` et une coche ; `sendAfter` retient la coche (et la création).
+  private func seed(_ harness: SyncHarness, sendAfter: TimeInterval = 0) throws -> Seed {
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: t0)
+    let visit = try harness.visits.startVisit(storeId: UUID(), listId: list.id, listWasSorted: false, at: t0)
+    let check = try harness.visits.checkItem(
+      visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: t0.addingTimeInterval(30),
+      sendAfter: sendAfter)
+    return Seed(visit: visit, item: item, check: check)
+  }
+
+  /// `createVisit` part, `insertChecks` est retenu (`23503`), puis l'article est décoché : la coche disparaît.
+  private func sentThenUnchecked(_ harness: SyncHarness) async throws -> Seed {
+    let seed = try seed(harness)
+    await harness.gateway.failAlways("insertChecks", with: .dependencyMissing(code: "23503"))
+    await harness.engine.drain()
+    #expect(await harness.gateway.visits.map(\.id) == [seed.visit.id])
+    #expect(try harness.kinds() == [.insertChecks])
+
+    try harness.visits.uncheckItem(itemId: seed.item.id, checkId: seed.check.id, at: t0.addingTimeInterval(60))
+    #expect(try harness.visits.checks(visitId: seed.visit.id).isEmpty)
+    #expect(try harness.kinds() == [.upsertItem])
+    await harness.gateway.failAlways("insertChecks", with: nil)
+    return seed
+  }
+
+  private func visit(_ harness: SyncHarness, _ id: UUID) throws -> Visit? {
+    try harness.fresh(Visit.self).first { $0.id == id }
+  }
+
+  /// La clôture part, à la date du début de visite, et rien d'autre ne concerne la visite.
+  private func expectClosureSent(_ harness: SyncHarness, _ id: UUID) async throws {
+    let closed = try #require(try visit(harness, id))
+    #expect(closed.endedAt == t0)
+    #expect(closed.syncState == .synced)
+    #expect(closed.endSyncState == .pending)
+    #expect(try harness.kinds().contains(.closeVisit))
+
+    await harness.skipBackoff()
+    await harness.engine.drain()
+    #expect(try harness.entries().isEmpty)
+    #expect(await harness.gateway.calls.filter { $0 == "closeVisit" }.count == 1)
+    #expect(await harness.gateway.checkBatches.isEmpty)
+    #expect(try visit(harness, id)?.endSyncState == .synced)
+  }
+
+  @Test func closingASentVisitWithoutChecksSendsItsClosure() async throws {
+    let harness = try SyncHarness()
+    let seed = try await sentThenUnchecked(harness)
+    #expect(try harness.visits.closeVisit(id: seed.visit.id, at: t0.addingTimeInterval(600)))
+    try await expectClosureSent(harness, seed.visit.id)
+  }
+
+  @Test func abandoningASentVisitWithoutChecksSendsItsClosure() async throws {
+    let harness = try SyncHarness()
+    let seed = try await sentThenUnchecked(harness)
+    #expect(
+      try harness.visits.abandonVisit(
+        id: seed.visit.id, at: t0.addingTimeInterval(3 * 3600), staleAfter: ShoppingSession.expiry))
+    try await expectClosureSent(harness, seed.visit.id)
+  }
+
+  /// Une visite neuve abandonne l'ancienne de la même façon.
+  @Test func startingAnotherVisitClosesTheSentOneWithoutChecks() async throws {
+    let harness = try SyncHarness()
+    let seed = try await sentThenUnchecked(harness)
+    let other = try harness.visits.startVisit(
+      storeId: seed.visit.storeId, listId: seed.item.listId, listWasSorted: false, at: t0.addingTimeInterval(600),
+      staleAfter: 60)
+    #expect(other.id != seed.visit.id)
+    try await expectClosureSent(harness, seed.visit.id)
+  }
+
+  /// Création annulée pendant son envoi (coche retirée entre-temps) : le serveur l'a reçue, elle le sait.
+  @Test func aCreationCancelledDuringItsSendStillCountsAsReceived() async throws {
+    let harness = try SyncHarness()
+    let seed = try seed(harness)
+    await harness.gateway.failAlways("insertChecks", with: .dependencyMissing(code: "23503"))
+    let visits = harness.visits
+    let (itemId, checkId) = (seed.item.id, seed.check.id)
+    await harness.gateway.setAfterCreateVisit {
+      await MainActor.run {
+        try? visits.uncheckItem(itemId: itemId, checkId: checkId, at: t0.addingTimeInterval(60))
+      }
+    }
+    await harness.engine.drain()
+    #expect(try harness.visits.checks(visitId: seed.visit.id).isEmpty)
+    #expect(try visit(harness, seed.visit.id)?.syncState == .synced)
+    await harness.gateway.failAlways("insertChecks", with: nil)
+
+    #expect(try harness.visits.closeVisit(id: seed.visit.id, at: t0.addingTimeInterval(600)))
+    try await expectClosureSent(harness, seed.visit.id)
+  }
+
+  /// Clôture perdue : la réconciliation la remet en file, même sans coche.
+  @Test func reconciliationRequeuesTheClosureOfASentVisitWithoutChecks() async throws {
+    let harness = try SyncHarness()
+    let seed = try await sentThenUnchecked(harness)
+    try harness.visits.closeVisit(id: seed.visit.id, at: t0.addingTimeInterval(600))
+    for entry in try harness.entries() where entry.kind == .closeVisit { harness.context.delete(entry) }
+    try harness.context.save()
+    #expect(try !harness.kinds().contains(.closeVisit))
+
+    try OutboxReconciliation.run(in: harness.context, now: t0.addingTimeInterval(700))
+    #expect(try harness.kinds().filter { $0 == .closeVisit }.count == 1)
+    #expect(try !harness.kinds().contains(.createVisit))
+  }
+
+  /// Non-régression : jamais envoyée et sans coche, la visite est supprimée et rien ne part.
+  @Test(arguments: [false, true])
+  func aVisitNeverSentAndWithoutChecksIsStillDeleted(abandoning: Bool) async throws {
+    let harness = try SyncHarness()
+    let seed = try seed(harness, sendAfter: 5)
+    try harness.visits.uncheckItem(itemId: seed.item.id, checkId: seed.check.id, at: t0.addingTimeInterval(31))
+    #expect(try !harness.kinds().contains(.createVisit))
+    if abandoning {
+      #expect(try harness.visits.abandonVisit(id: seed.visit.id, at: t0.addingTimeInterval(3 * 3600), staleAfter: 0))
+    } else {
+      #expect(try !harness.visits.closeVisit(id: seed.visit.id, at: t0.addingTimeInterval(600)))
+    }
+    #expect(try harness.visits.visit(id: seed.visit.id) == nil)
+    #expect(try !harness.kinds().contains(.closeVisit))
+
+    await harness.skipBackoff()
+    await harness.engine.drain()
+    #expect(await harness.gateway.visits.isEmpty)
+    #expect(await !harness.gateway.calls.contains("closeVisit"))
   }
 }

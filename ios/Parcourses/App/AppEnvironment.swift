@@ -95,8 +95,8 @@ final class AppEnvironment {
 
   /// Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
   /// depuis plus de 45 min : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
-  /// aucune, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien n'est rouvert, comme
-  /// sur Android. Une visite redevenue active entre la lecture et l'abandon reste ouverte.
+  /// aucune et n'est jamais partie, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien
+  /// n'est rouvert, comme sur Android. Une visite redevenue active entre la lecture et l'abandon reste ouverte.
   func resumeShopping(now: Date = .now) async -> ShoppingSession? {
     guard let visit = try? visits.openVisit() else { return nil }
     let last = (try? visits.lastActivity(visitId: visit.id)) ?? visit.startedAt

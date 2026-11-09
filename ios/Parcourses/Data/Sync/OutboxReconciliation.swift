@@ -53,10 +53,17 @@ enum OutboxReconciliation {
         FetchDescriptor<Visit>(sortBy: [SortDescriptor(\.startedAt)]))
       let allChecks = Dictionary(
         grouping: try context.fetch(FetchDescriptor<Check>(sortBy: [SortDescriptor(\.checkedAt)])), by: \.visitId)
+      // Sur un contexte neuf, comme `wasReceived` : le principal reçoit les écritures du moteur plus tard.
+      let synced = SyncState.synced.rawValue
+      let received = Set(
+        try ModelContext(context.container).fetch(
+          FetchDescriptor<Visit>(predicate: #Predicate { $0.syncStateRaw == synced })
+        ).map(\.id))
       for visit in visits {
         let checks = allChecks[visit.id] ?? []
-        // Sans coche, une visite reste locale (#9 §5.5).
-        guard !checks.isEmpty else { continue }
+        // Sans coche, une visite reste locale (#9 §5.5), sauf si le serveur l'a déjà reçue : sa clôture doit
+        // partir (#62).
+        guard !checks.isEmpty || received.contains(visit.id) else { continue }
         if visit.syncState == .pending, missing(visit.id, .createVisit) {
           let listId = try isActive(list: visit.listId, in: context) ? visit.listId : nil
           try context.enqueueCreation(of: visit, listId: listId, at: now)

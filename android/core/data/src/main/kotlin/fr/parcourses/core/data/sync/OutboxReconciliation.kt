@@ -73,8 +73,9 @@ class OutboxReconciliation(
         val checksByVisit = db.checks().getAll().groupBy { it.visitId }
         for (visit in db.visits().getAll()) {
             val checks = checksByVisit[visit.id].orEmpty()
-            // Sans coche, une visite reste locale (#9 §5.5).
-            if (checks.isEmpty()) continue
+            // Sans coche, une visite reste locale (#9 §5.5), sauf si le serveur l'a déjà reçue : sa clôture doit
+            // partir (#62).
+            if (checks.isEmpty() && visit.syncState != SyncState.SYNCED) continue
 
             fun missing(
                 id: String,

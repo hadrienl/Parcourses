@@ -101,6 +101,9 @@ actor SyncStore {
   }
 
   /// Une entrée absente a été remplacée pendant l'envoi : rien à faire, sa remplaçante partira.
+  ///
+  /// Sauf une création de visite annulée pendant l'envoi (dernière coche retirée) : le serveur a reçu la visite
+  /// quand même. Marquée reçue, elle sera close au lieu d'être supprimée en local (#62).
   func complete(_ work: OutboxWork) throws {
     var entities: [UUID] = []
     for id in work.entryIds {
@@ -108,6 +111,7 @@ actor SyncStore {
       entities.append(entry.entityId)
       modelContext.delete(entry)
     }
+    if work.kind == .createVisit, entities.isEmpty { entities.append(work.entityId) }
     let pending = try pendingEntityIds()
     for entityId in entities {
       try applyToEntity(kind: work.kind, entityId: entityId, state: .synced, pending: pending)

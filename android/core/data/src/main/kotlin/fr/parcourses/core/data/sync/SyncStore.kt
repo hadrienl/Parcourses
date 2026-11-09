@@ -136,7 +136,12 @@ class SyncStore(
 
     suspend fun pendingCount(): Int = outbox.pendingCount()
 
-    /** Une entrée absente a été remplacée pendant l'envoi : rien à faire, sa remplaçante partira. */
+    /**
+     * Une entrée absente a été remplacée pendant l'envoi : rien à faire, sa remplaçante partira.
+     *
+     * Sauf une création de visite annulée pendant l'envoi (dernière coche retirée) : le serveur a reçu la visite
+     * quand même. Marquée reçue, elle sera close au lieu d'être supprimée en local (#62).
+     */
     suspend fun complete(work: OutboxWork) =
         db.withWriteTransaction {
             val entities = mutableListOf<String>()
@@ -145,6 +150,7 @@ class SyncStore(
                 entities += entry.entityId
                 outbox.delete(id)
             }
+            if (work.kind == OutboxKind.CreateVisit && entities.isEmpty()) entities += work.entityId
             val pending = pendingEntityIds()
             for (entityId in entities) applyToEntity(work.kind, entityId, SyncState.SYNCED, pending)
         }
