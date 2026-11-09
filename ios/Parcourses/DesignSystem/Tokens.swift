@@ -86,8 +86,12 @@ enum TicketMetrics {
 
 /// Typographie : chasse fixe système (SF Mono), sur les styles de texte pour suivre Dynamic Type jusqu'à AX5.
 enum TicketFont {
-  /// Titre du ticket (magasin ou liste), en capitales.
-  static let title = Font.system(.title2, design: .monospaced).weight(.heavy)
+  /// Titre du ticket (magasin ou liste), en capitales : 28 pt à la taille par défaut (jeton : 26).
+  static let title = Font.system(.title, design: .monospaced).weight(.heavy)
+  /// Espacement du titre : +0,04 em.
+  static let titleTracking: CGFloat = 1
+  /// Espacement du compteur : −0,03 em.
+  static let totalTracking: CGFloat = -1.5
   static let meta = Font.system(.footnote, design: .monospaced)
   /// Libellé d'un rayon, en capitales espacées.
   static let aisle = Font.system(.caption, design: .monospaced).weight(.bold)

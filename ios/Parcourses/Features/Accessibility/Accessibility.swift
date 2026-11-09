@@ -20,7 +20,8 @@ private struct EntryFieldStyle: ViewModifier {
       .textFieldStyle(.plain)
       .foregroundStyle(Palette.ink)
       .focused(focus)
-      .padding(.horizontal, Space.m)
+      // Marge de 12 pt : un appui au début de la case place le curseur avant le texte (testEntryFieldKeepsEditingGestures).
+      .padding(.horizontal, 12)
       .frame(minHeight: 44)
       .background(Palette.paper, in: shape)
       .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: contrast == .increased ? 1.5 : 1) }
@@ -34,12 +35,14 @@ private struct ProminentButtonStyle: ButtonStyle {
   /// Bouton à pictogramme seul : marges réduites.
   var compact = false
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.colorSchemeContrast) private var contrast
 
   func makeBody(configuration: Configuration) -> some View {
     let shape = RoundedRectangle(cornerRadius: 25, style: .continuous)
     configuration.label
       .font(.body.weight(.bold))
-      .foregroundStyle(isEnabled ? Palette.onAccent : Palette.inkMuted)
+      // Désactivé : texte secondaire sur le bord du papier ; l'encre en Contraste augmenté, où le fond fonce.
+      .foregroundStyle(isEnabled ? Palette.onAccent : (contrast == .increased ? Palette.ink : Palette.inkMuted))
       .padding(.horizontal, compact ? Space.xs / 2 : Space.l)
       .padding(.vertical, Space.xs / 2)
       .frame(minHeight: 50)
@@ -88,6 +91,18 @@ extension View {
       .parcoursesGlass()
       .padding(.horizontal, Space.m)
       .padding(.bottom, Space.xs)
+  }
+
+  /// Bannière flottante (« Annuler ») : papier opaque, filet et ombre légère. Le verre est réservé à la barre basse
+  /// (jeton `material.ios26`) ; sur le verre clair d'iOS 26, l'audit de contraste rejette le libellé à l'accent alors
+  /// que la capture mesure 7,7:1.
+  func ticketBanner() -> some View {
+    let shape = RoundedRectangle(cornerRadius: TicketMetrics.primaryAction / 2, style: .continuous)
+    // Ombre sur le fond seul : posée sur la vue entière, elle ombrerait aussi le texte (halo rejeté par l'audit).
+    return background {
+      shape.fill(Palette.paper).shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+    .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: 1) }
   }
 
   /// Ligne d'une liste habillée en ticket : pas de séparateur, fond de papier, gouttière du fil à gauche.

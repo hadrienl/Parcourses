@@ -105,6 +105,7 @@ struct ListDetailView: View {
       Spacer(minLength: Space.s)
       Text(ShoppingView.counter(count))
         .font(TicketFont.total(size: totalSize))
+        .tracking(TicketFont.totalTracking)
         .monospacedDigit()
         .foregroundStyle(Palette.ink)
     }

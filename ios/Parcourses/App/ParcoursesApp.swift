@@ -28,7 +28,7 @@ struct ParcoursesApp: App {
         RootView(environment: environment)
           // Teinte de l'app : l'accent du ticket (8:1 sur le papier en clair), avec sa variante Contraste augmenté.
           // Posée à la racine pour que les feuilles et le plein écran en héritent ; l'asset AccentColor (mêmes
-          // valeurs) sert aux contrôles système hors de cette hiérarchie (alertes).
+          // valeurs, sans la variante Contraste augmenté) sert aux contrôles système hors de cette hiérarchie (alertes).
           .tint(Palette.accent)
           // Tests UI : apparence et réglages d'affichage forcés (Debug seulement).
           .uiTestOverrides()

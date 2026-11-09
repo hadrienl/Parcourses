@@ -60,6 +60,8 @@ struct ThreadRow<Marker: View, Content: View>: View {
       Color.clear.frame(width: TicketMetrics.threadGutter, height: 1)
       content
     }
+    // Toute la ligne est touchable, gouttière du fil comprise : `Color.clear` seul ne reçoit pas les touchers.
+    .contentShape(Rectangle())
     .backgroundPreferenceValue(ThreadAnchorKey.self) { anchor in
       GeometryReader { proxy in
         let y = anchor.map { proxy[$0].y } ?? proxy.size.height / 2
