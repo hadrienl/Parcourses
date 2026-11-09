@@ -360,7 +360,8 @@ private struct RemainingItemsSheet: View {
           .prominentButton()
           .accessibilityIdentifier("keepRemaining")
         Button(role: .destructive, action: onDrop) {
-          Text("Les retirer de la liste").touchTarget()
+          // Rouge plus soutenu que le rouge système (≈ 3,6:1 sur blanc) : 5,4:1 en clair, 6:1 en sombre.
+          Text("Les retirer de la liste").foregroundStyle(Color("DestructiveText")).touchTarget()
         }
         if canCancel {
           Button(action: onCancel) {
