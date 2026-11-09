@@ -30,11 +30,8 @@ struct ParcoursesApp: App {
           // les boutons pleins ont leur propre teinte (`prominentButton()`). Posée à la racine pour que les
           // feuilles et le plein écran en héritent. Remplacée par les jetons de couleur au lot 9.11.
           .tint(Color("AccentColor"))
-          // Tests UI : mode sombre forcé (audit d'accessibilité), `XCUIDevice.appearance` ne s'appliquant pas
-          // de façon fiable au simulateur.
-          .preferredColorScheme(
-            ProcessInfo.processInfo.environment["PARCOURSES_TEST_COLOR_SCHEME"] == "dark" ? .dark : nil
-          )
+          // Tests UI : apparence et réglages d'affichage forcés (Debug seulement).
+          .uiTestOverrides()
           .task {
             environment.sync?.start()
             if let gateway {

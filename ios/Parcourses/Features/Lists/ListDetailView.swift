@@ -30,6 +30,8 @@ struct ListDetailView: View {
         }
       }
     }
+    // Repère des tests UI (audit d'accessibilité) : la liste de l'écran Liste.
+    .accessibilityIdentifier("itemList")
     .scrollDismissesKeyboard(.interactively)
     .overlay {
       if model.isMissing {

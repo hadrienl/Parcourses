@@ -86,6 +86,8 @@ struct ShoppingView: View {
         }
       }
     }
+    // Repère des tests UI (audit d'accessibilité) : la liste du mode courses, distincte de celle de l'écran Liste.
+    .accessibilityIdentifier("shoppingList")
     .animation(motion, value: session.toBuy.map(\.id))
     .animation(motion, value: session.basket.map(\.id))
     .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
@@ -360,7 +362,8 @@ private struct RemainingItemsSheet: View {
           .prominentButton()
           .accessibilityIdentifier("keepRemaining")
         Button(role: .destructive, action: onDrop) {
-          Text("Les retirer de la liste").touchTarget()
+          // Rouge plus soutenu que le rouge système (≈ 3,6:1 sur blanc) : 5,4:1 en clair, 6:1 en sombre.
+          Text("Les retirer de la liste").foregroundStyle(Color("DestructiveText")).touchTarget()
         }
         if canCancel {
           Button(action: onCancel) {

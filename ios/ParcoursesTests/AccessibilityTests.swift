@@ -115,6 +115,29 @@ struct PrivacyManifestTests {
     #expect(Set(found) == ["NSPrivacyAccessedAPICategorySystemBootTime"])
   }
 
+  /// `stat(` sans préfixe est détecté, en début de ligne comme après un séparateur, mais pas au milieu d'un nom
+  /// (`restat(`, `my_stat(` : le début de mot est vérifié, pas seulement la casse).
+  @Test(arguments: [
+    "stat(path, &info)", "_ = stat(path, &info)", "fstat(fd, &info)", "lstat(p, &i)", "fstatat(fd, p, &i, 0)",
+  ])
+  func detectorFindsStat(source: String) {
+    #expect(RequiredReasonAPI.categories(inSource: source) == ["NSPrivacyAccessedAPICategoryFileTimestamp"])
+  }
+
+  @Test(arguments: [
+    "lastStat(item)", "restat(path)", "my_stat(path)", "let stats = statistics(of: list)", "status(code)",
+  ])
+  func detectorIgnoresStatInsideIdentifiers(source: String) {
+    #expect(RequiredReasonAPI.categories(inSource: source).isEmpty)
+  }
+
+  @Test(arguments: [
+    "attributes[NSFileSystemFreeSize]", "attributes[.systemFreeSize]", "attributes[NSFileSystemSize]",
+  ])
+  func detectorFindsDiskSpaceKeysWhateverTheCase(source: String) {
+    #expect(RequiredReasonAPI.categories(inSource: source) == ["NSPrivacyAccessedAPICategoryDiskSpace"])
+  }
+
   @Test func widgetsExtensionHasItsOwnManifest() throws {
     let url = try #require(Bundle.main.builtInPlugInsURL?.appending(path: "ParcoursesWidgets.appex"))
     let plist = try manifest(in: try #require(Bundle(url: url)))
@@ -131,15 +154,22 @@ private final class BundleToken {}
 
 /// Détecteur d'API à raison obligatoire (liste Apple : horodatages de fichiers, démarrage du système, espace disque,
 /// claviers actifs, `UserDefaults`). Les lignes de commentaire sont ignorées.
+///
+/// Seules nos sources sont balayées (app, extension, paquets locaux `Domain` et `SortEngine`). Les dépendances
+/// SwiftPM (`supabase-swift` et ses dépendances transitives) ne le sont pas : elles doivent fournir leur propre
+/// manifeste, à vérifier à chaque montée de version.
 enum RequiredReasonAPI {
+  /// Expressions régulières. `stat(` n'est retenu qu'en début de mot (`stat(`, `fstat(`, `lstat(`, `.stat(`),
+  /// jamais au milieu d'un identifiant comme `lastStat(`. Les clés d'espace disque s'écrivent `systemFreeSize`
+  /// (Swift) ou `NSFileSystemFreeSize` (Objective-C) : sans tenir compte de la casse.
   static let patterns: [String: [String]] = [
     "NSPrivacyAccessedAPICategoryFileTimestamp": [
       "creationDate", "modificationDate", "contentModificationDate", "fileModificationDate", "creationDateKey",
-      "getattrlist", "fstat(", "lstat(", ".stat(",
+      "getattrlist", #"(?<![\w])(?:[fl]?stat|fstatat)\("#,
     ],
     "NSPrivacyAccessedAPICategorySystemBootTime": ["systemUptime", "mach_absolute_time"],
     "NSPrivacyAccessedAPICategoryDiskSpace": [
-      "volumeAvailableCapacity", "volumeTotalCapacity", "systemFreeSize", "systemSize", "statfs", "statvfs",
+      "volumeAvailableCapacity", "volumeTotalCapacity", "(?i)systemFreeSize", "(?i)systemSize", "statfs", "statvfs",
     ],
     "NSPrivacyAccessedAPICategoryActiveKeyboards": ["activeInputModes"],
     "NSPrivacyAccessedAPICategoryUserDefaults": ["UserDefaults", "@AppStorage"],
@@ -149,7 +179,9 @@ enum RequiredReasonAPI {
     let code = source.split(separator: "\n")
       .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
       .joined(separator: "\n")
-    return patterns.filter { _, needles in needles.contains { code.contains($0) } }.map(\.key)
+    return patterns.filter { _, needles in
+      needles.contains { code.range(of: $0, options: .regularExpression) != nil }
+    }.map(\.key)
   }
 
   /// Catégorie → fichiers où elle apparaît.
