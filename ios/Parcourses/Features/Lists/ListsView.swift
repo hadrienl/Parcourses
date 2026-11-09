@@ -9,6 +9,7 @@ struct ListsView: View {
   @State private var renaming: ListSummary?
   @State private var deleting: ListSummary?
   @State private var nameInput = ""
+  @State private var showsAbout = false
 
   init(model: ListsModel, onOpen: @escaping (UUID) -> Void) {
     _model = State(initialValue: model)
@@ -18,7 +19,15 @@ struct ListsView: View {
   var body: some View {
     content
       .navigationTitle("Mes listes")
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("À propos", systemImage: "info.circle") { showsAbout = true }
+            .accessibilityIdentifier("about")
+        }
+      }
+      .sheet(isPresented: $showsAbout) { AboutView() }
       .safeAreaInset(edge: .bottom) { createButton }
+      .opaqueBottomBar()
       // Relancé à chaque retour sur l'écran, pour des compteurs à jour.
       .task { model.load() }
       .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
@@ -51,9 +60,7 @@ struct ListsView: View {
 
   @ViewBuilder private var content: some View {
     if model.lists.isEmpty {
-      ContentUnavailableView(
-        "Aucune liste", systemImage: "cart",
-        description: Text("Créez votre première liste de courses."))
+      EmptyState(title: "Aucune liste", systemImage: "cart", description: "Créez votre première liste de courses.")
     } else {
       List(model.lists) { list in
         Button {
@@ -85,8 +92,7 @@ struct ListsView: View {
       Spacer()
       Image(systemName: "chevron.right").foregroundStyle(.tertiary).accessibilityHidden(true)
     }
-    .frame(minHeight: 48)
-    .contentShape(Rectangle())
+    .rowHeight()
     .accessibilityElement(children: .combine)
   }
 
@@ -96,11 +102,11 @@ struct ListsView: View {
       isCreating = true
     } label: {
       Label("Nouvelle liste", systemImage: "plus")
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity)
     }
-    .buttonStyle(.borderedProminent)
+    .prominentButton()
     .padding()
-    .background(.bar)
+    .barBackground()
   }
 
   private var errorIsPresented: Binding<Bool> {

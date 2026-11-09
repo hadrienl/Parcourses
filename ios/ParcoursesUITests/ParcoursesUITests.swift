@@ -1,36 +1,6 @@
 import XCTest
 
-// XCTestCase est nonisolated : on sort de l'isolation MainActor par défaut.
-nonisolated final class ParcoursesUITests: XCTestCase {
-  override func setUp() {
-    continueAfterFailure = false
-  }
-
-  @MainActor
-  private func launch(reset: Bool) -> XCUIApplication {
-    let app = XCUIApplication()
-    app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests"
-    if reset { app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1" }
-    app.launch()
-    return app
-  }
-
-  /// Ligne d'article, par libellé et état annoncés à VoiceOver.
-  @MainActor
-  private func row(_ app: XCUIApplication, _ label: String, _ state: String) -> XCUIElement {
-    app.descendants(matching: .any)
-      .matching(NSPredicate(format: "label == %@ AND value == %@", label, state)).firstMatch
-  }
-
-  /// Capture conservée dans le `.xcresult`, sert de preuve visuelle aux PR.
-  @MainActor
-  private func capture(_ app: XCUIApplication, _ name: String) {
-    let attachment = XCTAttachment(screenshot: app.screenshot())
-    attachment.name = name
-    attachment.lifetime = .keepAlways
-    add(attachment)
-  }
-
+nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
   /// Parcours complet : créer, ajouter, voir groupé, cocher, supprimer, relancer et tout retrouver.
   @MainActor
   func testListJourneySurvivesRelaunch() {
@@ -68,7 +38,8 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     // L'autocomplétion retrouve un article coché.
     entry.tap()
     entry.typeText("3 tom")
-    let chip = app.buttons["Ajouter tomates"]
+    // Libellé VoiceOver (l'identifiant de la puce est « suggestion »).
+    let chip = app.buttons.matching(NSPredicate(format: "label == %@", "Ajouter tomates")).firstMatch
     XCTAssertTrue(chip.waitForExistence(timeout: 5))
     capture(app, "3-autocompletion")
     chip.tap()
@@ -96,56 +67,6 @@ nonisolated final class ParcoursesUITests: XCTestCase {
     XCTAssertTrue(confirm.waitForExistence(timeout: 5))
     confirm.tap()
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 5))
-  }
-
-  /// Instantané minimal : la confiance suffit à l'en-tête, le tri lui-même est couvert par les tests unitaires.
-  private static func snapshot(confidenceQ: Int) -> String {
-    """
-    {"format_version":1,"snapshot_version":1,"params_version":1,"confidence_q":\(confidenceQ),"entries":[],"edges":[],
-    "params":{"CONF_THRESHOLD_Q":500,"COST_SCALE":1000,"UNKNOWN_BASE":3000,"CAT_STEP":200,"TWO_OPT_MAX_PASSES":20,
-    "REORDER_MIN_GAIN_PCT":10}}
-    """
-  }
-
-  /// Crée une liste, ouvre le mode courses et choisit le magasin récent, après refus de la localisation.
-  @MainActor
-  private func enterShopping(confidenceQ: Int?, items: [String]) -> XCUIApplication {
-    let app = XCUIApplication()
-    app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests-shopping"
-    app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1"
-    app.launchEnvironment["PARCOURSES_TEST_SEED_STORE"] = "Leclerc Auch"
-    app.launchEnvironment["PARCOURSES_TEST_UNDO_SECONDS"] = "60"
-    if let confidenceQ {
-      app.launchEnvironment["PARCOURSES_TEST_SEED_SNAPSHOT"] = Self.snapshot(confidenceQ: confidenceQ)
-    }
-    app.resetAuthorizationStatus(for: .location)
-    app.launch()
-
-    app.buttons["Nouvelle liste"].tap()
-    let name = app.alerts.textFields.firstMatch
-    XCTAssertTrue(name.waitForExistence(timeout: 10))
-    name.typeText("Samedi")
-    app.alerts.buttons["Créer"].tap()
-    let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 5))
-    for text in items {
-      if !entry.hasFocus { entry.tap() }
-      entry.typeText(text + "\n")
-    }
-    app.buttons["startShopping"].tap()
-
-    // La demande système n'apparaît qu'ici, au premier passage en mode courses.
-    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    let prompt = springboard.alerts.firstMatch
-    XCTAssertTrue(prompt.waitForExistence(timeout: 15), "demande de localisation attendue")
-    capture(app, "1-demande-localisation")
-    prompt.buttons.element(boundBy: prompt.buttons.count - 1).tap()
-
-    let store = app.buttons.containing(.staticText, identifier: "Leclerc Auch").firstMatch
-    XCTAssertTrue(store.waitForExistence(timeout: 15))
-    store.tap()
-    XCTAssertTrue(app.buttons["finish"].waitForExistence(timeout: 15))
-    return app
   }
 
   /// Parcours du mode courses : coche, annulation, introuvable, ajout en route, fin et résumé.

@@ -23,6 +23,15 @@ struct ParcoursesApp: App {
       switch environment {
       case .success(let environment):
         RootView(environment: environment)
+          // Teinte de l'app : l'asset AccentColor (liens, pictogrammes), ≥ 4,5:1 sur les fonds clairs et sombres ;
+          // les boutons pleins ont leur propre teinte (`prominentButton()`). Posée à la racine pour que les
+          // feuilles et le plein écran en héritent. Remplacée par les jetons de couleur au lot 9.11.
+          .tint(Color("AccentColor"))
+          // Tests UI : mode sombre forcé (audit d'accessibilité), `XCUIDevice.appearance` ne s'appliquant pas
+          // de façon fiable au simulateur.
+          .preferredColorScheme(
+            ProcessInfo.processInfo.environment["PARCOURSES_TEST_COLOR_SCHEME"] == "dark" ? .dark : nil
+          )
           .task {
             environment.sync?.start()
             if let gateway {
@@ -121,7 +130,7 @@ struct RootView: View {
           Color.black.opacity(0.2).ignoresSafeArea()
           ProgressView("Préparation de vos courses…")
             .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .bannerBackground()
         }
         .accessibilityIdentifier("shoppingPreparation")
       }

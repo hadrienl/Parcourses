@@ -11,6 +11,9 @@ struct ShoppingView: View {
   @FocusState private var inputIsFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.colorSchemeContrast) private var contrast
+  /// Ligne sous le focus VoiceOver : elle le garde quand la liste se réordonne.
+  @AccessibilityFocusState private var focusedRow: UUID?
 
   var body: some View {
     NavigationStack {
@@ -85,6 +88,12 @@ struct ShoppingView: View {
     }
     .animation(motion, value: session.toBuy.map(\.id))
     .animation(motion, value: session.basket.map(\.id))
+    .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
+    .onChange(of: session.undo) { _, undo in
+      // Une coche se lit déjà dans la valeur de la ligne (« coché ») : seul « introuvable », qui déplace la ligne
+      // dans une autre section, est annoncé.
+      if let undo, undo.kind == .notFound { ReorderAnnouncement.post(undo.message) }
+    }
     .scrollDismissesKeyboard(.interactively)
     .onScrollPhaseChange { _, phase in session.setScrolling(phase.isScrolling) }
     .onChange(of: inputIsFocused) { _, focused in session.setEditing(focused) }
@@ -94,6 +103,7 @@ struct ShoppingView: View {
     .navigationBarTitleDisplayMode(.inline)
     .sensoryFeedback(.success, trigger: checkTrigger)
     .safeAreaInset(edge: .bottom) { dock }
+    .opaqueBottomBar()
     .sheet(isPresented: remainingIsPresented) {
       RemainingItemsSheet(
         count: session.remainingCount, canCancel: !session.expired,
@@ -101,6 +111,8 @@ struct ShoppingView: View {
         onCancel: { showsRemaining = false }
       )
       .presentationDetents([.medium])
+      // Fond opaque : le verre de la feuille laisse transparaître la liste et dégrade le contraste.
+      .presentationBackground(Color(uiColor: .systemBackground))
       .interactiveDismissDisabled(session.expired)
     }
     .alert("Erreur", isPresented: errorIsPresented) {
@@ -108,6 +120,19 @@ struct ShoppingView: View {
     } message: {
       Text(session.errorMessage ?? "")
     }
+  }
+
+  /// Réordonnancement : annonce discrète du prochain article, focus conservé sur la même ligne (ou sa voisine).
+  private func listDidChange(from old: [UUID], to new: [UUID]) {
+    if let focused = focusedRow,
+      let target = ReorderAnnouncement.focusTarget(previous: old, current: new, focused: focused),
+      old.contains(focused)
+    {
+      focusedRow = target
+    }
+    guard ReorderAnnouncement.didReorder(previous: old, current: new) else { return }
+    let next = session.toBuy.first { !$0.isChecked }
+    ReorderAnnouncement.post(ReorderAnnouncement.message(next: next?.accessibilityLabel))
   }
 
   private var remainingIsPresented: Binding<Bool> {
@@ -122,18 +147,25 @@ struct ShoppingView: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text(remainingText)
-        .font(.title2.weight(.bold))
-        .foregroundStyle(.primary)
-      if let store = session.storeName {
-        Text(store).font(.subheadline)
+      // `Color.primary`, pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
+      // Aucune ligne tronquée aux grandes tailles de texte.
+      VStack(alignment: .leading, spacing: 2) {
+        Text(remainingText)
+          .font(.title2.weight(.bold))
+        if let store = session.storeName {
+          Text(store).font(.subheadline)
+        }
+        Text(knowledgeText).font(.subheadline)
       }
-      Text(knowledgeText).font(.subheadline)
+      .foregroundStyle(Color.primary)
+      .fixedSize(horizontal: false, vertical: true)
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier("shoppingHeader")
+      // Le magasin vient d'OpenStreetMap : l'attribution reste là où son nom s'affiche.
+      if session.storeName != nil { OSMAttribution() }
     }
     .textCase(nil)
     .padding(.bottom, 8)
-    .accessibilityElement(children: .combine)
-    .accessibilityIdentifier("shoppingHeader")
   }
 
   /// Titre de rayon : lu comme un en-tête, avec le nombre d'articles à prendre. Taille et casse du système,
@@ -141,7 +173,8 @@ struct ShoppingView: View {
   private func aisleHeader(_ section: ShoppingSection) -> some View {
     Text(section.title)
       .font(.headline)
-      .foregroundStyle(.primary)
+      .foregroundStyle(Color.primary)
+      .fixedSize(horizontal: false, vertical: true)
       .textCase(nil)
       .accessibilityLabel(section.accessibilityLabel)
       .accessibilityAddTraits(.isHeader)
@@ -167,27 +200,27 @@ struct ShoppingView: View {
       if !row.isChecked { checkTrigger += 1 }
       session.toggle(row)
     } label: {
-      HStack {
-        // L'état se lit sans couleur : forme de l'icône et texte barré.
-        Image(systemName: row.isChecked ? "checkmark.circle.fill" : "circle")
-          .foregroundStyle(row.isChecked ? Color.accentColor : .secondary)
-        Text(row.label)
-          .strikethrough(row.isChecked)
-          .foregroundStyle(row.isChecked ? .secondary : .primary)
-        Spacer()
-        if let quantity = row.quantity {
-          Text(quantity).foregroundStyle(.secondary)
-        }
-      }
-      .frame(minHeight: 48)
-      .contentShape(Rectangle())
+      // L'état se lit sans couleur : forme de l'icône et texte barré.
+      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
     }
     .buttonStyle(.plain)
-    .listRowBackground(session.highlightedItemId == row.id ? Color.accentColor.opacity(0.2) : nil)
+    .listRowBackground(
+      session.highlightedItemId == row.id ? Color.accentColor.opacity(contrast == .increased ? 0.4 : 0.2) : nil
+    )
+    .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.isChecked ? "coché" : "non coché")
+    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
-    .accessibilityAction(named: "Pas trouvé") { if !row.isChecked { session.markNotFound(row) } }
+    .accessibilityFocused($focusedRow, equals: row.id)
+    // Chaque action n'est proposée que là où elle a un sens.
+    .accessibilityActions {
+      if row.isChecked {
+        Button("Décocher") { session.toggle(row) }
+      } else {
+        Button("Pas trouvé") { session.markNotFound(row) }
+      }
+    }
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
@@ -205,17 +238,23 @@ struct ShoppingView: View {
     Button {
       session.restore(row)
     } label: {
-      HStack {
-        Image(systemName: "questionmark.circle")
-        Text(row.label)
-        Spacer()
-        Text("Remettre").font(.subheadline)
+      ViewThatFits(in: .horizontal) {
+        HStack {
+          Image(systemName: "questionmark.circle")
+          Text(row.label)
+          Spacer()
+          Text("Remettre").font(.subheadline)
+        }
+        VStack(alignment: .leading) {
+          Label(row.label, systemImage: "questionmark.circle")
+          Text("Remettre").font(.subheadline)
+        }
       }
-      .foregroundStyle(.secondary)
-      .frame(minHeight: 48)
-      .contentShape(Rectangle())
+      .foregroundStyle(contrast == .increased ? .primary : .secondary)
+      .rowHeight()
     }
     .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue("introuvable")
     .accessibilityHint("Remet l'article dans la liste")
@@ -224,38 +263,67 @@ struct ShoppingView: View {
   private var dock: some View {
     VStack(spacing: 8) {
       if let undo = session.undo {
-        HStack {
-          Text(undo.message).lineLimit(2)
-          Spacer()
-          Button("Annuler") { session.performUndo() }
-            .fontWeight(.semibold)
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("undo")
+        ViewThatFits(in: .horizontal) {
+          HStack {
+            Text(undo.message).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("undoMessage")
+            Spacer()
+            undoButton
+          }
+          VStack(alignment: .leading, spacing: 0) {
+            Text(undo.message).accessibilityIdentifier("undoMessage")
+            undoButton
+          }
         }
         .padding(.horizontal, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .bannerBackground()
         .transition(.opacity)
       }
       if session.isEverythingChecked {
-        Text("Tout est coché !").font(.headline)
+        Text("Tout est coché !").font(.headline).accessibilityIdentifier("allChecked")
       }
-      HStack {
-        TextField("Ajouter un article", text: $session.input)
-          .textFieldStyle(.roundedBorder)
-          .focused($inputIsFocused)
-          .submitLabel(.done)
-          .accessibilityIdentifier("shoppingEntry")
-          .onSubmit(submit)
-        Button("Terminer", action: finishTapped)
-          .buttonStyle(.borderedProminent)
-          .frame(minHeight: 44)
-          .accessibilityIdentifier("finish")
+      // Aux grandes tailles de texte, « Terminer » passe sous le champ.
+      ViewThatFits(in: .horizontal) {
+        HStack {
+          entryField
+          finishButton
+        }
+        VStack(spacing: 8) {
+          entryField
+          finishButton
+        }
       }
     }
     .animation(motion, value: session.undo)
     .padding(.horizontal)
     .padding(.vertical, 8)
-    .background(.bar)
+    .barBackground()
+  }
+
+  private var undoButton: some View {
+    Button {
+      session.performUndo()
+    } label: {
+      // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le message.
+      Text("Annuler").fontWeight(.semibold).fixedSize().touchTarget()
+    }
+    .accessibilityIdentifier("undo")
+  }
+
+  private var entryField: some View {
+    TextField("Ajouter un article", text: $session.input, prompt: EntryPrompt.text)
+      .entryField(focus: $inputIsFocused)
+      .submitLabel(.done)
+      .accessibilityIdentifier("shoppingEntry")
+      .onSubmit(submit)
+  }
+
+  private var finishButton: some View {
+    Button(action: finishTapped) {
+      // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le champ.
+      Text("Terminer").fixedSize()
+    }
+    .prominentButton()
+    .accessibilityIdentifier("finish")
   }
 
   private func submit() {
@@ -283,22 +351,27 @@ private struct RemainingItemsSheet: View {
   let onCancel: () -> Void
 
   var body: some View {
-    VStack(spacing: 16) {
-      Text(count == 1 ? "1 article non coché" : "\(count) articles non cochés")
-        .font(.title2.weight(.bold))
-      Text("Les garder pour la prochaine fois ?")
-      Button("Les garder", action: onKeep)
-        .buttonStyle(.borderedProminent)
-        .frame(minHeight: 44)
-        .accessibilityIdentifier("keepRemaining")
-      Button("Les retirer de la liste", role: .destructive, action: onDrop)
-        .frame(minHeight: 44)
-      if canCancel {
-        Button("Continuer mes courses", action: onCancel)
-          .frame(minHeight: 44)
+    ScrollView {
+      VStack(spacing: 16) {
+        Text(count == 1 ? "1 article non coché" : "\(count) articles non cochés")
+          .font(.title2.weight(.bold))
+        Text("Les garder pour la prochaine fois ?")
+        Button("Les garder", action: onKeep)
+          .prominentButton()
+          .accessibilityIdentifier("keepRemaining")
+        Button(role: .destructive, action: onDrop) {
+          Text("Les retirer de la liste").touchTarget()
+        }
+        if canCancel {
+          Button(action: onCancel) {
+            Text("Continuer mes courses").touchTarget()
+          }
+        }
       }
+      .multilineTextAlignment(.center)
+      .padding()
     }
-    .padding()
+    .scrollBounceBehavior(.basedOnSize)
   }
 }
 
@@ -309,8 +382,26 @@ struct ShoppingSummaryView: View {
   @State private var appeared = false
 
   var body: some View {
+    // Centré quand il tient dans l'écran, ouvert en haut quand il déborde (grandes tailles de texte).
+    GeometryReader { proxy in
+      ScrollView {
+        summaryContent
+          .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+      }
+      .scrollBounceBehavior(.basedOnSize)
+    }
+    .safeAreaInset(edge: .bottom) {
+      Button("Retour aux listes", action: onClose)
+        .prominentButton()
+        .accessibilityIdentifier("closeSummary")
+        .padding()
+    }
+    .sensoryFeedback(.success, trigger: appeared)
+    .onAppear { appeared = true }
+  }
+
+  private var summaryContent: some View {
     VStack(spacing: 16) {
-      Spacer()
       Text(summary.checkedCount <= 1 ? "\(summary.checkedCount) article" : "\(summary.checkedCount) articles")
         .font(.largeTitle.weight(.bold))
       Text("en \(summary.minutes) min").font(.title2)
@@ -318,15 +409,10 @@ struct ShoppingSummaryView: View {
         Text(contribution).multilineTextAlignment(.center).foregroundStyle(.secondary)
           .accessibilityIdentifier("contribution")
       }
-      Spacer()
-      Button("Retour aux listes", action: onClose)
-        .buttonStyle(.borderedProminent)
-        .frame(minHeight: 44)
-        .accessibilityIdentifier("closeSummary")
+      if summary.storeName != nil { OSMAttribution() }
     }
+    .multilineTextAlignment(.center)
     .padding()
-    .sensoryFeedback(.success, trigger: appeared)
-    .onAppear { appeared = true }
   }
 
   private var contribution: String? {

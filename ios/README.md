@@ -48,3 +48,10 @@ Ignorées sans ces variables (CI comprise) :
 
 - Parcours et captures : `testShoppingJourney` et les tests d'en-tête de `ParcoursesUITests`, images dans le `.xcresult` (`xcrun xcresulttool export attachments`).
 - Serveur : `scripts/integration-test.sh` publie l'instantané d'un magasin de test, joue une visite, vérifie les lignes reçues en base (`SIMULATOR_UDID` pour réutiliser un simulateur), puis nettoie.
+
+## Accessibilité et confidentialité
+
+- Audit : `ParcoursesAccessibilityUITests` lance `performAccessibilityAudit(for: .all)` sur chaque écran principal, à la taille par défaut, en AX5 et en mode sombre (`PARCOURSES_TEST_COLOR_SCHEME=dark`), en CI avec le reste des tests UI. Les exceptions sont dans `isKnownIssue`, chacune bornée à une situation et justifiée.
+- Les problèmes sont réunis puis consignés après l'audit (et journalisés `AUDIT[...]`) : consigner un échec dans le gestionnaire de l'audit le fait bloquer. L'échec est consigné sans pile d'appels, dont la symbolication bloque parfois XCTest en local.
+- Cibles tactiles : minimums constants (44 pt, 48 pt pour les lignes) posés dans le label des boutons (`touchTarget()`, `rowHeight()`), boutons pleins en `prominentButton()`.
+- `PrivacyInfo.xcprivacy` (app et extension) : pas de suivi ; `UserDefaults` `CA92.1` (curseurs de synchro). `PrivacyManifestTests` cherche dans les sources (copiées dans le bundle de test) les API à raison obligatoire et échoue sur toute API non déclarée.

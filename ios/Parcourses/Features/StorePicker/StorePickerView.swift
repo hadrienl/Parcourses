@@ -13,6 +13,7 @@ struct StorePickerView: View {
         .navigationTitle("Choisir le magasin")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { attribution }
+        .opaqueBottomBar()
         .alert("Impossible d'enregistrer ce magasin", isPresented: selectionFailed) {
           Button("OK", role: .cancel) {}
         } message: {
@@ -44,7 +45,7 @@ struct StorePickerView: View {
           Section("Vous êtes ici ?") {
             StoreRow(store: proposed) { model.select(proposed) }
             Button("Faire mes courses ici") { model.select(proposed) }
-              .buttonStyle(.borderedProminent)
+              .prominentButton()
               .frame(maxWidth: .infinity)
               .listRowBackground(Color.clear)
               .accessibilityIdentifier("confirmProposal")
@@ -107,8 +108,12 @@ struct StorePickerView: View {
   }
 
   private var continueWithoutStoreButton: some View {
-    Button("Continuer sans magasin") { model.continueWithoutStore() }
-      .accessibilityIdentifier("continueWithoutStore")
+    Button {
+      model.continueWithoutStore()
+    } label: {
+      Text("Continuer sans magasin").touchTarget()
+    }
+    .accessibilityIdentifier("continueWithoutStore")
   }
 
   private var isSearching: Bool {
@@ -175,12 +180,8 @@ struct StorePickerView: View {
 
   /// Les magasins viennent d'OpenStreetMap (#9 §8).
   private var attribution: some View {
-    Link("© contributeurs OpenStreetMap", destination: URL(filePath: "/").osmCopyright)
-      .font(.caption2)
-      .foregroundStyle(.secondary)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 4)
-      .background(.bar)
+    // Aplat opaque : le lien reste lisible quand la liste défile dessous.
+    OSMAttribution().background(Color(uiColor: .systemGroupedBackground))
   }
 }
 
@@ -203,19 +204,13 @@ private struct StoreRow: View {
           Text(StoreDistance.text(metres: distance)).font(.subheadline).foregroundStyle(.secondary)
         }
       }
-      .frame(minHeight: 44)
-      .contentShape(Rectangle())
+      .touchTarget()
     }
     // Style neutre : le nom se lit comme un contenu, pas comme un lien teinté.
     .buttonStyle(.plain)
     .accessibilityElement(children: .combine)
     .accessibilityAddTraits(.isButton)
   }
-}
-
-extension URL {
-  /// Licence ODbL, exigée avec l'attribution.
-  fileprivate var osmCopyright: URL { URL(string: "https://www.openstreetmap.org/copyright") ?? self }
 }
 
 /// Distance lisible et arrondie : le GPS ne justifie pas le mètre près.

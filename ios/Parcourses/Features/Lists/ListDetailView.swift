@@ -19,23 +19,26 @@ struct ListDetailView: View {
   var body: some View {
     List {
       ForEach(model.sections) { section in
-        Section(section.title) {
+        Section {
           ForEach(section.items) { row in
             itemRow(row)
           }
+        } header: {
+          // Titre en couleur principale : le gris des en-têtes du système tient mal le contraste. `Color.primary`,
+          // pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
+          Text(section.title).foregroundStyle(Color.primary)
         }
       }
     }
     .scrollDismissesKeyboard(.interactively)
     .overlay {
       if model.isMissing {
-        ContentUnavailableView(
-          "Liste introuvable", systemImage: "questionmark.folder",
-          description: Text("Cette liste a été supprimée."))
+        EmptyState(
+          title: "Liste introuvable", systemImage: "questionmark.folder", description: "Cette liste a été supprimée.")
       } else if model.isLoaded && model.isEmpty {
-        ContentUnavailableView(
-          "Liste vide", systemImage: "basket",
-          description: Text("Ajoutez un article, par exemple « 2 laits demi-écrémé »."))
+        EmptyState(
+          title: "Liste vide", systemImage: "basket",
+          description: "Ajoutez un article, par exemple « 2 laits demi-écrémé ».")
       }
     }
     .navigationTitle(model.name)
@@ -53,6 +56,7 @@ struct ListDetailView: View {
     .safeAreaInset(edge: .bottom) {
       if !model.isMissing { dock }
     }
+    .opaqueBottomBar()
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
     .task {
       model.load()
@@ -69,25 +73,18 @@ struct ListDetailView: View {
     Button {
       model.toggle(row)
     } label: {
-      HStack {
-        // L'état se lit sans couleur : forme de l'icône et texte barré.
-        Image(systemName: row.isChecked ? "checkmark.circle.fill" : "circle")
-          .foregroundStyle(row.isChecked ? Color.accentColor : .secondary)
-        Text(row.label)
-          .strikethrough(row.isChecked)
-          .foregroundStyle(row.isChecked ? .secondary : .primary)
-        Spacer()
-        if let quantity = row.quantity {
-          Text(quantity).foregroundStyle(.secondary)
-        }
-      }
-      .frame(minHeight: 48)
-      .contentShape(Rectangle())
+      // L'état se lit sans couleur : forme de l'icône et texte barré.
+      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
     }
     .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.accessibilityState)
+    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
+    .accessibilityActions {
+      if row.isChecked { Button("Décocher") { model.toggle(row) } }
+    }
     .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
       Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
@@ -104,28 +101,33 @@ struct ListDetailView: View {
               Button(suggestion.label) { model.add(suggestion) }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
+                .controlSize(.large)
                 .accessibilityLabel("Ajouter \(suggestion.label)")
+                .accessibilityIdentifier("suggestion")
             }
           }
         }
       }
       HStack {
-        TextField("Ajouter un article", text: $model.input)
-          .textFieldStyle(.roundedBorder)
-          .focused($inputIsFocused)
+        TextField("Ajouter un article", text: $model.input, prompt: EntryPrompt.text)
+          .entryField(focus: $inputIsFocused)
           .submitLabel(.done)
           .accessibilityIdentifier("quickEntry")
           .onSubmit(submit)
-        Button("Ajouter", systemImage: "plus.circle.fill", action: submit)
-          .labelStyle(.iconOnly)
-          .font(.title)
-          .frame(minWidth: 44, minHeight: 44)
-          .disabled(model.input.allSatisfy(\.isWhitespace))
+        Button(action: submit) {
+          Label("Ajouter", systemImage: "plus.circle.fill")
+            .labelStyle(.iconOnly)
+            .font(.title)
+            .frame(minWidth: 44)
+            .touchTarget()
+        }
+        .disabled(model.input.allSatisfy(\.isWhitespace))
+        .accessibilityIdentifier("addItem")
       }
     }
     .padding(.horizontal)
     .padding(.vertical, 8)
-    .background(.bar)
+    .barBackground()
   }
 
   /// Le clavier reste ouvert : on enchaîne les articles.
