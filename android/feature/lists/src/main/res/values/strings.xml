@@ -12,6 +12,7 @@
     <string name="lists_delete">Supprimer</string>
     <string name="lists_delete_confirm">Supprimer cette liste et ses articles ?</string>
     <string name="lists_delete_action">Supprimer la liste</string>
+    <string name="lists_about">À propos</string>
     <string name="lists_more_actions">Actions pour %1$s</string>
     <string name="lists_subtitle_empty">Aucun article</string>
     <string name="lists_subtitle_done">Tout est coché</string>
@@ -30,10 +31,17 @@
     <string name="detail_add">Ajouter</string>
     <string name="detail_add_suggestion">Ajouter %1$s</string>
     <string name="detail_start_shopping">Faire mes courses</string>
+    <string name="detail_start_shopping_short">Courses</string>
     <string name="detail_delete_item">Supprimer</string>
     <string name="detail_item_checked">coché</string>
     <string name="detail_item_unchecked">non coché</string>
     <string name="detail_section_count">%1$s, %2$d articles</string>
+    <!-- Libellé du compteur du ticket (« ARTICLES 06 »), affiché en capitales. -->
+    <string name="detail_total_label">Articles</string>
+    <plurals name="detail_item_count">
+        <item quantity="one">%1$d article</item>
+        <item quantity="other">%1$d articles</item>
+    </plurals>
 
     <!-- Commun -->
     <string name="common_cancel">Annuler</string>

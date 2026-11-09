@@ -66,6 +66,4 @@
     <string name="picker_ok">OK</string>
 
     <!-- Attribution OpenStreetMap (ODbL) -->
-    <string name="picker_attribution">© contributeurs OpenStreetMap, licence ODbL</string>
-    <string name="picker_attribution_action">Ouvrir la page de licence d\'OpenStreetMap</string>
 </resources>

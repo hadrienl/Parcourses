@@ -1,25 +1,42 @@
 package fr.parcourses.feature.shopping
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.AisleLine
+import fr.parcourses.core.designsystem.CapsText
+import fr.parcourses.core.designsystem.LearnedTag
+import fr.parcourses.core.designsystem.ThreadLayout
+import fr.parcourses.core.designsystem.ThreadPiece
+import fr.parcourses.core.designsystem.ThreadStyle
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketHeader
+import fr.parcourses.core.designsystem.TicketType
+import kotlinx.coroutines.delay
 
+/**
+ * En-tête du ticket (#6, B3) : magasin (ou liste) en titre, connaissance du trajet, puis « RESTE 05 ». Lu d'un bloc
+ * comme un titre : « 5 à prendre, Carrefour, Trajet connu à 80 % » (ordre de lecture de #6 §5).
+ */
 @Composable
 internal fun Header(state: ShoppingUiState) {
     val knowledge =
@@ -29,49 +46,62 @@ internal fun Header(state: ShoppingUiState) {
             is RouteKnowledge.Learning -> stringResource(R.string.shopping_knowledge_learning, k.percent)
             is RouteKnowledge.Learned -> stringResource(R.string.shopping_knowledge_learned, k.percent)
         }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .semantics(mergeDescendants = true) { heading() }
-            .testTag(TAG_HEADER),
-    ) {
-        Text(
-            stringResource(R.string.shopping_remaining_header, state.toBuyCount),
-            style = MaterialTheme.typography.titleLarge,
-        )
-        state.storeName?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-        Text(knowledge, style = MaterialTheme.typography.bodyMedium)
-    }
+    val remaining = stringResource(R.string.shopping_remaining_header, state.toBuyCount)
+    val description = listOfNotNull(remaining, state.storeName, knowledge).joinToString(", ")
+    TicketHeader(
+        title = state.storeName ?: state.name,
+        meta = listOf(knowledge),
+        totalLabel = stringResource(R.string.shopping_total_label),
+        total = state.toBuyCount,
+        // L'étiquette de test avant `clearAndSetSemantics`, qui efface aussi ce qui la suit.
+        modifier =
+            Modifier.testTag(TAG_HEADER).clearAndSetSemantics {
+                heading()
+                contentDescription = description
+            },
+    )
 }
 
-/** Titre de rayon : lu comme un en-tête, avec le nombre d'articles à prendre. */
+/** Titre de rayon sur le fil : lu comme un en-tête, avec le nombre d'articles à prendre. */
 @Composable
-internal fun AisleHeader(section: ShoppingSection) {
+internal fun AisleHeader(
+    section: ShoppingSection,
+    piece: ThreadPiece,
+    style: ThreadStyle,
+    risen: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val announcement = stringResource(R.string.shopping_aisle_count, section.title, section.remainingCount)
-    Text(
-        text = section.title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+    AisleLine(
+        categoryId = section.aisleId,
+        title = section.title,
+        piece = piece,
+        style = style,
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .semantics {
-                    heading()
-                    contentDescription = announcement
-                },
+            modifier.clearAndSetSemantics {
+                heading()
+                contentDescription = announcement
+            },
+        trailing = { if (risen) LearnedTag() },
     )
 }
 
 @Composable
 internal fun SectionTitle(title: String) {
-    Text(
+    CapsText(
         title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).semantics { heading() },
+        style = TicketType.aisle,
+        color = Ticket.colors.inkMuted,
+        heading = true,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = ThreadLayout.contentStart,
+                    end = ThreadLayout.end,
+                    top = TicketDimens.spaceL,
+                    bottom = TicketDimens.spaceXs,
+                ),
     )
 }
 
@@ -84,16 +114,57 @@ internal fun BasketHeader(
     val title = stringResource(R.string.shopping_basket, count)
     val state =
         stringResource(if (expanded) R.string.shopping_basket_expanded else R.string.shopping_basket_collapsed)
-    Text(
+    CapsText(
         title,
-        style = MaterialTheme.typography.titleSmall,
+        style = TicketType.aisle,
+        color = Ticket.colors.inkMuted,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .heightIn(min = TicketDimens.touchMin)
                 .clickable(role = Role.Button, onClick = onToggle)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .wrapContentHeight(Alignment.CenterVertically)
+                .padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = TicketDimens.spaceS)
                 .testTag(TAG_BASKET)
                 .semantics { stateDescription = state },
     )
 }
+
+/**
+ * Suites de rayon qui viennent de remonter dans le trajet appris : celles qui passent devant une suite qu'elles
+ * suivaient. Une suite qui gagne une place parce qu'une autre a disparu (tout pris) ne compte pas.
+ */
+internal fun risenRuns(
+    before: List<String>,
+    after: List<String>,
+): Set<String> {
+    val old = before.withIndex().associate { it.value to it.index }
+    val common = after.filter { it in old }
+    return common
+        .withIndex()
+        .filter { (index, key) -> common.drop(index + 1).any { other -> old.getValue(other) < old.getValue(key) } }
+        .map { it.value }
+        .toSet()
+}
+
+/** Étiquette « ↑ appris » pendant [LEARNED_TAG_MS] sur les suites remontées, en mode appris seulement. */
+@Composable
+internal fun rememberRisenRuns(
+    keys: List<String>,
+    learned: Boolean,
+): Set<String> {
+    var previous by remember { mutableStateOf<List<String>?>(null) }
+    var risen by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(keys) {
+        val before = previous
+        previous = keys
+        risen = if (learned && before != null) risenRuns(before, keys) else emptySet()
+        if (risen.isNotEmpty()) {
+            delay(LEARNED_TAG_MS)
+            risen = emptySet()
+        }
+    }
+    return risen
+}
+
+internal const val LEARNED_TAG_MS = 3_000L

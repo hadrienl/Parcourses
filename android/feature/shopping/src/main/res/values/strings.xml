@@ -2,6 +2,8 @@
 <resources>
     <string name="shopping_back">Retour</string>
     <string name="shopping_remaining_header">%1$d à prendre</string>
+    <!-- Libellé du compteur du ticket (« RESTE 05 »), affiché en capitales. -->
+    <string name="shopping_total_label">Reste</string>
     <string name="shopping_knowledge_no_store">Sans magasin : ordre par rayon</string>
     <string name="shopping_knowledge_unknown">Vous tracez le premier trajet ici</string>
     <string name="shopping_knowledge_learning">Trajet en apprentissage (%1$d %%)</string>

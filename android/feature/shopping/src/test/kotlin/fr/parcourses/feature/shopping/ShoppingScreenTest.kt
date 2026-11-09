@@ -11,8 +11,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -115,9 +117,11 @@ class ShoppingScreenTest {
     @Test
     fun theHeaderShowsWhatRemainsTheStoreAndWhatTheAppKnows() {
         show()
-        rule.onNodeWithText("2 à prendre").assertExists()
-        rule.onNodeWithText("Carrefour").assertExists()
-        rule.onNodeWithText("Vous tracez le premier trajet ici").assertExists()
+        // Affiché en ticket (« CARREFOUR », « RESTE 02 ») ; lu d'un bloc, dans l'ordre de #6 §5.
+        val header = rule.onNodeWithTag(TAG_HEADER)
+        header.assert(hasContentDescription("2 à prendre, Carrefour, Vous tracez le premier trajet ici"))
+        assertTrue(header.fetchSemanticsNode().config.contains(SemanticsProperties.Heading))
+        rule.onNodeWithText("02", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("Semaine").assertExists()
     }
 
@@ -130,7 +134,7 @@ class ShoppingScreenTest {
 
     @Test
     fun theDefaultActionIsCheckAndTheCustomActionsAreNotFoundAndUncheck() {
-        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), groupsByAisle = false))
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), sections = emptyList()))
         val unchecked = rule.onNodeWithContentDescription("pain")
         val onClick = unchecked.fetchSemanticsNode().config[SemanticsActions.OnClick]
         assertEquals("Cocher", onClick.label)
@@ -151,7 +155,7 @@ class ShoppingScreenTest {
 
     @Test
     fun theTalkBackActionsReachTheModel() {
-        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), groupsByAisle = false))
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), sections = emptyList()))
         rule.onNodeWithContentDescription("pain").invokeCustomAction("Pas trouvé")
         rule.onNodeWithContentDescription("pommes, 2").invokeCustomAction("Décocher")
         assertEquals(listOf("2"), notFound)
@@ -185,17 +189,34 @@ class ShoppingScreenTest {
     }
 
     @Test
-    fun theLearnedThreadHasNoAisleHeadings() {
-        show(base.copy(groupsByAisle = false, sections = emptyList(), knowledge = RouteKnowledge.Learned(80)))
-        rule.onNodeWithContentDescription("Fruits et légumes, 1 à prendre").assertDoesNotExist()
-        rule.onNodeWithText("Trajet connu à 80 %").assertExists()
+    fun theLearnedThreadMarksEachAisleRunWithAHeading() {
+        // Mode appris : un titre à chaque changement de rayon le long du trajet, même pour un rayon traversé deux fois.
+        val oil = ShoppingRow("4", "huile", null, isChecked = false, aisleId = "produce")
+        show(
+            base.copy(
+                toBuy = listOf(apples, bread, oil),
+                sections =
+                    listOf(
+                        ShoppingSection("produce", "Fruits et légumes", listOf(apples)),
+                        ShoppingSection("bakery", "Boulangerie, pâtisserie", listOf(bread)),
+                        ShoppingSection("produce", "Fruits et légumes", listOf(oil), run = 1),
+                    ),
+                groupsByAisle = false,
+                knowledge = RouteKnowledge.Learned(80),
+            ),
+        )
+        assertEquals(
+            2,
+            rule.onAllNodesWithContentDescription("Fruits et légumes, 1 à prendre").fetchSemanticsNodes().size,
+        )
+        rule.onNodeWithTag(TAG_HEADER).assert(hasContentDescription("Trajet connu à 80 %", substring = true))
         rule.onNodeWithContentDescription("pain").assertExists()
     }
 
     @Test
     fun noStoreSaysSo() {
         show(base.copy(storeName = null, knowledge = RouteKnowledge.NoStore))
-        rule.onNodeWithText("Sans magasin : ordre par rayon").assertExists()
+        rule.onNodeWithTag(TAG_HEADER).assert(hasContentDescription("Sans magasin : ordre par rayon", substring = true))
     }
 
     @Test

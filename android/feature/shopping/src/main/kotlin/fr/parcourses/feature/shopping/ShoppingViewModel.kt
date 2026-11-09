@@ -877,8 +877,8 @@ class ShoppingViewModel(
 
     private fun publish(loaded: Boolean = _uiState.value.isLoaded) {
         val groups = mode != SortOutput.Mode.Learned
-        val sections = if (groups) sections() else emptyList()
-        if (loaded) publishLive(if (groups) sections.flatMap { it.rows } else toBuy)
+        val sections = if (groups) sections() else runs()
+        if (loaded) publishLive(sections.flatMap { it.rows })
         _uiState.update {
             ShoppingUiState(
                 isLoaded = loaded,
@@ -948,6 +948,26 @@ class ShoppingViewModel(
         return grouped.keys
             .sortedWith(compareBy<String> { indices[it] ?: fallback }.thenBy { it })
             .map { aisle -> ShoppingSection(aisle, categoryLabels[aisle] ?: aisle, grouped.getValue(aisle)) }
+    }
+
+    /**
+     * Mode appris : l'ordre du tri est gardé tel quel, et un titre de rayon marque chaque changement de rayon le long
+     * du trajet (comme iOS). Un rayon traversé deux fois donne deux suites, `#0` puis `#1`.
+     */
+    private fun runs(): List<ShoppingSection> {
+        val seen = HashMap<String, Int>()
+        val runs = mutableListOf<ShoppingSection>()
+        for (row in toBuy) {
+            val last = runs.lastOrNull()
+            if (last != null && last.aisleId == row.aisleId) {
+                runs[runs.lastIndex] = last.copy(rows = last.rows + row)
+            } else {
+                val run = seen.getOrDefault(row.aisleId, 0)
+                seen[row.aisleId] = run + 1
+                runs += ShoppingSection(row.aisleId, categoryLabels[row.aisleId] ?: row.aisleId, listOf(row), run)
+            }
+        }
+        return runs
     }
 
     // endregion

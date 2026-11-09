@@ -90,6 +90,13 @@ fun ParcoursesNavHost(
                             val top = backStack.lastOrNull()
                             if (top !is Route.ListDetail || top.listId != id) backStack.add(Route.ListDetail(id))
                         },
+                        onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
+                    )
+                }
+                entry<Route.About> {
+                    AboutScreen(
+                        version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
                     )
                 }
                 entry<Route.ListDetail>(clazzContentKey = { it.slot }) { key ->

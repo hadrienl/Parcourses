@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.parcourses.android.application)
     alias(libs.plugins.parcourses.android.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.roborazzi)
 }
 
 // Configuration par environnement (#10, §2.2) : `local`, `staging` ou `prod`. Rien en dur, rien de versionné.
@@ -33,6 +34,8 @@ android {
         versionName = "0.1.0"
     }
     buildFeatures.buildConfig = true
+    // Captures Roborazzi (A11) : Robolectric a besoin des ressources fusionnées.
+    testOptions.unitTests.isIncludeAndroidResources = true
     buildTypes {
         debug {
             val environment = selectedEnvironment.getOrElse("local")
@@ -89,6 +92,21 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.material.icons.core)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Captures de référence (clair, sombre, 200 %) : `./gradlew :app:recordRoborazziDebug` les réécrit,
+// `:app:verifyRoborazziDebug` compare. Sans l'une de ces tâches, les tests composent l'écran sans rien écrire.
+roborazzi {
+    outputDir.set(file("src/test/screenshots"))
 }

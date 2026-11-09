@@ -46,7 +46,7 @@ class ShoppingViewModelTest : ShoppingTest() {
         }
 
     @Test
-    fun aLearnedGraphGivesOneContinuousThreadWithoutAisleTitles() =
+    fun aLearnedGraphKeepsTheSortedOrderWithAHeadingAtEachAisleChange() =
         runTest(main) {
             val (listId, _) =
                 newList(Triple("lait", "dairy", P3), Triple("pain", "bakery", P1), Triple("pommes", "produce", P2))
@@ -54,7 +54,9 @@ class ShoppingViewModelTest : ShoppingTest() {
             val state = started(model(listId))
 
             assertFalse(state.groupsByAisle)
-            assertTrue(state.sections.isEmpty())
+            // Une suite par changement de rayon, dans l'ordre du tri (iOS : même identité « <rayon>#<n> »).
+            assertEquals(listOf("bakery#0", "produce#0", "dairy#0"), state.sections.map { it.key })
+            assertEquals(state.toBuy, state.sections.flatMap { it.rows })
             assertEquals(RouteKnowledge.Learned(80), state.knowledge)
             assertEquals(listOf("pain", "pommes", "lait"), state.labels())
             // `listWasSorted` : le mode du début de visite.
