@@ -1,4 +1,5 @@
 import ActivityKit
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -22,9 +23,12 @@ struct ShoppingLiveActivity: Widget {
           NextItemView(state: state, isStale: isStale)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          Text(summary(state))
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+          VStack(spacing: 6) {
+            Text(summary(state))
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+            CheckNextButton(attributes: context.attributes, state: state, isStale: isStale)
+          }
         }
       } compactLeading: {
         Image(systemName: "cart")
@@ -56,25 +60,51 @@ private struct LockScreenView: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
-    HStack(spacing: 12) {
-      // L'anneau répète le texte de dessous : VoiceOver ne le lit pas. Aux tailles d'accessibilité, il cède la
-      // place au texte, qui reprend toute la largeur.
-      if !dynamicTypeSize.isAccessibilitySize {
-        ProgressRing(state: state)
-          .accessibilityHidden(true)
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 12) {
+        // L'anneau répète le texte de dessous : VoiceOver ne le lit pas. Aux tailles d'accessibilité, il cède la
+        // place au texte, qui reprend toute la largeur.
+        if !dynamicTypeSize.isAccessibilitySize {
+          ProgressRing(state: state)
+            .accessibilityHidden(true)
+        }
+        VStack(alignment: .leading, spacing: 2) {
+          Text(attributes.storeName ?? attributes.listName)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          NextItemView(state: state, isStale: isStale)
+          Text(summary(state))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 0)
       }
-      VStack(alignment: .leading, spacing: 2) {
-        Text(attributes.storeName ?? attributes.listName)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        NextItemView(state: state, isStale: isStale)
-        Text(summary(state))
-          .font(.footnote)
-          .foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 0)
+      .accessibilityElement(children: .combine)
+      // Hors du groupe lu d'un bloc : VoiceOver le propose comme un bouton à part.
+      CheckNextButton(attributes: attributes, state: state, isStale: isStale)
     }
-    .accessibilityElement(children: .combine)
+  }
+}
+
+/// « Cocher le suivant » (#10 §9) : coche l'article affiché, sans ouvrir l'app. Seulement pendant une visite
+/// active : ni sans magasin (aucune visite à suivre), ni périmée, ni terminée, ni sans article à prendre.
+private struct CheckNextButton: View {
+  let attributes: ShoppingActivityAttributes
+  let state: ShoppingActivityAttributes.ContentState
+  let isStale: Bool
+
+  var body: some View {
+    if let visitId = attributes.visitId, let itemId = state.nextItemId, !isStale, !state.isFinished {
+      // Un intent par article : un toucher sur un affichage dépassé ne coche pas l'article suivant.
+      Button(intent: CheckNextItemIntent(visitId: visitId, itemId: itemId)) {
+        // Libellé sans l'article : il reste lisible quand l'écran verrouillé masque le prochain article.
+        Label("Cocher le suivant", systemImage: "checkmark.circle")
+          .font(.subheadline.weight(.semibold))
+          .frame(maxWidth: .infinity, minHeight: 44)
+      }
+      .buttonStyle(.bordered)
+      .tint(.accentColor)
+    }
   }
 }
 

@@ -11,7 +11,10 @@ struct ParcoursesApp: App {
   init() {
     let gateway = AuthBootstrap.makeGateway()
     self.gateway = gateway
-    _environment = State(initialValue: Result { try AppEnvironment.live(gateway: gateway) })
+    let environment = Result { try AppEnvironment.live(gateway: gateway) }
+    _environment = State(initialValue: environment)
+    // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
+    CheckNextItemRouter.handler = try? environment.get().activityActions
   }
 
   private var sync: SyncRuntime? {

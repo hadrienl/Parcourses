@@ -7,6 +7,8 @@ enum RepositoryError: Error, Equatable {
   case listDeleted(UUID)
   /// Une coche ne s'ajoute pas à une visite déjà close.
   case visitClosed(UUID)
+  /// Un article déjà coché ne l'est pas une seconde fois (double appui, Live Activity et écran au même instant).
+  case alreadyChecked(UUID)
 }
 
 extension RepositoryError: LocalizedError {
@@ -15,6 +17,7 @@ extension RepositoryError: LocalizedError {
     case .notFound: "Cet élément n'existe plus."
     case .listDeleted: "Cette liste a été supprimée."
     case .visitClosed: "Cette visite est déjà terminée."
+    case .alreadyChecked: "Cet article est déjà coché."
     }
   }
 }
@@ -74,10 +77,17 @@ protocol VisitRepository {
   func visit(id: UUID) throws -> Visit?
   /// Visite ouverte, unique : voir `startVisit`. Sert à la reprise au lancement.
   func openVisit() throws -> Visit?
-  /// Une seule visite reste ouverte : même liste et même magasin, la visite existante est renvoyée ; sinon elle
-  /// est d'abord close.
+  /// Une seule visite reste ouverte. Même liste et même magasin, et une activité il y a moins de `staleAfter` :
+  /// la visite existante est renvoyée. Sinon toute visite ouverte est d'abord abandonnée (voir `abandonVisit` :
+  /// close **à sa dernière coche**, jamais à `date`, qui allongerait la visite de tout le temps passé ailleurs),
+  /// puis une visite neuve est créée. Une visite neuve commence sans introuvable : ceux de `listId` reviennent à
+  /// acheter.
   @discardableResult
-  func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit
+  func startVisit(
+    storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date, staleAfter: TimeInterval
+  ) throws -> Visit
+  /// Dernière activité d'une visite : sa dernière coche, sinon son début. `nil` si elle n'existe pas.
+  func lastActivity(visitId: UUID) throws -> Date?
   /// `sendAfter` : durée pendant laquelle la coche reste annulable sans jamais partir au serveur.
   @discardableResult
   func addCheck(
@@ -85,7 +95,9 @@ protocol VisitRepository {
   ) throws -> Check
   /// Retire une coche pas encore partie, et renvoie `false` sans rien changer si elle a déjà été envoyée.
   @discardableResult func removeCheck(id: UUID) throws -> Bool
-  /// Coche l'article et ajoute la coche dans une seule sauvegarde : l'un ne va pas sans l'autre.
+  /// Coche l'article et ajoute la coche dans une seule sauvegarde : l'un ne va pas sans l'autre. Un article déjà
+  /// coché est refusé (`RepositoryError.alreadyChecked`) : un double événement ne compte pas deux passages devant
+  /// le même rayon.
   @discardableResult
   func checkItem(
     visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
@@ -96,12 +108,25 @@ protocol VisitRepository {
   func checks(visitId: UUID) throws -> [Check]
   /// Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche, elle est supprimée et jamais envoyée (#9 §5.5) : renvoie alors `false`.
   @discardableResult func closeVisit(id: UUID, at date: Date) throws -> Bool
+  /// Clôt une visite quittée sans « Terminer » (restée ouverte trop longtemps, liste disparue) : à sa dernière
+  /// coche, supprimée si elle n'en a aucune. Personne n'a répondu à « garder ou retirer » : la réponse par défaut,
+  /// garder, s'applique, et les articles introuvables (non cochés) de sa liste reviennent à acheter (#54, M3).
+  ///
+  /// Sans effet, et sans erreur, si la visite n'existe plus, si elle est déjà close, ou si sa dernière activité
+  /// date de moins de `staleAfter` avant `date`. Renvoie `true` si cet appel l'a close ou supprimée.
+  @discardableResult func abandonVisit(id: UUID, at date: Date, staleAfter: TimeInterval) throws -> Bool
 }
 
 extension VisitRepository {
   @discardableResult
   func addCheck(visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date) throws -> Check {
     try addCheck(visitId: visitId, itemId: itemId, subject: subject, checkedAt: checkedAt, sendAfter: 0)
+  }
+
+  /// Sans péremption : la visite ouverte de cette liste et de ce magasin est toujours reprise.
+  @discardableResult
+  func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit {
+    try startVisit(storeId: storeId, listId: listId, listWasSorted: listWasSorted, at: date, staleAfter: .infinity)
   }
 }
 

@@ -99,12 +99,10 @@ final class StorePickerModel {
     didSet { if query != oldValue { scheduleSearch() } }
   }
 
-  /// La recherche par nom sert de repli quand la position n'a rien donné d'utilisable.
+  /// La recherche par nom est offerte dans tous les états sauf le chargement, comme sur Android (A7) : le magasin
+  /// voulu peut manquer aux 10 plus proches, et hors ligne la recherche le dit elle-même.
   var offersSearch: Bool {
-    switch state {
-    case .denied, .locationUnavailable, .noStore, .approximate: true
-    case .loading, .precise, .offline, .serviceError: false
-    }
+    state != .loading
   }
 
   private let location: any LocationProvider

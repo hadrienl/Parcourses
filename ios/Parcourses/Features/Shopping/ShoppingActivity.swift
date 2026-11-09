@@ -17,7 +17,26 @@ extension ShoppingActivityAttributes.ContentState {
       remaining: pending.count, total: toBuy.count + basket.count,
       nextItemLabel: next.map { String($0.label.prefix(maxLabelLength)) },
       nextCategoryLabel: next.flatMap { categoryLabel($0.aisleId) }.map { String($0.prefix(maxLabelLength)) },
-      isFinished: isFinished)
+      isFinished: isFinished, pendingItemIds: isFinished ? [] : pending.prefix(maxPendingItems).map(\.id))
+  }
+
+  /// Confronte l'état affiché à la base, sans mode courses ouvert (« Cocher le suivant », app tuée) : un article
+  /// coché ailleurs, introuvable ou supprimé quitte la file, l'ordre affiché ne change pas (seul le mode courses
+  /// recalcule le tri, comme `ShoppingLiveState.reconciled` d'Android). Les articles à prendre hors de la file
+  /// (au-delà de `maxPendingItems`, ajoutés, décochés) la suivent, dans l'ordre de la liste. `items` : les
+  /// articles de la liste, dans l'ordre de `position` ; `describe` : libellé et rayon affichés d'un article.
+  func reconciled(items: [ListItem], describe: (ListItem) -> (label: String, aisle: String?)) -> Self {
+    let pending = items.filter { $0.checkedAt == nil && $0.notFoundAt == nil }
+    let pendingIds = Set(pending.map(\.id))
+    let kept = pendingItemIds.filter { pendingIds.contains($0) }
+    let keptIds = Set(kept)
+    let order = kept + pending.map(\.id).filter { !keptIds.contains($0) }
+    let next = order.first.flatMap { id in items.first { $0.id == id } }.map(describe)
+    return Self(
+      remaining: pending.count, total: items.filter { $0.checkedAt != nil || $0.notFoundAt == nil }.count,
+      nextItemLabel: next.map { String($0.label.prefix(Self.maxLabelLength)) },
+      nextCategoryLabel: next?.aisle.map { String($0.prefix(Self.maxLabelLength)) }, isFinished: false,
+      pendingItemIds: Array(order.prefix(Self.maxPendingItems)))
   }
 }
 
@@ -27,6 +46,9 @@ nonisolated struct ActivityInfo: Equatable, Sendable {
   let visitId: UUID?
   /// Active ou simplement périmée (`.stale`) ; ni terminée ni en attente de disparition.
   let isActive: Bool
+  /// Ce qu'elle affiche : l'app relancée par « Cocher le suivant » repart de là.
+  var attributes: ShoppingActivityAttributes?
+  var state: ShoppingActivityAttributes.ContentState?
 }
 
 nonisolated enum ActivityEndPolicy: Equatable, Sendable {
@@ -52,7 +74,8 @@ nonisolated struct ActivityKitBackend: ActivityBackend {
   func current() async -> [ActivityInfo] {
     Activity<ShoppingActivityAttributes>.activities.map {
       ActivityInfo(
-        id: $0.id, visitId: $0.attributes.visitId, isActive: $0.activityState == .active || $0.activityState == .stale)
+        id: $0.id, visitId: $0.attributes.visitId, isActive: $0.activityState == .active || $0.activityState == .stale,
+        attributes: $0.attributes, state: $0.content.state)
     }
   }
 
@@ -98,14 +121,22 @@ nonisolated struct ActivityKitBackend: ActivityBackend {
 /// Pilote de la Live Activity. Découplé d'ActivityKit pour que les tests vérifient les mises à jour.
 @MainActor
 protocol ShoppingActivityControlling: AnyObject {
-  func start(attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState)
-  func update(state: ShoppingActivityAttributes.ContentState)
+  /// `lastActivity` : dernière coche de la visite, sinon son début. L'activité devient « inactive » 45 min après,
+  /// quand la visite expire, même si l'app ne tourne plus (#52).
+  func start(
+    attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, lastActivity: Date)
+  func update(state: ShoppingActivityAttributes.ContentState, lastActivity: Date)
   /// Affiche l'état final puis retire l'activité, même si elle vient d'un lancement précédent.
   func end(state: ShoppingActivityAttributes.ContentState)
   /// Retente un démarrage refusé ou perdu (retour au premier plan).
   func retryIfNeeded()
   /// Termine tout de suite les activités qui ne suivent pas cette visite (orphelines d'un lancement précédent).
   func endAll(except visitId: UUID?)
+  /// État affiché pour cette visite. App relancée, l'activité active laissée par le lancement précédent est
+  /// reprise (identifiant, attributs, état) : les mises à jour suivantes lui parviennent. `nil` si rien ne la suit.
+  func restore(visitId: UUID) async -> ShoppingActivityAttributes.ContentState?
+  /// Attend les appels système en cours (fin de « Cocher le suivant », avant que l'app soit suspendue).
+  func waitUntilIdle() async
 }
 
 /// Instance unique, partagée par toutes les sessions : les appels système sont asynchrones, une chaîne de tâches
@@ -120,6 +151,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   private var activityId: String?
   private var attributes: ShoppingActivityAttributes?
   private var lastState: ShoppingActivityAttributes.ContentState?
+  private var lastActivity = Date.distantPast
   private var chain: Task<Void, Never>?
 
   init(backend: any ActivityBackend = ActivityKitBackend(), now: @escaping () -> Date = { .now }) {
@@ -133,26 +165,56 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   }
 
   /// Sans coche pendant la durée d'expiration d'une visite, l'activité devient « inactive » d'elle-même, sans que
-  /// l'app ait à tourner.
-  private var staleDate: Date { now().addingTimeInterval(ShoppingSession.expiry) }
+  /// l'app ait à tourner. Calée sur la dernière coche, comme l'expiration de la visite et la Live Update Android :
+  /// un retour au premier plan ne la repousse pas.
+  private var staleDate: Date { lastActivity.addingTimeInterval(ShoppingSession.expiry) }
 
-  func start(attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState) {
+  func start(
+    attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, lastActivity: Date
+  ) {
     self.attributes = attributes
     lastState = state
+    self.lastActivity = lastActivity
     activityId = nil
-    enqueue { await self.open() }
+    let stale = staleDate
+    enqueue { await self.open(staleDate: stale) }
   }
 
-  func update(state: ShoppingActivityAttributes.ContentState) {
+  func update(state: ShoppingActivityAttributes.ContentState, lastActivity: Date) {
     lastState = state
+    self.lastActivity = lastActivity
+    // Calculée à l'appel : la chaîne s'exécute plus tard, quand une coche suivante a pu la changer.
+    let stale = staleDate
     enqueue {
       guard self.attributes != nil else { return }
       if let id = self.activityId {
-        await self.backend.update(id: id, state: state, staleDate: self.staleDate)
+        await self.backend.update(id: id, state: state, staleDate: stale)
       } else {
-        await self.open()
+        await self.open(staleDate: stale)
       }
     }
+  }
+
+  func restore(visitId: UUID) async -> ShoppingActivityAttributes.ContentState? {
+    let previous = chain
+    let task = Task { () -> ShoppingActivityAttributes.ContentState? in
+      await previous?.value
+      if let attributes = self.attributes {
+        // Une session suit déjà une visite : seule la sienne est reconnue.
+        return attributes.visitId == visitId ? self.lastState : nil
+      }
+      guard
+        let info = await self.backend.current().first(where: { $0.isActive && $0.visitId == visitId }),
+        let attributes = info.attributes, let state = info.state, !state.isFinished
+      else { return nil }
+      self.attributes = attributes
+      self.lastState = state
+      self.activityId = info.id
+      return state
+    }
+    // Les appels suivants attendent la reprise : ils doivent voir l'activité retrouvée.
+    chain = Task { _ = await task.value }
+    return await task.value
   }
 
   func end(state: ShoppingActivityAttributes.ContentState) {
@@ -175,7 +237,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   func retryIfNeeded() {
     enqueue {
       guard self.attributes != nil, self.activityId == nil else { return }
-      await self.open()
+      await self.open(staleDate: self.staleDate)
     }
   }
 
@@ -191,7 +253,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   /// Reprend l'activité active de la même visite ; toute autre (autre visite, terminée) est retirée, puis on en
   /// crée une neuve. Les attributs d'une activité sont immuables : reprendre n'importe laquelle afficherait
   /// la mauvaise liste.
-  private func open() async {
+  private func open(staleDate: Date) async {
     guard let attributes, let state = lastState else { return }
     let existing = await backend.current()
     let reusable = existing.first { $0.isActive && attributes.visitId != nil && $0.visitId == attributes.visitId }

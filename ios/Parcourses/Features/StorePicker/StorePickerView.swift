@@ -52,6 +52,8 @@ struct StorePickerView: View {
           }
         }
         stores(others, title: proposed == nil ? "Magasins proches" : "Autres magasins proches")
+        // Après les magasins proches, comme sur Android : celui qu'on cherche peut manquer aux 10 plus proches.
+        searchSection
         recentsSection
       }
     case .approximate(let candidates):

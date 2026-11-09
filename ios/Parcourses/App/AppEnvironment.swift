@@ -19,6 +19,12 @@ final class AppEnvironment {
   private let location: any LocationProvider
   /// Une seule instance pour toutes les sessions : ses appels ActivityKit restent ordonnés.
   private let shoppingActivity = ActivityKitShoppingActivity()
+  /// Mode courses en cours, le temps qu'il vive : « Cocher le suivant » le prévient.
+  private weak var currentSession: ShoppingSession?
+  /// « Cocher le suivant » de la Live Activity, branché sur `CheckNextItemRouter` au lancement.
+  private(set) lazy var activityActions = ShoppingActivityActions(
+    lists: lists, visits: visits, stores: stores, categories: categories, analyzer: entryAnalyzer,
+    activity: shoppingActivity, session: { [weak self] in self?.currentSession })
 
   init(container: ModelContainer, gateway: (any RemoteGateway)? = nil) throws {
     self.container = container
@@ -81,11 +87,17 @@ final class AppEnvironment {
     StorePickerModel(location: location, gateway: gateway, stores: stores, onFinish: onFinish)
   }
 
-  /// Visite ouverte à reprendre au lancement, en la vérifiant : sa liste a pu disparaître.
-  func resumeShopping() async -> ShoppingSession? {
+  /// Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
+  /// depuis plus de 45 min : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
+  /// aucune, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien n'est rouvert, comme
+  /// sur Android. Une visite redevenue active entre la lecture et l'abandon reste ouverte.
+  func resumeShopping(now: Date = .now) async -> ShoppingSession? {
     guard let visit = try? visits.openVisit() else { return nil }
-    guard (try? lists.list(id: visit.listId)) != nil else {
-      try? visits.closeVisit(id: visit.id, at: .now)
+    let last = (try? visits.lastActivity(visitId: visit.id)) ?? visit.startedAt
+    let listExists = (try? lists.list(id: visit.listId)) != nil
+    guard listExists, now.timeIntervalSince(last) < ShoppingSession.expiry else {
+      // Liste disparue : abandon sans condition. Sinon seulement si la visite est encore périmée à l'écriture.
+      _ = try? visits.abandonVisit(id: visit.id, at: now, staleAfter: listExists ? ShoppingSession.expiry : 0)
       return nil
     }
     let session = makeSession(listId: visit.listId, storeId: visit.storeId)
@@ -114,10 +126,12 @@ final class AppEnvironment {
         undoDelay = .seconds(seconds)
       }
     #endif
-    return ShoppingSession(
+    let session = ShoppingSession(
       listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
       analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay,
       activity: shoppingActivity)
+    currentSession = session
+    return session
   }
 
   private static func storage() -> PersistenceStack.Storage {
