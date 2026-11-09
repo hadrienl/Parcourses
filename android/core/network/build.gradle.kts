@@ -5,6 +5,8 @@ plugins {
 
 android {
     namespace = "fr.parcourses.core.network"
+    // Règles R8 transmises à l'app : celles dont le code de ce module a besoin (A12).
+    defaultConfig.consumerProguardFiles("consumer-rules.pro")
     testOptions.unitTests.isReturnDefaultValues = true
 }
 

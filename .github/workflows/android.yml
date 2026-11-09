@@ -44,8 +44,11 @@ jobs:
       # Les captures Roborazzi (app/src/test/screenshots) sont comparées dans la même passe.
       - name: Tests unitaires et captures
         run: ./gradlew testDebugUnitTest -Proborazzi.test.verify=true
+      # :baselineprofile n'a que des variantes de mesure : on le compile sans le lancer (pas d'émulateur en CI).
       - name: Build debug et release
-        run: ./gradlew assembleDebug assembleRelease
+        run: ./gradlew assembleDebug assembleRelease :baselineprofile:compileBenchmarkReleaseKotlin
+      - name: Noms gardés par R8
+        run: scripts/check-r8-mapping.sh
       - name: Annotations JUnit
         if: always()
         uses: mikepenz/action-junit-report@4a26df3e2ae132254ba12a53f65a388d0961e786 # v6.7.0
