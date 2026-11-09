@@ -1,3 +1,5 @@
+import com.android.build.api.variant.BuildConfigField
+
 plugins {
     alias(libs.plugins.parcourses.android.application)
     alias(libs.plugins.parcourses.android.compose)
@@ -75,6 +77,19 @@ android {
     if (selectedEnvironment.orNull == "local") {
         listOf("benchmarkRelease", "nonMinifiedRelease").forEach { name ->
             sourceSets.maybeCreate(name).res.srcDir("src/debug/res")
+        }
+    }
+}
+
+// Les variantes de mesure ne visent jamais un Supabase hébergé : elles créeraient des comptes, des listes et des
+// visites factices dans le graphe partagé. Sans `-Pparcourses.env=local`, URL et clé sont vidées (app entièrement
+// locale), même si la configuration de prod est présente sur la machine.
+if (selectedEnvironment.orNull != "local") {
+    listOf("benchmarkRelease", "nonMinifiedRelease").forEach { buildType ->
+        androidComponents.onVariants(androidComponents.selector().withBuildType(buildType)) { variant ->
+            listOf("SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY").forEach { field ->
+                variant.buildConfigFields?.put(field, BuildConfigField("String", "\"\"", null))
+            }
         }
     }
 }

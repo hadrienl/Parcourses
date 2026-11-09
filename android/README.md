@@ -23,7 +23,7 @@ Room est la source de vérité : une écriture de liste ou d'article et son entr
 
 ## Performances et publication (A12)
 
-- **R8** : la release est minifiée (`isMinifyEnabled`, `isShrinkResources`). Les modules déclarent leurs règles dans `consumer-rules.pro` (`:core:data` : noms des workers ; `:core:network` : exception reconnue par la détection de session corrompue). `scripts/check-r8-mapping.sh` vérifie après `assembleRelease` que ces noms ne sont pas renommés (étape de la CI).
+- **R8** : la release est minifiée (`isMinifyEnabled`, `isShrinkResources`). `:core:network` déclare la seule règle propre au projet dans `consumer-rules.pro` (exception reconnue par la détection de session corrompue) ; WorkManager garde lui-même le nom des workers. `scripts/check-r8-mapping.sh` vérifie après `assembleRelease` que ces noms ne sont pas renommés (étape de la CI).
 - **Baseline Profile** : `app/src/release/generated/baselineProfiles/` (profil complet et profil de démarrage, commités), installé par `profileinstaller`. Pour le régénérer, il faut un appareil ou un émulateur API 33+ et le Supabase local démarré :
 
   ```bash

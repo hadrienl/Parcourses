@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vérifie, après `assembleRelease`, que R8 n'a pas renommé les classes dont le nom est lu à l'exécution (A12).
-# Les règles sont dans core/data/consumer-rules.pro et core/network/consumer-rules.pro.
+# Règles : celles de WorkManager (noms des workers) et core/network/consumer-rules.pro.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

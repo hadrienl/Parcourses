@@ -2,7 +2,7 @@
 
 Lot A12 (#10). Ce document recense, à partir du code de l'app Android au 9 novembre 2026 (`main` à `58b43bb`, plus le lot A12), chaque donnée qui quitte l'appareil. Il propose ensuite les réponses au formulaire de la Play Console.
 
-> **Statut : proposition, à valider par l'utilisateur.** Rien n'est saisi dans la Play Console. Trois points restent à trancher (§5) : la déclaration de la position, la place des visites dans le formulaire, et la suppression du compte anonyme.
+> **Statut : proposition, à valider par l'utilisateur.** Rien n'est saisi dans la Play Console. Cinq points restent à trancher (§5) : la déclaration de la position, la place des visites dans le formulaire, la suppression du compte anonyme, les libellés publiés dans le catalogue et les horodatages lisibles dans le graphe.
 
 ## 1. Définitions de Google Play
 
@@ -50,19 +50,19 @@ Toutes les données partent vers le projet Supabase de Parcourses, en HTTPS. La 
 
 | Donnée | Envoyée par | Finalité | Rattachée à l'identifiant ? | Conservation | Éphémère ? |
 | --- | --- | --- | --- | --- | --- |
-| **Coordonnées** (latitude, longitude) | `nearby_stores(lat, lng, radius_m, max_results)`, une fois, quand la personne touche « Utiliser ma position » | Proposer le magasin où l'on se trouve | Oui pendant la requête (appel authentifié), mais jamais enregistrées | Aucune : la fonction SQL ne les écrit pas (« La position reçue n'est jamais stockée »). L'appel est un `POST`, les coordonnées sont dans le corps de la requête et non dans l'URL que journalise la passerelle | **Oui** |
+| **Coordonnées** (latitude, longitude) | `nearby_stores(lat, lng, radius_m, max_results)` : à chaque ouverture du choix du magasin si la position est déjà autorisée (et au retour au premier plan si l'autorisation a changé), sinon quand la personne touche « Utiliser ma position » | Proposer le magasin où l'on se trouve | Oui pendant la requête (appel authentifié), mais jamais enregistrées | Aucune : la fonction SQL ne les écrit pas (« La position reçue n'est jamais stockée »). L'appel est un `POST`, les coordonnées sont dans le corps de la requête et non dans l'URL que journalise la passerelle | **Oui** |
 | Précision : exacte (`ACCESS_FINE_LOCATION`, `PRIORITY_HIGH_ACCURACY`) ou approximative (`ACCESS_COARSE_LOCATION` seule, `PRIORITY_BALANCED_POWER_ACCURACY`) | | | | | |
 | **Recherche de magasin** (texte saisi) | `search_stores(q, max_results)` | Trouver un magasin par nom ou adresse | Oui pendant la requête, jamais enregistrée | Aucune | **Oui** |
 | **Identifiant anonyme** (UUID du compte Supabase, jetons de session) | Connexion anonyme au premier lancement (`signInAnonymously`), puis chaque requête | Rattacher les listes et les visites à leur propriétaire, appliquer les droits (RLS) | C'est l'identifiant | Tant que le compte existe. Aucun nom ni e-mail | Non |
 | **Listes et articles** (nom de liste, libellé, quantité, coché ou non, horodatages) | Tables `lists` et `list_items` | Synchroniser les listes et les retrouver après réinstallation sur le même compte | Oui (`owner_id`) | Jusqu'à leur suppression dans l'app (la suppression est envoyée au serveur) | Non |
 | **Magasin et heure des visites** (`store_id`, liste, liste triée ou non, début et fin) | Table `visits` | Apprendre l'ordre des rayons du magasin | Oui (`user_id`) | Sans limite à ce jour. Clôture automatique au bout de 2 h d'inactivité (pg_cron) | Non |
 | **Articles cochés** (produit ou rayon, heure de la coche, ordre) | Table `checks` | Même finalité : l'ordre des coches est la matière de l'apprentissage | Oui, par la visite | Sans limite à ce jour | Non |
-| **Catalogue de produits** (libellé normalisé de l'article et rayon choisi par le classifieur) | `resolve_products` à la synchro des articles | Relier les articles de tous les utilisateurs au même produit pour apprendre le graphe | Le produit créé n'est pas rattaché au compte. Seul un compteur de créations par compte et par jour l'est (`catalog.product_creations`), pour limiter les abus | Le produit est partagé et durable. Le compteur suit le compte | Non |
+| **Catalogue de produits** (libellé de l'article **tel que saisi**, et rayon choisi par le classifieur) | `resolve_products` à la synchro des articles (`ProductResolution` envoie `name = label`) | Relier les articles de tous les utilisateurs au même produit pour apprendre le graphe | Le produit créé n'est pas rattaché au compte. Seul un compteur de créations par compte et par jour l'est (`catalog.product_creations`), pour limiter les abus | Durable. Un libellé nouveau est enregistré tel quel (rogné) dans `products.name`, **lisible par tous les comptes** (§5.4) | Non |
 | **Données techniques** : adresse IP, en-têtes HTTP des bibliothèques (version du client, aucun identifiant d'appareil), horodatage | Toute requête | Faire fonctionner le service, journaux de sécurité de Supabase (dont `auth.audit_log_entries`) | Partiellement (journaux d'authentification) | Selon la rétention des journaux Supabase | Non |
 
 L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donnée « adresse IP » ; on la mentionne pour être complet.
 
-**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`). Ce graphe ne contient ni identifiant d'utilisateur ni horodatage de visite, et il est lu par tous les utilisateurs. Il relève de l'exception « données anonymisées ». Limite connue : pour un magasin qui n'a qu'un seul contributeur, le graphe reflète l'ordre de passage de cette personne, sans la nommer.
+**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`). Ce graphe ne contient pas d'identifiant d'utilisateur. Il contient en revanche des horodatages issus des visites : `last_seen_at` (fin de la dernière visite qui a touché l'arête ou l'entrée) et `store_stats.last_visit_at`. Ces trois tables sont lisibles par tout compte authentifié, anonymes compris (`privileges.sql`, `rls.sql`), alors que les apps ne lisent que `store_graph_snapshots`. On le présente comme relevant de l'exception « données anonymisées », mais avec une limite réelle : pour un magasin qui n'a qu'un seul contributeur, n'importe quel compte peut lire l'ordre de passage de cette personne et l'heure de fin de sa dernière visite, sans la nommer (§5.5).
 
 ## 4. Réponses proposées au formulaire
 
@@ -89,7 +89,7 @@ L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donné
 
 Rien n'est déclaré pour « Analyse », « Publicité ou marketing », « Personnalisation » ni « Communications du développeur ».
 
-**Cohérence avec iOS.** `ios/Parcourses/PrivacyInfo.xcprivacy` déclare `UserID`, `OtherUserContent`, `ProductInteraction` et `PurchaseHistory`, toutes rattachées, sans suivi, pour le fonctionnement de l'app. Il ne déclare aucune position. Le tableau ci-dessus reprend ces quatre types. La position est le seul écart (§5.1), et il faudra le reporter sur iOS (App Store Connect) si la décision change.
+**Cohérence avec iOS.** `ios/Parcourses/PrivacyInfo.xcprivacy` déclare `UserID`, `OtherUserContent`, `ProductInteraction` et `PurchaseHistory`, toutes rattachées, sans suivi, pour le fonctionnement de l'app. Il ne déclare aucune position. Le tableau ci-dessus reprend ces quatre types. Il y a deux écarts. La position (§5.1) est à reporter sur iOS (App Store Connect) si la décision change. L'« Historique des recherches » (recherche de magasin) est déclaré ici et pas sur iOS, ce qui peut se justifier : Apple ne compte pas comme collecte une donnée traitée seulement en temps réel. Il faut alors l'écrire dans la déclaration iOS plutôt que de l'aligner sans réfléchir.
 
 ## 5. Décisions à prendre par l'utilisateur
 
@@ -127,6 +127,22 @@ Options :
 3. Purger automatiquement les visites et coches au bout de 90 jours. La FAQ accepte le badge si l'on *"automatically initiate deletion or anonymization of collected data within 90 days of collection"*. Cela ne couvre ni le compte ni les listes, mais limite la conservation.
 
 Recommandation : **2**, éventuellement complétée de 3. À faire avant la publication, dans un ticket dédié.
+
+### 5.4 Libellés publiés dans le catalogue
+
+Le libellé saisi librement (« médicament de Paul », « cadeau pour Marie ») part tel quel vers `resolve_products`. Quand il est nouveau, il devient un produit partagé, durable et lisible par tous les comptes. Il n'est pas rattaché au compte, mais il peut contenir une donnée personnelle.
+
+Options :
+
+1. Ne publier que la forme normalisée, voire ne créer un produit qu'à partir de plusieurs occurrences indépendantes.
+2. Ne pas exposer `products.name` aux autres comptes : les apps n'en ont besoin que pour leurs propres articles.
+3. Garder le fonctionnement actuel et le décrire comme partage initié par l'utilisateur.
+
+Recommandation : 1 ou 2, dans un ticket serveur (#8). La déclaration Play de la ligne « Autres contenus générés par l'utilisateur » en dépend.
+
+### 5.5 Horodatages lisibles dans le graphe
+
+`store_edges.last_seen_at`, `store_entries.last_seen_at` et `store_stats.last_visit_at` reprennent l'heure de fin d'une visite. Tout compte peut les lire directement. Recommandation : retirer le droit `select` direct sur ces tables (les apps lisent `store_graph_snapshots`), ou arrondir ces colonnes au jour. C'est un ticket serveur (#8, #11). Tant que ce n'est pas fait, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur.
 
 ## 6. Points à revoir si le code change
 

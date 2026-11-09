@@ -25,17 +25,27 @@ class StartupBenchmark {
     @Test
     fun coldStartWithBaselineProfile() = coldStart(CompilationMode.Partial(BaselineProfileMode.Require))
 
-    private fun coldStart(mode: CompilationMode) =
+    private fun coldStart(mode: CompilationMode) {
+        var prepared = false
         rule.measureRepeated(
             packageName = PACKAGE_NAME,
             metrics = listOf(StartupTimingMetric()),
             compilationMode = mode,
             startupMode = StartupMode.COLD,
             iterations = ITERATIONS,
-            setupBlock = { pressHome() },
+            setupBlock = {
+                // Une visite laissée ouverte (ShoppingBenchmark) rouvrirait le mode courses au lancement.
+                if (!prepared) {
+                    startActivityAndWait()
+                    finishOpenVisitIfAny()
+                    prepared = true
+                }
+                pressHome()
+            },
         ) {
             startActivityAndWait()
         }
+    }
 
     private companion object {
         const val ITERATIONS = 10

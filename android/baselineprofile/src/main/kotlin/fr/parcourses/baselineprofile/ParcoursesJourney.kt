@@ -95,12 +95,17 @@ fun MacrobenchmarkScope.createList(
 
 /** Liste ouverte → choix du magasin → mode courses. */
 fun MacrobenchmarkScope.startShopping() {
-    // Le clavier de la saisie rapide masquerait le bouton.
-    device.pressBack()
+    // Le clavier de la saisie rapide peut masquer le bouton : on ne le ferme que s'il le faut.
+    if (!device.wait(Until.hasObject(By.res("startShopping")), SHORT_TIMEOUT_MS)) device.pressBack()
     waitFor(By.res("startShopping")).click()
     val query = storeQuery
     if (query.isNullOrBlank()) {
-        waitFor(By.res("storepicker.withoutStore")).click()
+        // Dernier élément de la liste : hors écran sur un petit écran ou en grand texte, on fait défiler.
+        val withoutStore = By.res("storepicker.withoutStore")
+        val target =
+            device.wait(Until.findObject(withoutStore), SHORT_TIMEOUT_MS)
+                ?: device.findObject(By.scrollable(true))?.scrollUntil(Direction.DOWN, Until.findObject(withoutStore))
+        checkNotNull(target) { "Introuvable à l'écran : $withoutStore" }.click()
     } else {
         // La recherche part d'elle-même pendant la saisie.
         waitFor(By.res("storepicker.search")).text = query
@@ -149,7 +154,8 @@ fun MacrobenchmarkScope.checkItems(count: Int) {
                     false
                 }
             }
-        if (!clicked) return
+        // Plus aucune case : la mesure ou le profil perdraient les coches sans le dire.
+        check(clicked) { "Aucun article à cocher dans le mode courses" }
         Thread.sleep(RESORT_WAIT_MS)
         device.waitForIdle()
     }
