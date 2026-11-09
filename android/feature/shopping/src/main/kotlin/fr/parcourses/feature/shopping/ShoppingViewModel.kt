@@ -774,7 +774,7 @@ class ShoppingViewModel(
         clearUndo()
         reloadRows()
         val closing = visitId
-        // `closeVisit` supprime une visite sans coche : le résumé n'a alors aucune visite à désigner.
+        // `closeVisit` supprime une visite sans coche jamais partie : le résumé n'a alors aucune visite à désigner.
         var closed: String? = null
         val succeeded =
             perform {

@@ -106,11 +106,14 @@ protocol VisitRepository {
   func uncheckItem(itemId: UUID, checkId: UUID?, at date: Date) throws
   /// Coches d'une visite, dans l'ordre chronologique.
   func checks(visitId: UUID) throws -> [Check]
-  /// Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche, elle est supprimée et jamais envoyée (#9 §5.5) : renvoie alors `false`.
+  /// Clôt la visite, sans effet si elle l'est déjà. Sans aucune coche et jamais reçue par le serveur, elle est
+  /// supprimée (#9 §5.5) : renvoie alors `false`. Reçue puis vidée de ses coches, elle est close à son début et la
+  /// clôture part, sinon elle resterait ouverte chez lui (#62).
   @discardableResult func closeVisit(id: UUID, at date: Date) throws -> Bool
   /// Clôt une visite quittée sans « Terminer » (restée ouverte trop longtemps, liste disparue) : à sa dernière
-  /// coche, supprimée si elle n'en a aucune. Personne n'a répondu à « garder ou retirer » : la réponse par défaut,
-  /// garder, s'applique, et les articles introuvables (non cochés) de sa liste reviennent à acheter (#54, M3).
+  /// coche, ou supprimée si elle n'en a aucune et n'est jamais partie (sinon close à son début, comme `closeVisit`,
+  /// #62). Personne n'a répondu à « garder ou retirer » : la réponse par défaut, garder, s'applique, et les articles
+  /// introuvables (non cochés) de sa liste reviennent à acheter (#54, M3).
   ///
   /// Sans effet, et sans erreur, si la visite n'existe plus, si elle est déjà close, ou si sa dernière activité
   /// date de moins de `staleAfter` avant `date`. Renvoie `true` si cet appel l'a close ou supprimée.

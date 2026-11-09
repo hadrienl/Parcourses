@@ -6,9 +6,14 @@ import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.repository.RoomVisitRepository
 import fr.parcourses.core.data.sync.InMemorySyncCursors
+import fr.parcourses.core.data.sync.OutboxReconciliation
 import fr.parcourses.core.data.sync.SyncEngine
+import fr.parcourses.core.database.entity.CheckEntity
+import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.database.entity.VisitEntity
+import fr.parcourses.core.network.RemoteError
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,6 +23,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -574,6 +581,145 @@ class RoomVisitRepositoryTest : DataTest() {
             engine.drain()
             assertEquals(1, gateway.savedChecks.flatten().size)
             assertFalse(gateway.savedChecks.flatten().any { it.id.toString() == undone.id })
+        }
+
+    // endregion
+
+    // region Visite envoyée puis vidée (#62)
+
+    private class Seed(
+        val visit: VisitEntity,
+        val item: ListItemEntity,
+        val check: CheckEntity,
+    )
+
+    /**
+     * Liste, article, visite commencée à `now`, une coche 30 s plus tard, puis une minute passe ; [sendAfter] retient
+     * la coche (et la création).
+     */
+    private suspend fun seed(sendAfter: Duration = ZERO): Seed {
+        val list = newList()
+        val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+        val visit = visits.startVisit(store, list.id, false, now)
+        val check = visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now + 30.seconds, sendAfter)
+        advance(1.minutes)
+        return Seed(visit, item, check)
+    }
+
+    /** `createVisit` part, `insertChecks` est retenu (`23503`), puis l'article est décoché : la coche disparaît. */
+    private suspend fun sentThenUnchecked(): Seed {
+        val seed = seed()
+        gateway.failNext("insertChecks", RemoteError.DependencyMissing("23503"))
+        engine.drain()
+        assertEquals(listOf("createVisit:${seed.visit.id}"), gateway.callsOf("createVisit"))
+        assertEquals(SyncState.SYNCED, db.visits().get(seed.visit.id)?.syncState)
+        assertEquals(listOf(OutboxKind.InsertChecks), kinds())
+
+        visits.uncheckItem(seed.item.id, seed.check.id, now + 1.minutes)
+        assertTrue(visits.checks(seed.visit.id).isEmpty())
+        assertEquals(listOf(OutboxKind.UpsertItem), kinds())
+        return seed
+    }
+
+    /** La clôture part, à la date du début de visite, et aucune coche ne part. */
+    private suspend fun assertClosureSent(visit: VisitEntity) {
+        val closed = requireNotNull(db.visits().get(visit.id))
+        assertEquals(visit.startedAt, closed.endedAt)
+        assertEquals(SyncState.SYNCED, closed.syncState)
+        assertEquals(SyncState.PENDING, closed.endSyncState)
+        assertTrue(OutboxKind.CloseVisit in kinds())
+
+        advance(1.hours)
+        assertNull(engine.drain())
+        assertTrue(db.outbox().all().isEmpty())
+        assertEquals(listOf("closeVisit:${visit.id}"), gateway.callsOf("closeVisit"))
+        assertTrue(gateway.savedChecks.isEmpty())
+        assertEquals(SyncState.SYNCED, db.visits().get(visit.id)?.endSyncState)
+    }
+
+    @Test
+    fun closingASentVisitWithoutChecksSendsItsClosure() =
+        runBlocking {
+            val seed = sentThenUnchecked()
+            assertTrue(visits.closeVisit(seed.visit.id, now + 10.minutes))
+            assertClosureSent(seed.visit)
+        }
+
+    @Test
+    fun abandoningASentVisitWithoutChecksSendsItsClosure() =
+        runBlocking {
+            val seed = sentThenUnchecked()
+            assertTrue(visits.abandonVisit(seed.visit.id, now + 3.hours, staleAfter = 45.minutes))
+            assertClosureSent(seed.visit)
+        }
+
+    /** Une visite neuve abandonne l'ancienne de la même façon. */
+    @Test
+    fun startingAnotherVisitClosesTheSentOneWithoutChecks() =
+        runBlocking {
+            val seed = sentThenUnchecked()
+            val other = visits.startVisit(store, seed.item.listId, false, now + 10.minutes, staleAfter = 1.minutes)
+            assertFalse(other.id == seed.visit.id)
+            assertClosureSent(seed.visit)
+        }
+
+    /** Création annulée pendant son envoi (coche retirée entre-temps) : le serveur l'a reçue, elle le sait. */
+    @Test
+    fun aCreationCancelledDuringItsSendStillCountsAsReceived() =
+        runBlocking {
+            val seed = seed()
+            gateway.failNext("insertChecks", RemoteError.DependencyMissing("23503"))
+            gateway.beforeCall = { method ->
+                if (method == "createVisit") visits.uncheckItem(seed.item.id, seed.check.id, now + 1.minutes)
+            }
+            engine.drain()
+            gateway.beforeCall = {}
+            assertTrue(visits.checks(seed.visit.id).isEmpty())
+            assertEquals(SyncState.SYNCED, db.visits().get(seed.visit.id)?.syncState)
+
+            assertTrue(visits.closeVisit(seed.visit.id, now + 10.minutes))
+            assertClosureSent(seed.visit)
+        }
+
+    /** Clôture perdue : la réconciliation la remet en file, même sans coche. */
+    @Test
+    fun reconciliationRequeuesTheClosureOfASentVisitWithoutChecks() =
+        runBlocking {
+            val seed = sentThenUnchecked()
+            visits.closeVisit(seed.visit.id, now + 10.minutes)
+            db
+                .outbox()
+                .pending()
+                .filter { it.kind() == OutboxKind.CloseVisit }
+                .forEach { db.outbox().delete(it.id) }
+            assertFalse(OutboxKind.CloseVisit in kinds())
+
+            OutboxReconciliation(db).run(now + 11.minutes)
+            assertEquals(1, kinds().count { it == OutboxKind.CloseVisit })
+            assertFalse(OutboxKind.CreateVisit in kinds())
+        }
+
+    /** Non-régression : jamais envoyée et sans coche, la visite est supprimée et rien ne part. */
+    @Test
+    fun aVisitNeverSentAndWithoutChecksIsStillDeleted() =
+        runBlocking {
+            for (abandoning in listOf(false, true)) {
+                val seed = seed(sendAfter = 5.seconds)
+                visits.uncheckItem(seed.item.id, seed.check.id, now)
+                assertFalse(OutboxKind.CreateVisit in kinds())
+                if (abandoning) {
+                    assertTrue(visits.abandonVisit(seed.visit.id, now + 3.hours))
+                } else {
+                    assertFalse(visits.closeVisit(seed.visit.id, now + 10.minutes))
+                }
+                assertNull(visits.visit(seed.visit.id))
+                assertFalse(OutboxKind.CloseVisit in kinds())
+            }
+
+            advance(1.hours)
+            assertNull(engine.drain())
+            assertTrue(gateway.callsOf("createVisit").isEmpty())
+            assertTrue(gateway.callsOf("closeVisit").isEmpty())
         }
 
     // endregion

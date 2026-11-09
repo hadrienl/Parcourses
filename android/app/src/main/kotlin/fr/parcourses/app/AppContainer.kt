@@ -160,7 +160,8 @@ class AppContainer(
     /**
      * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
      * depuis plus de [expiry] : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
-     * aucune, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien n'est rouvert.
+     * aucune et n'est jamais partie, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien
+     * n'est rouvert.
      * L'abandon ne lève rien sur une visite disparue entre-temps (reprise de compte) : le lancement ne plante pas,
      * et une visite redevenue active entre la lecture et l'abandon reste ouverte.
      */
