@@ -109,7 +109,41 @@
       },
       "a11y": "icône décorative (masquée), le libellé du rayon est toujours affiché",
       "ios": "jeu de symboles personnalisés (.svg template, mode monochrome) dans Assets.xcassets, Image(\"cat.<id>\")",
-      "android": "vector drawables res/drawable/ic_cat_<id>.xml, tint = couleur du rayon"
+      "android": "vector drawables res/drawable/ic_cat_<id>.xml, tint = couleur du rayon",
+      "family": {
+        "$note": "Famille de couleur de chaque rayon (ids de shared/categories/), commune à iOS et Android. Un rayon absent, et `other`, prennent inkMuted.",
+        "fresh": [
+          "produce",
+          "bakery",
+          "butcher",
+          "deli",
+          "seafood"
+        ],
+        "dairy": [
+          "cheese",
+          "dairy",
+          "frozen",
+          "beverages"
+        ],
+        "grocery": [
+          "savory-grocery",
+          "world-food",
+          "breakfast",
+          "sweet-grocery",
+          "snacks",
+          "alcohol"
+        ],
+        "hygiene": [
+          "baby",
+          "hygiene",
+          "household",
+          "pets"
+        ],
+        "bio": [
+          "bio"
+        ],
+        "other": "inkMuted"
+      }
     }
   },
   "variants": {
@@ -117,6 +151,7 @@
       "$intent": "Direction retenue : structure de A « Le Fil » habillée en ticket.",
       "color": {
         "light": {
+          "desk": "#E3DCCF",
           "paper": "#FBF7F0",
           "paperEdge": "#EAE2D3",
           "ink": "#1A1C22",
@@ -125,7 +160,9 @@
           "onAccent": "#FFFFFF",
           "thread": "#2340C8",
           "threadIdle": "#D5CEC0",
+          "threadIdleHighContrast": "#8A8478",
           "checked": "#545866",
+          "destructive": "#D70015",
           "aisle": {
             "fresh": "#1F7A44",
             "dairy": "#2A6FB0",
@@ -135,6 +172,7 @@
           }
         },
         "dark": {
+          "desk": "#08090C",
           "paper": "#12141A",
           "paperEdge": "#232631",
           "ink": "#ECEEF4",
@@ -143,7 +181,9 @@
           "onAccent": "#0B1550",
           "thread": "#8FA6FF",
           "threadIdle": "#353A48",
+          "threadIdleHighContrast": "#7A8094",
           "checked": "#A6ABBA",
+          "destructive": "#FF6961",
           "aisle": {
             "fresh": "#6FD39A",
             "dairy": "#86BEF2",
@@ -152,7 +192,7 @@
             "bio": "#C3DC6A"
           }
         },
-        "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte"
+        "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte ; desk : fond autour du ticket (maquette) ; destructive ≥ 4,5:1 sur paper (iOS #60) ; threadIdleHighContrast ≥ 3:1 sur paper (contraste accru : fil 5 pt)"
       },
       "signature": {
         "thread": "fil de 3 pt dans une gouttière de 28 pt ; il avance d'une perle à chaque coche",

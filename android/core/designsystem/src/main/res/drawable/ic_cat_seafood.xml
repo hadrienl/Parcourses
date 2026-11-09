@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Généré par android/scripts/sync-category-icons.py depuis design/icons/categories/seafood.svg. Ne pas modifier. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3 12c3-4 7-5.5 11-5 2.5.3 4.5 2 6 5-1.5 3-3.5 4.7-6 5-4 .5-8-1-11-5Z" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3 12 1.5 9M3 12l-1.5 3" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M15.2,11a0.8,0.8 0 1,0 1.6,0a0.8,0.8 0 1,0 -1.6,0Z" />
+</vector>

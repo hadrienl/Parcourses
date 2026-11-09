@@ -1,39 +1,91 @@
 package fr.parcourses.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 
-// Palette de base ; les tokens définitifs de #6 arriveront en A11.
-private val LightColors =
-    lightColorScheme(
-        primary = Color(0xFF2E6B4F),
-        onPrimary = Color(0xFFFFFFFF),
-        secondary = Color(0xFFB4552D),
-        background = Color(0xFFFBF8F3),
-        surface = Color(0xFFFBF8F3),
+/**
+ * Palette Material tirée des tokens B3 : le papier fait les surfaces, l'encre le texte, l'accent les actions. Les
+ * conteneurs (dialogues, feuilles, champs) prennent le bord du papier, sans teinte d'élévation.
+ */
+internal fun TicketColors.toColorScheme(dark: Boolean): ColorScheme {
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = accent,
+        onPrimary = onAccent,
+        primaryContainer = paperEdge,
+        onPrimaryContainer = ink,
+        secondary = inkMuted,
+        onSecondary = paper,
+        secondaryContainer = paperEdge,
+        onSecondaryContainer = ink,
+        tertiary = accent,
+        onTertiary = onAccent,
+        background = desk,
+        onBackground = ink,
+        surface = paper,
+        onSurface = ink,
+        surfaceVariant = paperEdge,
+        onSurfaceVariant = inkMuted,
+        surfaceTint = paper,
+        surfaceBright = paper,
+        surfaceDim = paperEdge,
+        surfaceContainerLowest = paper,
+        surfaceContainerLow = paper,
+        surfaceContainer = paperEdge,
+        surfaceContainerHigh = paperEdge,
+        surfaceContainerHighest = paperEdge,
+        inverseSurface = ink,
+        inverseOnSurface = paper,
+        inversePrimary = inverseAccent,
+        outline = inkMuted,
+        outlineVariant = threadIdle,
+        error = destructive,
+        onError = paper,
+        scrim = ink,
     )
+}
 
-private val DarkColors =
-    darkColorScheme(
-        primary = Color(0xFF8FD3B0),
-        onPrimary = Color(0xFF003824),
-        secondary = Color(0xFFFFB595),
-        background = Color(0xFF151311),
-        surface = Color(0xFF151311),
-    )
-
-// Thème Material 3 de Parcourses. Couleur dynamique désactivée par défaut (#10, §16).
+/**
+ * Thème de Parcourses : direction B3 « Ticket filé » (#6). Palette de la marque, sans couleur dynamique : il n'y a pas
+ * encore d'écran de réglages pour la proposer en option (#6, question 3). [accessibility] est lu sur le système ; les
+ * tests le fixent.
+ */
 @Composable
 fun ParcoursesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    accessibility: AccessibilityPreferences =
+        AccessibilityPreferences(
+            reducedMotion = rememberReducedMotion(),
+            highContrast = rememberHighContrast(),
+        ),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        content = content,
-    )
+    val colors = if (darkTheme) DarkTicketColors else LightTicketColors
+    CompositionLocalProvider(
+        LocalTicketColors provides colors,
+        LocalAccessibilityPreferences provides accessibility,
+    ) {
+        MaterialTheme(
+            colorScheme = colors.toColorScheme(darkTheme),
+            typography = ParcoursesTypography,
+            content = content,
+        )
+    }
+}
+
+/** Accès aux tokens du thème courant. */
+object Ticket {
+    val colors: TicketColors
+        @Composable @ReadOnlyComposable
+        get() = LocalTicketColors.current
+
+    val accessibility: AccessibilityPreferences
+        @Composable @ReadOnlyComposable
+        get() = LocalAccessibilityPreferences.current
 }
