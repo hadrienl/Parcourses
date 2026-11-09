@@ -54,8 +54,8 @@ class ShoppingViewModelTest : ShoppingTest() {
             val state = started(model(listId))
 
             assertFalse(state.groupsByAisle)
-            // Une suite par changement de rayon, dans l'ordre du tri (iOS : même identité « <rayon>#<n> »).
-            assertEquals(listOf("bakery#0", "produce#0", "dairy#0"), state.sections.map { it.key })
+            // Une suite par changement de rayon, dans l'ordre du tri ; même identité qu'iOS.
+            assertEquals(listOf("bakery", "produce", "dairy"), state.sections.map { it.id })
             assertEquals(state.toBuy, state.sections.flatMap { it.rows })
             assertEquals(RouteKnowledge.Learned(80), state.knowledge)
             assertEquals(listOf("pain", "pommes", "lait"), state.labels())

@@ -952,7 +952,7 @@ class ShoppingViewModel(
 
     /**
      * Mode appris : l'ordre du tri est gardé tel quel, et un titre de rayon marque chaque changement de rayon le long
-     * du trajet (comme iOS). Un rayon traversé deux fois donne deux suites, `#0` puis `#1`.
+     * du trajet (comme iOS). Un rayon traversé deux fois donne deux suites, `produce` puis `produce#1`.
      */
     private fun runs(): List<ShoppingSection> {
         val seen = HashMap<String, Int>()
@@ -962,9 +962,10 @@ class ShoppingViewModel(
             if (last != null && last.aisleId == row.aisleId) {
                 runs[runs.lastIndex] = last.copy(rows = last.rows + row)
             } else {
-                val run = seen.getOrDefault(row.aisleId, 0)
-                seen[row.aisleId] = run + 1
-                runs += ShoppingSection(row.aisleId, categoryLabels[row.aisleId] ?: row.aisleId, listOf(row), run)
+                val occurrence = seen.getOrDefault(row.aisleId, 0)
+                seen[row.aisleId] = occurrence + 1
+                runs +=
+                    ShoppingSection(row.aisleId, categoryLabels[row.aisleId] ?: row.aisleId, listOf(row), occurrence)
             }
         }
         return runs

@@ -54,24 +54,40 @@ def rect_path(el: ET.Element) -> str:
 
 
 def path_xml(data: str, filled: bool, indent: str) -> str:
+    """Tracé au trait de la racine (1,5, extrémités et jonctions arrondies) ; un élément `fill="currentColor"` est en
+    plus rempli : il garde le trait hérité de la racine, comme dans le SVG (l'œil du poisson)."""
     fill = f'\n{indent}    android:fillColor="{INK}"' if filled else ""
     stroke = (
-        ""
-        if filled
-        else (
-            f'\n{indent}    android:strokeColor="{INK}"'
-            f'\n{indent}    android:strokeWidth="1.5"'
-            f'\n{indent}    android:strokeLineCap="round"'
-            f'\n{indent}    android:strokeLineJoin="round"'
-        )
+        f'\n{indent}    android:strokeColor="{INK}"'
+        f'\n{indent}    android:strokeWidth="1.5"'
+        f'\n{indent}    android:strokeLineCap="round"'
+        f'\n{indent}    android:strokeLineJoin="round"'
     )
     return f'{indent}<path{fill}{stroke}\n{indent}    android:pathData="{data}" />'
+
+
+ROOT_STYLE = {"stroke": "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round"}
+ELEMENT_STYLES = ("stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "fill-rule", "opacity")
+
+
+def check_style(svg: Path, root: ET.Element) -> None:
+    """Le style du trait est fixé dans le drawable : tout écart dans un SVG fait échouer la conversion."""
+    for key, value in ROOT_STYLE.items():
+        if root.get(key) != value:
+            raise SystemExit(f"{svg.name} : {key} de la racine attendu à {value}")
+    for el in root:
+        for key in ELEMENT_STYLES:
+            if el.get(key) is not None:
+                raise SystemExit(f"{svg.name} : attribut {key} non pris en charge sur <{el.tag.replace(SVG, '')}>")
+        if el.get("fill") not in (None, "currentColor"):
+            raise SystemExit(f"{svg.name} : fill={el.get('fill')} non pris en charge")
 
 
 def convert(svg: Path) -> str:
     root = ET.parse(svg).getroot()
     if root.get("viewBox") != "0 0 24 24":
         raise SystemExit(f"{svg.name} : viewBox inattendue")
+    check_style(svg, root)
     lines = []
     for el in root:
         tag = el.tag.replace(SVG, "")
@@ -90,9 +106,13 @@ def convert(svg: Path) -> str:
             if not match:
                 raise SystemExit(f"{svg.name} : transformation non prise en charge ({transform})")
             angle, px, py = (num(v) for v in match.groups())
-            lines.append(f'    <group android:rotation="{angle}" android:pivotX="{px}" android:pivotY="{py}">')
-            lines.append(path_xml(data, filled, "        "))
-            lines.append("    </group>")
+            lines.extend(
+                [
+                    f'    <group android:rotation="{angle}" android:pivotX="{px}" android:pivotY="{py}">',
+                    path_xml(data, filled, "        "),
+                    "    </group>",
+                ]
+            )
         else:
             lines.append(path_xml(data, filled, "    "))
     body = "\n".join(lines)

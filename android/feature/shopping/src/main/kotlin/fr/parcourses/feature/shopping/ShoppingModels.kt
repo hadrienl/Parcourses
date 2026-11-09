@@ -55,10 +55,10 @@ data class ShoppingSection(
     val title: String,
     val rows: List<ShoppingRow>,
     /** Rang de cette suite parmi celles du même rayon (0 pour la première). */
-    val run: Int = 0,
+    val occurrence: Int = 0,
 ) {
-    /** Identité stable de la suite, commune à iOS : « <aisleId>#<n> ». */
-    val key: String get() = "$aisleId#$run"
+    /** Identité de la suite, comme iOS : `aisleId` pour la première, « <aisleId>#<n> » ensuite. */
+    val id: String get() = if (occurrence == 0) aisleId else "$aisleId#$occurrence"
 
     /** Articles encore à prendre : une ligne juste cochée reste dans sa section sans compter. */
     val remainingCount: Int get() = rows.count { !it.isChecked }

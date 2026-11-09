@@ -3,6 +3,7 @@ package fr.parcourses.core.designsystem
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -71,7 +72,7 @@ fun TicketCheckBox(
 /**
  * Nom, pointillés, quantité : la ligne d'un ticket de caisse. Le nom prend la place dont il a besoin (sur plusieurs
  * lignes s'il le faut), la quantité garde la sienne ; les pointillés comblent l'écart. En texte très agrandi, les
- * pointillés disparaissent.
+ * pointillés disparaissent et la quantité passe sous le nom.
  */
 @Composable
 fun ItemLine(
@@ -83,7 +84,8 @@ fun ItemLine(
     decoration: TextDecoration? = null,
 ) {
     val colors = Ticket.colors
-    val leader = !isLargeText() && quantity != null
+    if (isLargeText()) return StackedItemLine(name, quantity, style, color, modifier, decoration)
+    val leader = quantity != null
     val gap = TicketDimens.spaceXs
     Layout(
         modifier = modifier,
@@ -143,3 +145,19 @@ private val CHECK_MARK = floatArrayOf(0.27f, 0.52f, 0.44f, 0.69f, 0.74f, 0.34f)
 
 /** Hauteur des pointillés, près de la ligne de base du nom. */
 private const val LEADER_BASELINE = 0.7f
+
+/** Texte très agrandi : la quantité passe sous le nom, qui garde toute la largeur. */
+@Composable
+private fun StackedItemLine(
+    name: String,
+    quantity: String?,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier,
+    decoration: TextDecoration?,
+) {
+    Column(modifier) {
+        Text(name, style = style, color = color, textDecoration = decoration)
+        if (quantity != null) Text(quantity, style = TicketType.quantity, color = Ticket.colors.inkMuted)
+    }
+}

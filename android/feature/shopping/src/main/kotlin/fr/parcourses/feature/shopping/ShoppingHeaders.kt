@@ -48,8 +48,9 @@ internal fun Header(state: ShoppingUiState) {
         }
     val remaining = stringResource(R.string.shopping_remaining_header, state.toBuyCount)
     val description = listOfNotNull(remaining, state.storeName, knowledge).joinToString(", ")
+    // Sans magasin, la barre du haut porte déjà le nom de la liste : pas de titre en double sur le ticket.
     TicketHeader(
-        title = state.storeName ?: state.name,
+        title = state.storeName,
         meta = listOf(knowledge),
         totalLabel = stringResource(R.string.shopping_total_label),
         total = state.toBuyCount,
@@ -131,34 +132,41 @@ internal fun BasketHeader(
 }
 
 /**
- * Suites de rayon qui viennent de remonter dans le trajet appris : celles qui passent devant une suite qu'elles
- * suivaient. Une suite qui gagne une place parce qu'une autre a disparu (tout pris) ne compte pas.
+ * Suites de rayon qui viennent de remonter dans le trajet appris : celles dont un article passe devant un article
+ * d'un autre rayon qu'il suivait. Les articles font foi, pas le rang des suites : une suite qui gagne une place parce
+ * qu'une autre est finie, ou un rayon traversé deux fois dont la première suite disparaît, ne comptent pas, pas plus
+ * qu'un article ajouté en route. [before] : identifiants des articles dans l'ordre affiché avant le tri.
  */
 internal fun risenRuns(
     before: List<String>,
-    after: List<String>,
+    after: List<ShoppingSection>,
 ): Set<String> {
     val old = before.withIndex().associate { it.value to it.index }
-    val common = after.filter { it in old }
-    return common
+    val rows = after.flatMap { section -> section.rows.map { section to it.id } }.filter { it.second in old }
+    return rows
         .withIndex()
-        .filter { (index, key) -> common.drop(index + 1).any { other -> old.getValue(other) < old.getValue(key) } }
-        .map { it.value }
+        .filter { (index, entry) ->
+            val (section, id) = entry
+            rows.drop(index + 1).any { (other, otherId) ->
+                other.aisleId != section.aisleId && old.getValue(otherId) < old.getValue(id)
+            }
+        }.map { it.value.first.id }
         .toSet()
 }
 
 /** Étiquette « ↑ appris » pendant [LEARNED_TAG_MS] sur les suites remontées, en mode appris seulement. */
 @Composable
 internal fun rememberRisenRuns(
-    keys: List<String>,
+    sections: List<ShoppingSection>,
     learned: Boolean,
 ): Set<String> {
     var previous by remember { mutableStateOf<List<String>?>(null) }
     var risen by remember { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(keys) {
+    val order = sections.flatMap { section -> section.rows.map { it.id } }
+    LaunchedEffect(order) {
         val before = previous
-        previous = keys
-        risen = if (learned && before != null) risenRuns(before, keys) else emptySet()
+        previous = order
+        risen = if (learned && before != null) risenRuns(before, sections) else emptySet()
         if (risen.isNotEmpty()) {
             delay(LEARNED_TAG_MS)
             risen = emptySet()

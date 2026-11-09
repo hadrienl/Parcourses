@@ -230,12 +230,13 @@ internal fun ShoppingList(
     val listState = rememberLazyListState()
     var basketExpanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect(actions.onScrolling) }
-    val learned = state.knowledge is RouteKnowledge.Learned
+    // L'ordre réellement affiché fait foi (un instantané refusé retombe dans l'ordre générique), pas la confiance.
+    val learned = !state.groupsByAisle
     val view =
         ThreadView(
             stops = stops(state),
             style = if (learned) ThreadStyle.Solid else ThreadStyle.Dashed,
-            risen = rememberRisenRuns(state.sections.map { it.key }, learned),
+            risen = rememberRisenRuns(state.sections, learned),
             reduced = Ticket.accessibility.reducedMotion,
         )
     LazyColumn(
@@ -270,12 +271,12 @@ private fun LazyListScope.toBuy(
         val (top, bottom) = view.segments[index]
         when (stop) {
             is Stop.Aisle -> {
-                item(key = "aisle-${stop.section.key}", contentType = "aisle") {
+                item(key = "aisle-${stop.section.id}", contentType = "aisle") {
                     AisleHeader(
                         section = stop.section,
                         piece = ThreadPiece(top, bottom),
                         style = view.style,
-                        risen = stop.section.key in view.risen,
+                        risen = stop.section.id in view.risen,
                         modifier = Modifier.ticketMotion(this, view.reduced),
                     )
                 }

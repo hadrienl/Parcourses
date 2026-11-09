@@ -199,7 +199,7 @@ class ShoppingScreenTest {
                     listOf(
                         ShoppingSection("produce", "Fruits et légumes", listOf(apples)),
                         ShoppingSection("bakery", "Boulangerie, pâtisserie", listOf(bread)),
-                        ShoppingSection("produce", "Fruits et légumes", listOf(oil), run = 1),
+                        ShoppingSection("produce", "Fruits et légumes", listOf(oil), occurrence = 1),
                     ),
                 groupsByAisle = false,
                 knowledge = RouteKnowledge.Learned(80),
