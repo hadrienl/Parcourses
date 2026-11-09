@@ -329,17 +329,32 @@ final class SwiftDataVisitRepository: VisitRepository {
     return try close(visit, at: try activity(of: visit))
   }
 
-  /// Sans enregistrer. Une visite sans coche est supprimée ; `true` si une clôture a été mise en file.
+  /// Sans enregistrer. `true` si une clôture a été mise en file.
+  ///
+  /// Une visite sans coche n'est supprimée que si le serveur ne l'a jamais reçue. Reçue, puis vidée de ses coches
+  /// pas encore parties (#62), elle est close à sa dernière activité, donc à son début : supprimée en local, elle
+  /// resterait ouverte chez lui.
   private func close(_ visit: Visit, at date: Date) throws -> Bool {
     guard visit.endedAt == nil else { return false }
-    guard try !checks(visitId: visit.id).isEmpty else {
+    let isEmpty = try checks(visitId: visit.id).isEmpty
+    if try isEmpty && !wasReceived(visit) {
       context.delete(visit)
       return false
     }
-    visit.endedAt = date
+    let endedAt = isEmpty ? try activity(of: visit) : date
+    visit.endedAt = endedAt
     visit.endSyncState = .pending
-    try context.enqueueClosure(ofVisit: visit.id, endedAt: date, at: date)
+    try context.enqueueClosure(ofVisit: visit.id, endedAt: endedAt, at: date)
     return true
+  }
+
+  /// Création reçue par le serveur. Lu sur un contexte neuf : le principal reçoit les écritures du moteur plus tard,
+  /// et un état `pending` périmé supprimerait une visite déjà reçue.
+  private func wasReceived(_ visit: Visit) throws -> Bool {
+    let id = visit.id
+    let synced = SyncState.synced.rawValue
+    let received = FetchDescriptor<Visit>(predicate: #Predicate { $0.id == id && $0.syncStateRaw == synced })
+    return try ModelContext(context.container).fetchCount(received) > 0
   }
 
   /// Sans enregistrer. Champ purement local (#9 question 4) : ni envoi, ni `updatedAt`. Un article coché garde
@@ -397,7 +412,8 @@ final class SwiftDataVisitRepository: VisitRepository {
     // Plus d'entrée en attente : la coche est partie, ou abandonnée. Le serveur ne sait pas la retirer.
     guard try context.cancelPendingOutboxEntries(entityId: id, kinds: [.insertChecks]) != nil else { return false }
     let visitId = check.visitId
-    // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide.
+    // Sans autre coche, la visite ne doit pas partir : elle ne partirait que vide. Déjà partie, elle sera close
+    // à son début (`close`, #62).
     if try checks(visitId: visitId).allSatisfy({ $0.id == id }) {
       try context.cancelPendingOutboxEntries(entityId: visitId, kinds: [.createVisit])
     }
