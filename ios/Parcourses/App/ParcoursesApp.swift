@@ -26,10 +26,10 @@ struct ParcoursesApp: App {
       switch environment {
       case .success(let environment):
         RootView(environment: environment)
-          // Teinte de l'app : l'asset AccentColor (liens, pictogrammes), ≥ 4,5:1 sur les fonds clairs et sombres ;
-          // les boutons pleins ont leur propre teinte (`prominentButton()`). Posée à la racine pour que les
-          // feuilles et le plein écran en héritent. Remplacée par les jetons de couleur au lot 9.11.
-          .tint(Color("AccentColor"))
+          // Teinte de l'app : l'accent du ticket (8:1 sur le papier en clair), avec sa variante Contraste augmenté.
+          // Posée à la racine pour que les feuilles et le plein écran en héritent ; l'asset AccentColor (mêmes
+          // valeurs, sans la variante Contraste augmenté) sert aux contrôles système hors de cette hiérarchie (alertes).
+          .tint(Palette.accent)
           // Tests UI : apparence et réglages d'affichage forcés (Debug seulement).
           .uiTestOverrides()
           .task {
@@ -130,7 +130,7 @@ struct RootView: View {
           Color.black.opacity(0.2).ignoresSafeArea()
           ProgressView("Préparation de vos courses…")
             .padding()
-            .bannerBackground()
+            .parcoursesGlass(in: RoundedRectangle(cornerRadius: TicketMetrics.radius * 2, style: .continuous))
         }
         .accessibilityIdentifier("shoppingPreparation")
       }

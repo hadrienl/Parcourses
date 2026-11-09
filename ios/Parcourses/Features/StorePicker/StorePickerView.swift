@@ -10,6 +10,9 @@ struct StorePickerView: View {
   var body: some View {
     NavigationStack {
       content
+        // Papier du ticket derrière les cartes du système.
+        .scrollContentBackground(.hidden)
+        .background(Palette.paper.ignoresSafeArea())
         .navigationTitle("Choisir le magasin")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { attribution }
@@ -63,7 +66,7 @@ struct StorePickerView: View {
           Button("Utiliser ma position précise") { Task { await model.requestPrecision() } }
           if model.precisionDeclined {
             Text("Position précise non accordée : choisissez dans la liste.")
-              .font(.subheadline).foregroundStyle(.secondary)
+              .font(.subheadline).foregroundStyle(Palette.inkMuted)
           }
         }
         searchSection
@@ -131,7 +134,7 @@ struct StorePickerView: View {
       Section {
         VStack(alignment: .leading, spacing: 4) {
           Label(title, systemImage: systemImage).font(.headline)
-          Text(message).font(.subheadline).foregroundStyle(.secondary)
+          Text(message).font(.subheadline).foregroundStyle(Palette.inkMuted)
         }
         .accessibilityElement(children: .combine)
         action()
@@ -158,13 +161,13 @@ struct StorePickerView: View {
       case .searching:
         ProgressView()
       case .results(let found) where found.isEmpty:
-        Text("Aucun magasin trouvé.").foregroundStyle(.secondary)
+        Text("Aucun magasin trouvé.").foregroundStyle(Palette.inkMuted)
       case .results(let found):
         ForEach(found) { store in StoreRow(store: store) { model.select(store) } }
       case .offline:
-        Text("Recherche impossible hors ligne.").foregroundStyle(.secondary)
+        Text("Recherche impossible hors ligne.").foregroundStyle(Palette.inkMuted)
       case .failed:
-        Text("La recherche a échoué. Réessayez.").foregroundStyle(.secondary)
+        Text("La recherche a échoué. Réessayez.").foregroundStyle(Palette.inkMuted)
       }
     }
   }
@@ -184,7 +187,7 @@ struct StorePickerView: View {
   /// Les magasins viennent d'OpenStreetMap (#9 §8).
   private var attribution: some View {
     // Aplat opaque : le lien reste lisible quand la liste défile dessous.
-    OSMAttribution().background(Color(uiColor: .systemGroupedBackground))
+    OSMAttribution().background(Palette.paper)
   }
 }
 
@@ -199,12 +202,12 @@ private struct StoreRow: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(store.name).foregroundStyle(.primary)
           if let address = store.address {
-            Text(address).font(.subheadline).foregroundStyle(.secondary)
+            Text(address).font(.subheadline).foregroundStyle(Palette.inkMuted)
           }
         }
         Spacer()
         if let distance = store.distanceM {
-          Text(StoreDistance.text(metres: distance)).font(.subheadline).foregroundStyle(.secondary)
+          Text(StoreDistance.text(metres: distance)).font(.subheadline).foregroundStyle(Palette.inkMuted)
         }
       }
       .touchTarget()
