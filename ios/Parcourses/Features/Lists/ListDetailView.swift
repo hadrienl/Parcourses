@@ -1,9 +1,23 @@
 import SwiftUI
 
-/// Écran Liste : articles groupés par rayon, saisie rapide dans un dock en bas.
+/// Une ligne du ticket de l'écran Liste : le nœud d'un rayon, ou un article.
+private enum ListLine: Identifiable {
+  case aisle(ItemSection)
+  case item(ItemRow)
+
+  var id: String {
+    switch self {
+    case .aisle(let section): "aisle:\(section.id)"
+    case .item(let row): row.id.uuidString
+    }
+  }
+}
+
+/// Écran Liste : ticket groupé par rayon sur le fil (encore à parcourir), saisie rapide dans un dock en verre en bas.
 struct ListDetailView: View {
   @State private var model: ListDetailModel
   @FocusState private var inputIsFocused: Bool
+  @ScaledMetric(relativeTo: .largeTitle) private var totalSize: CGFloat = 52
   private let onShop: (UUID) -> Void
 
   init(
@@ -17,19 +31,27 @@ struct ListDetailView: View {
   }
 
   var body: some View {
+    let lines = model.sections.flatMap { section in
+      [ListLine.aisle(section)] + section.items.map(ListLine.item)
+    }
+    // Écran de préparation : le fil est tracé, rien n'est encore parcouru.
+    let places = ThreadPlace.places(count: lines.count, reached: nil, progress: false)
     List {
-      ForEach(model.sections) { section in
-        Section {
-          ForEach(section.items) { row in
-            itemRow(row)
-          }
-        } header: {
-          // Titre en couleur principale : le gris des en-têtes du système tient mal le contraste. `Color.primary`,
-          // pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
-          Text(section.title).foregroundStyle(Color.primary)
+      if !model.isEmpty {
+        header.ticketRow()
+      }
+      ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
+        switch line {
+        case .aisle(let section):
+          aisleRow(section, place: place).ticketRow()
+        case .item(let row):
+          itemRow(row, place: place)
         }
       }
     }
+    .listStyle(.plain)
+    .ticketBackground()
+    .environment(\.defaultMinListRowHeight, 0)
     // Repère des tests UI (audit d'accessibilité) : la liste de l'écran Liste.
     .accessibilityIdentifier("itemList")
     .scrollDismissesKeyboard(.interactively)
@@ -71,14 +93,45 @@ struct ListDetailView: View {
     }
   }
 
-  private func itemRow(_ row: ItemRow) -> some View {
+  /// Compteur du ticket : « ARTICLES 06 ».
+  private var header: some View {
+    let count = model.sections.reduce(0) { $0 + $1.items.count }
+    return HStack(alignment: .lastTextBaseline) {
+      Text("Articles")
+        .font(TicketFont.totalCaption)
+        .tracking(TicketFont.aisleTracking)
+        .textCase(.uppercase)
+        .foregroundStyle(Palette.inkMuted)
+      Spacer(minLength: Space.s)
+      Text(ShoppingView.counter(count))
+        .font(TicketFont.total(size: totalSize))
+        .monospacedDigit()
+        .foregroundStyle(Palette.ink)
+    }
+    .padding(.top, Space.xs)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(count <= 1 ? "\(count) article" : "\(count) articles")
+  }
+
+  /// Nœud d'un rayon sur le fil, lu comme un en-tête.
+  private func aisleRow(_ section: ItemSection, place: ThreadPlace) -> some View {
+    AisleLine(
+      aisleId: section.categoryId, title: section.title, identifier: "aisle-\(section.categoryId)", place: place)
+  }
+
+  private func itemRow(_ row: ItemRow, place: ThreadPlace) -> some View {
     Button {
       model.toggle(row)
     } label: {
-      // L'état se lit sans couleur : forme de l'icône et texte barré.
-      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
+      ThreadRow(place: place) {
+        Bead(state: row.isChecked ? .done : .idle)
+      } content: {
+        // L'état se lit sans couleur : case pleine avec coche, et texte barré.
+        ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
+      }
     }
     .buttonStyle(.plain)
+    .ticketRow()
     .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.accessibilityState)
@@ -100,12 +153,20 @@ struct ListDetailView: View {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack {
             ForEach(suggestions) { suggestion in
-              Button(suggestion.label) { model.add(suggestion) }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .accessibilityLabel("Ajouter \(suggestion.label)")
-                .accessibilityIdentifier("suggestion")
+              Button {
+                model.add(suggestion)
+              } label: {
+                Text(suggestion.label)
+                  .font(.system(.body, design: .monospaced).weight(.medium))
+                  .foregroundStyle(Palette.ink)
+                  .padding(.horizontal, Space.m)
+                  .touchTarget()
+                  .background(Palette.paper, in: Capsule())
+                  .overlay { Capsule().strokeBorder(Palette.paperEdge) }
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("Ajouter \(suggestion.label)")
+              .accessibilityIdentifier("suggestion")
             }
           }
         }
@@ -117,19 +178,18 @@ struct ListDetailView: View {
           .accessibilityIdentifier("quickEntry")
           .onSubmit(submit)
         Button(action: submit) {
-          Label("Ajouter", systemImage: "plus.circle.fill")
+          Label("Ajouter", systemImage: "plus")
             .labelStyle(.iconOnly)
-            .font(.title)
+            .font(.title3.weight(.bold))
             .frame(minWidth: 44)
             .touchTarget()
         }
+        .prominentButton(compact: true)
         .disabled(model.input.allSatisfy(\.isWhitespace))
         .accessibilityIdentifier("addItem")
       }
     }
-    .padding(.horizontal)
-    .padding(.vertical, 8)
-    .barBackground()
+    .floatingDock()
   }
 
   /// Le clavier reste ouvert : on enchaîne les articles.

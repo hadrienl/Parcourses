@@ -1,13 +1,18 @@
 import SwiftUI
 import UIKit
 
-/// Mode courses, plein écran. Habillage système : l'identité visuelle arrive en 9.11.
+/// Mode courses, plein écran, habillé en ticket filé (B3, #6) : rayons dans l'ordre du trajet, fil du parcours qui
+/// avance d'une perle à chaque coche, dock en verre dans la zone du pouce.
 struct ShoppingView: View {
   @State var session: ShoppingSession
   let onClose: () -> Void
   @State private var showsRemaining = false
   @State private var basketIsExpanded = false
   @State private var checkTrigger = 0
+  @State private var uncheckTrigger = 0
+  /// Rayons qui viennent de remonter en ordre appris (étiquette « ↑ appris »).
+  @State private var learnedTags: Set<String> = []
+  @ScaledMetric(relativeTo: .largeTitle) private var totalSize: CGFloat = 52
   @FocusState private var inputIsFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -38,59 +43,60 @@ struct ShoppingView: View {
     UIApplication.shared.isIdleTimerDisabled = value
   }
 
-  private var motion: Animation {
-    reduceMotion ? .easeInOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0)
-  }
-
   private var shopping: some View {
-    List {
-      if session.groupsByAisle {
-        // Ordre non appris : un titre par rayon. L'en-tête de la visite ouvre la liste, sans ligne.
-        Section {
-        } header: {
-          header
-        }
-        ForEach(session.sections) { section in
-          Section {
-            ForEach(section.rows) { row in
-              itemRow(row)
-            }
-          } header: {
-            aisleHeader(section)
+    let sections = session.displayedSections
+    let lines = TicketLine.lines(of: sections)
+    let nextId = session.toBuy.first { !$0.isChecked }?.id
+    let places = ThreadPlace.places(
+      count: lines.count, reached: lines.firstIndex { $0.id == nextId?.uuidString }, progress: true)
+    return List {
+      Section {
+        ticketHeader.ticketRow()
+        ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
+          switch line {
+          case .aisle(let section):
+            aisleRow(section, place: place).ticketRow()
+          case .item(let row):
+            itemRow(row, place: place, next: nextId)
           }
-        }
-      } else {
-        Section {
-          ForEach(session.toBuy) { row in
-            itemRow(row)
-          }
-        } header: {
-          header
         }
       }
       if !session.notFound.isEmpty {
-        Section("Introuvable") {
+        Section {
           ForEach(session.notFound) { row in
-            notFoundRow(row)
+            notFoundRow(row).ticketRow()
           }
+        } header: {
+          AisleTitle(title: "Introuvable").padding(.top, Space.m)
         }
       }
       if !session.basket.isEmpty {
         Section {
-          DisclosureGroup("Dans le panier (\(session.basket.count))", isExpanded: $basketIsExpanded) {
+          DisclosureGroup(isExpanded: $basketIsExpanded) {
             ForEach(session.basket) { row in
-              itemRow(row)
+              basketRow(row)
             }
+          } label: {
+            Text("Dans le panier (\(session.basket.count))")
+              .font(TicketFont.item)
+              .foregroundStyle(Palette.ink)
+              .rowHeight()
           }
+          .tint(Palette.accent)
           .accessibilityIdentifier("basket")
+          .ticketRow()
         }
       }
     }
+    .listStyle(.plain)
+    .ticketBackground()
+    .environment(\.defaultMinListRowHeight, 0)
     // Repère des tests UI (audit d'accessibilité) : la liste du mode courses, distincte de celle de l'écran Liste.
     .accessibilityIdentifier("shoppingList")
-    .animation(motion, value: session.toBuy.map(\.id))
-    .animation(motion, value: session.basket.map(\.id))
+    .animation(Motion.reorder(reduced: reduceMotion), value: lines.map(\.id))
+    .animation(Motion.reorder(reduced: reduceMotion), value: session.basket.map(\.id))
     .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
+    .onChange(of: sections.map(\.id)) { old, new in sectionsDidChange(from: old, to: new) }
     .onChange(of: session.undo) { _, undo in
       // Une coche se lit déjà dans la valeur de la ligne (« coché ») : seul « introuvable », qui déplace la ligne
       // dans une autre section, est annoncé.
@@ -103,7 +109,10 @@ struct ShoppingView: View {
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in session.syncDidChange() }
     .navigationTitle(session.name)
     .navigationBarTitleDisplayMode(.inline)
+    // Le ticket porte son propre titre (le magasin, sinon la liste) : pas de barre de navigation au-dessus.
+    .toolbar(.hidden, for: .navigationBar)
     .sensoryFeedback(.success, trigger: checkTrigger)
+    .sensoryFeedback(.impact(weight: .light), trigger: uncheckTrigger)
     .safeAreaInset(edge: .bottom) { dock }
     .opaqueBottomBar()
     .sheet(isPresented: remainingIsPresented) {
@@ -114,13 +123,25 @@ struct ShoppingView: View {
       )
       .presentationDetents([.medium])
       // Fond opaque : le verre de la feuille laisse transparaître la liste et dégrade le contraste.
-      .presentationBackground(Color(uiColor: .systemBackground))
+      .presentationBackground(Palette.paper)
       .interactiveDismissDisabled(session.expired)
     }
     .alert("Erreur", isPresented: errorIsPresented) {
       Button("OK", role: .cancel) { session.errorMessage = nil }
     } message: {
       Text(session.errorMessage ?? "")
+    }
+  }
+
+  /// En ordre appris, un rayon qui remonte après un tri porte « ↑ appris » pendant 3 s : le mouvement s'explique.
+  private func sectionsDidChange(from old: [String], to new: [String]) {
+    guard !session.groupsByAisle else { return }
+    let raised = TicketLine.raisedSections(previous: old, current: new)
+    guard !raised.isEmpty else { return }
+    withAnimation(Motion.fade) { learnedTags.formUnion(raised) }
+    Task {
+      try? await Task.sleep(for: Motion.learnedTag)
+      withAnimation(Motion.fade) { learnedTags.subtract(raised) }
     }
   }
 
@@ -147,45 +168,60 @@ struct ShoppingView: View {
     Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      // `Color.primary`, pas `.primary` : dans un en-tête de section, le style hiérarchique reste gris.
-      // Aucune ligne tronquée aux grandes tailles de texte.
-      VStack(alignment: .leading, spacing: 2) {
-        Text(remainingText)
-          .font(.title2.weight(.bold))
-        if let store = session.storeName {
-          Text(store).font(.subheadline)
+  /// En-tête du ticket : le magasin (sinon la liste), ce que l'app sait du trajet, puis le compteur « RESTE 05 ».
+  private var ticketHeader: some View {
+    VStack(spacing: Space.xs) {
+      VStack(spacing: 4) {
+        Text(session.storeName ?? session.name)
+          .font(TicketFont.title)
+          .textCase(.uppercase)
+          .foregroundStyle(Palette.ink)
+          .accessibilityLabel(Text(session.storeName ?? session.name))
+          .accessibilityAddTraits(.isHeader)
+        if session.storeName != nil {
+          Text(session.name).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
         }
-        Text(knowledgeText).font(.subheadline)
+        Text(knowledgeText).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
       }
-      .foregroundStyle(Color.primary)
+      .multilineTextAlignment(.center)
       .fixedSize(horizontal: false, vertical: true)
-      .accessibilityElement(children: .combine)
+      .frame(maxWidth: .infinity)
+      DottedRule(dash: [5, 4], lineWidth: 2).padding(.vertical, 4)
+      HStack(alignment: .lastTextBaseline) {
+        Text("Reste")
+          .font(TicketFont.totalCaption)
+          .tracking(TicketFont.aisleTracking)
+          .textCase(.uppercase)
+          .foregroundStyle(Palette.inkMuted)
+        Spacer(minLength: Space.s)
+        Text(Self.counter(remaining))
+          .font(TicketFont.total(size: totalSize))
+          .monospacedDigit()
+          .foregroundStyle(Palette.ink)
+          .contentTransition(.numericText(countsDown: true))
+          .animation(Motion.check(reduced: reduceMotion), value: remaining)
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(remainingText)
       .accessibilityIdentifier("shoppingHeader")
       // Le magasin vient d'OpenStreetMap : l'attribution reste là où son nom s'affiche.
       if session.storeName != nil { OSMAttribution() }
     }
-    .textCase(nil)
-    .padding(.bottom, 8)
+    .padding(.top, Space.m)
+    .padding(.bottom, Space.xs)
   }
 
-  /// Titre de rayon : lu comme un en-tête, avec le nombre d'articles à prendre. Taille et casse du système,
-  /// qui suivent Dynamic Type.
-  private func aisleHeader(_ section: ShoppingSection) -> some View {
-    Text(section.title)
-      .font(.headline)
-      .foregroundStyle(Color.primary)
-      .fixedSize(horizontal: false, vertical: true)
-      .textCase(nil)
-      .accessibilityLabel(section.accessibilityLabel)
-      .accessibilityAddTraits(.isHeader)
-      .accessibilityIdentifier("aisle-\(section.aisleId)")
+  /// Compteur du ticket, sur deux chiffres au moins.
+  static func counter(_ value: Int) -> String {
+    value < 10 ? "0\(max(0, value))" : "\(value)"
+  }
+
+  private var remaining: Int {
+    session.toBuy.filter { !$0.isChecked }.count
   }
 
   private var remainingText: String {
-    let count = session.toBuy.filter { !$0.isChecked }.count
-    return count <= 1 ? "\(count) restant" : "\(count) restants"
+    remaining <= 1 ? "\(remaining) restant" : "\(remaining) restants"
   }
 
   private var knowledgeText: String {
@@ -197,18 +233,39 @@ struct ShoppingView: View {
     }
   }
 
-  private func itemRow(_ row: ShoppingRow) -> some View {
-    Button {
-      if !row.isChecked { checkTrigger += 1 }
+  /// Nœud d'un rayon sur le fil : lu comme un en-tête, avec le nombre d'articles à prendre.
+  private func aisleRow(_ section: ShoppingSection, place: ThreadPlace) -> some View {
+    AisleLine(
+      aisleId: section.aisleId, title: section.title, accessibilityLabel: section.accessibilityLabel,
+      identifier: "aisle-\(section.id)", place: place
+    ) {
+      if learnedTags.contains(section.id) {
+        // Décoratif : le réordonnancement est déjà annoncé à VoiceOver.
+        Text("↑ appris")
+          .font(TicketFont.meta)
+          .foregroundStyle(Palette.accent)
+          .accessibilityHidden(true)
+          .transition(.opacity)
+      }
+    }
+  }
+
+  private func itemRow(_ row: ShoppingRow, place: ThreadPlace, next: UUID?) -> some View {
+    let isNext = row.id == next
+    let bead: BeadState = row.isChecked ? .done : (isNext ? .next : .idle)
+    return Button {
+      if row.isChecked { uncheckTrigger += 1 } else { checkTrigger += 1 }
       session.toggle(row)
     } label: {
-      // L'état se lit sans couleur : forme de l'icône et texte barré.
-      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
+      ThreadRow(place: place) {
+        Bead(state: bead)
+      } content: {
+        // L'état se lit sans couleur : case pleine avec coche, et texte barré.
+        ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked, isNext: isNext)
+      }
     }
     .buttonStyle(.plain)
-    .listRowBackground(
-      session.highlightedItemId == row.id ? Color.accentColor.opacity(contrast == .increased ? 0.4 : 0.2) : nil
-    )
+    .ticketRow(background: session.highlightedItemId == row.id ? highlight : Palette.paper)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(row.accessibilityLabel)
     .accessibilityValue(row.isChecked ? "coché" : "non coché")
@@ -226,7 +283,7 @@ struct ShoppingView: View {
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
-          .tint(.orange)
+          .tint(Palette.Aisle.grocery)
       }
     }
     .contextMenu {
@@ -236,23 +293,49 @@ struct ShoppingView: View {
     }
   }
 
+  /// Article tout juste ajouté : repéré par un fond d'accent léger.
+  private var highlight: Color {
+    Palette.accent.opacity(contrast == .increased ? 0.3 : 0.15)
+  }
+
+  /// Article du panier : hors du fil, aligné sur les articles du ticket.
+  private func basketRow(_ row: ShoppingRow) -> some View {
+    Button {
+      uncheckTrigger += 1
+      session.toggle(row)
+    } label: {
+      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
+    }
+    .buttonStyle(.plain)
+    .ticketRow()
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(row.accessibilityLabel)
+    .accessibilityValue(row.isChecked ? "coché" : "non coché")
+    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
+    .accessibilityAddTraits(.isToggle)
+    .accessibilityFocused($focusedRow, equals: row.id)
+    .accessibilityActions {
+      if row.isChecked { Button("Décocher") { session.toggle(row) } }
+    }
+  }
+
   private func notFoundRow(_ row: ShoppingRow) -> some View {
     Button {
       session.restore(row)
     } label: {
       ViewThatFits(in: .horizontal) {
-        HStack {
+        HStack(spacing: Space.s) {
           Image(systemName: "questionmark.circle")
-          Text(row.label)
+          Text(row.label).font(TicketFont.item).strikethrough()
           Spacer()
-          Text("Remettre").font(.subheadline)
+          Text("Remettre").font(TicketFont.quantity.weight(.bold)).foregroundStyle(Palette.accent)
         }
         VStack(alignment: .leading) {
-          Label(row.label, systemImage: "questionmark.circle")
-          Text("Remettre").font(.subheadline)
+          Label(row.label, systemImage: "questionmark.circle").font(TicketFont.item)
+          Text("Remettre").font(TicketFont.quantity.weight(.bold)).foregroundStyle(Palette.accent)
         }
       }
-      .foregroundStyle(contrast == .increased ? .primary : .secondary)
+      .foregroundStyle(Palette.inkMuted)
       .rowHeight()
     }
     .buttonStyle(.plain)
@@ -262,43 +345,48 @@ struct ShoppingView: View {
     .accessibilityHint("Remet l'article dans la liste")
   }
 
+  /// Dock flottant en verre, dans la zone du pouce : bannière « Annuler » au-dessus, saisie et « Terminer ».
   private var dock: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: Space.xs) {
       if let undo = session.undo {
         ViewThatFits(in: .horizontal) {
-          HStack {
+          HStack(spacing: Space.s) {
             Text(undo.message).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("undoMessage")
-            Spacer()
             undoButton
           }
           VStack(alignment: .leading, spacing: 0) {
-            Text(undo.message).accessibilityIdentifier("undoMessage")
+            Text(undo.message).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("undoMessage")
             undoButton
           }
         }
-        .padding(.horizontal, 12)
-        .bannerBackground()
+        .foregroundStyle(Palette.ink)
+        .padding(.horizontal, Space.m)
+        .parcoursesGlass()
         .transition(.opacity)
       }
       if session.isEverythingChecked {
-        Text("Tout est coché !").font(.headline).accessibilityIdentifier("allChecked")
+        Text("Tout est coché !")
+          .font(TicketFont.item.weight(.bold))
+          .foregroundStyle(Palette.ink)
+          .padding(.horizontal, Space.m)
+          .frame(minHeight: 44)
+          .parcoursesGlass()
+          .accessibilityIdentifier("allChecked")
       }
       // Aux grandes tailles de texte, « Terminer » passe sous le champ.
       ViewThatFits(in: .horizontal) {
-        HStack {
+        HStack(spacing: Space.xs) {
           entryField
           finishButton
         }
-        VStack(spacing: 8) {
+        VStack(spacing: Space.xs) {
           entryField
           finishButton
         }
       }
+      .floatingDock()
     }
-    .animation(motion, value: session.undo)
-    .padding(.horizontal)
-    .padding(.vertical, 8)
-    .barBackground()
+    .animation(Motion.fade, value: session.undo)
   }
 
   private var undoButton: some View {
@@ -306,7 +394,7 @@ struct ShoppingView: View {
       session.performUndo()
     } label: {
       // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le message.
-      Text("Annuler").fontWeight(.semibold).fixedSize().touchTarget()
+      Text("Annuler").fontWeight(.bold).foregroundStyle(Palette.accent).fixedSize().touchTarget()
     }
     .accessibilityIdentifier("undo")
   }
@@ -356,8 +444,11 @@ private struct RemainingItemsSheet: View {
     ScrollView {
       VStack(spacing: 16) {
         Text(count == 1 ? "1 article non coché" : "\(count) articles non cochés")
-          .font(.title2.weight(.bold))
+          .font(TicketFont.title)
+          .foregroundStyle(Palette.ink)
         Text("Les garder pour la prochaine fois ?")
+          .font(.system(.body, design: .monospaced))
+          .foregroundStyle(Palette.ink)
         Button("Les garder", action: onKeep)
           .prominentButton()
           .accessibilityIdentifier("keepRemaining")
@@ -367,7 +458,7 @@ private struct RemainingItemsSheet: View {
         }
         if canCancel {
           Button(action: onCancel) {
-            Text("Continuer mes courses").touchTarget()
+            Text("Continuer mes courses").fontWeight(.semibold).foregroundStyle(Palette.accent).touchTarget()
           }
         }
       }
@@ -375,6 +466,7 @@ private struct RemainingItemsSheet: View {
       .padding()
     }
     .scrollBounceBehavior(.basedOnSize)
+    .ticketBackground()
   }
 }
 
@@ -383,6 +475,8 @@ struct ShoppingSummaryView: View {
   let summary: ShoppingSummary
   let onClose: () -> Void
   @State private var appeared = false
+  /// Grand chiffre du résumé : 40 pt à la taille par défaut, mis à l'échelle comme le grand titre.
+  @ScaledMetric(relativeTo: .largeTitle) private var totalSize: CGFloat = 40
 
   var body: some View {
     // Centré quand il tient dans l'écran, ouvert en haut quand il déborde (grandes tailles de texte).
@@ -399,6 +493,8 @@ struct ShoppingSummaryView: View {
         .accessibilityIdentifier("closeSummary")
         .padding()
     }
+    .background(Palette.paper.ignoresSafeArea())
+    .toolbar(.hidden, for: .navigationBar)
     .sensoryFeedback(.success, trigger: appeared)
     .onAppear { appeared = true }
   }
@@ -406,10 +502,15 @@ struct ShoppingSummaryView: View {
   private var summaryContent: some View {
     VStack(spacing: 16) {
       Text(summary.checkedCount <= 1 ? "\(summary.checkedCount) article" : "\(summary.checkedCount) articles")
-        .font(.largeTitle.weight(.bold))
-      Text("en \(summary.minutes) min").font(.title2)
+        .font(TicketFont.total(size: totalSize))
+        .foregroundStyle(Palette.ink)
+      Text("en \(summary.minutes) min").font(TicketFont.title).foregroundStyle(Palette.ink)
+      DottedRule(dash: [5, 4], lineWidth: 2).frame(maxWidth: 240).padding(.vertical, Space.xs)
       if let contribution {
-        Text(contribution).multilineTextAlignment(.center).foregroundStyle(.secondary)
+        Text(contribution)
+          .font(.system(.body, design: .monospaced))
+          .multilineTextAlignment(.center)
+          .foregroundStyle(Palette.inkMuted)
           .accessibilityIdentifier("contribution")
       }
       if summary.storeName != nil { OSMAttribution() }

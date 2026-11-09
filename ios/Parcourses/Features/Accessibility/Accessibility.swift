@@ -1,48 +1,51 @@
 import SwiftUI
 import UIKit
 
-/// Fond de barre opaque : le contenu qui défile dessous est masqué au lieu de transparaître, ce qui garde le
-/// contraste du dock et de la liste (audit d'accessibilité). Le verre revient avec l'habillage du lot 9.11.
-private struct BarBackground: ViewModifier {
-  func body(content: Content) -> some View {
-    content.background(Color(uiColor: .systemBackground)).overlay(alignment: .top) { Divider() }
-  }
-}
-
-/// Fond de bannière, même règle.
-private struct BannerBackground: ViewModifier {
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-  func body(content: Content) -> some View {
-    if reduceTransparency {
-      content.background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-    } else {
-      content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-    }
-  }
-}
-
 /// Indication du champ de saisie : plus foncée que le gris clair du système, qui ne tient pas 4,5:1.
 enum EntryPrompt {
   static var text: Text {
-    Text("Ajouter un article").foregroundStyle(Color.primary.opacity(0.6))
+    Text("Ajouter un article").foregroundStyle(Palette.inkMuted)
   }
 }
 
 /// Champ de saisie : la case visible fait au moins 44 pt, et toute la case donne le focus, marges comprises.
+/// Fond de papier opaque : posé sur le verre du dock, le texte saisi garde son contraste quoi qu'il passe dessous.
 private struct EntryFieldStyle: ViewModifier {
   let focus: FocusState<Bool>.Binding
+  @Environment(\.colorSchemeContrast) private var contrast
 
   func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
     content
       .textFieldStyle(.plain)
+      .foregroundStyle(Palette.ink)
       .focused(focus)
-      .padding(.horizontal, 12)
+      .padding(.horizontal, Space.m)
       .frame(minHeight: 44)
-      .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-      .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(Color(uiColor: .separator)) }
-      .contentShape(RoundedRectangle(cornerRadius: 10))
+      .background(Palette.paper, in: shape)
+      .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: contrast == .increased ? 1.5 : 1) }
+      .contentShape(shape)
       .onTapGesture { focus.wrappedValue = true }
+  }
+}
+
+/// Bouton plein : accent et texte `onAccent` (8:1 en clair, 7,6:1 en sombre), capsule d'au moins 50 pt.
+private struct ProminentButtonStyle: ButtonStyle {
+  /// Bouton à pictogramme seul : marges réduites.
+  var compact = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 25, style: .continuous)
+    configuration.label
+      .font(.body.weight(.bold))
+      .foregroundStyle(isEnabled ? Palette.onAccent : Palette.inkMuted)
+      .padding(.horizontal, compact ? Space.xs / 2 : Space.l)
+      .padding(.vertical, Space.xs / 2)
+      .frame(minHeight: 50)
+      .background(isEnabled ? Palette.accent : Palette.paperEdge, in: shape)
+      .opacity(configuration.isPressed ? 0.8 : 1)
+      .contentShape(shape)
   }
 }
 
@@ -64,15 +67,13 @@ extension View {
     touchTarget(minHeight: 48)
   }
 
-  /// Bouton principal : plein, grande taille (50 pt, sa propre zone tactile). Teinte dédiée, plus sombre que
-  /// `AccentColor` en mode sombre, pour que le texte blanc tienne 4,5:1 ; `AccentColor` reste assez clair pour les
-  /// liens et pictogrammes sur fond sombre.
-  func prominentButton() -> some View {
-    buttonStyle(.borderedProminent).controlSize(.large).tint(Color("ProminentTint"))
+  /// Bouton principal : plein, à l'accent du ticket, 50 pt au moins (sa propre zone tactile).
+  func prominentButton(compact: Bool = false) -> some View {
+    buttonStyle(ProminentButtonStyle(compact: compact))
   }
 
-  /// Liste qui défile sous un dock opaque : pas d'effet de bord de défilement (iOS 26), dont le flou rend
-  /// illisible le texte qui passe dessous (l'audit de contraste le rejette, aux grandes tailles de texte).
+  /// Liste qui défile sous le dock : pas d'effet de bord de défilement (iOS 26), dont le flou rend illisible le
+  /// texte qui passe dessous (l'audit de contraste le rejette, aux grandes tailles de texte). Le dock a son verre.
   @ViewBuilder func opaqueBottomBar() -> some View {
     if #available(iOS 26, *) {
       scrollEdgeEffectHidden(true, for: .bottom)
@@ -81,14 +82,24 @@ extension View {
     }
   }
 
-  /// Fond des docks et barres du bas.
-  func barBackground() -> some View {
-    modifier(BarBackground())
+  /// Dock flottant du bas : marges du bord de l'écran et verre de Parcourses.
+  func floatingDock() -> some View {
+    padding(Space.xs / 2 + 2)
+      .parcoursesGlass()
+      .padding(.horizontal, Space.m)
+      .padding(.bottom, Space.xs)
   }
 
-  /// Fond de la bannière « Annuler » et des surimpressions.
-  func bannerBackground() -> some View {
-    modifier(BannerBackground())
+  /// Ligne d'une liste habillée en ticket : pas de séparateur, fond de papier, gouttière du fil à gauche.
+  func ticketRow(background: Color = Palette.paper) -> some View {
+    listRowInsets(EdgeInsets(top: 0, leading: Space.m, bottom: 0, trailing: Space.m))
+      .listRowSeparator(.hidden)
+      .listRowBackground(background)
+  }
+
+  /// Fond d'écran du ticket, sous une liste ou une vue qui défile.
+  func ticketBackground() -> some View {
+    scrollContentBackground(.hidden).background(Palette.paper)
   }
 }
 
@@ -110,10 +121,12 @@ struct EmptyState: View {
           .padding(.bottom, 8)
           .accessibilityHidden(true)
         Text(title)
-          .font(.title2.bold())
+          .font(TicketFont.title)
+          .foregroundStyle(Palette.ink)
           .accessibilityAddTraits(.isHeader)
         Text(description)
-          .foregroundStyle(.secondary)
+          .font(.system(.body, design: .monospaced))
+          .foregroundStyle(Palette.inkMuted)
       }
       .multilineTextAlignment(.center)
       .fixedSize(horizontal: false, vertical: true)
@@ -125,56 +138,86 @@ struct EmptyState: View {
   }
 }
 
-/// Ligne d'article partagée par l'écran Liste et le mode courses.
-/// L'état coché se lit sans la couleur : pastille pleine avec coche (forme) et texte barré.
-/// Aux grandes tailles de texte, la quantité passe sous le libellé.
+/// Ligne d'article du ticket, partagée par l'écran Liste et le mode courses : case carrée, libellé en chasse fixe,
+/// points de conduite et quantité. L'état coché se lit sans la couleur : case pleine avec coche (forme) et texte
+/// barré. Aux grandes tailles de texte, les points disparaissent et la quantité passe sous le libellé, qui se replie.
+/// La case porte l'accroche du fil (`threadAnchor()`).
 struct ItemLine: View {
   let label: String
   let quantity: String?
   let isChecked: Bool
-  @Environment(\.colorSchemeContrast) private var contrast
+  /// Prochain article du trajet : libellé plus grand et plus gras.
+  var isNext = false
+  @ScaledMetric(relativeTo: .body) private var box = TicketMetrics.checkBox
+  /// Demi-hauteur des capitales du libellé : la case s'aligne sur le milieu de la première ligne.
+  @ScaledMetric(relativeTo: .body) private var capHalf: CGFloat = 6
+  @ScaledMetric(relativeTo: .title3) private var capHalfNext: CGFloat = 7
 
   var body: some View {
     ViewThatFits(in: .horizontal) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        marker
+      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        checkBox
         title
-        Spacer(minLength: 8)
+        DottedRule().frame(minWidth: Space.m)
         quantityText
       }
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-          marker
+      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        checkBox
+        VStack(alignment: .leading, spacing: 2) {
           title
+          quantityText
         }
-        quantityText.padding(.leading, 32)
+        Spacer(minLength: 0)
       }
     }
-    .rowHeight()
+    .padding(.vertical, Space.xs)
+    .frame(minHeight: TicketMetrics.rowMin)
+    .contentShape(Rectangle())
   }
 
-  private var marker: some View {
-    Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-      .foregroundStyle(isChecked ? AnyShapeStyle(Color.accentColor) : secondary)
+  private var checkBox: some View {
+    let offset = isNext ? capHalfNext : capHalf
+    return CheckBox(isChecked: isChecked, size: min(box, 44))
+      .threadAnchor()
+      .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
   }
 
   private var title: some View {
     Text(label)
+      .font(isNext ? TicketFont.itemNext : TicketFont.item)
       .strikethrough(isChecked)
-      // Pas de gris : le texte barré et la coche portent l'état, le contraste reste maximal.
-      .foregroundStyle(.primary)
+      .foregroundStyle(isChecked ? Palette.checked : Palette.ink)
       .fixedSize(horizontal: false, vertical: true)
   }
 
   @ViewBuilder private var quantityText: some View {
     if let quantity {
-      Text(quantity).foregroundStyle(secondary)
+      Text(quantity).font(TicketFont.quantity).foregroundStyle(Palette.inkMuted)
     }
   }
+}
 
-  /// Contraste augmenté : le texte secondaire repasse en couleur principale.
-  private var secondary: AnyShapeStyle {
-    contrast == .increased ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+/// Case carrée du ticket : vide, ou pleine d'encre avec une coche de papier.
+struct CheckBox: View {
+  let isChecked: Bool
+  let size: CGFloat
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    let shape = RoundedRectangle(cornerRadius: TicketMetrics.checkBoxRadius, style: .continuous)
+    shape
+      .fill(isChecked ? Palette.ink : Color.clear)
+      .overlay { shape.strokeBorder(Palette.ink, lineWidth: 2) }
+      .overlay {
+        Image(systemName: "checkmark")
+          .font(.system(size: size * 0.55, weight: .heavy))
+          .foregroundStyle(Palette.paper)
+          .scaleEffect(isChecked || reduceMotion ? 1 : 0.4)
+          .opacity(isChecked ? 1 : 0)
+      }
+      .frame(width: size, height: size)
+      .animation(Motion.check(reduced: reduceMotion), value: isChecked)
+      .accessibilityHidden(true)
   }
 }
 

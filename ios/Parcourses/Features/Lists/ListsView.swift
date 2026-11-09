@@ -18,6 +18,7 @@ struct ListsView: View {
 
   var body: some View {
     content
+      .ticketBackground()
       .navigationTitle("Mes listes")
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
@@ -68,10 +69,12 @@ struct ListsView: View {
         } label: {
           row(list)
         }
-        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+        .ticketRow()
         .swipeActions(edge: .trailing, allowsFullSwipe: false) { actions(for: list) }
         .contextMenu { actions(for: list) }
       }
+      .listStyle(.plain)
     }
   }
 
@@ -84,15 +87,21 @@ struct ListsView: View {
   }
 
   private func row(_ list: ListSummary) -> some View {
-    HStack {
-      VStack(alignment: .leading) {
-        Text(list.name).font(.headline)
-        Text(list.subtitle).font(.subheadline).foregroundStyle(.secondary)
+    VStack(spacing: 0) {
+      HStack(spacing: Space.s) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(list.name).font(TicketFont.item.weight(.bold)).foregroundStyle(Palette.ink)
+          Text(list.subtitle).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
+        }
+        Spacer()
+        Image(systemName: "chevron.right").foregroundStyle(Palette.inkMuted).accessibilityHidden(true)
       }
-      Spacer()
-      Image(systemName: "chevron.right").foregroundStyle(.tertiary).accessibilityHidden(true)
+      .padding(.vertical, Space.s)
+      .frame(minHeight: TicketMetrics.rowMin)
+      // Filet pointillé du ticket entre deux listes.
+      DottedRule()
     }
-    .rowHeight()
+    .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
   }
 
@@ -105,8 +114,9 @@ struct ListsView: View {
         .frame(maxWidth: .infinity)
     }
     .prominentButton()
-    .padding()
-    .barBackground()
+    // Bouton plein flottant, dans la zone du pouce : pas de barre derrière lui.
+    .padding(.horizontal, Space.m)
+    .padding(.bottom, Space.xs)
   }
 
   private var errorIsPresented: Binding<Bool> {
