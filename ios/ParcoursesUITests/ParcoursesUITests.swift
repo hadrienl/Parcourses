@@ -188,7 +188,9 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let entry = app.textFields["quickEntry"]
     XCTAssertTrue(entry.waitForExistence(timeout: 5))
     if !entry.hasFocus { entry.tap() }
-    entry.typeText("laits bio")
+    // Mots justes en français comme en anglais : un appui sur un mot souligné par le correcteur (clavier anglais
+    // du simulateur de CI) le sélectionne au lieu d'y placer le curseur.
+    entry.typeText("orange melon")
     func point(_ x: CGFloat) -> XCUICoordinate {
       entry.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: entry.frame.height / 2))
     }
@@ -196,18 +198,18 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     // Appui au début du texte : le curseur s'y place, la frappe s'insère devant.
     point(14).tap()
     entry.typeText("x")
-    XCTAssertEqual(entry.value as? String, "xlaits bio")
+    XCTAssertEqual(entry.value as? String, "xorange melon")
 
     // Double appui sur le premier mot : il est sélectionné, la frappe le remplace.
     point(22).doubleTap()
-    entry.typeText("yaourts")
-    XCTAssertEqual(entry.value as? String, "yaourts bio")
+    entry.typeText("kiwi")
+    XCTAssertEqual(entry.value as? String, "kiwi melon")
     capture(app, "saisie-double-appui")
 
     // Ajout, puis retour sur la liste, qui ne prend plus le focus d'elle-même une fois remplie : un appui dans la
     // marge droite de la case, hors du texte, donne le focus.
     entry.typeText("\n")
-    XCTAssertTrue(row(app, "yaourts bio", "non coché").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "kiwi melon", "non coché").waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
     let list = app.staticTexts["Semaine"]
     XCTAssertTrue(list.waitForExistence(timeout: 5))

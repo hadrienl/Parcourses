@@ -34,6 +34,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
     let sheetIsShown: Bool
+    /// Bas de l'écran.
+    let bottom: CGFloat
 
     @MainActor
     init(_ app: XCUIApplication, modal: Bool) {
@@ -47,6 +49,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       dockTop = top
       linesCutByDock = top.map { ParcoursesAccessibilityUITests.linesCut(at: $0, in: app) } ?? 0
       sheetIsShown = app.buttons["keepRemaining"].exists
+      bottom = app.windows.firstMatch.frame.maxY
     }
   }
 
@@ -119,8 +122,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       if !dockIdentifiers.contains(element.identifier), let top = screen.dockTop, frame.maxY > top {
         return .known("6 sous le dock")
       }
-      // 7. Lignes passées sous la barre de navigation en défilant (cadre hors écran).
-      if frame.minY < 0 { return .known("7 sous la barre de navigation") }
+      // 7. Éléments à cheval sur le bord de l'écran : lignes passées sous la barre de navigation en défilant, ou bas
+      //    d'une feuille qui défile (« articles restants » en AX5 sur iPhone 11). L'audit mesure la partie visible,
+      //    coupée par le bord ; l'élément se lit entier une fois amené à l'écran.
+      if frame.minY < 0 { return .known("7 hors de l'écran en haut") }
+      if frame.maxY > screen.bottom { return .known("7 hors de l'écran en bas") }
       // 8. Feuille « articles restants » à détente `.medium` : le système la met à l'échelle, les cadres
       //    fractionnaires faussent la mesure du texte rogné. Les captures montrent un texte entier. Le contraste
       //    de la feuille reste audité.
@@ -154,11 +160,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     return tops.min().map { $0 - 8 }
   }
 
-  /// Lignes de la liste au premier plan coupées par le haut du dock. Les listes recouvertes (l'écran Liste sous le
-  /// plein écran du mode courses) restent dans l'arbre d'accessibilité : seule la liste « hittable » compte.
+  /// Lignes de la liste au premier plan coupées par le haut du dock. La liste recouverte (l'écran Liste sous le
+  /// plein écran du mode courses) reste dans l'arbre d'accessibilité, et `isHittable` ne les distingue pas (constaté
+  /// en AX5 sur iPhone 11 : aucune des deux ne l'est) : la liste est celle du dock au premier plan, par identifiant.
   @MainActor
   fileprivate static func linesCut(at top: CGFloat, in app: XCUIApplication) -> Int {
-    guard let list = app.collectionViews.allElementsBoundByIndex.first(where: { $0.isHittable }) else { return 0 }
+    let shoppingEntry = app.textFields["shoppingEntry"]
+    let id = shoppingEntry.exists && shoppingEntry.isHittable ? "shoppingList" : "itemList"
+    let list = app.collectionViews[id]
+    guard list.exists else { return 0 }
     return list.cells.allElementsBoundByIndex.filter { $0.frame.minY < top && $0.frame.maxY > top }.count
   }
 

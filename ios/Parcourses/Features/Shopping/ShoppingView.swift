@@ -86,6 +86,8 @@ struct ShoppingView: View {
         }
       }
     }
+    // Repère des tests UI (audit d'accessibilité) : la liste du mode courses, distincte de celle de l'écran Liste.
+    .accessibilityIdentifier("shoppingList")
     .animation(motion, value: session.toBuy.map(\.id))
     .animation(motion, value: session.basket.map(\.id))
     .onChange(of: session.toBuy.map(\.id)) { old, new in listDidChange(from: old, to: new) }
