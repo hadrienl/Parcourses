@@ -59,7 +59,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   }
 
   /// Problèmes non localisés admis par ligne coupée par le dock : le liseré visible de la ligne, mesuré par le
-  /// contraste et par le texte rogné. Au-delà, le problème est bloquant.
+  /// contraste et par le texte rogné. Au-delà, le problème est bloquant. Dans une liste à une colonne, une seule
+  /// ligne chevauche le haut du dock : le quota de l'écran est donc de 0 ou 2 (constaté : 1 à 2 sur iOS 18.6 en AX5).
   private static let issuesPerCutLine = 2
 
   /// Exceptions documentées. Retourne `nil` pour un problème bloquant.
@@ -128,8 +129,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       {
         return .known("8 feuille mise à l'échelle")
       }
-      // 9. Champs de texte : l'audit signale le texte « rogné » des `UITextField` SwiftUI au repos et à la taille
-      //    par défaut ; les captures montrent le texte et l'indication entiers.
+      // 9. Champs de texte : l'audit signale le texte « rogné » des `UITextField` SwiftUI au repos, à la taille par
+      //    défaut comme en AX5 (`quickEntry`, `shoppingEntry`, `storeSearch`) ; les captures montrent le texte et
+      //    l'indication entiers.
       if issue.auditType == .textClipped && element.elementType == .textField { return .known("9 champ de texte") }
       return nil
     default:
@@ -180,9 +182,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
       do {
         try app.performAccessibilityAudit(for: .all) { issue in
-          // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
-          let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
-          let summary = "\(issue.auditType): \(issue.compactDescription) [\(element)]"
+          // Exception : journal sans l'élément, pour ne pas le résoudre une fois de plus pendant l'audit.
+          let summary = "\(issue.auditType): \(issue.compactDescription)"
           switch Self.exception(for: issue, screen: state) {
           case .known(let reason):
             exceptions.append("\(reason) — \(summary)")
@@ -192,7 +193,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
             exceptions.append("2 ter ligne coupée par le dock — \(summary)")
             return true
           case .cutLine, nil:
-            problems.append("\(summary) — \(issue.detailedDescription)")
+            // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
+            let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
+            problems.append("\(summary) [\(element)] — \(issue.detailedDescription)")
             return true
           }
         }

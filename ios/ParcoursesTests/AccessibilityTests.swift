@@ -115,7 +115,8 @@ struct PrivacyManifestTests {
     #expect(Set(found) == ["NSPrivacyAccessedAPICategorySystemBootTime"])
   }
 
-  /// `stat(` sans préfixe est détecté, en début de ligne comme après un séparateur, mais pas au milieu d'un nom.
+  /// `stat(` sans préfixe est détecté, en début de ligne comme après un séparateur, mais pas au milieu d'un nom
+  /// (`restat(`, `my_stat(` : le début de mot est vérifié, pas seulement la casse).
   @Test(arguments: [
     "stat(path, &info)", "_ = stat(path, &info)", "fstat(fd, &info)", "lstat(p, &i)", "fstatat(fd, p, &i, 0)",
   ])
@@ -123,7 +124,9 @@ struct PrivacyManifestTests {
     #expect(RequiredReasonAPI.categories(inSource: source) == ["NSPrivacyAccessedAPICategoryFileTimestamp"])
   }
 
-  @Test(arguments: ["lastStat(item)", "let stats = statistics(of: list)", "func refreshStat() {}", "status(code)"])
+  @Test(arguments: [
+    "lastStat(item)", "restat(path)", "my_stat(path)", "let stats = statistics(of: list)", "status(code)",
+  ])
   func detectorIgnoresStatInsideIdentifiers(source: String) {
     #expect(RequiredReasonAPI.categories(inSource: source).isEmpty)
   }
