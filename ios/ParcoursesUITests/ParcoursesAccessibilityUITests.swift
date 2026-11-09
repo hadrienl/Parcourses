@@ -19,25 +19,56 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     "quickEntry", "shoppingEntry", "finish", "undo", "undoMessage", "allChecked", "suggestion", "addItem",
   ]
 
+  /// État de l'écran relevé avant l'audit : le gestionnaire ne fait plus de requêtes XCUI, qui ralentissent l'audit
+  /// au point de dépasser son délai sur les machines de CI.
+  private struct Screen {
+    let modal: Bool
+    let keyboard: CGRect?
+    let navigationBar: CGRect?
+    let dockTop: CGFloat?
+    let lineIsCutByDock: Bool
+    let sheetIsShown: Bool
+
+    @MainActor
+    init(_ app: XCUIApplication, modal: Bool) {
+      self.modal = modal
+      let keyboard = app.keyboards.firstMatch
+      self.keyboard = keyboard.exists ? keyboard.frame : nil
+      let bar = app.navigationBars.firstMatch
+      navigationBar = bar.exists ? bar.frame : nil
+      let top = ParcoursesAccessibilityUITests.dockTop(app)
+      dockTop = top
+      lineIsCutByDock =
+        top.map { top in app.cells.allElementsBoundByIndex.contains { $0.frame.minY < top && $0.frame.maxY > top } }
+        ?? false
+      sheetIsShown = app.buttons["keepRemaining"].exists
+    }
+  }
+
   /// Exceptions documentées. Retourne vrai pour ignorer le problème.
   @MainActor
-  private static func isKnownIssue(_ issue: XCUIAccessibilityAuditIssue, app: XCUIApplication, modal: Bool) -> Bool {
-    let keyboard = app.keyboards.firstMatch
-    let keyboardIsShown = keyboard.exists
+  private static func isKnownIssue(_ issue: XCUIAccessibilityAuditIssue, screen: Screen) -> Bool {
+    let keyboardIsShown = screen.keyboard != nil
     // 1. « Contrast nearly passed » : résultat limite, mesuré sur le rendu du système (boutons Liquid Glass,
     //    gris sémantiques des en-têtes de section). Les « Contrast failed » restent bloquants.
     if issue.auditType == .contrast && issue.compactDescription.localizedCaseInsensitiveContains("nearly") {
       return true
     }
     guard let element = issue.element else {
+      // Problèmes sans élément localisé (iOS 18 surtout, qui ne relie pas le nœud SwiftUI à un élément XCUI).
+      // 2. Écran présenté en modal : même cause qu'en 3 ci-dessous, la taille de texte changée à chaud n'atteint
+      //    pas le contrôleur présenté (« unsupported », « may be clipped at larger Dynamic Type sizes »).
+      if screen.modal && (issue.auditType == .dynamicType || issue.auditType == .textClipped) { return true }
+      // 2 bis. Clavier ouvert : textes du clavier système (barre de suggestions, autre processus), qui ne suivent
+      //    pas Dynamic Type, et pixels du clavier translucide pour le contraste (constaté sur iOS 18 : le nombre
+      //    de problèmes suit le nombre de suggestions affichées).
+      let keyboardIssue = [.dynamicType, .contrast, .textClipped].contains(issue.auditType)
+      if keyboardIsShown && keyboardIssue { return true }
       guard issue.auditType == .contrast || issue.auditType == .textClipped else { return false }
-      // 2. Contraste ou texte rogné sans élément localisé, clavier ouvert : l'audit mesure les pixels du clavier
-      //    translucide et du contenu qui défile dessous, sans dire lequel (constaté sur iOS 18).
-      if keyboardIsShown { return true }
-      // 2 bis. Sans clavier : seulement si une ligne de la liste est coupée par le bord du dock. L'audit mesure
+      // 2 ter. Sans clavier : seulement si une ligne de la liste est coupée par le bord du dock. L'audit mesure
       //    alors le liseré de texte encore visible et ne sait pas localiser la ligne (constaté en AX5, où les
       //    lignes débordent). Sans ligne coupée, le problème reste bloquant.
-      return lineIsCutByDock(app)
+      return screen.lineIsCutByDock
     }
     let frame = element.frame
     switch issue.auditType {
@@ -46,27 +77,27 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    chaud sur la fenêtre, et ce changement n'atteint pas les contrôleurs présentés (« User will not be able
       //    to change the font size »), y compris pour un simple `Text`. La tenue du texte y est vérifiée par les
       //    parcours lancés en AX5, dont les captures sont jointes.
-      if modal { return true }
+      if screen.modal { return true }
       // 3 bis. Boutons de la barre de navigation : le système les plafonne et leur substitue la visionneuse de grand
       //    contenu (appui long), comme le recommandent les HIG.
-      if app.navigationBars.firstMatch.exists, app.navigationBars.firstMatch.frame.intersects(frame) { return true }
+      if let bar = screen.navigationBar, bar.intersects(frame) { return true }
       // 4. Textes statiques des composants système (en-têtes et pieds de section, `ContentUnavailableView`,
       //    `DisclosureGroup`) signalés « partially unsupported » alors qu'ils suivent Dynamic Type : les
       //    captures AX5 jointes le montrent. Nos boutons et champs restent audités.
       return element.elementType == .staticText && !dockIdentifiers.contains(element.identifier)
     case .sufficientElementDescription:
       // 5. Barre de suggestions du clavier système (boutons sans description), 44 pt au-dessus du clavier.
-      return keyboardIsShown && keyboard.frame.insetBy(dx: 0, dy: -50).intersects(frame)
+      return screen.keyboard?.insetBy(dx: 0, dy: -50).intersects(frame) ?? false
     case .contrast, .textClipped:
       // 6. Contenu de la liste sous le clavier ou sous le dock translucide : l'audit mesure des pixels mélangés au
       //    fond, ou un texte que le dock recouvre. Le dock lui-même reste audité.
-      if keyboardIsShown && keyboard.frame.intersects(frame) { return true }
-      if !dockIdentifiers.contains(element.identifier), let top = dockTop(app), frame.maxY > top { return true }
+      if screen.keyboard?.intersects(frame) ?? false { return true }
+      if !dockIdentifiers.contains(element.identifier), let top = screen.dockTop, frame.maxY > top { return true }
       // 7. Lignes passées sous la barre de navigation en défilant (cadre hors écran).
       if frame.minY < 0 { return true }
       // 8. Feuille « articles restants » à détente `.medium` : le système la met à l'échelle pendant sa
       //    présentation, les cadres fractionnaires faussent la mesure. Les captures montrent un texte entier.
-      if app.buttons["keepRemaining"].exists && frame.origin.x.truncatingRemainder(dividingBy: 1) != 0 {
+      if screen.sheetIsShown && frame.origin.x.truncatingRemainder(dividingBy: 1) != 0 {
         return true
       }
       // 9. Champs de texte : l'audit signale le texte « rogné » des `UITextField` SwiftUI au repos et à la taille
@@ -77,16 +108,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     }
   }
 
-  /// Vrai si une cellule de liste chevauche le haut du dock.
-  @MainActor
-  private static func lineIsCutByDock(_ app: XCUIApplication) -> Bool {
-    guard let top = dockTop(app) else { return false }
-    return app.cells.allElementsBoundByIndex.contains { $0.frame.minY < top && $0.frame.maxY > top }
-  }
-
   /// Haut du dock : le plus haut de ses éléments présents, moins sa marge.
   @MainActor
-  private static func dockTop(_ app: XCUIApplication) -> CGFloat? {
+  fileprivate static func dockTop(_ app: XCUIApplication) -> CGFloat? {
     let tops = ["quickEntry", "shoppingEntry", "undoMessage", "allChecked"].compactMap { id -> CGFloat? in
       let element = app.descendants(matching: .any).matching(identifier: id).firstMatch
       return element.exists ? element.frame.minY : nil
@@ -107,21 +131,25 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     // Les feuilles s'animent à l'arrivée : l'audit lit les cadres pendant la transition sinon.
     Thread.sleep(forTimeInterval: 1)
     capture(app, "audit-\(screen)")
+    let state = Screen(app, modal: modal)
     var problems: [String] = []
-    do {
-      try app.performAccessibilityAudit(for: .all) { issue in
-        if Self.isKnownIssue(issue, app: app, modal: modal) { return true }
-        // `String(describing:)` : lire `label` résoudrait l'élément pendant l'audit, ce qui le bloque.
-        let keyboard = app.keyboards.firstMatch
-        let keyboardInfo = keyboard.exists ? "\(keyboard.frame)" : "aucun"
-        let element =
-          issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame) clavier \(keyboardInfo)" }
-          ?? "écran"
-        problems.append("\(issue.auditType): \(issue.compactDescription) [\(element)] — \(issue.detailedDescription)")
-        return true
+    // Un audit qui dépasse son délai (machines de CI chargées) est relancé une fois.
+    for attempt in 1...2 {
+      problems = []
+      do {
+        try app.performAccessibilityAudit(for: .all) { issue in
+          if Self.isKnownIssue(issue, screen: state) { return true }
+          // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
+          let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
+          problems.append("\(issue.auditType): \(issue.compactDescription) [\(element)] — \(issue.detailedDescription)")
+          return true
+        }
+        break
+      } catch let error as NSError where error.code == -56 && attempt == 1 {
+        NSLog("AUDIT[\(screen)] délai dépassé, nouvel essai")
+      } catch {
+        XCTFail("Audit d'accessibilité « \(screen) » impossible : \(error)")
       }
-    } catch {
-      XCTFail("Audit d'accessibilité « \(screen) » impossible : \(error)")
     }
     // Journal : lisible dans la sortie de xcodebuild même si la consignation de l'échec est lente.
     for problem in problems { NSLog("AUDIT[\(screen)] \(problem)") }
