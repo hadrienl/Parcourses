@@ -74,6 +74,9 @@ private struct LockScreenView: View {
             Text(attributes.storeName ?? attributes.listName)
               .font(.caption)
               .foregroundStyle(.secondary)
+              // Magasin et liste situent la personne : masqués sur l'écran verrouillé, comme la version publique
+              // de la notification Android (« Courses en cours · N articles restants sur T »).
+              .privacySensitive()
           }
           NextItemView(state: state, isStale: isStale)
           Text(summary(state))
@@ -97,17 +100,19 @@ private struct CheckNextButton: View {
   let isStale: Bool
   @Environment(\.redactionReasons) private var redactionReasons
 
-  /// VoiceOver nomme l'article, sauf quand l'écran verrouillé le masque.
+  /// VoiceOver nomme l'article coché.
   private var accessibilityName: String {
-    guard !redactionReasons.contains(.privacy), let label = state.nextItemLabel else { return "Cocher le suivant" }
-    return "Cocher \(label)"
+    state.nextItemLabel.map { "Cocher \($0)" } ?? "Cocher le suivant"
   }
 
   var body: some View {
-    if let visitId = attributes.visitId, let itemId = state.nextItemId, !isStale, !state.isFinished {
+    // Écran verrouillé, article masqué : pas de bouton, on ne coche pas un article qu'on ne voit pas (comme la
+    // version publique de la notification Android, sans action).
+    if let visitId = attributes.visitId, let itemId = state.nextItemId, !isStale, !state.isFinished,
+      !redactionReasons.contains(.privacy)
+    {
       // Un intent par article : un toucher sur un affichage dépassé ne coche pas l'article suivant.
       Button(intent: CheckNextItemIntent(visitId: visitId, itemId: itemId)) {
-        // Libellé sans l'article : il reste lisible quand l'écran verrouillé masque le prochain article.
         Label("Cocher le suivant", systemImage: "checkmark.circle")
           .font(.subheadline.weight(.semibold))
           .frame(maxWidth: .infinity, minHeight: 44)
@@ -138,7 +143,7 @@ private struct NextItemView: View {
           .lineLimit(2)
           .privacySensitive()
         if let category = state.nextCategoryLabel {
-          Text(category).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+          Text(category).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).privacySensitive()
         }
       } else {
         Text("Tout est pris").font(.headline)

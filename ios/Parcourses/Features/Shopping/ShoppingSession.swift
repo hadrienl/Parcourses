@@ -122,7 +122,7 @@ final class ShoppingSession: Identifiable {
   private var isActivityStarted = false
   private var isActivityEnded = false
   /// Les attributs de l'activité sont immuables : rien ne part avant que la visite soit connue (ni expirée).
-  private var isActivityReady = false
+  private(set) var isActivityReady = false
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
@@ -178,7 +178,14 @@ final class ShoppingSession: Identifiable {
   /// Un tri déjà lancé porte les anciens identifiants : il est écarté.
   func apply(_ remap: IdentifierRemap) {
     listId = remap[listId]
+    let previousVisitId = visitId
     visitId = visitId.map { remap[$0] }
+    if visitId != previousVisitId {
+      // Les attributs d'une Live Activity sont immuables : elle garde l'ancienne visite, et « Cocher le suivant »
+      // n'y trouverait plus rien. Une activité neuve, à la nouvelle visite, la remplace à la publication suivante.
+      isActivityStarted = false
+      activityState = nil
+    }
     settlingIds = Set(settlingIds.map { remap[$0] })
     highlightedItemId = highlightedItemId.map { remap[$0] }
     undo = undo.map {
@@ -212,17 +219,20 @@ final class ShoppingSession: Identifiable {
       publishActivity()
       return
     }
+    var isNewVisit = false
     perform {
+      let previous = try visits.openVisit()?.id
       // `listWasSorted` : le mode du début de visite, celui que la personne a réellement suivi (#9 §6.3).
       // Une visite restée 45 min sans coche n'est pas reprise : close à sa dernière coche, une neuve commence.
       let visit = try visits.startVisit(
         storeId: storeId, listId: listId, listWasSorted: mode == .learned, at: startedAt, staleAfter: Self.expiry)
       visitId = visit.id
       startedAt = visit.startedAt
+      isNewVisit = visit.id != previous
     }
     // Une visite neuve commence sans introuvable (`startVisit` les remet à acheter) : la liste lue plus haut en
     // montrait peut-être encore, laissés par une visite close sans décision.
-    if !notFound.isEmpty { await sortNow(previous: nil) }
+    if isNewVisit && !notFound.isEmpty { await sortNow(previous: nil) }
     isActivityReady = true
     publishActivity()
   }

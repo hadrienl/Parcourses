@@ -18,7 +18,7 @@ final class AppEnvironment {
   private let gateway: (any RemoteGateway)?
   private let location: any LocationProvider
   /// Une seule instance pour toutes les sessions : ses appels ActivityKit restent ordonnés.
-  private let shoppingActivity = ActivityKitShoppingActivity()
+  private let shoppingActivity: ActivityKitShoppingActivity
   /// Mode courses en cours, le temps qu'il vive : « Cocher le suivant » le prévient.
   private weak var currentSession: ShoppingSession?
   /// « Cocher le suivant » de la Live Activity, branché sur `CheckNextItemRouter` au lancement.
@@ -26,8 +26,13 @@ final class AppEnvironment {
     lists: lists, visits: visits, stores: stores, categories: categories, analyzer: entryAnalyzer,
     activity: shoppingActivity, session: { [weak self] in self?.currentSession })
 
-  init(container: ModelContainer, gateway: (any RemoteGateway)? = nil) throws {
+  /// `shoppingActivity` : remplacé dans les tests, qui ne doivent pas ouvrir de vraie Live Activity.
+  init(
+    container: ModelContainer, gateway: (any RemoteGateway)? = nil,
+    shoppingActivity: ActivityKitShoppingActivity = ActivityKitShoppingActivity()
+  ) throws {
     self.container = container
+    self.shoppingActivity = shoppingActivity
     self.gateway = gateway
     location = SystemLocationProvider()
     let context = container.mainContext
@@ -62,8 +67,9 @@ final class AppEnvironment {
       let variables = ProcessInfo.processInfo.environment
       guard let name = variables["PARCOURSES_TEST_SEED_STORE"] else { return }
       let context = container.mainContext
-      let id = UUID()
       let stores = SwiftDataStoreRepository(context: context)
+      // Store conservé d'un lancement à l'autre (App Group) : le même magasin est réutilisé, jamais dupliqué.
+      let id = try stores.recentStores(limit: 100).first { $0.name == name }?.id ?? UUID()
       try stores.upsertStore(
         id: id, name: name, chain: nil, address: "Auch", lastDistanceM: nil,
         organicAisle: variables["PARCOURSES_TEST_SEED_ORGANIC"] != nil)

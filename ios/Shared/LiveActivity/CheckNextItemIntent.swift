@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import os
 
 /// Ce que fait l'app quand « Cocher le suivant » est touché sur la Live Activity. Seule l'app en fournit un :
 /// l'extension affiche le bouton, l'intent s'exécute dans le processus de l'app (`LiveActivityIntent`), lancée en
@@ -38,11 +39,27 @@ struct CheckNextItemIntent: LiveActivityIntent {
     self.itemId = itemId.uuidString
   }
 
+  #if compiler(>=6.4)
+    /// SDK iOS 27 : l'exécution dans l'app est demandée explicitement. Avant, et avec un SDK plus ancien (CI),
+    /// c'est la règle de `LiveActivityIntent` qui la garantit.
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+  #endif
+
+  private static let log = Logger(subsystem: "app.parcourses", category: "LiveActivity")
+
   @MainActor
   func perform() async throws -> some IntentResult {
-    if let visit = UUID(uuidString: visitId), let item = UUID(uuidString: itemId) {
-      await CheckNextItemRouter.handler?.checkNext(visitId: visit, itemId: item)
+    guard let visit = UUID(uuidString: visitId), let item = UUID(uuidString: itemId) else {
+      Self.log.error("« Cocher le suivant » : identifiants illisibles")
+      return .result()
     }
+    guard let handler = CheckNextItemRouter.handler else {
+      // Exécuté hors de l'app, ou avant son initialisation : le bouton ne ferait rien en silence.
+      Self.log.error("« Cocher le suivant » sans gestionnaire : intent exécuté hors de l'app ?")
+      return .result()
+    }
+    await handler.checkNext(visitId: visit, itemId: item)
     return .result()
   }
 }

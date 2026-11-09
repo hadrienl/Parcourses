@@ -55,6 +55,16 @@ nonisolated final class LiveActivityUITests: ParcoursesUITestCase {
     app.buttons["keepRemaining"].tap()
     XCTAssertTrue(app.buttons["closeSummary"].waitForExistence(timeout: 10))
     app.buttons["closeSummary"].tap()
+    // La liste créée par ce passage part aussi (le magasin semé, lui, est réutilisé au passage suivant).
+    // Relancée à froid, l'app a rouvert le mode courses directement sur « Mes listes ».
+    if !app.navigationBars["Mes listes"].waitForExistence(timeout: 3) { app.navigationBars.buttons.firstMatch.tap() }
+    let list = app.buttons.containing(.staticText, identifier: "Samedi").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 5))
+    list.swipeLeft()
+    app.buttons["Supprimer"].firstMatch.tap()
+    let confirm = app.buttons["Supprimer la liste"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
   }
 
   /// Un passage précédent interrompu a pu laisser une visite ouverte, rouverte au lancement.

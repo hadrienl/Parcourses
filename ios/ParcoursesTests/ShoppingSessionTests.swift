@@ -1814,7 +1814,10 @@ extension Harness {
   ) -> ShoppingActivityActions {
     ShoppingActivityActions(
       lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
-      analyzer: harness.analyzer, activity: activity, session: { session }, now: { [harness] in harness.date })
+      analyzer: harness.analyzer, activity: activity, session: { session }, now: { [harness] in harness.date },
+      scheduleSync: {
+        // Aucune tâche système à planifier dans les tests.
+      })
   }
 
   /// Visite ouverte avec deux articles ; l'activité affiche `order`.
@@ -1918,7 +1921,10 @@ extension Harness {
     harness.date = t0.addingTimeInterval(60)
     let checkNext = ShoppingActivityActions(
       lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
-      analyzer: harness.analyzer, activity: controller, session: { nil }, now: { [harness] in harness.date })
+      analyzer: harness.analyzer, activity: controller, session: { nil }, now: { [harness] in harness.date },
+      scheduleSync: {
+        // Aucune tâche système à planifier dans les tests.
+      })
 
     await checkNext.checkNext(visitId: visit, itemId: milk)
     #expect(try harness.visits.checks(visitId: visit).map(\.itemId) == [milk])
@@ -2019,5 +2025,133 @@ private final class RecordingHandler: CheckNextItemHandling {
         id: "a", visitId: visit, isActive: false, attributes: attributes, state: ActivityState(remaining: 1, total: 1))
     ])
     #expect(await ActivityKitShoppingActivity(backend: backend).restore(visitId: visit) == nil)
+  }
+}
+
+// MARK: - Relecture de la PR #61
+
+@MainActor
+private final class Counter {
+  var value = 0
+}
+
+@Suite(.serialized) @MainActor struct CheckNextReviewTests {
+  private func items(_ harness: Harness) throws -> (milk: UUID, bread: UUID) {
+    let all = try harness.lists.items(listId: harness.listId)
+    return (
+      try #require(all.first { $0.label == "lait" }?.id), try #require(all.first { $0.label == "pain" }?.id)
+    )
+  }
+
+  private func actions(
+    _ harness: Harness, activity: any ShoppingActivityControlling, session: ShoppingSession? = nil,
+    scheduled: Counter = Counter()
+  ) -> ShoppingActivityActions {
+    ShoppingActivityActions(
+      lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
+      analyzer: harness.analyzer, activity: activity, session: { session }, now: { [harness] in harness.date },
+      scheduleSync: { scheduled.value += 1 })
+  }
+
+  @Test func aRekeyedVisitGetsANewActivityWithTheNewVisit() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let old = try #require(session.visitId)
+    let renamed = UUID()
+
+    session.apply(IdentifierRemap(identifiers: [old: renamed]))
+    guard case .start(let attributes, _)? = activity.calls.last else {
+      Issue.record("pas de nouvelle activité après la reprise de compte")
+      return
+    }
+    #expect(attributes.visitId == renamed)
+    #expect(activity.calls.count == 2)
+  }
+
+  @Test func aTapWhileTheShoppingModePreparesIsShownFromTheBase() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let visitId = visit.id
+    let activity = RecordingActivity()
+    let gateway = SnapshotGateway(gated: true)
+    let session = harness.session(gateway: gateway, preloadTimeout: .seconds(30), activity: activity)
+    let resuming = Task { await session.resume(visit: visit) }
+    while session.visitId == nil { await Task.yield() }
+    #expect(!session.isActivityReady)
+    activity.restored[visitId] = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+
+    await actions(harness, activity: activity, session: session).checkNext(visitId: visitId, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [milk])
+    #expect(activity.states.last?.nextItemId == bread)
+
+    await gateway.openGate()
+    await resuming.value
+  }
+
+  @Test func aFreshVisitIsResumedAtLaunch() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let environment = try AppEnvironment(
+      container: harness.container, shoppingActivity: ActivityKitShoppingActivity(backend: FakeBackend()))
+    let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(60))
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(120))
+    #expect(session?.visitId == visit)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == nil)
+  }
+
+  @Test func twoConcurrentTapsMakeOneCheck() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let visitId = visit.id
+    let attributes = ShoppingActivityAttributes(visitId: visitId, listName: "Semaine", storeName: nil)
+    let shown = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visitId, isActive: true, attributes: attributes, state: shown)
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    let scheduled = Counter()
+    let checkNext = actions(harness, activity: controller, scheduled: scheduled)
+
+    async let first: Void = checkNext.checkNext(visitId: visitId, itemId: milk)
+    async let second: Void = checkNext.checkNext(visitId: visitId, itemId: milk)
+    _ = await (first, second)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [milk])
+    #expect(await controller.restore(visitId: visitId)?.nextItemId == bread)
+    #expect(scheduled.value == 1)
+  }
+
+  @Test func aTapFromTheActivityKeepsTheScreenUndoValid() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let visitId = try #require(session.visitId)
+    session.toggle(try row(session, "lait"))
+    #expect(session.undo?.itemId == milk)
+    activity.restored[visitId] = activity.states.last
+
+    await actions(harness, activity: activity, session: session).checkNext(visitId: visitId, itemId: bread)
+    #expect(session.undo?.itemId == milk)
+
+    session.performUndo()
+    #expect(try harness.item(milk).checkedAt == nil)
+    #expect(try harness.item(bread).checkedAt != nil)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [bread])
+    #expect(session.errorMessage == nil)
   }
 }
