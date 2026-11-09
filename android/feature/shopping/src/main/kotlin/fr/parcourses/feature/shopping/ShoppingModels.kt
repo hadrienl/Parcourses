@@ -44,13 +44,22 @@ data class ShoppingRow(
     val accessibilityLabel: String get() = listOfNotNull(label, quantity).joinToString(", ")
 }
 
-/** Un rayon du mode courses : titre et articles, dans l'ordre affiché. */
+/**
+ * Un rayon du mode courses : titre et articles, dans l'ordre affiché. En ordre générique, un rayon n'a qu'une
+ * section ; en mode appris, chaque suite d'articles consécutifs du même rayon en forme une (le trajet peut repasser
+ * par un rayon).
+ */
 @Immutable
 data class ShoppingSection(
     val aisleId: String,
     val title: String,
     val rows: List<ShoppingRow>,
+    /** Rang de cette suite parmi celles du même rayon (0 pour la première). */
+    val occurrence: Int = 0,
 ) {
+    /** Identité de la suite, comme iOS : `aisleId` pour la première, « <aisleId>#<n> » ensuite. */
+    val id: String get() = if (occurrence == 0) aisleId else "$aisleId#$occurrence"
+
     /** Articles encore à prendre : une ligne juste cochée reste dans sa section sans compter. */
     val remainingCount: Int get() = rows.count { !it.isChecked }
 }
@@ -100,9 +109,12 @@ data class ShoppingUiState(
     val toBuy: List<ShoppingRow> = emptyList(),
     val basket: List<ShoppingRow> = emptyList(),
     val notFound: List<ShoppingRow> = emptyList(),
-    /** Rayons (ordre non appris seulement) ; vide quand le fil du trajet est continu. */
+    /**
+     * Articles à prendre par rayon, dans l'ordre affiché : regroupés par rayon en ordre générique, en suites de rayon
+     * le long du trajet en mode appris. Les mêmes lignes que [toBuy].
+     */
     val sections: List<ShoppingSection> = emptyList(),
-    /** Ordre non appris : les articles se lisent par rayon, avec un titre. En mode appris : fil continu. */
+    /** Ordre non appris : un titre par rayon. En mode appris : un titre à chaque changement de rayon du trajet. */
     val groupsByAisle: Boolean = true,
     val knowledge: RouteKnowledge = RouteKnowledge.NoStore,
     val undo: ShoppingUndo? = null,

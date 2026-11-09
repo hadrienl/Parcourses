@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Étiquette d'un rayon qui vient de remonter dans le trajet appris (décorative). -->
+    <string name="ticket_learned_tag">↑ appris</string>
+    <!-- Données des magasins (ODbL) : mêmes textes qu'iOS. -->
+    <string name="osm_attribution">© contributeurs OpenStreetMap, licence ODbL</string>
+    <string name="osm_attribution_action">Ouvrir la page de licence d\'OpenStreetMap</string>
+</resources>

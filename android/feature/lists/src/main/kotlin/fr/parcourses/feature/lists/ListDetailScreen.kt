@@ -1,17 +1,19 @@
 package fr.parcourses.feature.lists
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -24,19 +26,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -55,13 +58,34 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.parcourses.core.designsystem.AisleLine
+import fr.parcourses.core.designsystem.Bead
+import fr.parcourses.core.designsystem.DockPill
+import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.ThreadLayout
+import fr.parcourses.core.designsystem.ThreadPiece
+import fr.parcourses.core.designsystem.ThreadStyle
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketCheckBox
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketHeader
+import fr.parcourses.core.designsystem.TicketSheet
+import fr.parcourses.core.designsystem.TicketType
+import fr.parcourses.core.designsystem.dockFieldColors
+import fr.parcourses.core.designsystem.dockFieldTextStyle
+import fr.parcourses.core.designsystem.isLargeText
+import fr.parcourses.core.designsystem.thread
+import fr.parcourses.core.designsystem.threadSegments
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -87,8 +111,9 @@ fun ListDetailRoute(
 }
 
 /**
- * Écran Liste : articles groupés par rayon, saisie rapide dans un dock en bas. Le bouton « Faire mes courses »
- * n'apparaît que si [onStartShopping] est fourni (mode courses : lot A8).
+ * Écran Liste (#6, B3) : un ticket, articles groupés par rayon le long du fil, saisie rapide dans la barre flottante en
+ * bas. « Faire mes courses » est le bouton d'action à côté, à portée du pouce ; il n'apparaît que si
+ * [onStartShopping] est fourni et que la liste a des articles.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,10 +129,13 @@ fun ListDetailScreen(
     modifier: Modifier = Modifier,
     onStartShopping: (() -> Unit)? = null,
 ) {
+    val colors = Ticket.colors
     Scaffold(
         modifier = modifier,
+        containerColor = colors.desk,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.desk),
                 title = { Text(state.name) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -117,26 +145,22 @@ fun ListDetailScreen(
                         )
                     }
                 },
-                actions = {
-                    if (onStartShopping != null && !state.isMissing) {
-                        TextButton(
-                            onClick = onStartShopping,
-                            enabled = !state.isEmpty,
-                            modifier = Modifier.testTag(TAG_SHOP),
-                        ) {
-                            Text(stringResource(R.string.detail_start_shopping))
-                        }
-                    }
-                },
             )
         },
         bottomBar = {
             if (!state.isMissing) {
-                Dock(state.suggestions, input, onSubmit, onSuggestion, focusOnStart = state.isLoaded && state.isEmpty)
+                Dock(
+                    suggestions = state.suggestions,
+                    input = input,
+                    onSubmit = onSubmit,
+                    onSuggestion = onSuggestion,
+                    focusOnStart = state.isLoaded && state.isEmpty,
+                    onStartShopping = onStartShopping.takeIf { !state.isEmpty },
+                )
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        TicketSheet(Modifier.padding(padding)) {
             when {
                 state.isMissing -> Placeholder(R.string.detail_missing_title, R.string.detail_missing_body)
                 state.isLoaded && state.isEmpty -> Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
@@ -154,54 +178,86 @@ private fun Placeholder(
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(stringResource(title), style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(title),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
+        )
         Text(
             stringResource(body),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Ticket.colors.inkMuted,
+            textAlign = TextAlign.Center,
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** Les rayons et leurs articles le long du fil, encore à parcourir : la liste se prépare, rien n'est parcouru. */
 @Composable
 private fun Sections(
     sections: List<ItemSection>,
     onToggle: (ItemRow) -> Unit,
     onDelete: (ItemRow) -> Unit,
 ) {
-    LazyColumn(Modifier.fillMaxSize().testTag(TAG_ITEMS)) {
+    val total = sections.sumOf { it.items.size }
+    val count = pluralStringResource(R.plurals.detail_item_count, total, total)
+    val stops = sections.sumOf { it.items.size + 1 }
+    val segments = threadSegments(stops, next = 0)
+    LazyColumn(
+        Modifier.fillMaxSize().testTag(TAG_ITEMS),
+        contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
+    ) {
+        item(key = "header", contentType = "header") {
+            TicketHeader(
+                title = null,
+                meta = emptyList(),
+                totalLabel = stringResource(R.string.detail_total_label),
+                total = total,
+                modifier = Modifier.clearAndSetSemantics { contentDescription = count },
+            )
+        }
+        var index = 0
         sections.forEach { section ->
-            stickyHeader(key = "header-${section.categoryId}", contentType = "header") {
-                SectionHeader(section)
+            val (top, bottom) = segments[index++]
+            item(key = "header-${section.categoryId}", contentType = "aisle") {
+                SectionHeader(section, ThreadPiece(top, bottom))
             }
-            items(section.items, key = { it.id }, contentType = { "item" }) { row ->
-                ItemRowView(row, onToggle = { onToggle(row) }, onDelete = { onDelete(row) })
-                HorizontalDivider()
+            section.items.forEach { row ->
+                val (rowTop, rowBottom) = segments[index++]
+                item(key = row.id, contentType = "item") {
+                    ItemRowView(
+                        row,
+                        ThreadPiece(rowTop, rowBottom, if (row.isChecked) Bead.Checked else Bead.Idle),
+                        onToggle = { onToggle(row) },
+                        onDelete = { onDelete(row) },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SectionHeader(section: ItemSection) {
+private fun SectionHeader(
+    section: ItemSection,
+    piece: ThreadPiece,
+) {
     val announcement = stringResource(R.string.detail_section_count, section.title, section.items.size)
-    Text(
-        text = section.title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+    AisleLine(
+        categoryId = section.categoryId,
+        title = section.title,
+        piece = piece,
+        style = ThreadStyle.Solid,
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .semantics {
-                    heading()
-                    contentDescription = announcement
-                },
+            Modifier.clearAndSetSemantics {
+                heading()
+                contentDescription = announcement
+                text = AnnotatedString(section.title)
+            },
     )
 }
 
@@ -212,9 +268,11 @@ private fun SectionHeader(section: ItemSection) {
 @Composable
 private fun ItemRowView(
     row: ItemRow,
+    piece: ThreadPiece,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val colors = Ticket.colors
     val checkedText = stringResource(R.string.detail_item_checked)
     val uncheckedText = stringResource(R.string.detail_item_unchecked)
     val deleteLabel = stringResource(R.string.detail_delete_item)
@@ -222,34 +280,38 @@ private fun ItemRowView(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .thread(piece, ThreadStyle.Solid)
+                .heightIn(min = TicketDimens.rowMin)
                 .toggleable(value = row.isChecked, role = Role.Checkbox, onValueChange = { onToggle() })
                 .semantics(mergeDescendants = true) {
                     contentDescription = row.accessibilityLabel
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
                     customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
-                }.padding(start = 8.dp),
+                }.padding(start = ThreadLayout.contentStart),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = row.isChecked, onCheckedChange = null, modifier = Modifier.clearAndSetSemantics { })
-        Text(
-            text = row.label,
-            style = MaterialTheme.typography.bodyLarge,
-            textDecoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            color =
-                if (row.isChecked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+        TicketCheckBox(row.isChecked)
+        ItemLine(
+            name = row.label,
+            quantity = row.quantity,
+            style = TicketType.item,
+            color = if (row.isChecked) colors.checked else colors.ink,
+            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
         )
-        row.quantity?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
-            Icon(Icons.Default.Delete, contentDescription = null)
+            Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
         }
     }
 }
 
-/** Dock de saisie rapide : propositions au-dessus du champ, qui reste ouvert pour enchaîner les articles. */
+/**
+ * Bas de l'écran : propositions au-dessus, barre flottante de saisie (qui reste ouverte pour enchaîner les articles)
+ * et bouton « Faire mes courses ». Empilés quand le texte est très agrandi.
+ */
 @Composable
 private fun Dock(
     suggestions: List<ItemSuggestion>,
@@ -257,6 +319,7 @@ private fun Dock(
     onSubmit: () -> Unit,
     onSuggestion: (ItemSuggestion) -> Unit,
     focusOnStart: Boolean,
+    onStartShopping: (() -> Unit)?,
 ) {
     val focus = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -266,43 +329,95 @@ private fun Dock(
             focused = true
         }
     }
-    Surface(tonalElevation = 3.dp, modifier = Modifier.imePadding()) {
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (suggestions.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.testTag(TAG_SUGGESTIONS),
-                ) {
-                    items(suggestions, key = { it.id }, contentType = { "suggestion" }) { suggestion ->
-                        val label = stringResource(R.string.detail_add_suggestion, suggestion.label)
-                        AssistChip(
-                            onClick = { onSuggestion(suggestion) },
-                            label = { Text(suggestion.label) },
-                            modifier = Modifier.sizeIn(minHeight = 48.dp).semantics { contentDescription = label },
-                        )
-                    }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    state = input,
-                    label = { Text(stringResource(R.string.detail_input_label)) },
-                    lineLimits = TextFieldLineLimits.SingleLine,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    onKeyboardAction = KeyboardActionHandler { onSubmit() },
-                    modifier = Modifier.weight(1f).focusRequester(focus).testTag(TAG_QUICK_ENTRY),
+    val stacked = isLargeText()
+    Column(
+        Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+            .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs),
+        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+    ) {
+        if (suggestions.isNotEmpty()) Suggestions(suggestions, onSuggestion)
+        val field: @Composable (Modifier) -> Unit = { modifier -> EntryField(input, onSubmit, focus, modifier) }
+        // Libellé court à l'écran (« Courses », comme la maquette) ; le nom complet le contient (WCAG 2.5.3).
+        val shopLabel = stringResource(R.string.detail_start_shopping)
+        val shop: @Composable (Modifier) -> Unit = { modifier ->
+            if (onStartShopping != null) {
+                ExtendedFloatingActionButton(
+                    onClick = onStartShopping,
+                    icon = { Icon(Icons.Default.ShoppingCart, contentDescription = null) },
+                    text = { Text(stringResource(R.string.detail_start_shopping_short)) },
+                    containerColor = Ticket.colors.accent,
+                    contentColor = Ticket.colors.onAccent,
+                    modifier =
+                        modifier
+                            .heightIn(min = TicketDimens.primaryAction)
+                            .semantics { contentDescription = shopLabel }
+                            .testTag(TAG_SHOP),
                 )
-                IconButton(
-                    onClick = onSubmit,
-                    enabled = input.text.isNotBlank(),
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(TAG_ADD),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.detail_add))
-                }
             }
+        }
+        if (stacked) {
+            field(Modifier.fillMaxWidth())
+            shop(Modifier.fillMaxWidth())
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+            ) {
+                field(Modifier.weight(1f))
+                shop(Modifier)
+            }
+        }
+    }
+}
+
+/** Propositions d'articles, au-dessus de la barre de saisie. */
+@Composable
+private fun Suggestions(
+    suggestions: List<ItemSuggestion>,
+    onSuggestion: (ItemSuggestion) -> Unit,
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+        modifier = Modifier.testTag(TAG_SUGGESTIONS),
+    ) {
+        items(suggestions, key = { it.id }, contentType = { "suggestion" }) { suggestion ->
+            val label = stringResource(R.string.detail_add_suggestion, suggestion.label)
+            AssistChip(
+                onClick = { onSuggestion(suggestion) },
+                label = { Text(suggestion.label) },
+                colors = AssistChipDefaults.assistChipColors(containerColor = Ticket.colors.paper),
+                modifier = Modifier.sizeIn(minHeight = 48.dp).semantics { contentDescription = label },
+            )
+        }
+    }
+}
+
+/** Saisie rapide : le champ dans la barre flottante, et son bouton « Ajouter ». */
+@Composable
+private fun EntryField(
+    input: TextFieldState,
+    onSubmit: () -> Unit,
+    focus: FocusRequester,
+    modifier: Modifier,
+) {
+    DockPill(modifier) {
+        TextField(
+            state = input,
+            label = { Text(stringResource(R.string.detail_input_label), fontFamily = FontFamily.Default) },
+            textStyle = dockFieldTextStyle(),
+            lineLimits = TextFieldLineLimits.SingleLine,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            onKeyboardAction = KeyboardActionHandler { onSubmit() },
+            colors = dockFieldColors(),
+            modifier = Modifier.weight(1f).focusRequester(focus).testTag(TAG_QUICK_ENTRY),
+        )
+        IconButton(
+            onClick = onSubmit,
+            enabled = input.text.isNotBlank(),
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(TAG_ADD),
+        ) {
+            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.detail_add))
         }
     }
 }

@@ -1,5 +1,6 @@
 package fr.parcourses.feature.storepicker
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,35 +11,25 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -47,12 +38,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.CapsText
+import fr.parcourses.core.designsystem.OsmAttribution
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketType
 
 /** Titre et explication lus d'un bloc ; annoncés quand l'état change. */
 @Composable
@@ -207,85 +201,64 @@ internal fun SectionTitle(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    Text(
+    CapsText(
         text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier =
-            modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
+        style = TicketType.aisle,
+        color = Ticket.colors.inkMuted,
+        heading = true,
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
     )
 }
 
-/** Nom, adresse et distance si elle a un sens. Une seule cible, lue d'un bloc par TalkBack. */
+/**
+ * Nom, adresse et distance si elle a un sens, dans une carte cerclée du ticket. Une seule cible, lue d'un bloc par
+ * TalkBack. [proposed] : magasin proposé, cerclé d'accent.
+ */
 @Composable
 internal fun StoreRow(
     store: StoreCandidate,
     onSelect: (StoreCandidate) -> Unit,
+    proposed: Boolean = false,
 ) {
+    val colors = Ticket.colors
+    val shape = RoundedCornerShape(TicketDimens.radius)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             Modifier
+                .padding(horizontal = 16.dp, vertical = 4.dp)
                 .fillMaxWidth()
-                .heightIn(min = 56.dp)
+                .clip(shape)
+                .border(
+                    if (proposed) 2.dp else 1.dp,
+                    if (proposed) colors.accent else colors.threadIdleHighContrast,
+                    shape,
+                ).heightIn(min = 56.dp)
                 .clickable(
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.picker_store_action),
                     onClick = { onSelect(store) },
-                ).padding(horizontal = 16.dp, vertical = 8.dp),
+                ).padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(store.name, style = MaterialTheme.typography.bodyLarge)
-            store.address?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(store.name, style = TicketType.item.copy(fontWeight = FontWeight.Bold), color = colors.ink)
+            store.address?.let { Text(it, style = TicketType.meta, color = colors.inkMuted) }
         }
         store.distanceM?.let {
             Spacer(Modifier.width(12.dp))
-            Text(
-                StoreDistance.text(it),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(StoreDistance.text(it), style = TicketType.meta, color = colors.inkMuted)
         }
     }
 }
 
 /**
- * Les magasins viennent d'OpenStreetMap : mention et lien vers la licence (ODbL). Toute la barre est une cible
- * d'au moins 48 dp, annoncée « Ouvrir la page de licence d'OpenStreetMap » par TalkBack.
+ * Les magasins viennent d'OpenStreetMap : mention et lien vers la licence (ODbL), en barre basse au-dessus de la
+ * barre de navigation du système.
  */
 @Composable
 internal fun Attribution() {
-    val text = stringResource(R.string.picker_attribution)
-    val uriHandler = LocalUriHandler.current
-    Surface(
-        tonalElevation = 2.dp,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .testTag(TAG_ATTRIBUTION)
-                .clickable(onClickLabel = stringResource(R.string.picker_attribution_action)) {
-                    uriHandler.openUri(OSM_COPYRIGHT_URL)
-                },
-    ) {
-        Text(
-            buildAnnotatedString {
-                withLink(LinkAnnotation.Url(OSM_COPYRIGHT_URL)) { append(text) }
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier =
-                Modifier
-                    .navigationBarsPadding()
-                    .heightIn(min = 48.dp)
-                    .wrapContentHeight(Alignment.CenterVertically)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+    Surface(color = Ticket.colors.paperEdge, modifier = Modifier.fillMaxWidth()) {
+        OsmAttribution(Modifier.navigationBarsPadding().testTag(TAG_ATTRIBUTION))
     }
 }
 

@@ -3,25 +3,29 @@ package fr.parcourses.feature.shopping
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,17 +36,26 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.DockPill
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketType
+import fr.parcourses.core.designsystem.dockFieldColors
+import fr.parcourses.core.designsystem.dockFieldTextStyle
+import fr.parcourses.core.designsystem.isLargeText
 
-/** Dock en bas : annulation, saisie et « Terminer ». Empilé quand le texte est très agrandi (200 %). */
+/**
+ * Bas de l'écran, à portée du pouce (#6, B3 Android) : la barre « Annuler » au-dessus, puis la barre flottante de
+ * saisie (ajout en route) et le bouton d'action « Terminer ». Empilés quand le texte est très agrandi (200 %).
+ */
 @Composable
 internal fun Dock(
     state: ShoppingUiState,
@@ -54,52 +67,75 @@ internal fun Dock(
     LaunchedEffect(focused) {
         snapshotFlow { input.text.isNotEmpty() }.collect { actions.onEditing(focused) }
     }
-    val stacked = LocalDensity.current.fontScale >= STACK_FONT_SCALE
-    Surface(tonalElevation = 3.dp, modifier = Modifier.imePadding()) {
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            state.undo?.let { UndoBanner(it, actions.onUndo) }
-            if (state.isEverythingChecked) {
-                Text(stringResource(R.string.shopping_all_checked), style = MaterialTheme.typography.titleMedium)
-            }
-            val field: @Composable (Modifier) -> Unit = { modifier ->
-                OutlinedTextField(
-                    state = input,
-                    label = { Text(stringResource(R.string.shopping_input_label)) },
-                    lineLimits = TextFieldLineLimits.SingleLine,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    onKeyboardAction = KeyboardActionHandler { actions.onSubmit() },
-                    trailingIcon = {
-                        IconButton(onClick = actions.onSubmit, enabled = input.text.isNotBlank()) {
-                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.shopping_add))
-                        }
-                    },
-                    modifier = modifier.onFocusChanged { focused = it.isFocused }.testTag(TAG_ENTRY),
-                )
-            }
-            val finish: @Composable (Modifier) -> Unit = { modifier ->
-                Button(onClick = onFinish, modifier = modifier.heightIn(min = 48.dp).testTag(TAG_FINISH)) {
-                    Text(stringResource(R.string.shopping_finish))
-                }
-            }
-            if (stacked) {
-                field(Modifier.fillMaxWidth())
-                finish(Modifier.fillMaxWidth())
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    field(Modifier.weight(1f))
-                    finish(Modifier)
-                }
+    val stacked = isLargeText()
+    Column(
+        Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+            .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs),
+        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+    ) {
+        state.undo?.let { UndoBanner(it, actions.onUndo) }
+        if (state.isEverythingChecked) {
+            Text(
+                stringResource(R.string.shopping_all_checked),
+                style = TicketType.title.copy(fontSize = MaterialTheme.typography.titleMedium.fontSize),
+                color = Ticket.colors.ink,
+            )
+        }
+        val field: @Composable (Modifier) -> Unit = { modifier ->
+            EntryField(input, actions, onFocus = { focused = it }, modifier)
+        }
+        val finish: @Composable (Modifier) -> Unit = { modifier ->
+            ExtendedFloatingActionButton(
+                onClick = onFinish,
+                icon = { Icon(Icons.Default.Check, contentDescription = null) },
+                text = { Text(stringResource(R.string.shopping_finish)) },
+                containerColor = Ticket.colors.accent,
+                contentColor = Ticket.colors.onAccent,
+                modifier = modifier.heightIn(min = TicketDimens.primaryAction).testTag(TAG_FINISH),
+            )
+        }
+        if (stacked) {
+            field(Modifier.fillMaxWidth())
+            finish(Modifier.fillMaxWidth())
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+            ) {
+                field(Modifier.weight(1f))
+                finish(Modifier)
             }
         }
     }
 }
 
+/** Ajout en route : le champ dans la barre flottante, et son bouton « Ajouter ». */
+@Composable
+private fun EntryField(
+    input: TextFieldState,
+    actions: ShoppingActions,
+    onFocus: (Boolean) -> Unit,
+    modifier: Modifier,
+) {
+    DockPill(modifier) {
+        TextField(
+            state = input,
+            label = { Text(stringResource(R.string.shopping_input_label), fontFamily = FontFamily.Default) },
+            textStyle = dockFieldTextStyle(),
+            lineLimits = TextFieldLineLimits.SingleLine,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            onKeyboardAction = KeyboardActionHandler { actions.onSubmit() },
+            colors = dockFieldColors(),
+            modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) }.testTag(TAG_ENTRY),
+        )
+        IconButton(onClick = actions.onSubmit, enabled = input.text.isNotBlank()) {
+            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.shopping_add))
+        }
+    }
+}
+
+/** Barre « Annuler » (Snackbar Material) : encre sur papier inversé, action à l'accent inversé. */
 @Composable
 internal fun UndoBanner(
     undo: ShoppingUndo,
@@ -113,11 +149,11 @@ internal fun UndoBanner(
     Snackbar(
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag(TAG_UNDO_BANNER),
         action = {
-            TextButton(onClick = onUndo, modifier = Modifier.heightIn(min = 48.dp).testTag(TAG_UNDO)) {
-                Text(stringResource(R.string.shopping_undo))
+            TextButton(onClick = onUndo, modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_UNDO)) {
+                Text(stringResource(R.string.shopping_undo), color = Ticket.colors.inverseAccent)
             }
         },
     ) {
-        Text(message)
+        Text(message, modifier = Modifier.padding(vertical = 4.dp))
     }
 }

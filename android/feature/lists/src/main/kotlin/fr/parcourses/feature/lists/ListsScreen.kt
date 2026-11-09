@@ -12,10 +12,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,35 +25,35 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.designsystem.Ticket
+import fr.parcourses.core.designsystem.TicketDimens
+import fr.parcourses.core.designsystem.TicketSheet
+import fr.parcourses.core.designsystem.TicketType
 
 /** Écran Listes branché sur son [ListsViewModel]. */
 @Composable
@@ -61,6 +61,7 @@ fun ListsRoute(
     viewModel: ListsViewModel,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onAbout: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ListsScreen(
@@ -71,6 +72,7 @@ fun ListsRoute(
         onDelete = viewModel::delete,
         onDismissError = viewModel::dismissError,
         modifier = modifier,
+        onAbout = onAbout,
     )
 }
 
@@ -123,7 +125,10 @@ private fun List<Any?>.toList(): ListSummary =
         this[SAVED_TOTAL] as Int,
     )
 
-/** Écran Listes : état vide, création, renommage, suppression. Sans état propre hors dialogues. */
+/**
+ * Écran Listes : état vide, création, renommage, suppression. Sans état propre hors dialogues. [onAbout] ouvre
+ * « À propos » (attribution des données et confidentialité).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListsScreen(
@@ -134,6 +139,7 @@ fun ListsScreen(
     onDelete: (String) -> Unit,
     onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
+    onAbout: (() -> Unit)? = null,
 ) {
     var dialog by rememberSaveable(stateSaver = ListDialogSaver) { mutableStateOf<ListDialog?>(null) }
     // Reprise de compte : la liste visée par un dialogue a changé d'identifiant ou disparu, il se ferme.
@@ -146,19 +152,23 @@ fun ListsScreen(
             }
         if (state.isLoaded && target != null && state.lists.none { it.id == target }) dialog = null
     }
+    val colors = Ticket.colors
     Scaffold(
         modifier = modifier,
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.lists_title)) }) },
+        containerColor = colors.desk,
+        topBar = { ListsTopBar(onAbout) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { dialog = ListDialog.Create },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text(stringResource(R.string.lists_new)) },
+                containerColor = colors.accent,
+                contentColor = colors.onAccent,
                 modifier = Modifier.testTag(TAG_NEW_LIST),
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        TicketSheet(Modifier.padding(padding)) {
             when {
                 !state.isLoaded -> {
                     Unit
@@ -187,6 +197,22 @@ fun ListsScreen(
         onDelete = onDelete,
     )
     state.errorDetail?.let { ErrorDialog(it, onDismissError) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ListsTopBar(onAbout: (() -> Unit)?) {
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
+        title = { Text(stringResource(R.string.lists_title)) },
+        actions = {
+            if (onAbout != null) {
+                IconButton(onClick = onAbout, modifier = Modifier.testTag(TAG_ABOUT)) {
+                    Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.lists_about))
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -255,14 +281,20 @@ private fun ListDialogs(
 private fun EmptyLists() {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(stringResource(R.string.lists_empty_title), style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.lists_empty_title),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
+        )
         Text(
             stringResource(R.string.lists_empty_body),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Ticket.colors.inkMuted,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -281,7 +313,7 @@ private fun ListsContent(
     ) {
         items(lists, key = { it.id }, contentType = { "list" }) { list ->
             ListRow(list, onOpen = { onOpen(list.id) }, onRename = { onRename(list) }, onDelete = { onDelete(list) })
-            HorizontalDivider()
+            HorizontalDivider(color = Ticket.colors.paperEdge)
         }
     }
 }
@@ -305,12 +337,8 @@ private fun ListRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-            Text(list.name, style = MaterialTheme.typography.titleMedium)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(list.name, style = TicketType.item.copy(fontWeight = FontWeight.Bold), color = Ticket.colors.ink)
+            Text(subtitle, style = TicketType.meta, color = Ticket.colors.inkMuted)
         }
         Box {
             val actions = stringResource(R.string.lists_more_actions, list.name)
@@ -345,62 +373,8 @@ private fun subtitle(list: ListSummary): String =
         else -> pluralStringResource(R.plurals.lists_subtitle_remaining, list.remaining, list.remaining)
     }
 
-@Composable
-private fun NameDialog(
-    title: String,
-    confirmLabel: String,
-    initialName: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    // Curseur en fin de nom : on complète un nom existant plus souvent qu'on ne le réécrit.
-    var name by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(initialName, TextRange(initialName.length)))
-    }
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.lists_name_label)) },
-                singleLine = true,
-                keyboardOptions =
-                    KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Done,
-                    ),
-                modifier = Modifier.focusRequester(focus).testTag(TAG_NAME_FIELD),
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name.text) },
-                enabled = ListsViewModel.isValid(name.text),
-                modifier = Modifier.testTag(TAG_CONFIRM_NAME),
-            ) { Text(confirmLabel) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
-    )
-}
-
-@Composable
-internal fun ErrorDialog(
-    detail: String,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.common_error_title)) },
-        text = { Text(stringResource(R.string.common_error_message, detail)) },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) } },
-    )
-}
-
 internal const val TAG_NEW_LIST = "newList"
+internal const val TAG_ABOUT = "about"
 internal const val TAG_LISTS = "lists"
 internal const val TAG_NAME_FIELD = "nameField"
 internal const val TAG_CONFIRM_NAME = "confirmName"
