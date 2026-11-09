@@ -7,10 +7,14 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// `settings` : variables de lancement des réglages d'affichage forcés (voir `UITestOverrides`).
   @MainActor
-  func launch(reset: Bool, launchArguments: [String] = [], dark: Bool = false) -> XCUIApplication {
+  func launch(
+    reset: Bool, launchArguments: [String] = [], dark: Bool = false, settings: [String: String] = [:]
+  ) -> XCUIApplication {
     let app = XCUIApplication()
     if dark { app.launchEnvironment["PARCOURSES_TEST_COLOR_SCHEME"] = "dark" }
+    app.launchEnvironment.merge(settings) { _, new in new }
     app.launchArguments += launchArguments
     app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests"
     if reset { app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1" }
@@ -26,14 +30,52 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   }
 
   /// Fait défiler jusqu'à l'élément : aux grandes tailles de texte, les lignes sortent de l'écran.
+  /// `betweenBars` : une ligne de liste doit aussi être entre la barre de navigation et le dock. Leurs marges ne
+  /// sont pas des éléments d'accessibilité : XCUI juge « hittable » une ligne qu'elles recouvrent, et l'appui tombe
+  /// sur la barre ou le dock (constaté en AX5 sur iPhone 17 : il donnait le focus au champ de saisie). Le
+  /// défilement se fait alors par petits glissés, sans élan, pour ne pas dépasser la ligne.
   @MainActor
-  func reveal(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+  func reveal(
+    _ element: XCUIElement, in app: XCUIApplication, betweenBars: Bool = false, file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
     var swipes = 0
-    while !(element.waitForExistence(timeout: swipes == 0 ? 15 : 2) && element.isHittable) && swipes < 8 {
-      app.swipeUp()
+    while swipes < 8 {
+      guard element.waitForExistence(timeout: swipes == 0 ? 15 : 2) else {
+        app.swipeUp()
+        swipes += 1
+        continue
+      }
+      let position = betweenBars ? Self.position(of: element, in: app) : (element.isHittable ? 0 : 1)
+      if position == 0 { break }
+      if betweenBars {
+        // Glissé court (un cinquième de l'écran) : vers le haut si la ligne est sous le dock, vers le bas sinon.
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: position > 0 ? 0.3 : 0.7))
+        from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+      } else {
+        app.swipeUp()
+      }
       swipes += 1
     }
-    XCTAssertTrue(element.exists && element.isHittable, "élément introuvable après défilement", file: file, line: line)
+    let reached = element.exists && (betweenBars ? Self.position(of: element, in: app) == 0 : element.isHittable)
+    XCTAssertTrue(reached, "élément introuvable après défilement", file: file, line: line)
+  }
+
+  /// 0 : la ligne est entière entre la barre de navigation et le dock ; 1 : à faire monter ; -1 : à faire descendre.
+  @MainActor
+  private static func position(of element: XCUIElement, in app: XCUIApplication) -> Int {
+    let frame = element.frame
+    let bar = app.navigationBars.firstMatch
+    let top = bar.exists ? bar.frame.maxY : 0
+    let dock = ["shoppingEntry", "quickEntry", "undoMessage", "allChecked"].compactMap { id -> CGFloat? in
+      let item = app.descendants(matching: .any).matching(identifier: id).firstMatch
+      return item.exists && item.isHittable ? item.frame.minY : nil
+    }
+    let bottom = (dock.min() ?? app.frame.maxY) - 8
+    if frame.minY < top { return -1 }
+    if frame.maxY > bottom || !element.isHittable { return 1 }
+    return 0
   }
 
   /// Capture conservée dans le `.xcresult`, sert de preuve visuelle aux PR.
@@ -60,7 +102,8 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   @MainActor
   func enterShopping(
     confidenceQ: Int?, items: [String], launchArguments: [String] = [], dark: Bool = false,
-    testStore: String? = "uitests-shopping", atPicker: (XCUIApplication) -> Void = { _ in }
+    settings: [String: String] = [:], testStore: String? = "uitests-shopping",
+    atPicker: (XCUIApplication) -> Void = { _ in }
   ) -> XCUIApplication {
     let app = XCUIApplication()
     if let testStore {
@@ -74,6 +117,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     }
     app.launchArguments += launchArguments
     if dark { app.launchEnvironment["PARCOURSES_TEST_COLOR_SCHEME"] = "dark" }
+    app.launchEnvironment.merge(settings) { _, new in new }
     app.resetAuthorizationStatus(for: .location)
     app.launch()
 

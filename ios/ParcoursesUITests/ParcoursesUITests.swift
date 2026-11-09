@@ -170,4 +170,52 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.buttons["finish"].waitForExistence(timeout: 15))
     XCTAssertTrue(row(app, "tomates", "non coché").exists)
   }
+
+  /// Champ de saisie (`EntryFieldStyle`) : le geste qui donne le focus à toute la case ne prend pas la place des
+  /// gestes d'édition. Un appui dans le texte place le curseur, un double appui sélectionne le mot, un appui dans la
+  /// marge de la case donne le focus.
+  @MainActor
+  func testEntryFieldKeepsEditingGestures() {
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 5))
+    name.typeText("Semaine")
+    app.alerts.buttons["Créer"].tap()
+
+    // Le cadre de l'élément est celui de la case : le texte commence après sa marge de 12 pt.
+    let entry = app.textFields["quickEntry"]
+    XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    if !entry.hasFocus { entry.tap() }
+    entry.typeText("laits bio")
+    func point(_ x: CGFloat) -> XCUICoordinate {
+      entry.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: entry.frame.height / 2))
+    }
+
+    // Appui au début du texte : le curseur s'y place, la frappe s'insère devant.
+    point(14).tap()
+    entry.typeText("x")
+    XCTAssertEqual(entry.value as? String, "xlaits bio")
+
+    // Double appui sur le premier mot : il est sélectionné, la frappe le remplace.
+    point(22).doubleTap()
+    entry.typeText("yaourts")
+    XCTAssertEqual(entry.value as? String, "yaourts bio")
+    capture(app, "saisie-double-appui")
+
+    // Ajout, puis retour sur la liste, qui ne prend plus le focus d'elle-même une fois remplie : un appui dans la
+    // marge droite de la case, hors du texte, donne le focus.
+    entry.typeText("\n")
+    XCTAssertTrue(row(app, "yaourts bio", "non coché").waitForExistence(timeout: 5))
+    app.navigationBars.buttons.firstMatch.tap()
+    let list = app.staticTexts["Semaine"]
+    XCTAssertTrue(list.waitForExistence(timeout: 5))
+    list.tap()
+    XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    XCTAssertFalse(entry.hasFocus)
+    point(entry.frame.width - 4).tap()
+    // Seul champ de l'écran : le clavier suffit à montrer qu'il a le focus.
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+  }
 }
