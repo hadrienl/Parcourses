@@ -1045,12 +1045,26 @@ private final class RecordingActivity: ShoppingActivityControlling {
   private(set) var calls: [Call] = []
   private(set) var retryCount = 0
   private(set) var endAllKeeping: [UUID?] = []
+  /// Dernière activité transmise à chaque démarrage ou mise à jour.
+  private(set) var lastActivities: [Date] = []
+  /// Ce que `restore` rend : l'état affiché d'une visite.
+  var restored: [UUID: ActivityState] = [:]
 
-  func start(attributes: ShoppingActivityAttributes, state: ActivityState) { calls.append(.start(attributes, state)) }
-  func update(state: ActivityState) { calls.append(.update(state)) }
+  func start(attributes: ShoppingActivityAttributes, state: ActivityState, lastActivity: Date) {
+    calls.append(.start(attributes, state))
+    lastActivities.append(lastActivity)
+  }
+  func update(state: ActivityState, lastActivity: Date) {
+    calls.append(.update(state))
+    lastActivities.append(lastActivity)
+  }
   func end(state: ActivityState) { calls.append(.end(state)) }
   func retryIfNeeded() { retryCount += 1 }
   func endAll(except visitId: UUID?) { endAllKeeping.append(visitId) }
+  func restore(visitId: UUID) async -> ActivityState? { restored[visitId] }
+  func waitUntilIdle() async {
+    // Rien d'asynchrone à attendre.
+  }
 
   var endCount: Int {
     calls.filter {
@@ -1340,6 +1354,7 @@ private actor FakeBackend: ActivityBackend {
 
   private var infos: [ActivityInfo]
   private(set) var calls: [Call] = []
+  private(set) var staleDates: [Date?] = []
   private let requestResult: String?
 
   init(_ infos: [ActivityInfo] = [], requestResult: String? = "new") {
@@ -1351,10 +1366,14 @@ private actor FakeBackend: ActivityBackend {
 
   func request(attributes: ShoppingActivityAttributes, state: ActivityState, staleDate: Date?) -> String? {
     calls.append(.request(attributes.visitId))
+    staleDates.append(staleDate)
     return requestResult
   }
 
-  func update(id: String, state: ActivityState, staleDate: Date?) { calls.append(.update(id)) }
+  func update(id: String, state: ActivityState, staleDate: Date?) {
+    calls.append(.update(id))
+    staleDates.append(staleDate)
+  }
 
   func end(id: String, state: ActivityState?, policy: ActivityEndPolicy) {
     calls.append(.end(id, immediate: policy == .immediate))
@@ -1373,7 +1392,7 @@ private actor FakeBackend: ActivityBackend {
   @Test func theActivityOfTheSameVisitIsReused() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(visitA), state: state)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.update("a")])
   }
@@ -1381,7 +1400,7 @@ private actor FakeBackend: ActivityBackend {
   @Test func theActivityOfAnotherVisitIsEndedThenReplaced() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(visitB), state: state)
+    controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("a", immediate: true), .request(visitB)])
   }
@@ -1389,7 +1408,7 @@ private actor FakeBackend: ActivityBackend {
   @Test func anEndedActivityOfTheSameVisitIsNotReused() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: false)])
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(visitA), state: state)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("a", immediate: true), .request(visitA)])
   }
@@ -1397,7 +1416,7 @@ private actor FakeBackend: ActivityBackend {
   @Test func aVisitlessSessionNeverReusesAnActivity() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: nil, isActive: true)])
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(nil), state: state)
+    controller.start(attributes: attributes(nil), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("a", immediate: true), .request(nil)])
   }
@@ -1407,7 +1426,7 @@ private actor FakeBackend: ActivityBackend {
       ActivityInfo(id: "a", visitId: visitA, isActive: true), ActivityInfo(id: "b", visitId: visitA, isActive: true),
     ])
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(visitA), state: state)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("b", immediate: true), .update("a")])
   }
@@ -1437,8 +1456,8 @@ private actor FakeBackend: ActivityBackend {
   @Test func aRefusedRequestIsRetriedOnForeground() async {
     let refusing = FakeBackend(requestResult: nil)
     let controller = ActivityKitShoppingActivity(backend: refusing)
-    controller.start(attributes: attributes(visitA), state: state)
-    controller.update(state: ActivityState(remaining: 1, total: 3))
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
     controller.retryIfNeeded()
     await controller.waitUntilIdle()
     // Démarrage, puis chaque mise à jour et chaque retour au premier plan retentent tant que rien n'existe.
@@ -1448,10 +1467,10 @@ private actor FakeBackend: ActivityBackend {
   @Test func updatesAfterTheEndAreIgnored() async {
     let backend = FakeBackend()
     let controller = ActivityKitShoppingActivity(backend: backend)
-    controller.start(attributes: attributes(visitA), state: state)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     controller.end(state: state)
-    controller.update(state: state)
+    controller.update(state: state, lastActivity: t0)
     controller.retryIfNeeded()
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.request(visitA), .end("new", immediate: false)])
@@ -1478,5 +1497,661 @@ private actor FakeBackend: ActivityBackend {
       categoryLabel: { _ in long })
     #expect(state.nextItemLabel?.count == ActivityState.maxLabelLength)
     #expect(state.nextCategoryLabel?.count == ActivityState.maxLabelLength)
+  }
+}
+
+// MARK: - Parité avec Android (A8 à A10) : introuvables, double coche, péremption, « Cocher le suivant »
+
+extension Harness {
+  /// Visite ouverte dans un autre magasin, avec une coche à `checkedAt`.
+  func visitElsewhere(startedAt: Date = t0, checkedAt: Date? = nil) throws -> UUID {
+    let visit = try visits.startVisit(storeId: UUID(), listId: listId, listWasSorted: false, at: startedAt)
+    let id = visit.id
+    if let checkedAt {
+      try visits.addCheck(visitId: id, itemId: UUID(), subject: .category("other"), checkedAt: checkedAt)
+    }
+    return id
+  }
+
+  func item(_ id: UUID) throws -> ListItem {
+    try #require(try lists.items(listId: listId).first { $0.id == id })
+  }
+}
+
+@Suite(.serialized) struct VisitParityTests {
+  // M3 (#54) : une visite close sans réponse à « garder ou retirer » garde les articles, introuvables compris.
+
+  @MainActor @Test func aNewVisitPutsTheUncheckedNotFoundItemsBackToBuy() throws {
+    let harness = try Harness()
+    let missing = try harness.add("lait")
+    let checked = try harness.add("pain")
+    try harness.lists.setNotFound(itemId: missing, notFoundAt: t0, at: t0)
+    try harness.lists.setNotFound(itemId: checked, notFoundAt: t0, at: t0)
+    try harness.lists.setChecked(itemId: checked, checkedAt: t0, at: t0)
+
+    try harness.visits.startVisit(storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    #expect(try harness.item(missing).notFoundAt == nil)
+    // Seuls les articles non cochés reviennent : un article coché reste tel quel.
+    #expect(try harness.item(checked).notFoundAt == t0)
+  }
+
+  @MainActor @Test func aVisitClosedByANewOneEndsAtItsLastCheck() throws {
+    let harness = try Harness()
+    let missing = try harness.add("lait")
+    let other = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(120))
+    try harness.lists.setNotFound(itemId: missing, notFoundAt: t0.addingTimeInterval(60), at: t0)
+
+    let next = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0.addingTimeInterval(3600))
+    #expect(next.id != other)
+    #expect(try harness.visits.visit(id: other)?.endedAt == t0.addingTimeInterval(120))
+    #expect(try harness.item(missing).notFoundAt == nil)
+    #expect(try harness.outbox(.closeVisit).count == 1)
+  }
+
+  @MainActor @Test func aStaleVisitIsReplacedInsteadOfResumed() throws {
+    let harness = try Harness()
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let staleId = visit.id
+    let lastCheck = t0.addingTimeInterval(300)
+    try harness.visits.addCheck(visitId: staleId, itemId: UUID(), subject: .category("other"), checkedAt: lastCheck)
+
+    // Encore active : reprise.
+    let resumed = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false,
+      at: lastCheck.addingTimeInterval(ShoppingSession.expiry - 1), staleAfter: ShoppingSession.expiry)
+    #expect(resumed.id == staleId)
+
+    // Périmée, comptée depuis la dernière coche et non depuis le début : une neuve commence.
+    let fresh = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false,
+      at: lastCheck.addingTimeInterval(ShoppingSession.expiry), staleAfter: ShoppingSession.expiry)
+    #expect(fresh.id != staleId)
+    #expect(try harness.visits.visit(id: staleId)?.endedAt == lastCheck)
+    #expect(try harness.visits.openVisit()?.id == fresh.id)
+  }
+
+  @MainActor @Test func abandoningClosesAtTheLastCheckOnlyWhenStale() throws {
+    let harness = try Harness()
+    let missing = try harness.add("lait")
+    let lastCheck = t0.addingTimeInterval(600)
+    let visit = try harness.visitElsewhere(checkedAt: lastCheck)
+    try harness.lists.setNotFound(itemId: missing, notFoundAt: t0, at: t0)
+
+    let early = lastCheck.addingTimeInterval(ShoppingSession.expiry - 1)
+    #expect(try !harness.visits.abandonVisit(id: visit, at: early, staleAfter: ShoppingSession.expiry))
+    #expect(try harness.visits.visit(id: visit)?.endedAt == nil)
+    #expect(try harness.item(missing).notFoundAt == t0)
+
+    let late = lastCheck.addingTimeInterval(ShoppingSession.expiry)
+    #expect(try harness.visits.abandonVisit(id: visit, at: late, staleAfter: ShoppingSession.expiry))
+    #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
+    #expect(try harness.item(missing).notFoundAt == nil)
+
+    // Déjà close, ou disparue : sans effet ni erreur.
+    #expect(try !harness.visits.abandonVisit(id: visit, at: late, staleAfter: 0))
+    #expect(try !harness.visits.abandonVisit(id: UUID(), at: late, staleAfter: 0))
+  }
+
+  @MainActor @Test func abandoningAVisitWithoutCheckDeletesIt() throws {
+    let harness = try Harness()
+    let visit = try harness.visitElsewhere()
+    #expect(try harness.visits.abandonVisit(id: visit, at: t0, staleAfter: 0))
+    #expect(try harness.visits.visit(id: visit) == nil)
+    #expect(try harness.outbox(.closeVisit).isEmpty)
+  }
+
+  @MainActor @Test func theLastActivityIsTheLastCheckOtherwiseTheStart() throws {
+    let harness = try Harness()
+    let visit = try harness.visitElsewhere(startedAt: t0)
+    #expect(try harness.visits.lastActivity(visitId: visit) == t0)
+    try harness.visits.addCheck(
+      visitId: visit, itemId: UUID(), subject: .category("other"), checkedAt: t0.addingTimeInterval(90))
+    #expect(try harness.visits.lastActivity(visitId: visit) == t0.addingTimeInterval(90))
+    #expect(try harness.visits.lastActivity(visitId: UUID()) == nil)
+  }
+
+  // Double coche refusée.
+
+  @MainActor @Test func anItemAlreadyCheckedIsRefusedOnce() throws {
+    let harness = try Harness()
+    let item = try harness.add("lait")
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let visitId = visit.id
+    try harness.visits.checkItem(
+      visitId: visitId, itemId: item, subject: .category("dairy"), checkedAt: t0, sendAfter: 0)
+    #expect(throws: RepositoryError.alreadyChecked(item)) {
+      try harness.visits.checkItem(
+        visitId: visitId, itemId: item, subject: .category("dairy"), checkedAt: t0.addingTimeInterval(1), sendAfter: 0)
+    }
+    #expect(try harness.visits.checks(visitId: visitId).count == 1)
+    #expect(try harness.outbox(.insertChecks).count == 1)
+  }
+}
+
+@Suite(.serialized) @MainActor struct ShoppingParityTests {
+  @Test func aNewVisitStartsWithoutTheNotFoundLeftByAnExpiredOne() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let first = harness.session()
+    await first.start()
+    first.toggle(try row(first, "lait"))
+    first.markNotFound(try row(first, "tomates"))
+    #expect(first.notFound.map(\.label) == ["tomates"])
+    // Expirée, puis l'app est tuée avant la réponse à « garder ou retirer ».
+    harness.date = t0.addingTimeInterval(ShoppingSession.expiry)
+    first.foregrounded()
+    #expect(first.expired)
+
+    harness.date = t0.addingTimeInterval(2 * ShoppingSession.expiry)
+    let next = harness.session()
+    await next.start()
+    #expect(next.notFound.isEmpty)
+    #expect(next.toBuy.map(\.label) == ["tomates"])
+  }
+
+  @Test func aStaleOpenVisitIsNotResumedByTheShoppingMode() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let first = harness.session()
+    await first.start()
+    harness.date = t0.addingTimeInterval(60)
+    first.toggle(try row(first, "lait"))
+    let staleId = try #require(first.visitId)
+
+    harness.date = t0.addingTimeInterval(60 + ShoppingSession.expiry)
+    let next = harness.session()
+    await next.start()
+    #expect(next.visitId != staleId)
+    #expect(try harness.visits.visit(id: staleId)?.endedAt == t0.addingTimeInterval(60))
+  }
+
+  @Test func checkingAnItemCheckedElsewhereMakesOneCheckWithoutError() async throws {
+    let harness = try Harness()
+    let id = try harness.add("lait")
+    try harness.add("tomates")
+    let session = harness.session()
+    await session.start()
+    let visitId = try #require(session.visitId)
+    let stale = try row(session, "lait")
+    // Coché par la Live Activity pendant que l'écran montrait encore la ligne à prendre.
+    try harness.visits.checkItem(
+      visitId: visitId, itemId: id, subject: .category("dairy"), checkedAt: t0, sendAfter: 0)
+
+    session.toggle(stale)
+    #expect(session.errorMessage == nil)
+    #expect(session.undo == nil)
+    #expect(try harness.visits.checks(visitId: visitId).count == 1)
+    #expect(session.basket.map(\.label) == ["lait"])
+    #expect(session.toBuy.map(\.label) == ["tomates"])
+  }
+
+  @Test func theActivityGoesStaleFromTheLastCheck() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    #expect(activity.lastActivities == [t0])
+
+    harness.date = t0.addingTimeInterval(600)
+    session.toggle(try row(session, "lait"))
+    #expect(activity.lastActivities.last == t0.addingTimeInterval(600))
+
+    // Un retour au premier plan, sans coche, ne repousse rien.
+    harness.date = t0.addingTimeInterval(1200)
+    session.foregrounded()
+    #expect(activity.lastActivities.count == 2)
+  }
+
+  @Test func theStateCarriesTheDisplayedOrder() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let state = try #require(activity.states.last)
+    #expect(state.pendingItemIds == session.toBuy.map(\.id))
+    #expect(state.nextItemId == session.toBuy.first?.id)
+  }
+}
+
+@Suite @MainActor struct LaunchResumeParityTests {
+  /// Environnement de l'app sur un store en mémoire. Rien n'y démarre de Live Activity : chaque cas abandonne la
+  /// visite avant d'ouvrir un mode courses.
+  private func environment() throws -> (AppEnvironment, Harness) {
+    let harness = try Harness()
+    return (try AppEnvironment(container: harness.container), harness)
+  }
+
+  @Test func aStaleVisitIsClosedAtItsLastCheckAndNothingReopens() async throws {
+    let (environment, harness) = try environment()
+    let missing = try harness.add("lait")
+    let lastCheck = t0.addingTimeInterval(300)
+    let visit = try harness.visitElsewhere(checkedAt: lastCheck)
+    try harness.lists.setNotFound(itemId: missing, notFoundAt: t0, at: t0)
+
+    let session = await environment.resumeShopping(now: lastCheck.addingTimeInterval(ShoppingSession.expiry))
+    #expect(session == nil)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
+    #expect(try harness.item(missing).notFoundAt == nil)
+  }
+
+  @Test func aVisitWhoseListIsGoneIsClosedAtItsLastCheck() async throws {
+    let (environment, harness) = try environment()
+    let lastCheck = t0.addingTimeInterval(300)
+    let visit = try harness.visitElsewhere(checkedAt: lastCheck)
+    try harness.lists.deleteList(id: harness.listId, at: t0.addingTimeInterval(400))
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(500))
+    #expect(session == nil)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
+  }
+}
+
+// MARK: - « Cocher le suivant »
+
+@Suite struct ActivityReconciliationTests {
+  private func describe(_ item: ListItem) -> (label: String, aisle: String?) { (item.label, "Rayon") }
+
+  @MainActor @Test func theDisplayedOrderIsKeptAndTakenItemsLeave() throws {
+    let harness = try Harness()
+    let a = try harness.add("lait")
+    let b = try harness.add("pain")
+    let c = try harness.add("tomates")
+    let state = ActivityState(remaining: 3, total: 3, nextItemLabel: "tomates", pendingItemIds: [c, a, b])
+    try harness.lists.setChecked(itemId: c, checkedAt: t0, at: t0)
+
+    let refreshed = state.reconciled(items: try harness.lists.items(listId: harness.listId), describe: describe)
+    #expect(refreshed.pendingItemIds == [a, b])
+    #expect(refreshed.nextItemLabel == "lait")
+    #expect(refreshed.nextCategoryLabel == "Rayon")
+    #expect(refreshed.remaining == 2)
+    #expect(refreshed.total == 3)
+  }
+
+  @MainActor @Test func notFoundItemsLeaveAndOthersFollowInListOrder() throws {
+    let harness = try Harness()
+    let a = try harness.add("lait")
+    let b = try harness.add("pain")
+    let c = try harness.add("tomates")
+    try harness.lists.setNotFound(itemId: c, notFoundAt: t0, at: t0)
+    // Le pain n'était pas dans la file (au-delà du plafond, ou ajouté ailleurs).
+    let state = ActivityState(remaining: 2, total: 3, pendingItemIds: [c, a])
+
+    let refreshed = state.reconciled(items: try harness.lists.items(listId: harness.listId), describe: describe)
+    #expect(refreshed.pendingItemIds == [a, b])
+    #expect(refreshed.remaining == 2)
+    #expect(refreshed.total == 2)
+  }
+
+  @Test func theQueueIsCapped() {
+    let state = ActivityState.make(
+      toBuy: rows((0..<50).map { "article \($0)" }), basket: [], categoryLabel: { _ in nil })
+    #expect(state.pendingItemIds.count == ActivityState.maxPendingItems)
+    #expect(state.remaining == 50)
+    let finished = ActivityState.make(toBuy: rows(["lait"]), basket: [], categoryLabel: { _ in nil }, isFinished: true)
+    #expect(finished.nextItemId == nil)
+  }
+
+  @Test func theQueueSurvivesEncodingAndAnOldStateHasNone() throws {
+    let state = ActivityState(remaining: 1, total: 1, nextItemLabel: "lait", pendingItemIds: [UUID()])
+    #expect(try JSONDecoder().decode(ActivityState.self, from: JSONEncoder().encode(state)) == state)
+    let old = try JSONDecoder().decode(ActivityState.self, from: Data(#"{"remaining": 1, "total": 1}"#.utf8))
+    #expect(old.nextItemId == nil)
+  }
+}
+
+@Suite(.serialized) @MainActor struct CheckNextTests {
+  private func actions(
+    _ harness: Harness, activity: RecordingActivity, session: ShoppingSession? = nil
+  ) -> ShoppingActivityActions {
+    ShoppingActivityActions(
+      lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
+      analyzer: harness.analyzer, activity: activity, session: { session }, now: { [harness] in harness.date },
+      scheduleSync: {
+        // Aucune tâche système à planifier dans les tests.
+      })
+  }
+
+  /// Visite ouverte avec deux articles ; l'activité affiche `order`.
+  private func seed(_ harness: Harness) throws -> (visit: UUID, milk: UUID, bread: UUID) {
+    let milk = try harness.add("lait")
+    let bread = try harness.add("pain")
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    return (visit.id, milk, bread)
+  }
+
+  @Test func theDisplayedItemIsCheckedAndTheNextOneShownWithoutTheApp() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let activity = RecordingActivity()
+    activity.restored[visit] = ActivityState(
+      remaining: 2, total: 2, nextItemLabel: "lait", pendingItemIds: [milk, bread])
+    harness.date = t0.addingTimeInterval(60)
+
+    await actions(harness, activity: activity).checkNext(visitId: visit, itemId: milk)
+    let checks = try harness.visits.checks(visitId: visit)
+    #expect(checks.map(\.itemId) == [milk])
+    // Même retenue que l'écran : rien ne part avant la fin du délai d'annulation.
+    #expect(try harness.outbox(.insertChecks).first?.nextAttemptAt == t0.addingTimeInterval(65))
+    let state = try #require(activity.states.last)
+    #expect(state.nextItemId == bread)
+    #expect(state.nextItemLabel == "pain")
+    #expect(state.nextCategoryLabel != nil)
+    #expect(state.remaining == 1)
+    #expect(activity.lastActivities.last == t0.addingTimeInterval(60))
+  }
+
+  @Test func aSecondTapOnTheSameItemDoesNothing() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let activity = RecordingActivity()
+    let shown = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+    activity.restored[visit] = shown
+    let checkNext = actions(harness, activity: activity)
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    // Le second toucher arrive avant que l'affichage ait changé : l'article est déjà coché.
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).count == 1)
+
+    // Après l'affichage suivant, un toucher dépassé sur le lait est ignoré.
+    activity.restored[visit] = activity.states.last
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).count == 1)
+  }
+
+  @Test func anItemNoLongerShownOrNotFoundIsNotChecked() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let activity = RecordingActivity()
+    activity.restored[visit] = ActivityState(remaining: 1, total: 2, pendingItemIds: [milk])
+    let checkNext = actions(harness, activity: activity)
+    await checkNext.checkNext(visitId: visit, itemId: bread)
+    #expect(activity.calls.isEmpty)
+
+    // Passé introuvable ailleurs : rien n'est coché, et l'affichage suit la base au lieu de garder le lait.
+    try harness.lists.setNotFound(itemId: milk, notFoundAt: t0, at: t0)
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).isEmpty)
+    #expect(activity.states.last?.nextItemId == bread)
+    #expect(activity.states.last?.remaining == 1)
+  }
+
+  @Test func aStaleClosedOrUnknownVisitIsLeftAlone() async throws {
+    let harness = try Harness()
+    let (visit, milk, _) = try seed(harness)
+    let activity = RecordingActivity()
+    activity.restored[visit] = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk])
+    let checkNext = actions(harness, activity: activity)
+
+    // Rien ne suit cette visite.
+    await checkNext.checkNext(visitId: UUID(), itemId: milk)
+    #expect(activity.endAllKeeping.isEmpty)
+    // Périmée : une coche ne la ranime pas, et l'activité part.
+    harness.date = t0.addingTimeInterval(ShoppingSession.expiry)
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(activity.endAllKeeping == [nil])
+    // Close : l'activité part aussi.
+    harness.date = t0
+    try harness.visits.closeVisit(id: visit, at: t0)
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(activity.endAllKeeping == [nil, nil])
+    #expect(try harness.visits.checks(visitId: visit).isEmpty)
+    #expect(try harness.item(milk).checkedAt == nil)
+  }
+
+  /// App relancée par le système : le vrai contrôleur reprend l'activité laissée, puis la met à jour.
+  @Test func theActivityLeftByAPreviousLaunchFollowsTheCheck() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let attributes = ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: "Leclerc Auch")
+    let shown = ActivityState(remaining: 2, total: 2, nextItemLabel: "lait", pendingItemIds: [milk, bread])
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visit, isActive: true, attributes: attributes, state: shown)
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    harness.date = t0.addingTimeInterval(60)
+    let checkNext = ShoppingActivityActions(
+      lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
+      analyzer: harness.analyzer, activity: controller, session: { nil }, now: { [harness] in harness.date },
+      scheduleSync: {
+        // Aucune tâche système à planifier dans les tests.
+      })
+
+    await checkNext.checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).map(\.itemId) == [milk])
+    #expect(await backend.calls == [.update("a")])
+    #expect(await backend.staleDates == [t0.addingTimeInterval(60 + ShoppingSession.expiry)])
+    #expect(await controller.restore(visitId: visit)?.nextItemId == bread)
+  }
+
+  @Test func anOpenShoppingModeLearnsTheCheckAndKeepsItsOrder() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let visit = try #require(session.visitId)
+    let first = try #require(session.toBuy.first)
+    activity.restored[visit] = activity.states.last
+
+    await actions(harness, activity: activity, session: session).checkNext(visitId: visit, itemId: first.id)
+    #expect(session.basket.map(\.id) == [first.id])
+    #expect(session.undo == nil)
+    #expect(session.errorMessage == nil)
+    #expect(activity.states.last?.nextItemId == session.toBuy.first?.id)
+    #expect(activity.states.last?.remaining == 1)
+
+    // L'écran montrait encore la ligne : la toucher ne la coche pas une seconde fois.
+    session.toggle(first)
+    #expect(try harness.visits.checks(visitId: visit).count == 1)
+    #expect(session.errorMessage == nil)
+  }
+}
+
+@MainActor
+private final class RecordingHandler: CheckNextItemHandling {
+  private(set) var calls: [(UUID, UUID)] = []
+  func checkNext(visitId: UUID, itemId: UUID) async { calls.append((visitId, itemId)) }
+}
+
+@Suite(.serialized) @MainActor struct CheckNextIntentTests {
+  @Test func theIntentReachesTheAppHandler() async throws {
+    let previous = CheckNextItemRouter.handler
+    defer { CheckNextItemRouter.handler = previous }
+    let handler = RecordingHandler()
+    CheckNextItemRouter.handler = handler
+    let visit = UUID()
+    let item = UUID()
+
+    _ = try await CheckNextItemIntent(visitId: visit, itemId: item).perform()
+    #expect(handler.calls.count == 1)
+    #expect(handler.calls.first?.0 == visit)
+    #expect(handler.calls.first?.1 == item)
+
+    var broken = CheckNextItemIntent()
+    broken.visitId = "pas un identifiant"
+    broken.itemId = item.uuidString
+    _ = try await broken.perform()
+    #expect(handler.calls.count == 1)
+  }
+}
+
+@Suite @MainActor struct ActivityTimingTests {
+  @Test func theStaleDateFollowsTheLastCheck() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend, now: { t0.addingTimeInterval(9999) })
+    let visit = UUID()
+    let attributes = ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: nil)
+    controller.start(attributes: attributes, state: ActivityState(remaining: 1, total: 1), lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 0, total: 1), lastActivity: t0.addingTimeInterval(60))
+    await controller.waitUntilIdle()
+    #expect(
+      await backend.staleDates == [
+        t0.addingTimeInterval(ShoppingSession.expiry), t0.addingTimeInterval(60 + ShoppingSession.expiry),
+      ])
+  }
+
+  @Test func anActivityLeftByAPreviousLaunchIsRestoredThenUpdated() async {
+    let visit = UUID()
+    let attributes = ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: nil)
+    let shown = ActivityState(remaining: 2, total: 2, pendingItemIds: [UUID()])
+    let backend = FakeBackend([
+      ActivityInfo(id: "old", visitId: UUID(), isActive: true, attributes: attributes, state: shown),
+      ActivityInfo(id: "a", visitId: visit, isActive: true, attributes: attributes, state: shown),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    #expect(await controller.restore(visitId: UUID()) == nil)
+    #expect(await controller.restore(visitId: visit) == shown)
+    controller.update(state: ActivityState(remaining: 1, total: 2), lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.update("a")])
+  }
+
+  @Test func anEndedActivityIsNotRestored() async {
+    let visit = UUID()
+    let attributes = ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: nil)
+    let backend = FakeBackend([
+      ActivityInfo(
+        id: "a", visitId: visit, isActive: false, attributes: attributes, state: ActivityState(remaining: 1, total: 1))
+    ])
+    #expect(await ActivityKitShoppingActivity(backend: backend).restore(visitId: visit) == nil)
+  }
+}
+
+// MARK: - Relecture de la PR #61
+
+@MainActor
+private final class Counter {
+  var value = 0
+}
+
+@Suite(.serialized) @MainActor struct CheckNextReviewTests {
+  private func items(_ harness: Harness) throws -> (milk: UUID, bread: UUID) {
+    let all = try harness.lists.items(listId: harness.listId)
+    return (
+      try #require(all.first { $0.label == "lait" }?.id), try #require(all.first { $0.label == "pain" }?.id)
+    )
+  }
+
+  private func actions(
+    _ harness: Harness, activity: any ShoppingActivityControlling, session: ShoppingSession? = nil,
+    scheduled: Counter = Counter()
+  ) -> ShoppingActivityActions {
+    ShoppingActivityActions(
+      lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
+      analyzer: harness.analyzer, activity: activity, session: { session }, now: { [harness] in harness.date },
+      scheduleSync: { scheduled.value += 1 })
+  }
+
+  @Test func aRekeyedVisitGetsANewActivityWithTheNewVisit() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let old = try #require(session.visitId)
+    let renamed = UUID()
+
+    session.apply(IdentifierRemap(identifiers: [old: renamed]))
+    guard case .start(let attributes, _)? = activity.calls.last else {
+      Issue.record("pas de nouvelle activité après la reprise de compte")
+      return
+    }
+    #expect(attributes.visitId == renamed)
+    #expect(activity.calls.count == 2)
+  }
+
+  @Test func aTapWhileTheShoppingModePreparesIsShownFromTheBase() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let visitId = visit.id
+    let activity = RecordingActivity()
+    let gateway = SnapshotGateway(gated: true)
+    let session = harness.session(gateway: gateway, preloadTimeout: .seconds(30), activity: activity)
+    let resuming = Task { await session.resume(visit: visit) }
+    while session.visitId == nil { await Task.yield() }
+    #expect(!session.isActivityReady)
+    activity.restored[visitId] = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+
+    await actions(harness, activity: activity, session: session).checkNext(visitId: visitId, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [milk])
+    #expect(activity.states.last?.nextItemId == bread)
+
+    await gateway.openGate()
+    await resuming.value
+  }
+
+  @Test func aFreshVisitIsResumedAtLaunch() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let environment = try AppEnvironment(
+      container: harness.container, shoppingActivity: ActivityKitShoppingActivity(backend: FakeBackend()))
+    let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(60))
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(120))
+    #expect(session?.visitId == visit)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == nil)
+  }
+
+  @Test func twoConcurrentTapsMakeOneCheck() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let visit = try harness.visits.startVisit(
+      storeId: harness.storeId, listId: harness.listId, listWasSorted: false, at: t0)
+    let visitId = visit.id
+    let attributes = ShoppingActivityAttributes(visitId: visitId, listName: "Semaine", storeName: nil)
+    let shown = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visitId, isActive: true, attributes: attributes, state: shown)
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    let scheduled = Counter()
+    let checkNext = actions(harness, activity: controller, scheduled: scheduled)
+
+    async let first: Void = checkNext.checkNext(visitId: visitId, itemId: milk)
+    async let second: Void = checkNext.checkNext(visitId: visitId, itemId: milk)
+    _ = await (first, second)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [milk])
+    #expect(await controller.restore(visitId: visitId)?.nextItemId == bread)
+    #expect(scheduled.value == 1)
+  }
+
+  @Test func aTapFromTheActivityKeepsTheScreenUndoValid() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let (milk, bread) = try items(harness)
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    let visitId = try #require(session.visitId)
+    session.toggle(try row(session, "lait"))
+    #expect(session.undo?.itemId == milk)
+    activity.restored[visitId] = activity.states.last
+
+    await actions(harness, activity: activity, session: session).checkNext(visitId: visitId, itemId: bread)
+    #expect(session.undo?.itemId == milk)
+
+    session.performUndo()
+    #expect(try harness.item(milk).checkedAt == nil)
+    #expect(try harness.item(bread).checkedAt != nil)
+    #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [bread])
+    #expect(session.errorMessage == nil)
   }
 }

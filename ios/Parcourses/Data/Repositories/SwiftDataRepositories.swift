@@ -266,16 +266,88 @@ final class SwiftDataVisitRepository: VisitRepository {
     return try context.fetch(descriptor).first
   }
 
-  func startVisit(storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date) throws -> Visit {
-    while let open = try openVisit() {
-      if open.storeId == storeId && open.listId == listId { return open }
-      try closeVisit(id: open.id, at: date)
+  func startVisit(
+    storeId: UUID, listId: UUID, listWasSorted: Bool, at date: Date, staleAfter: TimeInterval
+  ) throws -> Visit {
+    var enqueued = false
+    let visit = try context.atomically {
+      var reused: Visit?
+      for open in try openVisits() {
+        let same = open.storeId == storeId && open.listId == listId
+        let fresh = date.timeIntervalSince(try activity(of: open)) < staleAfter
+        if same && reused == nil && fresh {
+          reused = open
+        } else {
+          enqueued = try abandon(open) || enqueued
+        }
+      }
+      if let reused { return reused }
+      // Introuvables laissés par une visite close sans décision (expirée puis app tuée avant la feuille).
+      try clearNotFound(listId: listId)
+      // Rien en file : la création part avec la première coche (#9 §5.5).
+      let visit = Visit(storeId: storeId, listId: listId, listWasSorted: listWasSorted, startedAt: date)
+      context.insert(visit)
+      return visit
     }
-    // Rien en file : la création part avec la première coche (#9 §5.5).
-    let visit = Visit(storeId: storeId, listId: listId, listWasSorted: listWasSorted, startedAt: date)
-    context.insert(visit)
-    try context.commit()
+    if enqueued { onEnqueue() }
     return visit
+  }
+
+  func lastActivity(visitId: UUID) throws -> Date? {
+    try visit(id: visitId).map { try activity(of: $0) }
+  }
+
+  func abandonVisit(id: UUID, at date: Date, staleAfter: TimeInterval) throws -> Bool {
+    var abandoned = false
+    let enqueued = try context.atomically {
+      // Relue ici : une visite redevenue active entre-temps (coche depuis la Live Activity) reste ouverte.
+      guard let open = try visit(id: id), open.endedAt == nil else { return false }
+      if staleAfter > 0, date.timeIntervalSince(try activity(of: open)) < staleAfter { return false }
+      abandoned = true
+      return try abandon(open)
+    }
+    if enqueued { onEnqueue() }
+    return abandoned
+  }
+
+  private func openVisits() throws -> [Visit] {
+    try context.fetch(
+      FetchDescriptor<Visit>(
+        predicate: #Predicate { $0.endedAt == nil }, sortBy: [SortDescriptor(\.startedAt, order: .reverse)]))
+  }
+
+  /// Dernière coche, sinon début de la visite : c'est d'elle que part la péremption de 45 min.
+  private func activity(of visit: Visit) throws -> Date {
+    try checks(visitId: visit.id).last?.checkedAt ?? visit.startedAt
+  }
+
+  /// Sans enregistrer. Clôture sans décision, à la dernière coche : « garder » par défaut, donc les introuvables de
+  /// la liste reviennent à acheter (#54, M3). `true` si une clôture a été mise en file.
+  private func abandon(_ visit: Visit) throws -> Bool {
+    guard visit.endedAt == nil else { return false }
+    try clearNotFound(listId: visit.listId)
+    return try close(visit, at: try activity(of: visit))
+  }
+
+  /// Sans enregistrer. Une visite sans coche est supprimée ; `true` si une clôture a été mise en file.
+  private func close(_ visit: Visit, at date: Date) throws -> Bool {
+    guard visit.endedAt == nil else { return false }
+    guard try !checks(visitId: visit.id).isEmpty else {
+      context.delete(visit)
+      return false
+    }
+    visit.endedAt = date
+    visit.endSyncState = .pending
+    try context.enqueueClosure(ofVisit: visit.id, endedAt: date, at: date)
+    return true
+  }
+
+  /// Sans enregistrer. Champ purement local (#9 question 4) : ni envoi, ni `updatedAt`. Un article coché garde
+  /// sa date d'introuvable, sans effet tant qu'il l'est.
+  private func clearNotFound(listId: UUID) throws {
+    let descriptor = FetchDescriptor<ListItem>(
+      predicate: #Predicate { $0.listId == listId && $0.notFoundAt != nil && $0.checkedAt == nil })
+    for item in try context.fetch(descriptor) { item.notFoundAt = nil }
   }
 
   func addCheck(
@@ -292,6 +364,7 @@ final class SwiftDataVisitRepository: VisitRepository {
     visitId: UUID, itemId: UUID, subject: CheckSubject, checkedAt: Date, sendAfter: TimeInterval
   ) throws -> Check {
     let item = try requireWritableItem(itemId)
+    guard item.checkedAt == nil else { throw RepositoryError.alreadyChecked(itemId) }
     let check = try context.atomically {
       let check = try insertCheck(
         visitId: visitId, itemId: itemId, subject: subject, checkedAt: checkedAt, sendAfter: sendAfter)
@@ -379,18 +452,9 @@ final class SwiftDataVisitRepository: VisitRepository {
   func closeVisit(id: UUID, at date: Date) throws -> Bool {
     guard let visit = try visit(id: id) else { throw RepositoryError.notFound(id) }
     guard visit.endedAt == nil else { return true }
-    guard try !checks(visitId: id).isEmpty else {
-      context.delete(visit)
-      try context.commit()
-      return false
-    }
-    try context.atomically {
-      visit.endedAt = date
-      visit.endSyncState = .pending
-      try context.enqueueClosure(ofVisit: id, endedAt: date, at: date)
-    }
-    onEnqueue()
-    return true
+    let enqueued = try context.atomically { try close(visit, at: date) }
+    if enqueued { onEnqueue() }
+    return enqueued
   }
 }
 

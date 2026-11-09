@@ -55,14 +55,18 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   }
 
   /// Crée une liste, ouvre le mode courses et choisit le magasin récent, après refus de la localisation.
+  /// `testStore` à `nil` : le store de l'App Group, le seul qu'ouvre l'app lancée par le système (sans
+  /// l'environnement du test).
   @MainActor
   func enterShopping(
     confidenceQ: Int?, items: [String], launchArguments: [String] = [], dark: Bool = false,
-    atPicker: (XCUIApplication) -> Void = { _ in }
+    testStore: String? = "uitests-shopping", atPicker: (XCUIApplication) -> Void = { _ in }
   ) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchEnvironment["PARCOURSES_TEST_STORE"] = "uitests-shopping"
-    app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1"
+    if let testStore {
+      app.launchEnvironment["PARCOURSES_TEST_STORE"] = testStore
+      app.launchEnvironment["PARCOURSES_TEST_STORE_RESET"] = "1"
+    }
     app.launchEnvironment["PARCOURSES_TEST_SEED_STORE"] = "Leclerc Auch"
     app.launchEnvironment["PARCOURSES_TEST_UNDO_SECONDS"] = "60"
     if let confidenceQ {

@@ -118,10 +118,11 @@ final class ShoppingSession: Identifiable {
   private let sendMargin: Duration
   private let activity: (any ShoppingActivityControlling)?
   private var activityState: ShoppingActivityAttributes.ContentState?
+  private var activityLastActivity: Date?
   private var isActivityStarted = false
   private var isActivityEnded = false
   /// Les attributs de l'activité sont immuables : rien ne part avant que la visite soit connue (ni expirée).
-  private var isActivityReady = false
+  private(set) var isActivityReady = false
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
@@ -177,7 +178,14 @@ final class ShoppingSession: Identifiable {
   /// Un tri déjà lancé porte les anciens identifiants : il est écarté.
   func apply(_ remap: IdentifierRemap) {
     listId = remap[listId]
+    let previousVisitId = visitId
     visitId = visitId.map { remap[$0] }
+    if visitId != previousVisitId {
+      // Les attributs d'une Live Activity sont immuables : elle garde l'ancienne visite, et « Cocher le suivant »
+      // n'y trouverait plus rien. Une activité neuve, à la nouvelle visite, la remplace à la publication suivante.
+      isActivityStarted = false
+      activityState = nil
+    }
     settlingIds = Set(settlingIds.map { remap[$0] })
     highlightedItemId = highlightedItemId.map { remap[$0] }
     undo = undo.map {
@@ -201,7 +209,8 @@ final class ShoppingSession: Identifiable {
 
   // MARK: - Ouverture
 
-  /// Nouvelle visite. Elle ne reste qu'en local jusqu'à la première coche.
+  /// Nouvelle visite, ou reprise de celle encore active pour cette liste et ce magasin. Elle ne reste qu'en local
+  /// jusqu'à la première coche.
   func start() async {
     startedAt = now()
     await prepare()
@@ -210,13 +219,20 @@ final class ShoppingSession: Identifiable {
       publishActivity()
       return
     }
+    var isNewVisit = false
     perform {
+      let previous = try visits.openVisit()?.id
       // `listWasSorted` : le mode du début de visite, celui que la personne a réellement suivi (#9 §6.3).
+      // Une visite restée 45 min sans coche n'est pas reprise : close à sa dernière coche, une neuve commence.
       let visit = try visits.startVisit(
-        storeId: storeId, listId: listId, listWasSorted: mode == .learned, at: startedAt)
+        storeId: storeId, listId: listId, listWasSorted: mode == .learned, at: startedAt, staleAfter: Self.expiry)
       visitId = visit.id
       startedAt = visit.startedAt
+      isNewVisit = visit.id != previous
     }
+    // Une visite neuve commence sans introuvable (`startVisit` les remet à acheter) : la liste lue plus haut en
+    // montrait peut-être encore, laissés par une visite close sans décision.
+    if isNewVisit && !notFound.isEmpty { await sortNow(previous: nil) }
     isActivityReady = true
     publishActivity()
   }
@@ -334,27 +350,56 @@ final class ShoppingSession: Identifiable {
 
   private func check(_ row: ShoppingRow) {
     guard let item = item(row.id), let index = toBuy.firstIndex(where: { $0.id == row.id }) else { return }
+    // Double événement (double appui, balayage puis appui), ou coché entre-temps par « Cocher le suivant » de la
+    // Live Activity : un article déjà coché ne l'est pas deux fois, l'écran se met à jour sans erreur.
+    guard item.checkedAt == nil else {
+      checkedElsewhere()
+      return
+    }
     let date = now()
     var checkId: UUID?
+    var alreadyChecked = false
     let succeeded = perform {
       if let visitId {
-        checkId =
-          try visits.checkItem(
-            visitId: visitId, itemId: row.id, subject: Self.subject(of: item, analyzer: analyzer), checkedAt: date,
-            // Marge : l'envoi ne doit pas partir pendant que la bannière « Annuler » est encore affichée.
-            sendAfter: (undoDelay + sendMargin).timeInterval
-          ).id
+        do {
+          checkId =
+            try visits.checkItem(
+              visitId: visitId, itemId: row.id, subject: Self.subject(of: item, analyzer: analyzer), checkedAt: date,
+              // Marge : l'envoi ne doit pas partir pendant que la bannière « Annuler » est encore affichée.
+              sendAfter: Self.sendDelay(undoDelay: undoDelay, sendMargin: sendMargin)
+            ).id
+        } catch RepositoryError.alreadyChecked(_) {
+          alreadyChecked = true
+        }
       } else {
         try lists.setChecked(itemId: row.id, checkedAt: date, at: date)
       }
     }
-    guard succeeded else { return }
+    if alreadyChecked { checkedElsewhere() }
+    guard succeeded, !alreadyChecked else { return }
     // La ligne reste à sa place jusqu'au prochain tri : elle ne bouge jamais sous le doigt.
     settlingIds.insert(row.id)
     toBuy[index] = ShoppingRow(
       id: row.id, label: row.label, quantity: row.quantity, isChecked: true, aisleId: row.aisleId)
     adoptPendingSnapshot()
     offerUndo(ShoppingUndo(kind: .check, itemId: row.id, label: row.label, checkId: checkId, index: index))
+    scheduleSettle()
+    publishActivity()
+  }
+
+  /// Retenue d'envoi d'une coche : la durée de « Annuler » et sa marge. « Cocher le suivant » de la Live Activity
+  /// garde la même, comme Android.
+  static func sendDelay(undoDelay: Duration = .seconds(4), sendMargin: Duration = .seconds(1)) -> TimeInterval {
+    (undoDelay + sendMargin).timeInterval
+  }
+
+  /// L'article a été coché ailleurs (Live Activity, ou double événement) : la ligne rejoint le panier, sans erreur
+  /// ni « Annuler ».
+  func checkedElsewhere() {
+    guard summary == nil, !expired else { return }
+    // Comme une coche à l'écran : un instantané arrivé pendant la visite s'applique maintenant.
+    adoptPendingSnapshot()
+    reloadRows()
     scheduleSettle()
     publishActivity()
   }
@@ -699,18 +744,29 @@ final class ShoppingSession: Identifiable {
       toBuy: toBuy, basket: basket, categoryLabel: { [categoryLabels] in categoryLabels[$0] }, isFinished: isFinished)
   }
 
+  /// Dernière coche de la visite, sinon son début : la Live Activity devient « inactive » 45 min après, comme la
+  /// visite expire (#52). Sans visite, la dernière coche faite depuis le début du mode courses.
+  private var lastActivity: Date {
+    if let visitId { return (try? visits.lastActivity(visitId: visitId)) ?? startedAt }
+    let checked = ((try? lists.items(listId: listId)) ?? []).compactMap(\.checkedAt).filter { $0 >= startedAt }
+    return checked.max() ?? startedAt
+  }
+
   /// Envoie l'état courant à la Live Activity (local, jamais attendu). Sans changement, rien ne part.
   private func publishActivity() {
     guard let activity, isActivityReady, !isActivityEnded, !expired, summary == nil else { return }
     let state = activityContentState()
-    guard state != activityState else { return }
+    let last = lastActivity
+    guard state != activityState || last != activityLastActivity else { return }
     activityState = state
+    activityLastActivity = last
     if isActivityStarted {
-      activity.update(state: state)
+      activity.update(state: state, lastActivity: last)
     } else {
       isActivityStarted = true
       activity.start(
-        attributes: ShoppingActivityAttributes(visitId: visitId, listName: name, storeName: storeName), state: state)
+        attributes: ShoppingActivityAttributes(visitId: visitId, listName: name, storeName: storeName), state: state,
+        lastActivity: last)
     }
   }
 

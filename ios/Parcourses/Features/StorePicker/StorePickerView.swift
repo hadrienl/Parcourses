@@ -52,6 +52,8 @@ struct StorePickerView: View {
           }
         }
         stores(others, title: proposed == nil ? "Magasins proches" : "Autres magasins proches")
+        // Après les magasins proches, comme sur Android : celui qu'on cherche peut manquer aux 10 plus proches.
+        searchSection
         recentsSection
       }
     case .approximate(let candidates):
@@ -86,7 +88,8 @@ struct StorePickerView: View {
       ) { retry }
     case .offline:
       fallbackList(
-        title: "Hors ligne", message: "Choisissez un magasin récent, ou continuez sans magasin.",
+        title: "Hors ligne",
+        message: "Cherchez votre magasin par nom, choisissez-en un récent, ou continuez sans magasin.",
         systemImage: "wifi.slash"
       ) { retry }
     case .serviceError:

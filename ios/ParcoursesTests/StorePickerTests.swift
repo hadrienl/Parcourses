@@ -281,6 +281,29 @@ private func makeStores() throws -> SwiftDataStoreRepository {
     #expect(await gateway.nearbyCalls.map(\.radiusM) == [3000])
   }
 
+  /// Comme Android (A7) : la recherche par nom est offerte dans tous les états sauf le chargement.
+  @Test func searchIsOfferedEverywhereButWhileLoading() async throws {
+    let precise = try model(FakeLocation(.precise), FakeGateway(nearby: .success([row("Proche", 60)])))
+    #expect(precise.state == .loading)
+    #expect(!precise.offersSearch)
+    await precise.load()
+    guard case .precise = precise.state else {
+      Issue.record("état \(precise.state)")
+      return
+    }
+    #expect(precise.offersSearch)
+
+    let offline = try model(FakeLocation(.precise), FakeGateway(nearby: .failure(.network)))
+    await offline.load()
+    #expect(offline.state == .offline)
+    #expect(offline.offersSearch)
+
+    let failing = try model(FakeLocation(.precise), FakeGateway(nearby: .failure(.server(code: "500"))))
+    await failing.load()
+    #expect(failing.state == .serviceError)
+    #expect(failing.offersSearch)
+  }
+
   @Test func preciseWithoutClearWinnerProposesNothing() async throws {
     let picker = try model(FakeLocation(.precise), FakeGateway(nearby: .success([row("A", 60), row("B", 70)])))
     await picker.load()
