@@ -1,8 +1,11 @@
+import com.android.build.api.variant.BuildConfigField
+
 plugins {
     alias(libs.plugins.parcourses.android.application)
     alias(libs.plugins.parcourses.android.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.roborazzi)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 // Configuration par environnement (#10, §2.2) : `local`, `staging` ou `prod`. Rien en dur, rien de versionné.
@@ -24,6 +27,10 @@ fun supabaseSetting(
         .orNull
         .orEmpty()
 
+// En `local`, l'URL par défaut vise le Supabase local vu de l'émulateur.
+fun supabaseUrl(environment: String): String =
+    supabaseSetting(environment, "url").ifEmpty { if (environment == "local") defaultLocalUrl else "" }
+
 fun String.asBuildConfigString() = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
@@ -39,18 +46,8 @@ android {
     buildTypes {
         debug {
             val environment = selectedEnvironment.getOrElse("local")
-            val url =
-                supabaseSetting(environment, "url").ifEmpty {
-                    if (environment ==
-                        "local"
-                    ) {
-                        defaultLocalUrl
-                    } else {
-                        ""
-                    }
-                }
             buildConfigField("String", "ENVIRONMENT", environment.asBuildConfigString())
-            buildConfigField("String", "SUPABASE_URL", url.asBuildConfigString())
+            buildConfigField("String", "SUPABASE_URL", supabaseUrl(environment).asBuildConfigString())
             buildConfigField(
                 "String",
                 "SUPABASE_PUBLISHABLE_KEY",
@@ -60,7 +57,7 @@ android {
         release {
             val environment = selectedEnvironment.getOrElse("prod")
             buildConfigField("String", "ENVIRONMENT", environment.asBuildConfigString())
-            buildConfigField("String", "SUPABASE_URL", supabaseSetting(environment, "url").asBuildConfigString())
+            buildConfigField("String", "SUPABASE_URL", supabaseUrl(environment).asBuildConfigString())
             buildConfigField(
                 "String",
                 "SUPABASE_PUBLISHABLE_KEY",
@@ -69,10 +66,40 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signé avec la clé de debug tant que la signature Play n'existe pas (A12).
+            // Signé avec la clé de debug : la clé d'envoi Play n'est pas encore créée et n'entrera jamais dans le dépôt.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+    // Variantes de mesure (`benchmarkRelease`, `nonMinifiedRelease`), créées par le plugin Baseline Profile à partir
+    // de `release` et jamais publiées. Avec `-Pparcourses.env=local`, elles reprennent la configuration réseau du
+    // debug (HTTP vers l'hôte de l'émulateur seulement) pour vérifier la synchro de l'APK minifié contre le Supabase
+    // local. Sans cette option, elles gardent celle de la release : HTTPS uniquement.
+    if (selectedEnvironment.orNull == "local") {
+        listOf("benchmarkRelease", "nonMinifiedRelease").forEach { name ->
+            sourceSets.maybeCreate(name).res.srcDir("src/debug/res")
+        }
+    }
+}
+
+// Les variantes de mesure ne visent jamais un Supabase hébergé : elles créeraient des comptes, des listes et des
+// visites factices dans le graphe partagé. Sans `-Pparcourses.env=local`, URL et clé sont vidées (app entièrement
+// locale), même si la configuration de prod est présente sur la machine.
+if (selectedEnvironment.orNull != "local") {
+    listOf("benchmarkRelease", "nonMinifiedRelease").forEach { buildType ->
+        androidComponents.onVariants(androidComponents.selector().withBuildType(buildType)) { variant ->
+            listOf("SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY").forEach { field ->
+                variant.buildConfigFields?.put(field, BuildConfigField("String", "\"\"", null))
+            }
+        }
+    }
+}
+
+// Baseline Profile (A12) : généré par :baselineprofile sur un appareil, puis commité dans
+// src/release/generated/baselineProfiles/. Le build ne le régénère jamais tout seul.
+baselineProfile {
+    automaticGenerationDuringBuild = false
+    // Le profil de démarrage sert aussi à R8 pour ranger le code du lancement dans le premier fichier DEX.
+    dexLayoutOptimization = true
 }
 
 dependencies {
@@ -93,6 +120,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material.icons.core)
+    // Installe le Baseline Profile à la première ouverture quand Play ne l'a pas déjà fait (installation hors Play).
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(platform(libs.androidx.compose.bom))

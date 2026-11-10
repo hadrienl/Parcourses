@@ -110,6 +110,7 @@ internal class KeystoreAeadSource(
         return aead
     }
 
+    // Comparaison par nom simple : `consumer-rules.pro` empêche R8 de renommer `InvalidProtocolBufferException`.
     private fun Throwable.isCorruptionProof(): Boolean =
         generateSequence(this) { it.cause }.take(MAX_CAUSE_DEPTH).any {
             it.javaClass.simpleName in CORRUPTION_EXCEPTIONS

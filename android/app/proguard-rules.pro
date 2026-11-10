@@ -1,4 +1,10 @@
-# Règles R8 propres à Parcourses.
-
-# WorkManager mémorise le nom de la classe du travail en base : il doit survivre à une mise à jour.
--keep class fr.parcourses.core.data.sync.ListSyncWorker { *; }
+# Règles R8 propres à l'app (A12) : aucune. Les modules déclarent les leurs dans leur `consumer-rules.pro` :
+# - :core:network : nom de l'exception de protobuf que la détection de session corrompue reconnaît.
+#
+# Aucune autre règle n'est nécessaire (vérifié sur l'APK minifié, parcours complet contre le Supabase local) :
+# - Room 3, WorkManager, kotlinx.serialization, Ktor, Tink et les coroutines livrent leurs propres règles. WorkManager
+#   garde en particulier le nom des workers (`-keepnames class * extends ListenableWorker`), qu'il enregistre en base ;
+# - les sérialiseurs sont résolus à la compilation (`serializer()`), et les routes de navigation sont déclarées une à
+#   une dans `routeConfiguration` : aucune recherche de classe par réflexion ;
+# - le receiver de la Live Update est gardé par le manifeste.
+# `scripts/check-r8-mapping.sh` vérifie après `assembleRelease` que les noms gardés le restent.
