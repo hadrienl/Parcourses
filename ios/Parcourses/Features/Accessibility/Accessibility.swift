@@ -172,20 +172,15 @@ struct ItemLine: View {
   @ScaledMetric(relativeTo: .title3) private var capHalfNext: CGFloat = 7
 
   var body: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-        checkBox
+    // Une seule mise en page, qui garde les mêmes vues quand le texte grandit. `ViewThatFits` remplaçait libellé et
+    // quantité par d'autres vues : l'audit Dynamic Type mesurait alors des nœuds qui ne grandissaient pas
+    // (« partially unsupported » sur la ligne à quantité).
+    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+      checkBox
+      LeaderLineLayout(spacing: Space.s, leaderMinWidth: Space.m) {
         title
-        DottedRule().frame(minWidth: Space.m)
+        DottedRule()
         quantityText
-      }
-      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-        checkBox
-        VStack(alignment: .leading, spacing: 2) {
-          title
-          quantityText
-        }
-        Spacer(minLength: 0)
       }
     }
     .padding(.vertical, Space.xs)
@@ -214,6 +209,86 @@ struct ItemLine: View {
     if let quantity {
       Text(quantity).font(TicketFont.quantity).foregroundStyle(Palette.inkMuted)
     }
+  }
+}
+
+/// Libellé, points de conduite et quantité sur une ligne quand le libellé y tient en entier ; sinon libellé sur
+/// plusieurs lignes, quantité dessous et pas de points de conduite. Sous-vues : libellé, points de conduite, puis
+/// quantité (facultative). La ligne de base est celle du libellé.
+struct LeaderLineLayout: Layout {
+  var spacing: CGFloat
+  var leaderMinWidth: CGFloat
+  /// Écart entre le libellé et la quantité placée dessous.
+  var stackSpacing: CGFloat = 2
+
+  private struct Arrangement {
+    var inline: Bool
+    var title: CGSize
+    var quantity: CGSize
+    var titleBaseline: CGFloat
+    var quantityBaseline: CGFloat
+  }
+
+  private func arrange(width: CGFloat?, subviews: Subviews) -> Arrangement {
+    let title = subviews[0]
+    let quantity = subviews.count > 2 ? subviews[2] : nil
+    let titleIdeal = title.sizeThatFits(.unspecified)
+    let quantityIdeal = quantity?.sizeThatFits(.unspecified) ?? .zero
+    let inlineWidth =
+      titleIdeal.width + spacing + leaderMinWidth + (quantity == nil ? 0 : spacing + quantityIdeal.width)
+    let inline = width.map { inlineWidth <= $0 } ?? true
+    let titleProposal = inline ? ProposedViewSize(titleIdeal) : ProposedViewSize(width: width, height: nil)
+    let titleSize = inline ? titleIdeal : title.sizeThatFits(titleProposal)
+    let quantityBaseline =
+      quantity?.dimensions(in: ProposedViewSize(quantityIdeal))[VerticalAlignment.firstTextBaseline] ?? 0
+    return Arrangement(
+      inline: inline, title: titleSize, quantity: quantityIdeal,
+      titleBaseline: title.dimensions(in: titleProposal)[VerticalAlignment.firstTextBaseline],
+      quantityBaseline: quantityBaseline)
+  }
+
+  /// Haut de la quantité : alignée sur la ligne de base du libellé, ou sous lui.
+  private func quantityY(_ arrangement: Arrangement) -> CGFloat {
+    arrangement.inline
+      ? max(0, arrangement.titleBaseline - arrangement.quantityBaseline)
+      : arrangement.title.height + stackSpacing
+  }
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let arrangement = arrange(width: proposal.width, subviews: subviews)
+    let hasQuantity = subviews.count > 2 && arrangement.quantity != .zero
+    let height = max(
+      arrangement.title.height, hasQuantity ? quantityY(arrangement) + arrangement.quantity.height : 0)
+    let ideal =
+      arrangement.title.width + spacing + leaderMinWidth + (hasQuantity ? spacing + arrangement.quantity.width : 0)
+    return CGSize(width: proposal.width ?? ideal, height: height)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let arrangement = arrange(width: bounds.width, subviews: subviews)
+    subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(arrangement.title))
+    var trailing = bounds.maxX
+    if subviews.count > 2 {
+      let quantity = arrangement.quantity
+      let x = arrangement.inline ? bounds.maxX - quantity.width : bounds.minX
+      subviews[2].place(
+        at: CGPoint(x: x, y: bounds.minY + quantityY(arrangement)), proposal: ProposedViewSize(quantity))
+      if quantity != .zero { trailing -= quantity.width + spacing }
+    }
+    let leaderX = bounds.minX + arrangement.title.width + spacing
+    let leaderWidth = arrangement.inline ? max(0, trailing - leaderX) : 0
+    // Points de conduite posés sur la ligne de base du libellé (par leur bas), absents quand la quantité passe dessous.
+    let leaderHeight = subviews[1].sizeThatFits(ProposedViewSize(width: leaderWidth, height: nil)).height
+    subviews[1].place(
+      at: CGPoint(x: leaderX, y: bounds.minY + arrangement.titleBaseline - leaderHeight),
+      proposal: ProposedViewSize(width: leaderWidth, height: leaderHeight))
+  }
+
+  func explicitAlignment(
+    of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+  ) -> CGFloat? {
+    guard guide == .firstTextBaseline else { return nil }
+    return bounds.minY + arrange(width: bounds.width, subviews: subviews).titleBaseline
   }
 }
 
