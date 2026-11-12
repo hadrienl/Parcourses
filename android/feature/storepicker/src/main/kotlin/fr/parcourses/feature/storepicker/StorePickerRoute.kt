@@ -14,8 +14,11 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -40,9 +43,11 @@ fun StorePickerRoute(
     val query = rememberTextFieldState()
     val currentOutcome by rememberUpdatedState(onOutcome)
 
+    // Lu juste avant la demande : un refus n'est définitif que si la demande était encore proposable (voir le modèle).
+    var couldAskBefore by rememberSaveable { mutableStateOf(false) }
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            viewModel.onPermissionResult(canAskAgain = context.canAskLocationAgain())
+            viewModel.onPermissionResult(canAskAgain = context.canAskLocationAgain(), couldAskBefore = couldAskBefore)
         }
 
     LaunchedEffect(viewModel) { viewModel.ensureStarted() }
@@ -56,11 +61,17 @@ fun StorePickerRoute(
             StorePickerActions(
                 onBack = onBack,
                 onSelect = viewModel::select,
-                onRequestPermission = { launcher.launch(LOCATION_PERMISSIONS) },
+                onRequestPermission = {
+                    couldAskBefore = context.canAskLocationAgain()
+                    launcher.launch(LOCATION_PERMISSIONS)
+                },
                 onOpenSettings = { context.openAppSettings() },
                 onRetry = viewModel::start,
                 onSubmitSearch = viewModel::submitSearch,
-                onOpenLocationSettings = { context.openLocationSettings() },
+                onOpenLocationSettings = {
+                    viewModel.locationSettingsOpened()
+                    context.openLocationSettings()
+                },
                 onContinueWithoutStore = viewModel::continueWithoutStore,
                 onDismissSelectionFailure = viewModel::dismissSelectionFailure,
             )
@@ -79,22 +90,27 @@ private tailrec fun Context.findActivity(): Activity? =
     }
 
 /**
- * Faux après « Ne plus demander » (ou un deuxième refus) : la demande système ne s'ouvrira plus. Vrai aussi tant
- * qu'on n'a jamais demandé, ce qui n'arrive pas ici : la méthode n'est lue qu'au retour d'une demande.
+ * `shouldShowRequestPermissionRationale` : vrai après un premier refus. Faux après « Ne plus demander » (ou un
+ * deuxième refus), mais aussi avant toute demande et après un dialogue simplement fermé.
  */
 private fun Context.canAskLocationAgain(): Boolean {
     val activity = findActivity() ?: return false
     return LOCATION_PERMISSIONS.any { ActivityCompat.shouldShowRequestPermissionRationale(activity, it) }
 }
 
-private fun Context.openAppSettings() {
+/** Page des réglages de l'app. Un appareil sans cette page (#54) ne fait pas planter l'écran : la recherche reste. */
+internal fun Context.openAppSettings() {
     val intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    startActivity(intent)
+    try {
+        startActivity(intent)
+    } catch (ignored: ActivityNotFoundException) {
+        // Rien à ouvrir.
+    }
 }
 
-private fun Context.openLocationSettings() {
+internal fun Context.openLocationSettings() {
     val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     // Certains appareils n'ont pas cet écran : l'utilisateur garde la recherche par nom.
     try {

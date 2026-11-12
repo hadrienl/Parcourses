@@ -1,6 +1,7 @@
 package fr.parcourses.core.location
 
 import android.location.Location
+import android.os.Looper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -8,14 +9,18 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import java.lang.reflect.Proxy
 import com.google.android.gms.location.LocationResult as GmsLocationResult
 
@@ -24,6 +29,12 @@ private class FakeFusedClient {
     var requested: LocationRequest? = null
     var callback: LocationCallback? = null
     val removed = mutableListOf<LocationCallback>()
+
+    /** Échec asynchrone de la demande de mises à jour (Google Play Services en panne). */
+    var updatesFailure: Exception? = null
+
+    /** Dernier point connu rendu par `getLastLocation`. */
+    var last: Location? = null
 
     val client: FusedLocationProviderClient =
         Proxy.newProxyInstance(
@@ -34,7 +45,7 @@ private class FakeFusedClient {
                 "requestLocationUpdates" -> {
                     requested = args[0] as LocationRequest
                     callback = args[1] as LocationCallback
-                    Tasks.forResult<Void>(null)
+                    updatesFailure?.let { Tasks.forException<Void>(it) } ?: Tasks.forResult<Void>(null)
                 }
 
                 "removeLocationUpdates" -> {
@@ -43,7 +54,7 @@ private class FakeFusedClient {
                 }
 
                 "getLastLocation" -> {
-                    Tasks.forResult<Location>(null)
+                    Tasks.forResult(last)
                 }
 
                 else -> {
@@ -56,14 +67,19 @@ private class FakeFusedClient {
         accuracy: Float,
         at: Long = 0,
     ) {
-        val location =
-            Location("fused").apply {
-                latitude = 48.0
-                longitude = 2.0
-                this.accuracy = accuracy
-                time = at
-            }
-        callback!!.onLocationResult(GmsLocationResult.create(listOf(location)))
+        callback!!.onLocationResult(GmsLocationResult.create(listOf(location(accuracy, at))))
+    }
+
+    companion object {
+        fun location(
+            accuracy: Float,
+            at: Long,
+        ) = Location("fused").apply {
+            latitude = 48.0
+            longitude = 2.0
+            this.accuracy = accuracy
+            time = at
+        }
     }
 }
 
@@ -81,6 +97,54 @@ class FusedFixSourceTest {
             job.cancel()
             runCurrent()
             assertEquals(listOf(fake.callback), fake.removed)
+        }
+
+    /** Les rappels des `Task` de Google Play Services passent par le fil principal, en pause sous Robolectric. */
+    private fun TestScope.settle() {
+        runCurrent()
+        shadowOf(Looper.getMainLooper()).idle()
+        runCurrent()
+    }
+
+    @Test
+    fun anAsynchronousFailureOfTheUpdatesFallsBackToThePlatform() =
+        runTest {
+            // #54 : la demande est acceptée, puis échoue plus tard (et non en levant tout de suite).
+            val fake = FakeFusedClient().apply { updatesFailure = IllegalStateException("services indisponibles") }
+            val point = LocationFix(48.5, 2.5, 25.0, timestampMillis = 0)
+            val provider =
+                SystemLocationProvider(
+                    authorizationSource = { LocationAuthorization.Precise },
+                    primary = FusedFixSource({ fake.client }, now = { 0 }),
+                    fallback = { flowOf(point) },
+                    now = { 0 },
+                )
+            var result: LocationResult? = null
+            backgroundScope.launch { result = provider.currentFix() }
+            settle()
+            assertEquals(LocationResult.Fix(point), result)
+        }
+
+    @Test
+    fun aStaleLastKnownPointIsNotOfferedButARecentOneIs() =
+        runTest {
+            val clock = FixSelection.LAST_KNOWN_MAX_AGE_MS + 1_000
+            val stale = FakeFusedClient().apply { last = FakeFusedClient.location(accuracy = 10f, at = 0) }
+            val seen = mutableListOf<LocationFix>()
+            val job =
+                backgroundScope.launch {
+                    FusedFixSource({ stale.client }, now = { clock }).updates(true).collect { seen += it }
+                }
+            settle()
+            assertTrue(seen.isEmpty())
+            job.cancel()
+
+            val recent = FakeFusedClient().apply { last = FakeFusedClient.location(accuracy = 10f, at = clock - 1_000) }
+            backgroundScope.launch {
+                FusedFixSource({ recent.client }, now = { clock }).updates(true).collect { seen += it }
+            }
+            settle()
+            assertEquals(listOf(clock - 1_000), seen.map { it.timestampMillis })
         }
 
     @Test
