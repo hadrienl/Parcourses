@@ -1,6 +1,7 @@
 package fr.parcourses.feature.lists
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -30,7 +31,11 @@ class ListsScreenTest {
     private val deleted = mutableListOf<String>()
     private var dismissed = 0
 
-    private fun show(state: ListsUiState) {
+    private fun show(
+        state: ListsUiState,
+        onAbout: (() -> Unit)? = null,
+        aboutNeedsAttention: Boolean = false,
+    ) {
         rule.setContent {
             ParcoursesTheme {
                 ListsScreen(
@@ -40,6 +45,8 @@ class ListsScreenTest {
                     onRename = { id, name -> renamed += id to name },
                     onDelete = { deleted += it },
                     onDismissError = { dismissed++ },
+                    onAbout = onAbout,
+                    aboutNeedsAttention = aboutNeedsAttention,
                 )
             }
         }
@@ -151,5 +158,29 @@ class ListsScreenTest {
         rule.waitForIdle()
         rule.onNodeWithText("Supprimer cette liste et ses articles ?").assertDoesNotExist()
         assertEquals(emptyList<String>(), deleted)
+    }
+
+    @Test
+    fun aboutCarriesABadgeOnlyWhenItNeedsAttention() {
+        var needsAttention by mutableStateOf(false)
+        rule.setContent {
+            ParcoursesTheme {
+                ListsScreen(
+                    state = ListsUiState(isLoaded = true),
+                    onOpen = {},
+                    onCreate = {},
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onDismissError = {},
+                    onAbout = {},
+                    aboutNeedsAttention = needsAttention,
+                )
+            }
+        }
+        rule.onNodeWithTag(TAG_ABOUT_BADGE, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("À propos").assertExists()
+        needsAttention = true
+        rule.onNodeWithTag(TAG_ABOUT_BADGE, useUnmergedTree = true).assertExists()
+        rule.onNodeWithContentDescription("À propos, action requise").assertExists()
     }
 }

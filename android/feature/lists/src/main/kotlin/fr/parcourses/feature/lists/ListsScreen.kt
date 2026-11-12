@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +64,7 @@ fun ListsRoute(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
     onAbout: (() -> Unit)? = null,
+    aboutNeedsAttention: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ListsScreen(
@@ -73,6 +76,7 @@ fun ListsRoute(
         onDismissError = viewModel::dismissError,
         modifier = modifier,
         onAbout = onAbout,
+        aboutNeedsAttention = aboutNeedsAttention,
     )
 }
 
@@ -140,6 +144,7 @@ fun ListsScreen(
     onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
     onAbout: (() -> Unit)? = null,
+    aboutNeedsAttention: Boolean = false,
 ) {
     var dialog by rememberSaveable(stateSaver = ListDialogSaver) { mutableStateOf<ListDialog?>(null) }
     // Reprise de compte : la liste visée par un dialogue a changé d'identifiant ou disparu, il se ferme.
@@ -156,7 +161,7 @@ fun ListsScreen(
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
-        topBar = { ListsTopBar(onAbout) },
+        topBar = { ListsTopBar(onAbout, aboutNeedsAttention) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { dialog = ListDialog.Create },
@@ -201,14 +206,22 @@ fun ListsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ListsTopBar(onAbout: (() -> Unit)?) {
+private fun ListsTopBar(
+    onAbout: (() -> Unit)?,
+    needsAttention: Boolean,
+) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
         title = { Text(stringResource(R.string.lists_title)) },
         actions = {
             if (onAbout != null) {
                 IconButton(onClick = onAbout, modifier = Modifier.testTag(TAG_ABOUT)) {
-                    Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.lists_about))
+                    // Pastille : À propos propose une action (session illisible, #51).
+                    val label =
+                        stringResource(if (needsAttention) R.string.lists_about_attention else R.string.lists_about)
+                    BadgedBox(badge = { if (needsAttention) Badge(Modifier.testTag(TAG_ABOUT_BADGE)) }) {
+                        Icon(Icons.Outlined.Info, contentDescription = label)
+                    }
                 }
             }
         },
@@ -375,6 +388,7 @@ private fun subtitle(list: ListSummary): String =
 
 internal const val TAG_NEW_LIST = "newList"
 internal const val TAG_ABOUT = "about"
+internal const val TAG_ABOUT_BADGE = "about-badge"
 internal const val TAG_LISTS = "lists"
 internal const val TAG_NAME_FIELD = "nameField"
 internal const val TAG_CONFIRM_NAME = "confirmName"

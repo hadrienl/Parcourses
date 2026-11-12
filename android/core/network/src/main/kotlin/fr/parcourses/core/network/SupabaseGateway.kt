@@ -28,6 +28,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
@@ -60,7 +61,8 @@ class SupabaseGateway internal constructor(
     private val client: SupabaseClient,
     private val store: SecureStateStore,
     private val clock: Clock = Clock.System,
-) : RemoteGateway {
+) : RemoteGateway,
+    SessionMaintenance {
     private val auth: Auth get() = client.auth
     private val rest: Postgrest get() = client.postgrest
 
@@ -92,6 +94,19 @@ class SupabaseGateway internal constructor(
     override suspend fun acknowledgeAccount(id: Uuid) {
         mapped { store.update { it.copy(lastAccountId = id.toString()) } }
     }
+
+    override val isSessionStorageStuck: StateFlow<Boolean> get() = store.isStuck
+
+    override suspend fun resetSession(): Boolean =
+        mapped {
+            // Sous le verrou de connexion : aucun compte ne se crée pendant la réinitialisation.
+            signInLock.withLock {
+                val reset = store.resetSession()
+                // Après le stockage : effacée d'abord, la session du SDK serait réécrite dans l'ancien stockage.
+                if (reset) auth.clearSession()
+                reset
+            }
+        }
 
     override suspend fun serverDate(): Instant? =
         authorized {
@@ -145,8 +160,9 @@ class SupabaseGateway internal constructor(
         return signInLock.withLock {
             // Un appel concurrent a pu créer le compte pendant l'attente.
             existingOrNull()?.let { return@withLock it }
-            // Stockage inaccessible (démarrage direct) : on échoue ici pour ne pas créer un second compte.
-            store.read()
+            // Stockage inaccessible (démarrage direct, clé indisponible) : on échoue ici, avant de créer un compte
+            // dont la session ne pourrait pas être enregistrée (compte orphelin).
+            store.checkWritable()
             auth.signInAnonymously(captchaToken = captchaToken)
             if (auth.currentSessionOrNull() == null) throw RemoteError.Unauthorized()
             userId()
