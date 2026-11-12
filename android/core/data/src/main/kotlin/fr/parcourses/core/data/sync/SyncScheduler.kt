@@ -1,6 +1,7 @@
 package fr.parcourses.core.data.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -13,10 +14,13 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.time.toJavaDuration
@@ -31,6 +35,9 @@ interface SyncScheduler {
 
     /** Filet de sécurité : une passe avec descente toutes les 6 h. */
     fun schedulePeriodic()
+
+    /** Le travail de synchronisation [workId] commence : appelé par le worker avant sa passe. */
+    fun runStarted(workId: UUID) = Unit
 }
 
 /** WorkManager : travail unique `lists-sync`, rappel différé `lists-sync-wake`, périodique 6 h. */
@@ -44,8 +51,28 @@ class WorkManagerSyncScheduler(
     private val connected = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     /**
-     * `KEEP` : une demande déjà en attente suffit, le moteur lit lui-même ce qui est dû. Une demande qui arrive
-     * pendant une passe est vue par le moteur, qui demande alors un rappel immédiat (voir [SyncEngine.drain]).
+     * Dernière demande mise en file et pas encore commencée : `null` s'il n'y en a pas. En mémoire : après la mort
+     * du processus, la demande suivante s'ajoute à la file de WorkManager, ce qui ne coûte qu'une passe vide.
+     */
+    private var waiting: Waiting? = null
+    private val lock = Any()
+
+    /** [id] : le travail ; [pull] : vrai si lui ou une demande d'avant dans la chaîne descend. */
+    private class Waiting(
+        val id: UUID,
+        val pull: Boolean,
+    )
+
+    /**
+     * `APPEND_OR_REPLACE` (#54) : une demande faite pendant une passe, même après sa dernière vérification, ajoute
+     * une passe derrière elle, au lieu d'être ignorée comme avec `KEEP` jusqu'au périodique. Pour que la chaîne ne
+     * s'allonge pas à chaque écriture hors ligne, une demande pas encore commencée suffit : le moteur lit lui-même
+     * ce qui est dû au démarrage. Sauf pour une descente demandée après une demande sans descente : elle part avec
+     * son propre travail, et ne vit donc pas seulement dans la mémoire du moteur.
+     *
+     * Le worker ne lève jamais (voir [ListSyncWorker.doWork]) : une chaîne ne peut pas échouer et emporter avec
+     * elle la demande ajoutée derrière. Si WorkManager refuse l'ajout lui-même, la demande suivante est remise en
+     * file au lieu d'attendre un démarrage qui ne viendra pas.
      */
     override fun enqueue(pull: Boolean) {
         val request =
@@ -54,7 +81,29 @@ class WorkManagerSyncScheduler(
                 .setInputData(Data.Builder().putBoolean(ListSyncWorker.KEY_PULL, pull).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
                 .build()
-        workManager.enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
+        synchronized(lock) {
+            val queued = waiting
+            if (queued != null && (queued.pull || !pull)) return
+            waiting = Waiting(request.id, pull || queued?.pull == true)
+        }
+        val operation = workManager.enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        operation.result.addListener(
+            {
+                val failed = runCatching { operation.result.get() }.isFailure
+                if (failed) forget(request.id)
+            },
+            Runnable::run,
+        )
+    }
+
+    /**
+     * Une demande commence. Seule la dernière mise en file compte : une demande plus ancienne de la chaîne qui démarre
+     * laisse la dernière en attente, qui verra tout ce qui arrive d'ici là.
+     */
+    override fun runStarted(workId: UUID) = forget(workId)
+
+    private fun forget(workId: UUID) {
+        synchronized(lock) { if (waiting?.id == workId) waiting = null }
     }
 
     override fun scheduleWake(at: Instant) {
@@ -93,7 +142,9 @@ class WorkManagerSyncScheduler(
 
 /**
  * Une passe de synchronisation : pousse la file puis tire les changements (#10 §4.1). Réussit toujours : les
- * erreurs et leurs délais sont gérés par le moteur, qui indique quand le rappeler.
+ * erreurs et leurs délais sont gérés par le moteur, qui indique quand le rappeler. Une panne locale imprévue (base
+ * illisible) devient un rappel dans [FAILURE_RETRY] : un échec ferait échouer aussi la demande ajoutée derrière
+ * (`APPEND_OR_REPLACE`), qui ne démarrerait jamais (#54).
  */
 class ListSyncWorker(
     context: Context,
@@ -102,21 +153,37 @@ class ListSyncWorker(
     private val scheduler: SyncScheduler,
     private val clock: () -> Instant = { Clock.System.now() },
 ) : CoroutineWorker(context, params) {
+    @Suppress("TooGenericExceptionCaught") // jamais d'échec (voir plus haut) : la panne devient un rappel
     override suspend fun doWork(): Result {
+        scheduler.runStarted(id)
+        val wake =
+            try {
+                passes()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Passe interrompue : ${e.javaClass.simpleName}")
+                clock() + FAILURE_RETRY
+            }
+        wake?.let { at -> runCatching { scheduler.scheduleWake(at) } }
+        return Result.success()
+    }
+
+    private suspend fun passes(): Instant? {
         var wake = engine.drain(pull = inputData.getBoolean(KEY_PULL, false))
-        // Une écriture faite pendant la passe a été ignorée par `enqueue` (KEEP, ce travail tournait encore) :
-        // on repasse tant qu'une demande est là, au lieu de la laisser attendre le périodique.
+        // Une écriture faite pendant la passe a ajouté une passe derrière celle-ci (`enqueue`) : on la fait tout de
+        // suite, la suivante n'aura alors rien à faire.
         var rounds = 0
         while (engine.hasPendingRun && rounds++ < MAX_ROUNDS) wake = engine.drain()
-        // Reste un cas limite (demande après la dernière vérification) : un rappel immédiat le couvre.
-        wake = if (engine.hasPendingRun) clock() else wake
-        wake?.let(scheduler::scheduleWake)
-        return Result.success()
+        // Demande notée dans le moteur seulement, après la dernière vérification : un rappel immédiat la couvre.
+        return if (engine.hasPendingRun) clock() else wake
     }
 
     companion object {
         const val KEY_PULL = "pull"
         private const val MAX_ROUNDS = 10
+        private const val TAG = "ListSyncWorker"
+        private val FAILURE_RETRY: Duration = 1.minutes
     }
 }
 
