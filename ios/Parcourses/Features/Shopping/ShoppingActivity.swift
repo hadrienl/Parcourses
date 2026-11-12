@@ -17,15 +17,19 @@ extension ShoppingActivityAttributes.ContentState {
       remaining: pending.count, total: toBuy.count + basket.count,
       nextItemLabel: next.map { String($0.label.prefix(maxLabelLength)) },
       nextCategoryLabel: next.flatMap { categoryLabel($0.aisleId) }.map { String($0.prefix(maxLabelLength)) },
-      isFinished: isFinished, pendingItemIds: isFinished ? [] : pending.prefix(maxPendingItems).map(\.id))
+      nextAisleId: next?.aisleId, isFinished: isFinished,
+      pendingItemIds: isFinished ? [] : pending.prefix(maxPendingItems).map(\.id))
   }
 
   /// Confronte l'état affiché à la base, sans mode courses ouvert (« Cocher le suivant », app tuée) : un article
   /// coché ailleurs, introuvable ou supprimé quitte la file, l'ordre affiché ne change pas (seul le mode courses
   /// recalcule le tri, comme `ShoppingLiveState.reconciled` d'Android). Les articles à prendre hors de la file
   /// (au-delà de `maxPendingItems`, ajoutés, décochés) la suivent, dans l'ordre de la liste. `items` : les
-  /// articles de la liste, dans l'ordre de `position` ; `describe` : libellé et rayon affichés d'un article.
-  func reconciled(items: [ListItem], describe: (ListItem) -> (label: String, aisle: String?)) -> Self {
+  /// articles de la liste, dans l'ordre de `position` ; `describe` : libellé, rayon effectif et titre du rayon
+  /// affichés d'un article.
+  func reconciled(
+    items: [ListItem], describe: (ListItem) -> (label: String, aisleId: String, aisle: String?)
+  ) -> Self {
     let pending = items.filter { $0.checkedAt == nil && $0.notFoundAt == nil }
     let pendingIds = Set(pending.map(\.id))
     let kept = pendingItemIds.filter { pendingIds.contains($0) }
@@ -35,8 +39,8 @@ extension ShoppingActivityAttributes.ContentState {
     return Self(
       remaining: pending.count, total: items.filter { $0.checkedAt != nil || $0.notFoundAt == nil }.count,
       nextItemLabel: next.map { String($0.label.prefix(Self.maxLabelLength)) },
-      nextCategoryLabel: next?.aisle.map { String($0.prefix(Self.maxLabelLength)) }, isFinished: false,
-      pendingItemIds: Array(order.prefix(Self.maxPendingItems)))
+      nextCategoryLabel: next?.aisle.map { String($0.prefix(Self.maxLabelLength)) }, nextAisleId: next?.aisleId,
+      isFinished: false, pendingItemIds: Array(order.prefix(Self.maxPendingItems)))
   }
 }
 
@@ -63,8 +67,30 @@ nonisolated protocol ActivityBackend: Sendable {
   func request(
     attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, staleDate: Date?
   ) async -> String?
-  func update(id: String, state: ShoppingActivityAttributes.ContentState, staleDate: Date?) async
+  /// `false` si l'activité n'est plus affichée : écartée par la personne, ou retirée par le système.
+  @discardableResult
+  func update(id: String, state: ShoppingActivityAttributes.ContentState, staleDate: Date?) async -> Bool
   func end(id: String, state: ShoppingActivityAttributes.ContentState?, policy: ActivityEndPolicy) async
+}
+
+/// Visites dont la personne a écarté la Live Activity : elle ne revient pas pour elles, même après une relance
+/// (comme la notification écartée d'Android, #52).
+nonisolated protocol ActivityDismissals: Sendable {
+  func contains(_ visitId: UUID) -> Bool
+  func remember(_ visitId: UUID)
+}
+
+/// Retenue dans les préférences de l'app : une seule visite est en cours à la fois, la dernière suffit.
+nonisolated struct UserDefaultsActivityDismissals: ActivityDismissals {
+  private static let key = "liveActivityDismissedVisitId"
+
+  func contains(_ visitId: UUID) -> Bool {
+    UserDefaults.standard.string(forKey: Self.key) == visitId.uuidString
+  }
+
+  func remember(_ visitId: UUID) {
+    UserDefaults.standard.set(visitId.uuidString, forKey: Self.key)
+  }
 }
 
 /// ActivityKit réel. L'`Activity` n'est pas `Sendable` : on la retrouve par identifiant à chaque appel.
@@ -97,12 +123,16 @@ nonisolated struct ActivityKitBackend: ActivityBackend {
     }
   }
 
-  func update(id: String, state: ShoppingActivityAttributes.ContentState, staleDate: Date?) async {
-    guard let activity = Activity<ShoppingActivityAttributes>.activities.first(where: { $0.id == id }) else {
-      Self.log.error("Live Activity introuvable pour la mise à jour")
-      return
+  func update(id: String, state: ShoppingActivityAttributes.ContentState, staleDate: Date?) async -> Bool {
+    guard let activity = Activity<ShoppingActivityAttributes>.activities.first(where: { $0.id == id }),
+      activity.activityState == .active || activity.activityState == .stale
+    else {
+      // Cas normal : la personne l'a écartée de l'écran verrouillé. Rien d'anormal à journaliser en erreur.
+      Self.log.info("Live Activity écartée : plus de mise à jour pour cette visite")
+      return false
     }
     await activity.update(ActivityContent(state: state, staleDate: staleDate))
+    return true
   }
 
   func end(id: String, state: ShoppingActivityAttributes.ContentState?, policy: ActivityEndPolicy) async {
@@ -128,9 +158,10 @@ protocol ShoppingActivityControlling: AnyObject {
   func update(state: ShoppingActivityAttributes.ContentState, lastActivity: Date)
   /// Affiche l'état final puis retire l'activité, même si elle vient d'un lancement précédent.
   func end(state: ShoppingActivityAttributes.ContentState)
-  /// Retente un démarrage refusé ou perdu (retour au premier plan).
+  /// Retente un démarrage refusé (retour au premier plan). Une activité écartée par la personne ne revient pas.
   func retryIfNeeded()
-  /// Termine tout de suite les activités qui ne suivent pas cette visite (orphelines d'un lancement précédent).
+  /// Termine tout de suite les activités en cours qui ne suivent pas cette visite (orphelines d'un lancement
+  /// précédent). Le message « Courses terminées » d'une visite finie reste affiché jusqu'à son retrait prévu.
   func endAll(except visitId: UUID?)
   /// État affiché pour cette visite. App relancée, l'activité active laissée par le lancement précédent est
   /// reprise (identifiant, attributs, état) : les mises à jour suivantes lui parviennent. `nil` si rien ne la suit.
@@ -147,15 +178,25 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   static let dismissalDelay: TimeInterval = 5 * 60
 
   private let backend: any ActivityBackend
+  private let dismissals: any ActivityDismissals
   private let now: () -> Date
   private var activityId: String?
   private var attributes: ShoppingActivityAttributes?
   private var lastState: ShoppingActivityAttributes.ContentState?
   private var lastActivity = Date.distantPast
+  /// Démarrage refusé (activités désactivées, app en arrière-plan) : seul le retour au premier plan le retente,
+  /// pas chaque mise à jour.
+  private var isWaitingForForeground = false
+  /// La personne a écarté l'activité de cette visite : plus rien ne la rouvre.
+  private var isDismissed = false
   private var chain: Task<Void, Never>?
 
-  init(backend: any ActivityBackend = ActivityKitBackend(), now: @escaping () -> Date = { .now }) {
+  init(
+    backend: any ActivityBackend = ActivityKitBackend(),
+    dismissals: any ActivityDismissals = UserDefaultsActivityDismissals(), now: @escaping () -> Date = { .now }
+  ) {
     self.backend = backend
+    self.dismissals = dismissals
     self.now = now
   }
 
@@ -176,6 +217,8 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     lastState = state
     self.lastActivity = lastActivity
     activityId = nil
+    isWaitingForForeground = false
+    isDismissed = attributes.visitId.map { dismissals.contains($0) } ?? false
     let stale = staleDate
     enqueue { await self.open(staleDate: stale) }
   }
@@ -186,13 +229,21 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     // Calculée à l'appel : la chaîne s'exécute plus tard, quand une coche suivante a pu la changer.
     let stale = staleDate
     enqueue {
-      guard self.attributes != nil else { return }
+      guard self.attributes != nil, !self.isDismissed else { return }
       if let id = self.activityId {
-        await self.backend.update(id: id, state: state, staleDate: stale)
-      } else {
+        if !(await self.backend.update(id: id, state: state, staleDate: stale)) { self.dismiss() }
+      } else if !self.isWaitingForForeground {
         await self.open(staleDate: stale)
       }
     }
+  }
+
+  /// L'activité suivie a disparu sans que l'app la termine : la personne l'a écartée. Le geste est respecté
+  /// jusqu'à la fin de la visite, relance comprise.
+  private func dismiss() {
+    activityId = nil
+    isDismissed = true
+    if let visitId = attributes?.visitId { dismissals.remember(visitId) }
   }
 
   func restore(visitId: UUID) async -> ShoppingActivityAttributes.ContentState? {
@@ -238,14 +289,16 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
 
   func retryIfNeeded() {
     enqueue {
-      guard self.attributes != nil, self.activityId == nil else { return }
+      guard self.attributes != nil, self.activityId == nil, !self.isDismissed else { return }
+      self.isWaitingForForeground = false
       await self.open(staleDate: self.staleDate)
     }
   }
 
   func endAll(except visitId: UUID?) {
     enqueue {
-      for info in await self.backend.current() where visitId == nil || info.visitId != visitId {
+      // Une activité déjà terminée affiche « Courses terminées » jusqu'à son retrait prévu : on la laisse.
+      for info in await self.backend.current() where info.isActive && (visitId == nil || info.visitId != visitId) {
         await self.backend.end(id: info.id, state: nil, policy: .immediate)
         if info.id == self.activityId {
           // L'activité suivie est retirée : rien ne doit la rouvrir (retour au premier plan) avec un état ancien.
@@ -257,21 +310,24 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     }
   }
 
-  /// Reprend l'activité active de la même visite ; toute autre (autre visite, terminée) est retirée, puis on en
-  /// crée une neuve. Les attributs d'une activité sont immuables : reprendre n'importe laquelle afficherait
-  /// la mauvaise liste.
+  /// Reprend l'activité active de la même visite, sinon en crée une neuve ; toute autre (autre visite, terminée)
+  /// est ensuite retirée. Les attributs d'une activité sont immuables : reprendre n'importe laquelle afficherait
+  /// la mauvaise liste. La neuve est demandée avant le retrait des autres : après une reprise de compte, elle
+  /// remplace l'ancienne sans que l'écran verrouillé reste un instant vide.
   private func open(staleDate: Date) async {
-    guard let attributes, let state = lastState else { return }
+    guard let attributes, let state = lastState, !isDismissed else { return }
     let existing = await backend.current()
     let reusable = existing.first { $0.isActive && attributes.visitId != nil && $0.visitId == attributes.visitId }
-    for info in existing where info.id != reusable?.id {
-      await backend.end(id: info.id, state: nil, policy: .immediate)
-    }
     if let reusable {
       await backend.update(id: reusable.id, state: state, staleDate: staleDate)
       activityId = reusable.id
+    } else if let id = await backend.request(attributes: attributes, state: state, staleDate: staleDate) {
+      activityId = id
     } else {
-      activityId = await backend.request(attributes: attributes, state: state, staleDate: staleDate)
+      isWaitingForForeground = true
+    }
+    for info in existing where info.id != reusable?.id {
+      await backend.end(id: info.id, state: nil, policy: .immediate)
     }
   }
 
