@@ -9,11 +9,13 @@ cd ios && xcodegen generate && open Parcourses.xcodeproj
 - Clés Supabase : `Config/Local.xcconfig` (local) ou `Config/Cloud.xcconfig` (voir `.example`), non commités.
 - Lint : `xcrun swift-format lint --strict -r .`
 - Icônes de rayon : `design/icons/categories/*.svg` est la source ; `scripts/sync-category-icons.sh` les recopie dans
-  `Assets.xcassets/Categories` (`Image("cat.<id>")`, rendu template). La CI vérifie la copie (`--check`).
+  `Shared/DesignAssets.xcassets/Categories`, partagé avec l'extension (`Image("cat.<id>")`, rendu template). La CI
+  vérifie la copie (`--check`).
 
 ## Habillage (B3 « Ticket filé », lot 9.11)
 
-- Jetons dans `Parcourses/DesignSystem/Tokens.swift` (`Palette`, `Space`, `TicketMetrics`, `TicketFont`, `Motion`), tirés de
+- Jetons dans `Shared/DesignSystem/Tokens.swift`, partagé avec l'extension (`Palette`, `Space`, `TicketMetrics`,
+  `TicketFont`, `Motion`), tirés de
   `design/tokens-ticket-v2.json`. Couleurs dynamiques : clair, sombre, et variantes Contraste augmenté.
 - `.parcoursesGlass()` : verre sur iOS 26+, `.regularMaterial` et filet sur iOS 18, papier opaque avec Réduire la
   transparence. Réservé aux contrôles flottants (dock, bannière « Annuler ») ; le ticket reste opaque.

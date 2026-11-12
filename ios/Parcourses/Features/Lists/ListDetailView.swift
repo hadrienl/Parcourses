@@ -186,7 +186,7 @@ struct ListDetailView: View {
             .frame(minWidth: 44)
             .touchTarget()
         }
-        .prominentButton(compact: true)
+        .prominentButton(size: .dock, compact: true)
         .disabled(model.input.allSatisfy(\.isWhitespace))
         .accessibilityIdentifier("addItem")
       }

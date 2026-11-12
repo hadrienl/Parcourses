@@ -91,7 +91,7 @@
       "threadWidth": 3,
       "bead": 14,
       "beadNext": 18,
-      "aisleNode": 22,
+      "aisleNode": 28,
       "reorderScope": "groupe de rayon ; la ligne touchée ne bouge pas",
       "learnedTagMs": 3000
     },
