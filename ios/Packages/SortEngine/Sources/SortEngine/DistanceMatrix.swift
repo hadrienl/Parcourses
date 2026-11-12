@@ -10,9 +10,9 @@ struct DistanceMatrix {
   }
 
   /// `d(x,y) = min(graph_dist, cat_cost)`. La colonne 0 vaut 0 : on ne revient jamais au départ.
-  init(input: SortInput, snapshot: SortSnapshot, items: [SortItem], ranks: RankResolver) {
+  init(input: SortInput, store: PreparedStore, items: [SortItem], ranks: RankResolver) {
     let params = input.params
-    let graph = StoreGraph(snapshot, params)
+    let graph = store.graph
     // Nœud de chaque point : produit (texte, pour l'égalité), indice dans le graphe, catégorie.
     // Le départ n'a pas de catégorie : il se comporte comme l'entrée pour le repli.
     var products: [String?] = []
@@ -32,17 +32,12 @@ struct DistanceMatrix {
       categoryRanks.append(ranks.index(of: item.categoryId))
     }
 
-    // Un Dijkstra par nœud source distinct, mis en cache.
-    var cache = [[Int64]?](repeating: nil, count: graph.adjacency.count)
+    // Un Dijkstra par nœud source distinct, gardé par le magasin préparé.
     let size = items.count + 1
     var values = [Int64](repeating: 0, count: size * size)
     for i in 0..<size {
       let source = graphNodes[i]
-      var row: [Int64]?
-      if let source {
-        if cache[source] == nil { cache[source] = graph.distances(from: source) }
-        row = cache[source]
-      }
+      let row = source.map { store.distances(from: $0) }
       // Seul l'article qui a un produit peut se trouver dans le graphe (l'entrée n'en a pas,
       // mais elle a ses arcs sortants).
       let hasProduct = i == 0 ? true : products[i] != nil

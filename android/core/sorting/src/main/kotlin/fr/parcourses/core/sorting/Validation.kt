@@ -2,17 +2,26 @@ package fr.parcourses.core.sorting
 
 import fr.parcourses.core.model.SortError
 import fr.parcourses.core.model.SortInput
+import fr.parcourses.core.model.SortSnapshot
 import fr.parcourses.core.model.SortStart
 
 // Validation des entrées, dans le même ordre que `validate` de la référence (et d'iOS).
 
 internal fun validate(input: SortInput) {
+    validateRequest(input)
+    input.snapshot?.let(::validateSnapshot)
+}
+
+/**
+ * Tout sauf l'instantané, déjà validé par [PreparedStore] (#30). L'instantané vient en
+ * dernier dans [validate] : l'omettre ne change pas l'erreur levée sur une entrée invalide.
+ */
+internal fun validateRequest(input: SortInput) {
     validateCategories(input)
     validateItems(input)
     val start = input.start
     if (start is SortStart.Product) checkId(start.productId, "start.product_id")
     input.previousOrder?.forEach { checkId(it, "previous_order") }
-    validateSnapshot(input)
 }
 
 private fun validateCategories(input: SortInput) {
@@ -33,8 +42,7 @@ private fun validateItems(input: SortInput) {
     }
 }
 
-private fun validateSnapshot(input: SortInput) {
-    val snapshot = input.snapshot ?: return
+internal fun validateSnapshot(snapshot: SortSnapshot) {
     for (edge in snapshot.edges) {
         checkId(edge.a, "edge.a")
         checkId(edge.b, "edge.b")

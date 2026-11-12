@@ -22,6 +22,14 @@ class SortVectorTest(
         assertEquals(vector.expected, sortItems(vector.input))
     }
 
+    // #30 : le magasin préparé ne change rien au résultat, même construit sur une copie.
+    @Test
+    fun matchesExpectedOutputWithPreparedStore() {
+        val snapshot = vector.input.snapshot ?: return
+        val prepared = PreparedStore(snapshot.copy(edges = snapshot.edges.toList()), vector.input.params)
+        assertEquals(vector.expected, sortItems(vector.input, prepared))
+    }
+
     @Test
     fun doesNotDependOnInputOrder() {
         val random = Random(vector.id.hashCode())

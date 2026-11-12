@@ -2,7 +2,6 @@ package fr.parcourses.core.sorting
 
 import fr.parcourses.core.model.SortParams
 import fr.parcourses.core.model.SortSnapshot
-import java.util.PriorityQueue
 import java.util.TreeMap
 
 /** Addition saturée à [SORT_INFINITY] (toutes les valeurs sont positives). */
@@ -88,7 +87,8 @@ internal class StoreGraph(
 
     /**
      * Dijkstra entier, file ordonnée par (distance, indice = ordre des identifiants).
-     * [firstTargets]/[firstCosts] sont les arcs sortants de la source.
+     * [firstTargets]/[firstCosts] sont les arcs sortants de la source. La file est un tas de
+     * primitives : ni allocation par relaxation, ni `Long` emballé à chaque comparaison (#30).
      */
     private fun dijkstra(
         firstTargets: IntArray,
@@ -97,15 +97,16 @@ internal class StoreGraph(
     ): LongArray {
         val dist = LongArray(index.size) { SORT_INFINITY }
         val done = BooleanArray(index.size)
-        val queue = PriorityQueue<LongArray>(compareBy<LongArray>({ it[0] }, { it[1] }))
+        val queue = NodeHeap(index.size)
         if (source >= 0) {
             dist[source] = 0
             done[source] = true
         }
         for (k in firstTargets.indices) relax(dist, queue, firstTargets[k], firstCosts[k])
         while (queue.isNotEmpty()) {
-            val (d, uLong) = queue.poll()
-            val u = uLong.toInt()
+            val d = queue.topDistance()
+            val u = queue.topNode()
+            queue.pop()
             if (done[u] || d > dist[u]) continue
             done[u] = true
             val targets = neighbours[u]
@@ -119,13 +120,92 @@ internal class StoreGraph(
 
     private fun relax(
         dist: LongArray,
-        queue: PriorityQueue<LongArray>,
+        queue: NodeHeap,
         v: Int,
         nd: Long,
     ) {
         if (nd < dist[v]) {
             dist[v] = nd
-            queue.add(longArrayOf(nd, v.toLong()))
+            queue.push(nd, v)
         }
     }
 }
+
+/**
+ * Tas binaire minimal de clés (distance, indice), rangées dans deux tableaux parallèles.
+ * L'ordre est celui de l'ancienne `PriorityQueue<LongArray>` : distance, puis indice.
+ */
+internal class NodeHeap(
+    capacity: Int,
+) {
+    private var distances = LongArray(maxOf(capacity, 1))
+    private var nodes = IntArray(maxOf(capacity, 1))
+    private var size = 0
+
+    fun isNotEmpty(): Boolean = size > 0
+
+    fun topDistance(): Long = distances[0]
+
+    fun topNode(): Int = nodes[0]
+
+    fun push(
+        distance: Long,
+        node: Int,
+    ) {
+        if (size == distances.size) {
+            distances = distances.copyOf(size * 2)
+            nodes = nodes.copyOf(size * 2)
+        }
+        var child = size++
+        while (child > 0) {
+            val parent = (child - 1) / 2
+            if (!precedes(distance, node, parent)) break
+            move(parent, child)
+            child = parent
+        }
+        distances[child] = distance
+        nodes[child] = node
+    }
+
+    /** Retire la clé du sommet. */
+    fun pop() {
+        size--
+        if (size == 0) return
+        val distance = distances[size]
+        val node = nodes[size]
+        var parent = 0
+        var child = 1
+        while (child < size) {
+            if (child + 1 < size && precedes(distances[child + 1], nodes[child + 1], child)) child++
+            if (!keyPrecedes(distances[child], nodes[child], distance, node)) break
+            move(child, parent)
+            parent = child
+            child = 2 * parent + 1
+        }
+        distances[parent] = distance
+        nodes[parent] = node
+    }
+
+    /** Vrai si (distance, node) précède strictement la clé rangée en [slot]. */
+    private fun precedes(
+        distance: Long,
+        node: Int,
+        slot: Int,
+    ): Boolean = keyPrecedes(distance, node, distances[slot], nodes[slot])
+
+    private fun move(
+        from: Int,
+        to: Int,
+    ) {
+        distances[to] = distances[from]
+        nodes[to] = nodes[from]
+    }
+}
+
+/** Ordre des clés de la file : distance, puis indice. */
+private fun keyPrecedes(
+    distance: Long,
+    node: Int,
+    otherDistance: Long,
+    otherNode: Int,
+): Boolean = distance < otherDistance || (distance == otherDistance && node < otherNode)

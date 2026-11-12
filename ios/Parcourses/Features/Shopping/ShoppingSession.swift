@@ -135,6 +135,8 @@ final class ShoppingSession: Identifiable {
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
   private var current: LoadedSnapshot?
+  /// Graphe et distances de `current`, gardés d'un tri à l'autre de la visite (#30).
+  @ObservationIgnored private var prepared: PreparedStore?
   /// Arrivé pendant la visite : s'applique à la coche suivante, jamais spontanément (#9 §5.4).
   private var pendingSnapshot: LoadedSnapshot?
   /// Même règle pour le rayon bio venu du serveur : la liste ne bouge pas d'elle-même.
@@ -603,7 +605,8 @@ final class ShoppingSession: Identifiable {
     let items = (try? remainingItems()) ?? []
     let input = sortInput(items: items, previous: previous)
     do {
-      let output = try await Self.runSort(input)
+      let (store, output) = try await Self.runSort(input, prepared: prepared)
+      prepared = store
       mode = output.mode
       return output.order.compactMap(UUID.init(uuidString:))
     } catch {
@@ -612,8 +615,15 @@ final class ShoppingSession: Identifiable {
     }
   }
 
-  @concurrent private nonisolated static func runSort(_ input: SortInput) async throws -> SortOutput {
-    try sortItems(input)
+  /// Un nouvel instantané (ou de nouveaux paramètres) remplace le magasin préparé.
+  @concurrent private nonisolated static func runSort(
+    _ input: SortInput, prepared: PreparedStore?
+  ) async throws -> (PreparedStore?, SortOutput) {
+    var store = prepared.flatMap { $0.matches(input) ? $0 : nil }
+    if store == nil, let snapshot = input.snapshot {
+      store = try PreparedStore(snapshot: snapshot, params: input.params)
+    }
+    return (store, try sortItems(input, prepared: store))
   }
 
   /// Rayon effectif d'un article pour ce magasin (#28) : celui du tri et des titres de section.
