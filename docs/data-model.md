@@ -16,7 +16,12 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 
 - **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `visits`, `checks`.
 - **Connaissance partagée** (lecture par `authenticated`, écriture par la Secret key seulement) :
-  `categories`, `products`, `stores`, `store_edges`, `store_entries`, `store_stats`.
+  `categories`, `products`, `stores`.
+- **Graphe** (écrit par le serveur seulement, **illisible par les clients**, #70) : `store_edges`, `store_entries`,
+  `store_stats`, `store_graph_snapshots`. Les apps reçoivent l'instantané par la RPC `store_graph_snapshot`
+  (`security definer`), seule porte d'entrée. Pour un magasin à un seul contributeur, ces tables révéleraient
+  ses achats et l'heure de ses visites. Une RPC `security definer` exécutable par `authenticated` est voulue ici,
+  comme pour `resolve_products` : ne pas la « corriger » en `security invoker`, qui exigerait de rouvrir la table.
 
 ## Migrations
 
@@ -32,6 +37,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_reference_categories.sql` | 12 catégories de référence, remplacées par `…_align_categories.sql` |
 | `…_align_categories.sql` | 21 catégories générées depuis `shared/categories/` (#36) |
 | `…_resolve_products.sql` | RPC `resolve_products`, schéma interne `catalog` (quota de créations) |
+| `…_graph_read_closed.sql` | Lecture directe du graphe et des instantanés retirée aux clients ; `store_graph_snapshot` en `security definer` (#70) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -41,7 +47,8 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 
 | Table | SELECT | INSERT (colonnes) | UPDATE (colonnes) | DELETE |
 | --- | --- | --- | --- | --- |
-| Tables partagées | ✅ | — | — | — |
+| `categories`, `products`, `stores` | ✅ | — | — | — |
+| `store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots` | — (RPC `store_graph_snapshot`) | — | — | — |
 | `lists` | ✅ | `id, name` | `name` | ✅ |
 | `list_items` | ✅ | `id, list_id, label, quantity, product_id, checked_at` | `label, quantity, product_id, checked_at, list_id` | ✅ |
 | `visits` | ✅ | `id, store_id, list_id, list_was_sorted, started_at` | `ended_at` | — |
