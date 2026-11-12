@@ -131,6 +131,9 @@ final class ShoppingSession: Identifiable {
   private var isActivityEnded = false
   /// Les attributs de l'activité sont immuables : rien ne part avant que la visite soit connue (ni expirée).
   private(set) var isActivityReady = false
+  /// Liste lue et visite ouverte ou reprise : « Terminer » n'agit qu'après (#54). Avant, une fin fermerait une
+  /// visite que la préparation ouvrirait ensuite.
+  private(set) var isPrepared = false
 
   private var storeOrganicAisle = false
   private var sortCategories: [SortCategory] = []
@@ -223,6 +226,7 @@ final class ShoppingSession: Identifiable {
     startedAt = now()
     await prepare()
     guard let storeId else {
+      isPrepared = true
       isActivityReady = true
       publishActivity()
       return
@@ -241,6 +245,7 @@ final class ShoppingSession: Identifiable {
     // Une visite neuve commence sans introuvable (`startVisit` les remet à acheter) : la liste lue plus haut en
     // montrait peut-être encore, laissés par une visite close sans décision.
     if isNewVisit && !notFound.isEmpty { await sortNow(previous: nil) }
+    isPrepared = true
     isActivityReady = true
     publishActivity()
   }
@@ -250,6 +255,8 @@ final class ShoppingSession: Identifiable {
     startedAt = visit.startedAt
     visitId = visit.id
     await prepare()
+    // Avant `foregrounded()` : une visite expirée sans article restant s'y termine d'elle-même.
+    isPrepared = true
     foregrounded()
     isActivityReady = true
     publishActivity()
@@ -750,6 +757,7 @@ final class ShoppingSession: Identifiable {
   /// Termine les courses. `keepRemaining` : les articles restants attendent la prochaine fois, sinon ils
   /// quittent la liste.
   func finish(keepRemaining: Bool) {
+    guard isPrepared, summary == nil else { return }
     let date = now()
     settleTask?.cancel()
     refreshTask?.cancel()
