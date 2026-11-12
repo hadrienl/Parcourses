@@ -37,8 +37,11 @@ import fr.parcourses.feature.shopping.live.LiveUpdatePreferences
 import fr.parcourses.feature.shopping.live.SharedPreferencesLiveUpdatePreferences
 import fr.parcourses.feature.shopping.live.ShoppingLiveUpdates
 import fr.parcourses.feature.shopping.live.SystemLiveUpdateNotifier
+import fr.parcourses.feature.storepicker.LocationPermissionMemory
+import fr.parcourses.feature.storepicker.SharedPreferencesLocationPermissionMemory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -64,8 +67,10 @@ class AppContainer(
     private val context: Context,
     private val config: SupabaseConfig? =
         SupabaseConfig.create(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_PUBLISHABLE_KEY),
+    /** Ouverture de la base : celle de l'app, ou une base en mémoire pour les tests. */
+    private val openDatabase: (Context) -> ParcoursesDatabase = { ParcoursesDatabaseFactory.create(it, IO) },
 ) {
-    val database: ParcoursesDatabase by lazy { ParcoursesDatabaseFactory.create(context, Dispatchers.IO) }
+    val database: ParcoursesDatabase by lazy { openDatabase(context) }
 
     val gateway: RemoteGateway? by lazy { config?.let { createSupabaseGateway(context, it) } }
 
@@ -96,6 +101,9 @@ class AppContainer(
 
     /** Position ponctuelle : Google Play Services, sinon le gestionnaire du système (API 30+). */
     val location: LocationProvider by lazy { SystemLocationProvider(context) }
+
+    /** Refus définitif de la localisation, retenu d'une ouverture du choix du magasin à l'autre. */
+    val locationPermission: LocationPermissionMemory by lazy { SharedPreferencesLocationPermissionMemory(context) }
 
     val visits: VisitRepository by lazy { RoomVisitRepository(database, onEnqueue = { coordinator?.requestSync() }) }
     val graphs: GraphRepository by lazy { RoomGraphRepository(database) }

@@ -41,6 +41,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -401,6 +402,8 @@ private fun EntryField(
     focus: FocusRequester,
     modifier: Modifier,
 ) {
+    // Lu à travers `derivedStateOf` : seul le passage vide ↔ non vide recompose le bouton, pas chaque frappe (#54).
+    val canSubmit by remember(input) { derivedStateOf { input.text.isNotBlank() } }
     DockPill(modifier) {
         TextField(
             state = input,
@@ -414,7 +417,7 @@ private fun EntryField(
         )
         IconButton(
             onClick = onSubmit,
-            enabled = input.text.isNotBlank(),
+            enabled = canSubmit,
             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).testTag(TAG_ADD),
         ) {
             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.detail_add))

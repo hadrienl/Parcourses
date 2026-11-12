@@ -17,21 +17,27 @@ import fr.parcourses.core.database.entity.CategoryEntity
 import fr.parcourses.core.database.entity.ListItemEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -106,17 +112,29 @@ class ListDetailViewModel(
 
     private val typed: Flow<String> = snapshotFlow { input.text.toString() }
 
-    private val suggestions: Flow<List<ItemSuggestion>> =
-        combine(index, typed, content) { index, text, content ->
-            val pending =
+    /** Formes des articles encore à acheter : une coche ne change rien tant qu'elle ne touche pas cet ensemble. */
+    private val pendingNames: Flow<Set<String>> =
+        content
+            .map { content ->
                 content
                     ?.second
                     .orEmpty()
                     .filter { it.checkedAt == null }
                     .map { it.normalizedName }
                     .toSet()
-            index.suggestions(analyzer.searchForms(analyzer.analyze(text).label), pending)
-        }
+            }.distinctUntilChanged()
+
+    /**
+     * Recherche à chaque frappe, hors du fil principal (#54) : l'analyse de la saisie et le parcours de l'index ne
+     * bloquent jamais la frappe suivante, et une frappe plus récente annule le calcul en cours.
+     */
+    private val suggestions: Flow<List<ItemSuggestion>> =
+        combine(index, typed, pendingNames, ::Triple)
+            .mapLatest { (index, text, pending) ->
+                withContext(computation) {
+                    index.suggestions(analyzer.searchForms(analyzer.analyze(text).label), pending)
+                }
+            }.distinctUntilChanged()
 
     val uiState: StateFlow<ListDetailUiState> =
         combine(
@@ -139,12 +157,17 @@ class ListDetailViewModel(
         viewModelScope.launch { remaps.collect { remap -> currentListId.update { remap[it] } } }
     }
 
-    /** Une écriture d'ajout est en cours : tout nouvel ajout est ignoré (double Entrée, double appui). */
-    private var isAdding = false
+    /**
+     * Propositions en cours d'ajout, par forme normalisée : un double appui sur une même proposition ne l'ajoute
+     * qu'une fois. Une saisie validée pendant l'écriture d'une autre n'est pas ignorée (#54) : elle attend son tour.
+     */
+    private val adding = mutableSetOf<String>()
 
-    /** Ajoute la saisie en cours. Sans effet si elle est vide. */
+    /** Les ajouts s'écrivent un par un, dans l'ordre où ils ont été validés. */
+    private val writes = Mutex()
+
+    /** Ajoute la saisie en cours. Sans effet si elle est vide (une double Entrée trouve le champ déjà vidé). */
     fun submit() {
-        if (isAdding) return
         val text = input.text.toString()
         val entry = analyzer.analyze(text)
         if (entry.label.isEmpty()) return
@@ -153,7 +176,7 @@ class ListDetailViewModel(
 
     /** Ajoute une proposition en gardant la quantité déjà tapée. */
     fun add(suggestion: ItemSuggestion) {
-        if (isAdding) return
+        if (suggestion.normalizedName in adding) return
         val text = input.text.toString()
         val entry = analyzer.analyze(text)
         val categoryId = suggestion.categoryId ?: analyzer.analyze(suggestion.label).categoryId
@@ -173,7 +196,8 @@ class ListDetailViewModel(
 
     /**
      * La saisie est vidée tout de suite (un second appel ne la retrouve pas) et rendue si l'écriture échoue, sauf
-     * si l'utilisateur a déjà retapé autre chose.
+     * si l'utilisateur a déjà retapé autre chose. La liste est lue au moment d'écrire : une reprise de compte faite
+     * pendant l'attente est suivie.
      */
     private fun add(
         text: String,
@@ -183,16 +207,40 @@ class ListDetailViewModel(
         productId: String?,
         categoryId: String,
     ) {
-        val id = currentListId.value
-        isAdding = true
+        adding += normalizedName
         input.clearText()
-        viewModelScope.launch {
-            try {
-                val added = perform { lists.addItem(id, label, normalizedName, quantity, productId, categoryId, now()) }
-                if (added == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
-            } finally {
-                isAdding = false
-            }
+        // Ni annulable ni sautée : le texte a déjà quitté le champ, un Retour juste après ne doit pas perdre l'article.
+        viewModelScope.launch(start = CoroutineStart.ATOMIC) {
+            withContext(NonCancellable) { write(text, label, normalizedName, quantity, productId, categoryId) }
+        }
+    }
+
+    private suspend fun write(
+        text: String,
+        label: String,
+        normalizedName: String,
+        quantity: String?,
+        productId: String?,
+        categoryId: String,
+    ) {
+        try {
+            val added =
+                writes.withLock {
+                    perform {
+                        lists.addItem(
+                            currentListId.value,
+                            label,
+                            normalizedName,
+                            quantity,
+                            productId,
+                            categoryId,
+                            now(),
+                        )
+                    }
+                }
+            if (added == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
+        } finally {
+            adding -= normalizedName
         }
     }
 

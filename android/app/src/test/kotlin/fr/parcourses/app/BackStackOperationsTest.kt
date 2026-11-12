@@ -5,6 +5,10 @@ import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.feature.shopping.RouteKnowledge
 import fr.parcourses.feature.shopping.ShoppingSummary
 import fr.parcourses.feature.storepicker.StorePickerOutcome
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -180,6 +184,45 @@ class ShoppingNavigationTest {
             assertFalse(stack.resumeOnLaunch(gate, coldStart = false) { visit })
             assertEquals(1, stack.size)
         }
+
+    @Test
+    fun aRecreationDuringTheLookupStillResumes() =
+        runTest {
+            // #54, M2 : rotation pendant la lecture de la visite, dans les premières millisecondes du lancement.
+            val gate = LaunchResume()
+            val stack = stack(Route.Lists)
+            val lookup = launch { stack.resumeOnLaunch(gate, coldStart = true) { awaitCancellation() } }
+            runCurrent()
+            lookup.cancelAndJoin()
+
+            // L'activité recréée n'est pas un lancement à froid, mais la reprise n'a jamais eu lieu.
+            assertTrue(stack.resumeOnLaunch(gate, coldStart = false) { visit })
+            assertEquals(listOf("Lists", "ListDetail", "Shopping"), stack.map { it::class.simpleName })
+            // Et une seule fois.
+            stack.removeAt(stack.lastIndex)
+            stack.removeAt(stack.lastIndex)
+            assertFalse(stack.resumeOnLaunch(gate, coldStart = false) { visit })
+        }
+
+    @Test
+    fun aListOpensOnlyFromTheListsScreen() {
+        val stack = stack(Route.Lists)
+        assertTrue(stack.openListFromLists("a"))
+        // Double appui : l'écran est déjà au sommet.
+        assertFalse(stack.openListFromLists("a"))
+        assertEquals(2, stack.size)
+    }
+
+    @Test
+    fun aListCreatedAfterLeavingTheListsScreenIsNotPushed() {
+        // #54 : la création se termine alors que « À propos », ou une autre liste, est déjà affiché.
+        val about = stack(Route.Lists, Route.About)
+        assertFalse(about.openListFromLists("nouvelle"))
+        assertEquals(listOf(Route.Lists, Route.About), about)
+        val other = stack(Route.Lists, Route.ListDetail("b"))
+        assertFalse(other.openListFromLists("nouvelle"))
+        assertEquals(2, other.size)
+    }
 
     @Test
     fun withoutAnOpenVisitNothingIsResumed() =
