@@ -1,6 +1,3 @@
-// Port de `ProductResolution` d'iOS : une garde par raison d'ignorer une réponse du serveur.
-@file:Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
-
 package fr.parcourses.core.data.sync
 
 import androidx.room3.withWriteTransaction
@@ -35,6 +32,7 @@ data class ProductMatch(
 ) {
     companion object {
         /** `null` si le serveur n'a ni trouvé ni créé de produit. */
+        @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
         fun of(
             candidate: ProductCandidate,
             row: ResolvedProductRow,
@@ -78,6 +76,7 @@ object ProductResolution {
      * au lieu de la catégorie. La catégorie locale de l'article ne change pas : il resterait sinon à sa place à
      * l'écran jusqu'au prochain tri. Vrai si une donnée affichée a changé.
      */
+    @Suppress("LoopWithTooManyJumpStatements") // port d'iOS : une garde par cas écarté
     suspend fun apply(
         db: ParcoursesDatabase,
         matches: List<ProductMatch>,
