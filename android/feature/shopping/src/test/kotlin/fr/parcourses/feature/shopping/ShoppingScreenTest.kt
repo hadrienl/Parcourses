@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -327,6 +328,16 @@ class ShoppingScreenTest {
         rule.onNodeWithTag(TAG_FINISH).performClick()
         rule.onNodeWithTag(TAG_DROP).performClick()
         assertEquals(listOf(false), finished)
+    }
+
+    @Test
+    fun finishingIsUnavailableUntilTheScreenHasLoaded() {
+        // #54 : avant le chargement, rien n'est compté et la feuille « garder ou retirer » ne s'afficherait pas.
+        show(ShoppingUiState(name = "Courses"))
+        rule.onNodeWithTag(TAG_FINISH).assertIsNotEnabled()
+        rule.onNodeWithTag(TAG_FINISH).performClick()
+        rule.onNodeWithTag(TAG_REMAINING_SHEET).assertDoesNotExist()
+        assertTrue(finished.isEmpty())
     }
 
     @Test

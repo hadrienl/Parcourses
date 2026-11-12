@@ -7,6 +7,7 @@ import fr.parcourses.core.model.SortParams
 import fr.parcourses.core.model.SortSnapshot
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -104,8 +105,31 @@ class GraphSnapshotCache(
     val gateway: RemoteGateway?,
     private val now: () -> Instant = { Clock.System.now() },
 ) {
-    suspend fun cached(storeId: String): LoadedSnapshot? =
-        graphs.snapshot(storeId)?.let { GraphPayload.decode(it.payload)?.loaded }
+    /**
+     * Instantané en cache, pour des courses dans ce magasin : il redevient le plus récent du LRU (#54), sans quoi un
+     * magasin fréquent au graphe stable (aucune nouvelle version) finirait évincé par des magasins de passage.
+     */
+    suspend fun cached(storeId: String): LoadedSnapshot? {
+        val loaded = graphs.snapshot(storeId)?.let { GraphPayload.decode(it.payload)?.loaded } ?: return null
+        touch(storeId)
+        return loaded
+    }
+
+    /** Accessoire : un échec (disque plein, base verrouillée) ne doit pas priver les courses de l'instantané lu. */
+    @Suppress("TooGenericExceptionCaught") // toute panne est ignorée, l'annulation est relancée
+    private suspend fun touch(storeId: String) {
+        try {
+            graphs.touch(storeId, now())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // Le LRU reste tel quel.
+        }
+    }
+
+    /** Version en cache, sans compter comme un usage. */
+    private suspend fun cachedVersion(storeId: String): Long? =
+        graphs.snapshot(storeId)?.let { GraphPayload.decode(it.payload)?.loaded?.version }
 
     /**
      * Interroge le serveur et enregistre une nouvelle version. `null` si rien de neuf. Un instantané illisible ne
@@ -113,7 +137,7 @@ class GraphSnapshotCache(
      */
     suspend fun refresh(storeId: String): LoadedSnapshot? {
         val remote = gateway ?: return null
-        val known = cached(storeId)?.version
+        val known = cachedVersion(storeId)
         val response = remote.graphSnapshot(Uuid.parse(storeId), known)
         val raw = (response as? GraphSnapshotResponse.Payload)?.json?.encodeToByteArray()
         return raw?.let { bytes ->

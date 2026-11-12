@@ -2,8 +2,11 @@ package fr.parcourses.feature.shopping
 
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.sync.AccountRekey
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.database.entity.OutboxKind
+import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -501,6 +504,53 @@ class ShoppingViewModelTest : ShoppingTest() {
         }
 
     @Test
+    fun anUndoTouchedDuringAnAccountRecoveryIsReplayedUnderTheNewIdentifiers() =
+        runTest(main) {
+            // #54 : la reprise de compte a écrit ses nouveaux identifiants, sa correspondance n'est pas encore arrivée.
+            val (listId, items) = groceries()
+            val remaps = MutableSharedFlow<IdentifierRemap>(extraBufferCapacity = 1)
+            val model = model(listId, remaps = remaps)
+            val state = started(model)
+            model.toggle(state.row("lait"))
+            runCurrent()
+            val oldVisit = visits.openVisit()!!.id
+            val oldCheck = visits.checks(oldVisit).single().id
+            assertEquals(
+                oldCheck,
+                model.uiState.value.undo
+                    ?.checkId,
+            )
+
+            val remap = AccountRekey(db).run(clock())
+            model.performUndo()
+            runCurrent()
+            // Ni erreur ni coche perdue : l'annulation attend la correspondance.
+            assertNull(model.uiState.value.errorMessage)
+
+            remaps.tryEmit(remap)
+            runCurrent()
+
+            val milk = remap[items.first().id]
+            assertNull(db.items().get(milk)?.checkedAt)
+            val newVisit = remap[oldVisit]
+            assertEquals(newVisit, visits.openVisit()?.id)
+            assertTrue(visits.checks(newVisit).isEmpty())
+            // La coche retenue ne partira pas : son entrée a été retirée de la file.
+            assertTrue(db.outbox().pendingFor(remap[oldCheck]).isEmpty())
+            assertNull(model.uiState.value.errorMessage)
+            assertFalse(
+                model.uiState.value
+                    .row("lait")
+                    .isChecked,
+            )
+
+            // La visite suivie est la nouvelle : la coche suivante y entre.
+            model.toggle(model.uiState.value.row("pain"))
+            runCurrent()
+            assertEquals(listOf(remap[items[1].id]), visits.checks(newVisit).map { it.itemId })
+        }
+
+    @Test
     fun aFailedWriteIsShownAndCanBeDismissed() =
         runTest(main) {
             val (listId, _) = groceries()
@@ -521,6 +571,33 @@ class ShoppingViewModelTest : ShoppingTest() {
     // region Revue de la PR #56
 
     @Test
+    fun finishingBeforeTheLoadEndsIsIgnored() =
+        runTest(main) {
+            // #54 : appareil lent, « Terminer » touché avant la fin du chargement (instantané attendu jusqu'à 3 s).
+            gateway =
+                FakeSnapshotGateway(
+                    snapshot = {
+                        delay(10_000)
+                        GraphSnapshotResponse.None
+                    },
+                )
+            val (listId, items) = groceries()
+            val model = model(listId)
+            model.start()
+            runCurrent()
+            assertFalse(model.uiState.value.isLoaded)
+
+            model.finish(keepRemaining = false)
+            after(5_000)
+
+            val state = model.uiState.value
+            assertTrue(state.isLoaded)
+            assertNull(state.summary)
+            // Rien n'a été retiré sans que la question soit posée.
+            assertEquals(items.map { it.id }.toSet(), lists.items(listId).map { it.id }.toSet())
+        }
+
+    @Test
     fun aDoubleCheckEventChecksOnce() =
         runTest(main) {
             val (listId, items) = groceries()
@@ -537,6 +614,30 @@ class ShoppingViewModelTest : ShoppingTest() {
             assertEquals(1, kinds().count { it == OutboxKind.InsertChecks })
             assertNotNull(db.items().get(items.first().id)?.checkedAt)
             assertNull(model.uiState.value.errorMessage)
+        }
+
+    @Test
+    fun aCheckRefusedBecauseItWasCheckedElsewhereShowsTheRowChecked() =
+        runTest(main) {
+            // #54, M4 : coché sur un autre appareil pendant qu'un tri attend (le rechargement extérieur est suspendu).
+            val (listId, items) = groceries()
+            val model = model(listId)
+            val state = started(model)
+            model.toggle(state.row("pommes"))
+            runCurrent()
+            lists.setChecked(items.first().id, clock(), clock())
+            runCurrent()
+
+            model.toggle(state.row("lait"))
+            runCurrent()
+
+            assertNull(model.uiState.value.errorMessage)
+            assertTrue(
+                model.uiState.value
+                    .row("lait")
+                    .isChecked,
+            )
+            assertEquals(1, visits.checks(visits.openVisit()!!.id).size)
         }
 
     @Test
