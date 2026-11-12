@@ -29,10 +29,12 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
   profite aux autres le lendemain matin, au plus ~29 h 30 après sa fin. L'heure exacte ne reste que dans `visits`
   (privée), pour l'anti-spam.
 - **Seuil de contributeurs** (#70) : à chaque publication, `graph.save_audience` compte les comptes distincts dont
-  des visites ont été apprises dans le magasin (dans la fenêtre `PUBLISH_CONTRIBUTOR_WINDOW_DAYS`, 180 jours, et
-  toutes dates confondues) et garde ces **nombres seuls** dans `graph.snapshot_audience`. La RPC sert l'instantané
-  à tous à partir de `PUBLISH_MIN_CONTRIBUTORS` (2) contributeurs dans la fenêtre ; sinon au seul demandeur qui en
-  est l'unique contributeur, toutes dates confondues ; sinon `{"none": true}`. Paramètres de la version 2 de
+  des visites ont été apprises dans le magasin dans la fenêtre `PUBLISH_CONTRIBUTOR_WINDOW_DAYS` (180 jours) et
+  garde ce **nombre seul** dans `graph.snapshot_audience`. La RPC sert l'instantané à tous à partir de
+  `PUBLISH_MIN_CONTRIBUTORS` (2) contributeurs ; sinon au seul demandeur dont les visites apprises sont **toutes**
+  celles du magasin (`store_stats.visits_count`, jamais décrémenté, même quand un compte est supprimé) ; sinon
+  `{"none": true}`. Un magasin sous le seuil dont d'autres comptes ont contribué (hors fenêtre, ou supprimés) n'est
+  servi à personne. Paramètres de la version 2 de
   `graph.algo_versions`. La publication bloque l'apprentissage (verrou `graph-process`) pour que le contenu et le
   comptage décrivent les mêmes visites.
 

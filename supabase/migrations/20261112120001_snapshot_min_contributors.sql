@@ -3,10 +3,12 @@
 -- le nombre seul est gardé (graph.snapshot_audience), jamais l'identité. La RPC sert l'instantané
 -- - à tous, si au moins PUBLISH_MIN_CONTRIBUTORS comptes ont contribué dans la fenêtre
 --   PUBLISH_CONTRIBUTOR_WINDOW_DAYS (deux demi-vies) ;
--- - sinon, au seul demandeur qui en est l'unique contributeur, toutes dates confondues ;
+-- - sinon, au seul demandeur qui en est l'unique contributeur : toutes les visites apprises du magasin
+--   (store_stats.visits_count, qui ne baisse jamais, même quand un compte est supprimé) sont les siennes ;
 -- - à personne d'autre : {"none": true}, que les apps traitent déjà (elles gardent leur cache).
 
--- Même ordre de verrous que publish_snapshots : aucun job du graphe pendant la migration.
+-- Même ordre de verrous que publish_snapshots (publication, puis apprentissage) : aucun job du graphe pendant
+-- la migration. process_pending_visits ne prend son verrou qu'en mode non bloquant : pas d'interblocage.
 select pg_advisory_xact_lock(hashtext('graph-snapshot'));
 select pg_advisory_xact_lock(hashtext('graph-process'));
 
@@ -21,24 +23,21 @@ from graph.algo_versions as a
 where a.version = 1
 on conflict (version) do nothing;
 
--- Bascule : retirer la version active si ce n'est pas la 2, puis activer la 2 (une seule active à la fois).
+-- Bascule, une seule fois : tant que la version 2 n'a jamais été activée, retirer la version active, puis activer la 2
+-- (une seule active à la fois). Rejouée plus tard, la migration ne touche plus aux versions.
 update graph.algo_versions set retired_at = now()
 where version <> 2 and activated_at is not null and retired_at is null
-  and exists (select 1 from graph.algo_versions as b where b.version = 2 and b.retired_at is null);
+  and exists (select 1 from graph.algo_versions as b where b.version = 2 and b.activated_at is null);
 update graph.algo_versions set activated_at = now()
 where version = 2 and activated_at is null;
 
 -- Public de chaque instantané, compté à sa publication. Schéma graph : jamais exposé aux clients.
+-- Un nombre seul : comptes distincts aux visites apprises dans la fenêtre, à la date de l'instantané.
+-- Comptage servi par visits_store_idx ; la RPC, par visits_learned_idx (user_id, store_id, ended_at).
 create table if not exists graph.snapshot_audience (
-  store_id          uuid primary key references public.store_graph_snapshots (store_id) on delete cascade,
-  contributors      integer not null check (contributors >= 0),      -- dans la fenêtre
-  contributors_all  integer not null check (contributors_all >= 0),  -- toutes dates confondues
-  learned_through   timestamptz                                       -- processed_at de la dernière visite comptée
+  store_id      uuid primary key references public.store_graph_snapshots (store_id) on delete cascade,
+  contributors  integer not null check (contributors >= 0)
 );
-
--- Comptage par magasin, et recherche des visites apprises du demandeur.
-create index if not exists visits_store_learned_idx on public.visits (store_id, user_id, ended_at)
-where learn_outcome = 'learned';
 
 -- Compte les contributeurs du magasin à la date p_at et l'enregistre avec l'instantané.
 create or replace function graph.save_audience(p_store_id uuid, p_at timestamptz, p_server_params jsonb)
@@ -47,19 +46,13 @@ language sql
 volatile
 set search_path = ''
 as $$
-  insert into graph.snapshot_audience as a (store_id, contributors, contributors_all, learned_through)
-  select p_store_id,
-         count(distinct v.user_id) filter (
-           where v.ended_at >= p_at - make_interval(days => (p_server_params ->> 'PUBLISH_CONTRIBUTOR_WINDOW_DAYS')::integer)
-         ),
-         count(distinct v.user_id),
-         max(v.processed_at)
+  insert into graph.snapshot_audience as a (store_id, contributors)
+  select p_store_id, count(distinct v.user_id)
   from public.visits as v
-  where v.store_id = p_store_id and v.learn_outcome = 'learned'
-  on conflict (store_id) do update set
-    contributors = excluded.contributors,
-    contributors_all = excluded.contributors_all,
-    learned_through = excluded.learned_through;
+  where v.store_id = p_store_id
+    and v.learn_outcome = 'learned'
+    and v.ended_at >= p_at - make_interval(days => (p_server_params ->> 'PUBLISH_CONTRIBUTOR_WINDOW_DAYS')::integer)
+  on conflict (store_id) do update set contributors = excluded.contributors;
 $$;
 
 -- Publication : copie de 20261112110001_graph_day_granularity.sql, plus le verrou de l'apprentissage, le contrôle
@@ -163,10 +156,10 @@ end;
 $$;
 
 -- Lecture par les apps : même signature et mêmes réponses qu'avant. Sous le seuil, {"none": true} sauf pour
--- l'unique contributeur. « Unique » se juge sur le comptage de la publication : une visite du demandeur apprise
--- après ce comptage (processed_at > learned_through) ne suffit pas, sinon un nouveau venu lirait le graphe d'un autre.
--- La publication bloque l'apprentissage (verrou graph-process) : toute visite apprise ensuite a un processed_at plus
--- récent que celles qui ont été comptées.
+-- l'unique contributeur : toutes les visites apprises du magasin, comptées par store_stats.visits_count (jamais
+-- décrémenté), sont les siennes. Ni le nouveau venu (le compteur inclut les visites des autres), ni le successeur
+-- d'un compte supprimé (ses visites ont disparu, pas le compteur) ne passent. L'unique contributeur rejoint par un
+-- nouveau venu n'est plus servi jusqu'au comptage suivant ; il garde son cache.
 -- Sans paramètre de seuil, seul l'unique contributeur est servi.
 create or replace function public.store_graph_snapshot(p_store_id uuid, p_known_version bigint default null)
 returns jsonb
@@ -179,12 +172,11 @@ as $$
     when g.store_id is null then '{"none": true}'::jsonb
     when not coalesce(
       a.contributors >= ((graph.active_version()).server_params ->> 'PUBLISH_MIN_CONTRIBUTORS')::integer
-      or (a.contributors_all = 1 and exists (
-        select 1 from public.visits as v
-        where v.store_id = p_store_id
-          and v.user_id = (select auth.uid())
+      or (s.visits_count > 0 and s.visits_count = (
+        select count(*) from public.visits as v
+        where v.user_id = (select auth.uid())
+          and v.store_id = p_store_id
           and v.learn_outcome = 'learned'
-          and v.processed_at <= a.learned_through
       )),
       false
     ) then '{"none": true}'::jsonb
@@ -193,7 +185,8 @@ as $$
   end
   from (select 1) as one
   left join public.store_graph_snapshots as g on g.store_id = p_store_id
-  left join graph.snapshot_audience as a on a.store_id = g.store_id;
+  left join graph.snapshot_audience as a on a.store_id = g.store_id
+  left join public.store_stats as s on s.store_id = g.store_id;
 $$;
 
 revoke all on function graph.save_audience(uuid, timestamptz, jsonb) from public, anon, authenticated;
@@ -203,7 +196,8 @@ grant execute on function public.store_graph_snapshot(uuid, bigint) to authentic
 
 -- Données existantes, projet hébergé compris : tous les instantanés sont recalculés (version 2) et leur public
 -- compté. Calculés à minuit comme chaque nuit ; le graphe ne contient que des journées terminées (lot 70.2).
--- Tant qu'un instantané n'a pas de public compté, la RPC ne le sert à personne.
+-- Tant qu'un instantané n'a pas de public compté, la RPC ne le sert qu'à son unique contributeur. Au-delà de
+-- 10 000 magasins (plafond d'un passage), les suivants sont comptés les nuits suivantes.
 do $$
 begin
   update public.store_graph_snapshots set checked_at = '-infinity';
