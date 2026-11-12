@@ -12,7 +12,7 @@ select is_empty($$
   where table_schema = 'public' and grantee = 'anon'
 $$, 'anon sans privilège de colonne');
 
--- Tables partagées : lecture seule.
+-- Tables partagées et graphe : non modifiables par les clients (le graphe n'est même pas lisible, #70).
 select ok(not has_table_privilege('authenticated', 'public.' || t, 'INSERT,UPDATE,DELETE,TRUNCATE'),
           t || ' non modifiable par authenticated')
 from unnest(array['categories','products','stores','store_edges','store_entries','store_stats']) as t;
