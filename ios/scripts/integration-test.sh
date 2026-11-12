@@ -51,6 +51,9 @@ cross join lateral (select jsonb_build_object(
   'format_version', 1, 'store_id', '$store', 'algo_version', a.version, 'params_version', a.version,
   'params', a.device_params, 'snapshot_version', 1000, 'generated_at', '2026-11-01T00:00:00Z',
   'confidence_q', 720, 'entries', '[]'::jsonb, 'edges', '[]'::jsonb) as payload) as p;
+-- Public compté (#70, lot 70.3) : sans lui, la RPC ne sert l'instantané à personne. Retiré avec l'instantané.
+insert into graph.snapshot_audience (store_id, contributors, contributors_all, learned_through)
+values ('$store', 2, 2, now());
 SQL
 
 udid=${SIMULATOR_UDID:-$(scripts/simulator.sh latest)}

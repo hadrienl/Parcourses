@@ -73,7 +73,7 @@ select ok((select column_default is null from information_schema.columns
   'last_seen_at sans valeur par défaut');
 
 -- Sans fuseau, le job échoue sans consommer de tentative (aucune date du graphe ne serait calculable).
-update graph.algo_versions set server_params = server_params - 'RATE_LIMIT_TIME_ZONE' where version = 1;
+update graph.algo_versions set server_params = server_params - 'RATE_LIMIT_TIME_ZONE' where activated_at is not null and retired_at is null;
 select throws_ok($$ select graph.process_pending_visits(200, timestamptz '2026-10-27 00:01+01') $$,
   'P0001', 'RATE_LIMIT_TIME_ZONE missing in server_params', 'fuseau absent : exception');
 

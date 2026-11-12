@@ -28,6 +28,13 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
   04:32 ou 05:32 à Paris), calculés à minuit : le graphe publié ne contient que des journées complètes. Une visite
   profite aux autres le lendemain matin, au plus ~29 h 30 après sa fin. L'heure exacte ne reste que dans `visits`
   (privée), pour l'anti-spam.
+- **Seuil de contributeurs** (#70) : à chaque publication, `graph.save_audience` compte les comptes distincts dont
+  des visites ont été apprises dans le magasin (dans la fenêtre `PUBLISH_CONTRIBUTOR_WINDOW_DAYS`, 180 jours, et
+  toutes dates confondues) et garde ces **nombres seuls** dans `graph.snapshot_audience`. La RPC sert l'instantané
+  à tous à partir de `PUBLISH_MIN_CONTRIBUTORS` (2) contributeurs dans la fenêtre ; sinon au seul demandeur qui en
+  est l'unique contributeur, toutes dates confondues ; sinon `{"none": true}`. Paramètres de la version 2 de
+  `graph.algo_versions`. La publication bloque l'apprentissage (verrou `graph-process`) pour que le contenu et le
+  comptage décrivent les mêmes visites.
 
 ## Migrations
 
@@ -45,6 +52,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_resolve_products.sql` | RPC `resolve_products`, schéma interne `catalog` (quota de créations) |
 | `…_graph_read_closed.sql` | Lecture directe du graphe et des instantanés retirée aux clients ; `store_graph_snapshot` en `security definer` (#70) |
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
+| `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration

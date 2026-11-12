@@ -21,7 +21,7 @@ select is((select observations from public.store_edges where store_id = :'store'
   2, 'arête 1-2 observée deux fois (Alice)');
 select is((select count(*)::int from public.checks where visit_id = :'v3' and ignored), 3, 'rafale de Bob marquée ignored');
 select is((select learn_outcome from public.visits where id = :'v1'), 'learned', 'outcome learned');
-select is((select processed_algo_version from public.visits where id = :'v1'), 1, 'version d''algorithme notée');
+select is((select processed_algo_version from public.visits where id = :'v1'), (select version from graph.active_version()), 'version d''algorithme notée');
 select is((select visits_count from public.store_stats where store_id = :'store'), 3, 'visits_count');
 select isnt((select graph_changed_at from public.store_stats where store_id = :'store'), null, 'graph_changed_at posé');
 select is((select count(*)::int from graph.runs where kind = 'process'), :'runs_before'::int + 1, 'exécution journalisée');
@@ -79,13 +79,13 @@ select is(graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01') -
 select ok((select pg_get_indexdef('public.visits_to_process_idx'::regclass) like '%process_attempts < 5%'), 'index de file limité aux visites à reprendre');
 
 -- Plafond de coches, de bout en bout : MAX_CHECKS abaissé pour rester sous le trigger de #8.
-update graph.algo_versions set server_params = server_params || '{"MAX_CHECKS": 2}' where version = 1;
+update graph.algo_versions set server_params = server_params || '{"MAX_CHECKS": 2}' where activated_at is not null and retired_at is null;
 select tests.visit(:'bob', :'store', array[20,21,22], array[0,30,60]::float8[], timestamptz '2026-10-30 10:30+01') as v9 \gset
 select graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01');
 select is((select learn_outcome from public.visits where id = :'v9'), 'too_many_checks', 'trop de coches : too_many_checks');
 
 -- Aucune version active : exception, sans consommer de tentative.
-update graph.algo_versions set retired_at = now() where version = 1;
+update graph.algo_versions set retired_at = now() where activated_at is not null and retired_at is null;
 select tests.visit(:'bob', :'store', array[23,24,25], array[0,30,60]::float8[], timestamptz '2026-10-30 10:45+01') as v10 \gset
 select throws_ok($$ select graph.process_pending_visits(200, timestamptz '2026-10-31 12:00+01') $$, 'P0001', 'no active graph.algo_versions row', 'aucune version active : exception');
 select is((select process_attempts::int from public.visits where id = :'v10'), 0, 'aucune tentative consommée');
