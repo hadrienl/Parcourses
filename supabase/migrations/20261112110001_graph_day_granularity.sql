@@ -1,12 +1,17 @@
 -- Le graphe ne date plus les visites qu'au jour près (#70, lot 70.2).
 -- 1. Les dates écrites dans le graphe (last_seen_at, v_eff_at, last_visit_at) sont ramenées à minuit, heure
 --    locale du fuseau des paramètres (RATE_LIMIT_TIME_ZONE, Europe/Paris), y compris les lignes existantes.
--- 2. Les instantanés ne sont plus publiés qu'une fois par nuit, calculés « à minuit » : leur date, leur version
+-- 2. Une visite n'est apprise qu'une fois son jour terminé (après minuit, heure locale) : le graphe d'une nuit
+--    ne contient que des journées complètes.
+-- 3. Les instantanés ne sont plus publiés qu'une fois par nuit, calculés « à minuit » : leur date, leur version
 --    et leurs poids décrus ne disent plus l'heure d'une visite.
 -- Un jour d'écart change un poids de 0,77 % au plus (demi-vie de 90 jours) : sans effet sur le tri.
 
--- Traitement des visites : copie de 20261031160002_graph_learn.sql, sauf la date écrite dans le graphe
--- (v_learned_on). L'anti-spam garde l'heure exacte : il lit visits, table privée.
+-- Traitement des visites : copie de 20261031160002_graph_learn.sql, sauf deux points.
+-- - Seules les visites terminées avant minuit (v_today) sont apprises. Apprendre le jour même ferait changer le graphe
+--   entre minuit et la publication nocturne, ce qui daterait la visite.
+-- - La date écrite dans le graphe est le jour de la visite (v_learned_on).
+-- L'anti-spam garde l'heure exacte : il lit visits, table privée.
 create or replace function graph.process_pending_visits(
   p_batch integer default 200,
   p_now timestamptz default now()
@@ -29,6 +34,7 @@ declare
   v_weight double precision;
   v_day date;
   v_learned_on timestamptz;
+  v_today timestamptz;
   v_count integer;
   v_started timestamptz := clock_timestamp();
   v_claimed integer := 0;
@@ -51,12 +57,18 @@ begin
   v_half_life_s := (v_params ->> 'HALF_LIFE_DAYS')::double precision * 86400;
   v_tz := v_params ->> 'RATE_LIMIT_TIME_ZONE';
   v_max_per_day := (v_params ->> 'MAX_LEARNED_VISITS_PER_USER_STORE_DAY')::integer;
+  -- Sans fuseau, aucune date du graphe ne peut être calculée : le job échoue sans consommer de tentative.
+  if v_tz is null then
+    raise exception 'RATE_LIMIT_TIME_ZONE missing in server_params';
+  end if;
+  v_today := date_trunc('day', p_now, v_tz);
 
   for v_visit in
     select v.id, v.user_id, v.store_id, v.list_was_sorted, v.ended_at, v.process_attempts
     from public.visits as v
     where v.ended_at is not null and v.processed_at is null and v.process_attempts < 5
       and (v.next_attempt_at is null or v.next_attempt_at <= p_now)
+      and v.ended_at < v_today
     order by v.store_id, v.ended_at, v.id
     limit p_batch
     for update skip locked
@@ -170,9 +182,8 @@ begin
 end;
 $$;
 
--- Publication : copie de 20261031160003_graph_snapshot.sql, sauf le filtre graph_changed_at <= p_now.
--- Publié « à minuit », un instantané n'inclut pas un magasin modifié depuis : celui-ci attend la nuit suivante,
--- sinon l'instantané dirait qu'une visite a eu lieu entre minuit et l'heure du passage.
+-- Publication : copie de 20261031160003_graph_snapshot.sql, sauf l'ordre de passage. Avec un seul passage par nuit,
+-- les magasins modifiés passent avant ceux qu'on ne republie que pour la décroissance, si le plafond est atteint.
 create or replace function graph.publish_snapshots(
   p_limit integer default 50,
   p_now timestamptz default now(),
@@ -205,14 +216,12 @@ begin
     from public.store_stats as s
     left join public.store_graph_snapshots as g on g.store_id = s.store_id
     where s.graph_changed_at is not null
-      -- Instantané « à la date p_now » : un changement postérieur attend la publication suivante (#70).
-      and s.graph_changed_at <= p_now
       and (
         g.store_id is null
         or (s.graph_changed_at > g.checked_at and g.checked_at <= p_now - interval '1 hour')
         or (p_force_stale_after is not null and g.checked_at <= p_now - p_force_stale_after)
       )
-    order by s.graph_changed_at, s.store_id
+    order by (g.store_id is null or s.graph_changed_at > g.checked_at) desc, s.graph_changed_at, s.store_id
     limit p_limit
     for update of s skip locked
   loop
@@ -300,11 +309,17 @@ select cron.schedule('graph-snapshot', '32 3 * * *', 'select graph.publish_daily
 -- Compenser (w × 2^(fraction du jour / demi-vie)) réinscrirait l'heure dans le poids, donc dans l'instantané.
 -- Puis tous les instantanés sont recalculés à minuit ; ceux d'un magasin modifié depuis minuit sont retirés
 -- jusqu'à la nuit suivante (les apps gardent leur cache sur {"none": true}).
+-- Les poids gardent les petits écarts de décroissance entre visites antérieures (moins d'un jour chacun) : ils ont déjà
+-- été publiés et s'effacent avec la décroissance. Les recalculer exigerait de rejouer toutes les visites (#11 §9).
 do $$
 declare
   v_tz text := coalesce((graph.active_version()).server_params ->> 'RATE_LIMIT_TIME_ZONE', 'Europe/Paris');
   v_today timestamptz := date_trunc('day', now(), v_tz);
 begin
+  -- Attend les jobs en cours (apprentissage, publication) et les tient à l'écart jusqu'à la fin de la transaction.
+  -- Verrous réentrants : les pg_try_advisory_xact_lock de publish_snapshots réussissent ensuite.
+  perform pg_advisory_xact_lock(hashtext('graph-process'));
+  perform pg_advisory_xact_lock(hashtext('graph-snapshot'));
   update public.store_edges set last_seen_at = date_trunc('day', last_seen_at, v_tz)
   where last_seen_at <> date_trunc('day', last_seen_at, v_tz);
   update public.store_entries set last_seen_at = date_trunc('day', last_seen_at, v_tz)
@@ -315,10 +330,12 @@ begin
   where last_visit_at <> date_trunc('day', last_visit_at, v_tz)
      or v_eff_at <> date_trunc('day', v_eff_at, v_tz);
 
+  update public.store_graph_snapshots set checked_at = '-infinity';
+  perform graph.publish_daily_snapshots(now());
+  -- Un magasin appris depuis minuit contient une visite du jour : publié « à minuit », il la daterait.
+  -- Son instantané est retiré ; la nuit suivante le republie comme un premier instantané.
   delete from public.store_graph_snapshots as g
   using public.store_stats as s
   where s.store_id = g.store_id and s.graph_changed_at > v_today;
-  update public.store_graph_snapshots set checked_at = '-infinity';
-  perform graph.publish_daily_snapshots(now());
 end;
 $$;

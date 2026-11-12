@@ -9,8 +9,9 @@ select tests.store(1) as store \gset
 select tests.store(2) as empty_store \gset
 
 select tests.visit(:'alice', :'store', array[1,2,3], array[0,30,60]::float8[], timestamptz '2026-10-01 10:00+00');
-select graph.process_pending_visits(200, timestamptz '2026-10-01 10:01+00');
-select graph.publish_snapshots(50, timestamptz '2026-10-01 10:05+00');
+-- Apprise après minuit, publiée la nuit (#70, lot 70.2).
+select graph.process_pending_visits(200, timestamptz '2026-10-02 00:01+02');
+select graph.publish_daily_snapshots(timestamptz '2026-10-02 03:32+00');
 select snapshot_version as ver from public.store_graph_snapshots where store_id = :'store' \gset
 
 -- Droits : aucune lecture directe, ni pour authenticated ni pour anon.

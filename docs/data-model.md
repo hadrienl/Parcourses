@@ -23,9 +23,11 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
   ses achats et l'heure de ses visites. Une RPC `security definer` exécutable par `authenticated` est voulue ici,
   comme pour `resolve_products` : ne pas la « corriger » en `security invoker`, qui exigerait de rouvrir la table.
 - **Le graphe ne date qu'au jour** (#70) : `last_seen_at`, `v_eff_at` et `last_visit_at` valent minuit (fuseau
-  `RATE_LIMIT_TIME_ZONE`, Europe/Paris) du jour de la visite. Les instantanés sont publiés une seule fois par nuit
-  (job `graph-snapshot`, 03:32 UTC), calculés à minuit ; un magasin modifié après minuit attend la nuit suivante.
-  Fraîcheur : 24 h au plus. L'heure exacte ne reste que dans `visits` (privée), pour l'anti-spam.
+  `RATE_LIMIT_TIME_ZONE`, Europe/Paris) du jour de la visite. Une visite n'est apprise qu'une fois son jour terminé
+  (après minuit), et les instantanés ne sont publiés qu'une fois par nuit (job `graph-snapshot`, 03:32 UTC, soit
+  04:32 ou 05:32 à Paris), calculés à minuit : le graphe publié ne contient que des journées complètes. Une visite
+  profite aux autres le lendemain matin, au plus ~29 h 30 après sa fin. L'heure exacte ne reste que dans `visits`
+  (privée), pour l'anti-spam.
 
 ## Migrations
 
