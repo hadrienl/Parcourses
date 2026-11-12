@@ -1,6 +1,7 @@
 import ActivityKit
 import AppIntents
 import SwiftUI
+import UIKit
 import WidgetKit
 
 /// Live Activity du mode courses, habillée en ticket filé (B3, #6, #52) : papier, encre et accent du ticket, chasse
@@ -58,7 +59,7 @@ struct ShoppingLiveActivity: Widget {
           .accessibilityLabel(summary(state))
           .islandInk()
       }
-      .keylineTint(Palette.accent)
+      .keylineTint(islandAccent)
     }
   }
 }
@@ -69,6 +70,10 @@ private func summary(_ state: ShoppingActivityAttributes.ContentState) -> String
     ? "\(state.remaining) article restant sur \(state.total)"
     : "\(state.remaining) articles restants sur \(state.total)"
 }
+
+/// Accent du ticket en sombre, pour la teinte du contour de l'îlot (résolue hors de l'environnement des vues).
+private let islandAccent = Color(
+  uiColor: UIColor(Palette.accent).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
 
 extension View {
   /// La Dynamic Island est toujours noire : les jetons du ticket y prennent leur valeur sombre.
@@ -84,9 +89,9 @@ private struct LockScreenView: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
-    // La carte est limitée en hauteur (160 pt) : aux tailles d'accessibilité, le fil, le nœud et le magasin cèdent
-    // la place au texte et au bouton, qui passe dessous.
-    let large = dynamicTypeSize.isAccessibilitySize
+    // La carte est limitée en hauteur (160 pt) : dès les grandes tailles de texte, le fil, le nœud et le magasin
+    // cèdent la place au texte et au bouton, qui passe dessous.
+    let large = dynamicTypeSize >= .xxLarge
     VStack(alignment: .leading, spacing: Space.xs) {
       if !large {
         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
@@ -178,10 +183,12 @@ private struct ThreadProgress: View {
 /// Nœud du rayon de l'article suivant, comme sur le fil du ticket. Rien sans article à prendre.
 private struct NextAisleNode: View {
   let state: ShoppingActivityAttributes.ContentState
+  @Environment(\.redactionReasons) private var redactionReasons
 
   var body: some View {
     Group {
-      if let aisleId = state.nextAisleId, !state.isFinished {
+      // Écran verrouillé masqué : l'icône du rayon (bébé, alcool…) en dirait autant que son libellé.
+      if let aisleId = state.nextAisleId, !state.isFinished, !redactionReasons.contains(.privacy) {
         AisleNode(aisleId: aisleId)
       } else {
         Bead(state: .done)
@@ -195,12 +202,13 @@ private struct NextAisleNode: View {
 /// Îlot compact : l'icône du rayon suivant, à sa couleur ; une coche à la fin.
 private struct CompactAisleIcon: View {
   let state: ShoppingActivityAttributes.ContentState
+  @Environment(\.redactionReasons) private var redactionReasons
 
   var body: some View {
     Group {
       if state.isFinished {
         Image(systemName: "checkmark").font(.body.weight(.heavy)).foregroundStyle(Palette.accent)
-      } else if let aisleId = state.nextAisleId {
+      } else if let aisleId = state.nextAisleId, !redactionReasons.contains(.privacy) {
         Image(AisleStyle.iconName(aisleId))
           .resizable()
           .renderingMode(.template)
@@ -248,6 +256,8 @@ private struct CheckNextButton: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel(accessibilityName)
+      // Commande vocale : le libellé visible, court ou long.
+      .accessibilityInputLabels([Text("Cocher"), Text("Cocher le suivant"), Text(accessibilityName)])
     }
   }
 }
@@ -299,7 +309,8 @@ private struct ProgressRing: View {
 
   var body: some View {
     ZStack {
-      Circle().stroke(Palette.threadIdle, lineWidth: TicketMetrics.threadWidth)
+      // Sur le noir de l'îlot, `threadIdle` sombre disparaît (1,7:1) : la piste prend le texte secondaire.
+      Circle().stroke(Palette.inkMuted.opacity(0.6), lineWidth: TicketMetrics.threadWidth)
       Circle()
         .trim(from: 0, to: state.isFinished ? 1 : state.progress)
         .stroke(Palette.thread, style: StrokeStyle(lineWidth: TicketMetrics.threadWidth, lineCap: .round))

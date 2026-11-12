@@ -60,13 +60,27 @@ nonisolated enum ActivityEndPolicy: Equatable, Sendable {
   case after(Date)
 }
 
+/// Réponse du système à une demande de Live Activity.
+nonisolated enum ActivityRequestResult: Equatable, Sendable {
+  case started(String)
+  /// Activités désactivées, ou app en arrière-plan : rien ne sert de redemander avant le retour au premier plan.
+  case unavailable
+  /// Refus passager (trop d'activités, échec d'écriture) : la mise à jour suivante redemande.
+  case failed
+}
+
+extension ActivityRequestResult {
+  fileprivate var id: String? {
+    if case .started(let id) = self { id } else { nil }
+  }
+}
+
 /// Accès à ActivityKit, isolé pour tester la reprise et le nettoyage sans le framework.
 nonisolated protocol ActivityBackend: Sendable {
   func current() async -> [ActivityInfo]
-  /// Identifiant de l'activité créée, `nil` si le système refuse.
   func request(
     attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, staleDate: Date?
-  ) async -> String?
+  ) async -> ActivityRequestResult
   /// `false` si l'activité n'est plus affichée : écartée par la personne, ou retirée par le système.
   @discardableResult
   func update(id: String, state: ShoppingActivityAttributes.ContentState, staleDate: Date?) async -> Bool
@@ -107,19 +121,26 @@ nonisolated struct ActivityKitBackend: ActivityBackend {
 
   func request(
     attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, staleDate: Date?
-  ) async -> String? {
+  ) async -> ActivityRequestResult {
     guard ActivityAuthorizationInfo().areActivitiesEnabled else {
       Self.log.info("Live Activity refusée : activités désactivées")
-      return nil
+      return .unavailable
     }
     do {
-      return try Activity.request(
-        attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate), pushType: nil
-      ).id
+      return .started(
+        try Activity.request(
+          attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate), pushType: nil
+        ).id)
+    } catch let error as ActivityAuthorizationError {
+      // La visite se passe très bien sans : on trace, et on retentera.
+      Self.log.info("Live Activity non démarrée : \(error.localizedDescription, privacy: .public)")
+      switch error {
+      case .denied, .visibility, .unentitled, .unsupported, .unsupportedTarget: return .unavailable
+      default: return .failed
+      }
     } catch {
-      // La visite se passe très bien sans : on trace, et on retentera au retour au premier plan.
       Self.log.error("Live Activity non démarrée : \(error.localizedDescription, privacy: .public)")
-      return nil
+      return .failed
     }
   }
 
@@ -160,6 +181,8 @@ protocol ShoppingActivityControlling: AnyObject {
   func end(state: ShoppingActivityAttributes.ContentState)
   /// Retente un démarrage refusé (retour au premier plan). Une activité écartée par la personne ne revient pas.
   func retryIfNeeded()
+  /// Reprise de compte : la visite change d'identifiant. Une activité écartée le reste sous le nouveau.
+  func rekeyed(from oldVisitId: UUID, to newVisitId: UUID)
   /// Termine tout de suite les activités en cours qui ne suivent pas cette visite (orphelines d'un lancement
   /// précédent). Le message « Courses terminées » d'une visite finie reste affiché jusqu'à son retrait prévu.
   func endAll(except visitId: UUID?)
@@ -184,8 +207,8 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   private var attributes: ShoppingActivityAttributes?
   private var lastState: ShoppingActivityAttributes.ContentState?
   private var lastActivity = Date.distantPast
-  /// Démarrage refusé (activités désactivées, app en arrière-plan) : seul le retour au premier plan le retente,
-  /// pas chaque mise à jour.
+  /// Démarrage impossible (activités désactivées, app en arrière-plan) : seul le retour au premier plan le
+  /// retente, pas chaque mise à jour. Un refus passager est retenté à la mise à jour suivante.
   private var isWaitingForForeground = false
   /// La personne a écarté l'activité de cette visite : plus rien ne la rouvre.
   private var isDismissed = false
@@ -231,7 +254,11 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     enqueue {
       guard self.attributes != nil, !self.isDismissed else { return }
       if let id = self.activityId {
-        if !(await self.backend.update(id: id, state: state, staleDate: stale)) { self.dismiss() }
+        // Lus avant l'attente : une autre visite a pu démarrer entre-temps.
+        let visitId = self.attributes?.visitId
+        if !(await self.backend.update(id: id, state: state, staleDate: stale)), self.activityId == id {
+          self.dismiss(visitId: visitId)
+        }
       } else if !self.isWaitingForForeground {
         await self.open(staleDate: stale)
       }
@@ -240,10 +267,14 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
 
   /// L'activité suivie a disparu sans que l'app la termine : la personne l'a écartée. Le geste est respecté
   /// jusqu'à la fin de la visite, relance comprise.
-  private func dismiss() {
+  private func dismiss(visitId: UUID?) {
     activityId = nil
     isDismissed = true
-    if let visitId = attributes?.visitId { dismissals.remember(visitId) }
+    if let visitId { dismissals.remember(visitId) }
+  }
+
+  func rekeyed(from oldVisitId: UUID, to newVisitId: UUID) {
+    if dismissals.contains(oldVisitId) { dismissals.remember(newVisitId) }
   }
 
   func restore(visitId: UUID) async -> ShoppingActivityAttributes.ContentState? {
@@ -318,17 +349,26 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
     guard let attributes, let state = lastState, !isDismissed else { return }
     let existing = await backend.current()
     let reusable = existing.first { $0.isActive && attributes.visitId != nil && $0.visitId == attributes.visitId }
+    var others = existing.filter { $0.id != reusable?.id }
     if let reusable {
       await backend.update(id: reusable.id, state: state, staleDate: staleDate)
       activityId = reusable.id
-    } else if let id = await backend.request(attributes: attributes, state: state, staleDate: staleDate) {
-      activityId = id
     } else {
-      isWaitingForForeground = true
+      var result = await backend.request(attributes: attributes, state: state, staleDate: staleDate)
+      if result == .failed && !others.isEmpty {
+        // Plafond d'activités atteint : les anciennes partent d'abord, puis une seconde demande.
+        await end(others)
+        others = []
+        result = await backend.request(attributes: attributes, state: state, staleDate: staleDate)
+      }
+      activityId = result.id
+      isWaitingForForeground = result == .unavailable
     }
-    for info in existing where info.id != reusable?.id {
-      await backend.end(id: info.id, state: nil, policy: .immediate)
-    }
+    await end(others)
+  }
+
+  private func end(_ infos: [ActivityInfo]) async {
+    for info in infos { await backend.end(id: info.id, state: nil, policy: .immediate) }
   }
 
   private func enqueue(_ work: @escaping @MainActor () async -> Void) {

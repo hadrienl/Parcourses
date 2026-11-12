@@ -1068,6 +1068,8 @@ private final class RecordingActivity: ShoppingActivityControlling {
   func end(state: ActivityState) { calls.append(.end(state)) }
   func retryIfNeeded() { retryCount += 1 }
   func endAll(except visitId: UUID?) { endAllKeeping.append(visitId) }
+  private(set) var rekeys: [UUID: UUID] = [:]
+  func rekeyed(from oldVisitId: UUID, to newVisitId: UUID) { rekeys[oldVisitId] = newVisitId }
   func restore(visitId: UUID) async -> ActivityState? { restored[visitId] }
   func waitUntilIdle() async {
     // Rien d'asynchrone à attendre.
@@ -1364,25 +1366,40 @@ private actor FakeBackend: ActivityBackend {
   private(set) var calls: [Call] = []
   private(set) var staleDates: [Date?] = []
   private let requestResult: String?
+  /// Réponse quand `requestResult` vaut `nil`.
+  private let refusal: ActivityRequestResult
+  /// Refus passagers à renvoyer avant d'accepter.
+  private var failuresLeft: Int
   private var requestCount = 0
 
-  init(_ infos: [ActivityInfo] = [], requestResult: String? = "new") {
+  init(
+    _ infos: [ActivityInfo] = [], requestResult: String? = "new", refusal: ActivityRequestResult = .unavailable,
+    failures: Int = 0
+  ) {
     self.infos = infos
     self.requestResult = requestResult
+    self.refusal = refusal
+    failuresLeft = failures
   }
 
   func current() -> [ActivityInfo] { infos }
 
-  func request(attributes: ShoppingActivityAttributes, state: ActivityState, staleDate: Date?) -> String? {
+  func request(
+    attributes: ShoppingActivityAttributes, state: ActivityState, staleDate: Date?
+  ) -> ActivityRequestResult {
     calls.append(.request(attributes.visitId))
     staleDates.append(staleDate)
-    guard let requestResult else { return nil }
+    if failuresLeft > 0 {
+      failuresLeft -= 1
+      return .failed
+    }
+    guard let requestResult else { return refusal }
     // « new », puis « new-2 »… : chaque activité créée a son identifiant.
     requestCount += 1
     let id = requestCount == 1 ? requestResult : "\(requestResult)-\(requestCount)"
     infos.append(
       ActivityInfo(id: id, visitId: attributes.visitId, isActive: true, attributes: attributes, state: state))
-    return id
+    return .started(id)
   }
 
   func update(id: String, state: ActivityState, staleDate: Date?) -> Bool {
@@ -1428,7 +1445,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func theActivityOfTheSameVisitIsReused() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.update("a")])
@@ -1436,7 +1453,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func theActivityOfAnotherVisitIsReplacedThenEnded() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     // La neuve d'abord : l'écran verrouillé n'est jamais vide entre les deux.
@@ -1445,7 +1462,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func anEndedActivityOfTheSameVisitIsNotReused() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: false)])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.request(visitA), .end("a", immediate: true)])
@@ -1453,7 +1470,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func aVisitlessSessionNeverReusesAnActivity() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: nil, isActive: true)])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(nil), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.request(nil), .end("a", immediate: true)])
@@ -1463,7 +1480,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
     let backend = FakeBackend([
       ActivityInfo(id: "a", visitId: visitA, isActive: true), ActivityInfo(id: "b", visitId: visitA, isActive: true),
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.update("a"), .end("b", immediate: true)])
@@ -1473,7 +1490,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
     let backend = FakeBackend([
       ActivityInfo(id: "a", visitId: visitA, isActive: true), ActivityInfo(id: "b", visitId: visitB, isActive: true),
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.endAll(except: visitA)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("b", immediate: true)])
@@ -1506,7 +1523,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
       ActivityInfo(id: "done", visitId: visitA, isActive: false),
       ActivityInfo(id: "b", visitId: visitB, isActive: true),
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.endAll(except: nil)
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("b", immediate: true)])
@@ -1572,16 +1589,51 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func endingWithoutAKnownActivityEndsTheOneLeftByAPreviousLaunch() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.end(state: ActivityState(remaining: 0, total: 0, isFinished: true))
     await controller.waitUntilIdle()
     #expect(await backend.calls == [.end("a", immediate: false)])
   }
 
+  @Test func aPassingRefusalIsRetriedWithTheNextUpdate() async {
+    let backend = FakeBackend(failures: 1)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitA), .request(visitA)])
+  }
+
+  /// Plafond d'activités : la neuve est refusée tant que l'ancienne est là. L'ancienne part, puis on redemande.
+  @Test func aRefusalWithActivitiesLeftEndsThemThenAsksAgain() async {
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)], failures: 1)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitB), .end("a", immediate: true), .request(visitB)])
+  }
+
+  /// Reprise de compte : une activité écartée le reste sous le nouvel identifiant de la visite.
+  @Test func aDismissalFollowsTheRekeyedVisit() async {
+    let backend = FakeBackend()
+    let dismissals = MemoryDismissals()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: dismissals)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    await backend.dismissByUser("new")
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    await controller.waitUntilIdle()
+
+    controller.rekeyed(from: visitA, to: visitB)
+    controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitA), .update("new")])
+  }
+
   /// #52 : activités désactivées, les mises à jour ne retentent pas ; seul le retour au premier plan le fait.
   @Test func aRefusedRequestIsRetriedOnForegroundOnly() async {
     let refusing = FakeBackend(requestResult: nil)
-    let controller = ActivityKitShoppingActivity(backend: refusing)
+    let controller = ActivityKitShoppingActivity(backend: refusing, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
     controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
@@ -1595,7 +1647,7 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
 
   @Test func updatesAfterTheEndAreIgnored() async {
     let backend = FakeBackend()
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
     controller.end(state: state)
@@ -2103,7 +2155,7 @@ extension Harness {
     let backend = FakeBackend([
       ActivityInfo(id: "a", visitId: visit, isActive: true, attributes: attributes, state: shown)
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     harness.date = t0.addingTimeInterval(60)
     let checkNext = ShoppingActivityActions(
       lists: harness.lists, visits: harness.visits, stores: harness.stores, categories: harness.categories,
@@ -2195,7 +2247,7 @@ private final class RecordingHandler: CheckNextItemHandling {
       ActivityInfo(id: "old", visitId: UUID(), isActive: true, attributes: attributes, state: shown),
       ActivityInfo(id: "a", visitId: visit, isActive: true, attributes: attributes, state: shown),
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     #expect(await controller.restore(visitId: UUID()) == nil)
     #expect(await controller.restore(visitId: visit) == shown)
     controller.update(state: ActivityState(remaining: 1, total: 2), lastActivity: t0)
@@ -2210,7 +2262,9 @@ private final class RecordingHandler: CheckNextItemHandling {
       ActivityInfo(
         id: "a", visitId: visit, isActive: false, attributes: attributes, state: ActivityState(remaining: 1, total: 1))
     ])
-    #expect(await ActivityKitShoppingActivity(backend: backend).restore(visitId: visit) == nil)
+    #expect(
+      await ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals()).restore(visitId: visit) == nil
+    )
   }
 }
 
@@ -2255,6 +2309,7 @@ private final class Counter {
     }
     #expect(attributes.visitId == renamed)
     #expect(activity.calls.count == 2)
+    #expect(activity.rekeys == [old: renamed])
   }
 
   @Test func aTapWhileTheShoppingModePreparesIsShownFromTheBase() async throws {
@@ -2285,7 +2340,8 @@ private final class Counter {
     let harness = try Harness()
     try harness.add("lait")
     let environment = try AppEnvironment(
-      container: harness.container, shoppingActivity: ActivityKitShoppingActivity(backend: FakeBackend()))
+      container: harness.container,
+      shoppingActivity: ActivityKitShoppingActivity(backend: FakeBackend(), dismissals: MemoryDismissals()))
     let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(60))
 
     let session = await environment.resumeShopping(now: t0.addingTimeInterval(120))
@@ -2306,7 +2362,7 @@ private final class Counter {
     let backend = FakeBackend([
       ActivityInfo(id: "a", visitId: visitId, isActive: true, attributes: attributes, state: shown)
     ])
-    let controller = ActivityKitShoppingActivity(backend: backend)
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
     let scheduled = Counter()
     let checkNext = actions(harness, activity: controller, scheduled: scheduled)
 
@@ -2379,7 +2435,7 @@ private final class Counter {
 }
 
 /// #54 : « Terminer » touché pendant la préparation du mode courses.
-@Suite(.serialized) @MainActor struct ShoppingPreparationTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) @MainActor struct ShoppingPreparationTests {
   @Test func finishingBeforeThePreparationEndsDoesNothing() async throws {
     let harness = try Harness()
     try harness.add("lait")

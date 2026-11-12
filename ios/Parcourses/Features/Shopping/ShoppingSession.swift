@@ -192,6 +192,7 @@ final class ShoppingSession: Identifiable {
     let previousVisitId = visitId
     visitId = visitId.map { remap[$0] }
     if visitId != previousVisitId {
+      if let previousVisitId, let visitId { activity?.rekeyed(from: previousVisitId, to: visitId) }
       // Les attributs d'une Live Activity sont immuables : elle garde l'ancienne visite, et « Cocher le suivant »
       // n'y trouverait plus rien. Une activité neuve, à la nouvelle visite, la remplace à la publication suivante.
       isActivityStarted = false
