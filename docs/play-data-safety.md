@@ -62,7 +62,7 @@ Toutes les données partent vers le projet Supabase de Parcourses, en HTTPS. La 
 
 L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donnée « adresse IP » ; on la mentionne pour être complet.
 
-**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`), puis en publie un instantané (`store_graph_snapshots`). Ce graphe ne contient pas d'identifiant d'utilisateur. Il contient en revanche des horodatages issus des visites : `last_seen_at` (fin de la dernière visite qui a touché l'arête ou l'entrée) et `store_stats.last_visit_at`. Depuis #70 (lot 70.1), aucun compte ne peut lire ces tables : les apps reçoivent seulement l'instantané d'un magasin, par la RPC `store_graph_snapshot`. Cet instantané date encore les visites (date de génération, poids décrus) et révèle les produits d'un magasin à un seul contributeur : les lots 70.2 (dates ramenées au jour, publication nocturne) et 70.3 (instantané d'un magasin à un seul contributeur servi à lui seul) ferment ces deux points (§5.5).
+**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`), puis en publie un instantané (`store_graph_snapshots`). Ce graphe ne contient pas d'identifiant d'utilisateur. Il contient en revanche des horodatages issus des visites : `last_seen_at` (fin de la dernière visite qui a touché l'arête ou l'entrée) et `store_stats.last_visit_at`. Depuis #70 (lot 70.1), aucun compte ne peut lire ces tables : les apps reçoivent seulement l'instantané d'un magasin, par la RPC `store_graph_snapshot`. Depuis le lot 70.2, le graphe ne date une visite qu'au jour près, et l'instantané, publié une fois par nuit et calculé à minuit, ne dit plus l'heure d'une visite. Il révèle encore les produits d'un magasin à un seul contributeur : le lot 70.3 (instantané servi à ce seul contributeur) ferme ce point (§5.5).
 
 ## 4. Réponses proposées au formulaire
 
@@ -144,11 +144,11 @@ Recommandation : 1 ou 2, dans un ticket serveur (#8). La déclaration Play de la
 
 Traité par #70, en trois lots :
 
-1. **70.1 (fait)** : `store_edges`, `store_entries`, `store_stats` et `store_graph_snapshots` ne sont plus lisibles par aucun compte (`…_graph_read_closed.sql`). L'instantané n'est servi que par la RPC `store_graph_snapshot`, magasin par magasin. Le signal « une visite vient d'être apprise » ne se lit plus dans `store_stats`, mis à jour chaque minute. Il reste visible dans la version de l'instantané, horodatée et republiée au plus une fois par heure : c'est ce que traite 70.2.
-2. **70.2 (à venir)** : dates du graphe arrondies au jour (Europe/Paris) et instantanés publiés une fois par nuit seulement. L'instantané ne date alors plus une visite qu'au jour près.
+1. **70.1 (fait)** : `store_edges`, `store_entries`, `store_stats` et `store_graph_snapshots` ne sont plus lisibles par aucun compte (`…_graph_read_closed.sql`). L'instantané n'est servi que par la RPC `store_graph_snapshot`, magasin par magasin. Le signal « une visite vient d'être apprise » ne se lit plus dans `store_stats`, mis à jour chaque minute. Jusqu'au lot 70.2, il restait visible dans la version de l'instantané, horodatée et republiée au plus une fois par heure.
+2. **70.2 (fait)** : dates du graphe arrondies au jour (Europe/Paris), lignes existantes comprises, et instantanés publiés une fois par nuit seulement, calculés à minuit (`…_graph_day_granularity.sql`). L'instantané ne date plus une visite qu'au jour près.
 3. **70.3 (à venir)** : l'instantané d'un magasin à un seul contributeur n'est servi qu'à ce contributeur.
 
-Tant que 70.2 et 70.3 ne sont pas livrés, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur : l'instantané donne ses produits et l'heure de sa visite, à quelques minutes près pour la première, à l'heure près ensuite.
+Tant que 70.3 n'est pas livré, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur : l'instantané donne ses produits et le jour de ses visites.
 
 ## 6. Points à revoir si le code change
 

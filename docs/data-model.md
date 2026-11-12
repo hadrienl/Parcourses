@@ -22,6 +22,10 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
   (`security definer`), seule porte d'entrée. Pour un magasin à un seul contributeur, ces tables révéleraient
   ses achats et l'heure de ses visites. Une RPC `security definer` exécutable par `authenticated` est voulue ici,
   comme pour `resolve_products` : ne pas la « corriger » en `security invoker`, qui exigerait de rouvrir la table.
+- **Le graphe ne date qu'au jour** (#70) : `last_seen_at`, `v_eff_at` et `last_visit_at` valent minuit (fuseau
+  `RATE_LIMIT_TIME_ZONE`, Europe/Paris) du jour de la visite. Les instantanés sont publiés une seule fois par nuit
+  (job `graph-snapshot`, 03:32 UTC), calculés à minuit ; un magasin modifié après minuit attend la nuit suivante.
+  Fraîcheur : 24 h au plus. L'heure exacte ne reste que dans `visits` (privée), pour l'anti-spam.
 
 ## Migrations
 
@@ -38,6 +42,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_align_categories.sql` | 21 catégories générées depuis `shared/categories/` (#36) |
 | `…_resolve_products.sql` | RPC `resolve_products`, schéma interne `catalog` (quota de créations) |
 | `…_graph_read_closed.sql` | Lecture directe du graphe et des instantanés retirée aux clients ; `store_graph_snapshot` en `security definer` (#70) |
+| `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
