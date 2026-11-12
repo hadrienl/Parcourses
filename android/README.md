@@ -13,6 +13,10 @@ L'environnement (`local`, `staging`, `prod`) est choisi à la compilation. Rien 
 
 Sans URL ou sans clé valide (`https`, ou `http` vers la machine locale), l'app reste entièrement locale. La clé du Supabase local : `supabase status -o env` (`PUBLISHABLE_KEY`).
 
+## Tests instrumentés du Keystore
+
+`./gradlew :core:network:connectedDebugAndroidTest` (émulateur ou appareil branché) vérifie la session chiffrée sur le vrai Android Keystore (#51) : jeu de clés chiffré par la clé maîtresse, jeu de clés en clair remplacé, valeur non hexadécimale et chiffré altéré reconnus comme pertes avérées, clé maîtresse absente, réinitialisation. Ils ne tournent pas en CI, faute d'émulateur.
+
 ## Tests d'intégration
 
 `scripts/integration-test.sh` lance, contre le Supabase local uniquement (`supabase start`, ports 563xx, jamais le projet hébergé), les tests de la passerelle (`:core:network`, A5) et de la synchronisation complète des listes (`:core:data`, `SyncIntegrationTest`, A6 : deux appareils sur un même compte, dernier écrit gagne, produits partagés, reprise sous un nouveau compte). Ils sont ignorés quand `PARCOURSES_IT_URL` et `PARCOURSES_IT_KEY` ne sont pas définies, donc ignorés en CI.

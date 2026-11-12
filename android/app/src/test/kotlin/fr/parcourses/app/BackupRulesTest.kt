@@ -29,8 +29,13 @@ class BackupRulesTest {
 
     @Test
     fun theSessionFilesLiveInTheExcludedDirectory() {
-        assertTrue(datastore.startsWith("datastore/"))
-        assertTrue(SessionStorageFiles.ACCOUNT_FILE.isNotBlank())
+        // Les chemins réels, tels que `DataStoreSecureStateStore.create` les ouvre sous `filesDir`.
+        val filesDir = File("files")
+        for (file in listOf(SessionStorageFiles.sessionFile(filesDir), SessionStorageFiles.accountFile(filesDir))) {
+            val relative = file.relativeTo(filesDir).invariantSeparatorsPath
+            assertTrue(relative, relative.startsWith("datastore/"))
+        }
+        assertEquals(datastore, SessionStorageFiles.sessionFile(filesDir).relativeTo(filesDir).invariantSeparatorsPath)
     }
 
     @Test

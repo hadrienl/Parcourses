@@ -14,4 +14,15 @@
     <string name="about_font_title">Police</string>
     <string name="about_font_body">JetBrains Mono, © The JetBrains Mono Project Authors, sous licence SIL Open Font License 1.1.</string>
     <string name="about_version_title">Version</string>
+
+    <!-- À propos, section « Session » : seulement quand la clé de session reste illisible (#51, Android). -->
+    <string name="about_session_title">Session</string>
+    <string name="about_session_body">Parcourses n\'arrive plus à lire la clé qui protège votre session sur cet appareil. Vos listes ne sont plus synchronisées.</string>
+    <string name="about_session_action">Réinitialiser la session</string>
+    <string name="about_session_confirm_title">Réinitialiser la session ?</string>
+    <string name="about_session_confirm_body">Parcourses crée un nouvel identifiant anonyme et y rattache les listes de cet appareil. Rien n\'est effacé sur cet appareil.</string>
+    <string name="about_session_confirm_action">Réinitialiser</string>
+    <string name="about_session_cancel">Annuler</string>
+    <string name="about_session_done">Session réinitialisée. Vos listes se synchronisent de nouveau dès que le réseau le permet.</string>
+    <string name="about_session_failed">La réinitialisation n\'a pas abouti. Réessayez plus tard.</string>
 </resources>
