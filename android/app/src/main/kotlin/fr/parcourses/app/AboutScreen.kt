@@ -32,6 +32,8 @@ import fr.parcourses.core.designsystem.TicketType
 /**
  * « À propos » (iOS : `AboutView`, lot 9.12) : d'où viennent les magasins (OpenStreetMap, ODbL), ce que l'app
  * enregistre et pourquoi, la police embarquée et la version. Mêmes textes qu'iOS.
+ *
+ * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +41,8 @@ fun AboutScreen(
     version: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    sessionReset: SessionResetUiState = SessionResetUiState(),
+    sessionResetActions: SessionResetActions = SessionResetActions(),
 ) {
     val colors = Ticket.colors
     Scaffold(
@@ -64,6 +68,11 @@ fun AboutScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = TicketDimens.spaceM),
                 verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
             ) {
+                if (sessionReset.visible) {
+                    Section(stringResource(R.string.about_session_title)) {
+                        SessionResetContent(sessionReset, sessionResetActions)
+                    }
+                }
                 Section(stringResource(R.string.about_data_title)) {
                     Paragraph(stringResource(R.string.about_data_body))
                     OsmAttribution(textAlign = TextAlign.Start)

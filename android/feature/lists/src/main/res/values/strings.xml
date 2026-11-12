@@ -13,6 +13,7 @@
     <string name="lists_delete_confirm">Supprimer cette liste et ses articles ?</string>
     <string name="lists_delete_action">Supprimer la liste</string>
     <string name="lists_about">À propos</string>
+    <string name="lists_about_attention">À propos, action requise</string>
     <string name="lists_more_actions">Actions pour %1$s</string>
     <string name="lists_subtitle_empty">Aucun article</string>
     <string name="lists_subtitle_done">Tout est coché</string>

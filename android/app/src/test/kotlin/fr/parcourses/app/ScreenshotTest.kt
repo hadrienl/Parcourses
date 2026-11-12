@@ -285,6 +285,17 @@ class ScreenshotTest {
     @Test
     fun aboutLarge() = capture("about-200", fontScale = 2f) { AboutScreen("0.1.0 (1)", {}) }
 
+    // Clé de session illisible (#51) : la section « Session » passe en tête.
+    private val stuckSession = SessionResetUiState(visible = true)
+
+    @Test
+    fun aboutSessionLight() =
+        capture("about-session-light") { AboutScreen("0.1.0 (1)", {}, sessionReset = stuckSession) }
+
+    @Test
+    fun aboutSessionDark() =
+        capture("about-session-dark", dark = true) { AboutScreen("0.1.0 (1)", {}, sessionReset = stuckSession) }
+
     // endregion
 
     /** L'anticrénelage peut varier d'une machine à l'autre (macOS en local, Linux en CI) : 1 % de pixels tolérés. */

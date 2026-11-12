@@ -2,6 +2,9 @@ package fr.parcourses.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -20,6 +23,8 @@ import fr.parcourses.feature.shopping.ShoppingViewModel
 import fr.parcourses.feature.shopping.live.NotificationPermissionPrompt
 import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /**
@@ -33,6 +38,8 @@ fun ParcoursesNavHost(
     coldStart: Boolean = false,
 ) {
     val backStack = rememberNavBackStack(routeConfiguration, Route.Lists)
+    // Clé de session illisible : pastille sur À propos, qui propose de réinitialiser la session (#51).
+    val sessionStuckFlow = remember(container) { container.sessionMaintenance?.isSessionStorageStuck ?: NotStuck }
 
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
@@ -83,17 +90,29 @@ fun ParcoursesNavHost(
                                     }
                                 },
                         )
+                    val sessionStuck by sessionStuckFlow.collectAsState()
                     ListsRoute(
                         viewModel = model,
                         // Appui sur une liste, ou liste qui vient d'être créée : voir `openListFromLists`.
                         onOpen = { id -> backStack.openListFromLists(id) },
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
+                        aboutNeedsAttention = sessionStuck,
                     )
                 }
                 entry<Route.About> {
+                    val reset: SessionResetViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer { SessionResetViewModel(sessionStuckFlow, container::resetSession) }
+                                },
+                        )
+                    val resetState by reset.state.collectAsState()
                     AboutScreen(
                         version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
+                        sessionReset = resetState,
+                        sessionResetActions = reset.actions,
                     )
                 }
                 entry<Route.ListDetail>(clazzContentKey = { it.slot }) { key ->
@@ -178,3 +197,6 @@ fun ParcoursesNavHost(
             },
     )
 }
+
+/** Sans Supabase, pas de session : rien à réinitialiser. */
+private val NotStuck: StateFlow<Boolean> = MutableStateFlow(false)
