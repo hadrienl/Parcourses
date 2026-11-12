@@ -619,13 +619,15 @@ class ShoppingViewModel(
         val items = attempt { remainingItems() }.orEmpty()
         val sortInput = sortInput(items, previous)
         return try {
+            val before = prepared
             val (store, output) =
                 withContext(computation) {
                     // Un nouvel instantané (ou de nouveaux paramètres) remplace le magasin préparé.
-                    val store = prepared?.takeIf { it.matches(sortInput) } ?: prepare(sortInput)
+                    val store = before?.takeIf { it.matches(sortInput) } ?: prepare(sortInput)
                     store to sortItems(sortInput, store)
                 }
-            prepared = store
+            // Un tri plus récent a pu installer son magasin entre-temps : on ne le remplace pas.
+            if (prepared === before) prepared = store
             mode = output.mode
             output.order
         } catch (ignored: IllegalArgumentException) {

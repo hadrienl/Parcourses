@@ -1,6 +1,7 @@
 package fr.parcourses.core.sorting
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
@@ -27,6 +28,7 @@ class SortVectorTest(
     fun matchesExpectedOutputWithPreparedStore() {
         val snapshot = vector.input.snapshot ?: return
         val prepared = PreparedStore(snapshot.copy(edges = snapshot.edges.toList()), vector.input.params)
+        assertTrue(prepared.matches(vector.input))
         assertEquals(vector.expected, sortItems(vector.input, prepared))
     }
 

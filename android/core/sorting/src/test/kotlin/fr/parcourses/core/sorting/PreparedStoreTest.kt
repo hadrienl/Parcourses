@@ -26,6 +26,19 @@ class PreparedStoreTest {
         for (input in inputs) assertVisitMatches(input)
     }
 
+    // Le second tri identique ne calcule aucune nouvelle ligne : le cache sert bien.
+    @Test
+    fun distancesAreComputedOnce() {
+        val input = SyntheticStore.input(products = SyntheticStore.STORE_PRODUCTS)
+        val prepared = PreparedStore(requireNotNull(input.snapshot), input.params)
+        assertEquals(0, prepared.cachedSources)
+        val first = sortItems(input, prepared)
+        // L'entrée et les 80 produits de la liste.
+        assertEquals(SyntheticStore.ITEMS + 1, prepared.cachedSources)
+        assertEquals(first, sortItems(input, prepared))
+        assertEquals(SyntheticStore.ITEMS + 1, prepared.cachedSources)
+    }
+
     @Test
     fun storeOfAnotherSnapshotIsIgnored() {
         val input = SortVectors.byId("031-large-80-items-partial-graph").input
@@ -64,6 +77,7 @@ class PreparedStoreTest {
 
     private fun assertVisitMatches(input: SortInput) {
         val prepared = PreparedStore(requireNotNull(input.snapshot), input.params)
+        assertTrue(prepared.matches(input))
         var current = input
         while (current.items.isNotEmpty()) {
             val plain = sortItems(current)

@@ -34,8 +34,14 @@ class PreparedStore private constructor(
     /** Graphe construit à la première utilisation (accès synchronisé par `lazy`). */
     internal val graph: StoreGraph by lazy { StoreGraph(snapshot, params) }
 
-    /** Distances par source : indice du produit, ou [ENTRY_SOURCE] pour l'entrée. */
+    /**
+     * Distances par source : indice du produit, ou [ENTRY_SOURCE] pour l'entrée. Les lignes sont
+     * partagées entre les tris : elles ne doivent jamais être modifiées après leur calcul.
+     */
     private val rows = HashMap<Int, LongArray>()
+
+    /** Nombre de sources déjà calculées (tests). */
+    internal val cachedSources: Int get() = synchronized(rows) { rows.size }
 
     /** Vrai si [input] porte exactement cet instantané et ces paramètres. */
     fun matches(input: SortInput): Boolean = input.params == params && input.snapshot == snapshot

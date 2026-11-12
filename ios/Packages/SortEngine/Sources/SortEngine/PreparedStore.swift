@@ -43,6 +43,9 @@ public final class PreparedStore: Sendable {
     input.params == params && input.snapshot == snapshot
   }
 
+  /// Nombre de sources déjà calculées (tests).
+  var cachedSources: Int { state.withLock { $0.rows.count } }
+
   /// Graphe construit à la première utilisation.
   var graph: StoreGraph {
     state.withLock { state in

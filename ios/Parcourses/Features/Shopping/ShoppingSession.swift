@@ -605,8 +605,10 @@ final class ShoppingSession: Identifiable {
     let items = (try? remainingItems()) ?? []
     let input = sortInput(items: items, previous: previous)
     do {
-      let (store, output) = try await Self.runSort(input, prepared: prepared)
-      prepared = store
+      let before = prepared
+      let (store, output) = try await Self.runSort(input, prepared: before)
+      // Un tri plus récent a pu installer son magasin entre-temps : on ne le remplace pas.
+      if prepared === before { prepared = store }
       mode = output.mode
       return output.order.compactMap(UUID.init(uuidString:))
     } catch {

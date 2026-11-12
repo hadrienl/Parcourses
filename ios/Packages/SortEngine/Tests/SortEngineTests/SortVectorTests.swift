@@ -61,6 +61,7 @@ struct SortVectorTests {
     guard var snapshot = vector.input.snapshot else { return }
     snapshot.edges = snapshot.edges.map { $0 }
     let prepared = try PreparedStore(snapshot: snapshot, params: vector.input.params)
+    #expect(prepared.matches(vector.input))
     #expect(try sortItems(vector.input, prepared: prepared) == vector.expected)
   }
 

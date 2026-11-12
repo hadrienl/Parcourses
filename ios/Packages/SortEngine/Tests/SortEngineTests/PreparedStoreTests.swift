@@ -15,6 +15,7 @@ struct PreparedStoreTests {
       name == "magasin-400"
       ? SyntheticStore.input(products: SyntheticStore.storeProducts) : SortVector.named(name).input
     let prepared = try PreparedStore(snapshot: try #require(input.snapshot), params: input.params)
+    #expect(prepared.matches(input))
     var current = input
     // 30 coches suffisent à exercer le cache ; la liste vide et l'article seul ont leurs vecteurs
     // (029, 030). Le tri sans précalcul est lent en debug.
@@ -27,6 +28,18 @@ struct PreparedStoreTests {
       if let productId = checked.productId { current.start = .product(productId) }
       current.previousOrder = Array(plain.order.dropFirst())
     }
+  }
+
+  /// Le second tri identique ne calcule aucune nouvelle ligne : le cache sert bien.
+  @Test func distancesAreComputedOnce() throws {
+    let input = SyntheticStore.input(products: SyntheticStore.storeProducts)
+    let prepared = try PreparedStore(snapshot: try #require(input.snapshot), params: input.params)
+    #expect(prepared.cachedSources == 0)
+    let first = try sortItems(input, prepared: prepared)
+    // L'entrée et les 80 produits de la liste.
+    #expect(prepared.cachedSources == SyntheticStore.items + 1)
+    #expect(try sortItems(input, prepared: prepared) == first)
+    #expect(prepared.cachedSources == SyntheticStore.items + 1)
   }
 
   @Test func storeOfAnotherSnapshotIsIgnored() throws {
