@@ -126,7 +126,8 @@ private final class Harness {
   ) -> ShoppingSession {
     ShoppingSession(
       listId: listId, storeId: withStore ? storeId : nil, lists: lists, visits: visits, stores: stores,
-      categories: categories, analyzer: analyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway),
+      categories: categories, analyzer: analyzer,
+      cache: GraphSnapshotCache(graphs: graphs, gateway: gateway, now: { [self] in date }),
       // Capture forte : un tri encore en attente ne doit pas survivre au conteneur (fetch fatal après sa libération).
       now: { [self] in date }, settleDelay: settleDelay, highlightDelay: .milliseconds(1),
       preloadTimeout: preloadTimeout, activity: activity)
@@ -1100,6 +1101,7 @@ private func rows(_ labels: [String], checked: Set<String> = [], aisle: String =
     #expect(state.total == 4)
     #expect(state.nextItemLabel == "beurre")
     #expect(state.nextCategoryLabel == "Crèmerie")
+    #expect(state.nextAisleId == "dairy")
     #expect(!state.isFinished)
     #expect(state.progress == 0.5)
   }
@@ -1362,6 +1364,7 @@ private actor FakeBackend: ActivityBackend {
   private(set) var calls: [Call] = []
   private(set) var staleDates: [Date?] = []
   private let requestResult: String?
+  private var requestCount = 0
 
   init(_ infos: [ActivityInfo] = [], requestResult: String? = "new") {
     self.infos = infos
@@ -1373,17 +1376,45 @@ private actor FakeBackend: ActivityBackend {
   func request(attributes: ShoppingActivityAttributes, state: ActivityState, staleDate: Date?) -> String? {
     calls.append(.request(attributes.visitId))
     staleDates.append(staleDate)
-    return requestResult
+    guard let requestResult else { return nil }
+    // « new », puis « new-2 »… : chaque activité créée a son identifiant.
+    requestCount += 1
+    let id = requestCount == 1 ? requestResult : "\(requestResult)-\(requestCount)"
+    infos.append(
+      ActivityInfo(id: id, visitId: attributes.visitId, isActive: true, attributes: attributes, state: state))
+    return id
   }
 
-  func update(id: String, state: ActivityState, staleDate: Date?) {
+  func update(id: String, state: ActivityState, staleDate: Date?) -> Bool {
     calls.append(.update(id))
     staleDates.append(staleDate)
+    return infos.contains { $0.id == id && $0.isActive }
   }
 
+  /// Comme ActivityKit : une activité terminée passe en `.ended` et reste listée jusqu'à son retrait.
   func end(id: String, state: ActivityState?, policy: ActivityEndPolicy) {
     calls.append(.end(id, immediate: policy == .immediate))
+    guard let index = infos.firstIndex(where: { $0.id == id }) else { return }
+    let info = infos[index]
+    if policy == .immediate {
+      infos.remove(at: index)
+    } else {
+      infos[index] = ActivityInfo(
+        id: info.id, visitId: info.visitId, isActive: false, attributes: info.attributes, state: state ?? info.state)
+    }
   }
+
+  /// La personne écarte l'activité de l'écran verrouillé : le système la retire.
+  func dismissByUser(_ id: String) {
+    infos.removeAll { $0.id == id }
+  }
+}
+
+/// Visites écartées, en mémoire.
+private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
+  private var visits: Set<UUID> = []
+  func contains(_ visitId: UUID) -> Bool { visits.contains(visitId) }
+  func remember(_ visitId: UUID) { visits.insert(visitId) }
 }
 
 @Suite @MainActor struct ActivityControllerTests {
@@ -1403,12 +1434,13 @@ private actor FakeBackend: ActivityBackend {
     #expect(await backend.calls == [.update("a")])
   }
 
-  @Test func theActivityOfAnotherVisitIsEndedThenReplaced() async {
+  @Test func theActivityOfAnotherVisitIsReplacedThenEnded() async {
     let backend = FakeBackend([ActivityInfo(id: "a", visitId: visitA, isActive: true)])
     let controller = ActivityKitShoppingActivity(backend: backend)
     controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
-    #expect(await backend.calls == [.end("a", immediate: true), .request(visitB)])
+    // La neuve d'abord : l'écran verrouillé n'est jamais vide entre les deux.
+    #expect(await backend.calls == [.request(visitB), .end("a", immediate: true)])
   }
 
   @Test func anEndedActivityOfTheSameVisitIsNotReused() async {
@@ -1416,7 +1448,7 @@ private actor FakeBackend: ActivityBackend {
     let controller = ActivityKitShoppingActivity(backend: backend)
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
-    #expect(await backend.calls == [.end("a", immediate: true), .request(visitA)])
+    #expect(await backend.calls == [.request(visitA), .end("a", immediate: true)])
   }
 
   @Test func aVisitlessSessionNeverReusesAnActivity() async {
@@ -1424,7 +1456,7 @@ private actor FakeBackend: ActivityBackend {
     let controller = ActivityKitShoppingActivity(backend: backend)
     controller.start(attributes: attributes(nil), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
-    #expect(await backend.calls == [.end("a", immediate: true), .request(nil)])
+    #expect(await backend.calls == [.request(nil), .end("a", immediate: true)])
   }
 
   @Test func extraActivitiesAreEndedAndOnlyOneIsKept() async {
@@ -1434,7 +1466,7 @@ private actor FakeBackend: ActivityBackend {
     let controller = ActivityKitShoppingActivity(backend: backend)
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     await controller.waitUntilIdle()
-    #expect(await backend.calls == [.end("b", immediate: true), .update("a")])
+    #expect(await backend.calls == [.update("a"), .end("b", immediate: true)])
   }
 
   @Test func orphansAreEndedAtLaunchExceptTheOpenVisit() async {
@@ -1448,7 +1480,94 @@ private actor FakeBackend: ActivityBackend {
 
     controller.endAll(except: nil)
     await controller.waitUntilIdle()
-    #expect(await backend.calls.suffix(2) == [.end("a", immediate: true), .end("b", immediate: true)])
+    #expect(await backend.calls == [.end("b", immediate: true), .end("a", immediate: true)])
+  }
+
+  /// #52 : la relance ne doit pas effacer le message de fin d'une visite terminée.
+  @Test func theFinalMessageOfAFinishedVisitSurvivesARelaunch() async {
+    let backend = FakeBackend()
+    let first = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    first.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await first.waitUntilIdle()
+    first.end(state: ActivityState(remaining: 0, total: 3, isFinished: true))
+    await first.waitUntilIdle()
+    #expect(await backend.current().map(\.isActive) == [false])
+
+    // Lancement suivant : aucune visite ouverte, les orphelines partent, pas « Courses terminées ».
+    let relaunched = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    relaunched.endAll(except: nil)
+    await relaunched.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitA), .end("new", immediate: false)])
+    #expect(await backend.current().count == 1)
+  }
+
+  @Test func endingOrphansLeavesEndedActivitiesAlone() async {
+    let backend = FakeBackend([
+      ActivityInfo(id: "done", visitId: visitA, isActive: false),
+      ActivityInfo(id: "b", visitId: visitB, isActive: true),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend)
+    controller.endAll(except: nil)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.end("b", immediate: true)])
+  }
+
+  /// #52 : écartée par la personne, l'activité ne revient pas, et rien ne part plus vers ActivityKit.
+  @Test func anActivityDismissedByThePersonStaysDismissed() async {
+    let backend = FakeBackend()
+    let dismissals = MemoryDismissals()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: dismissals)
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    await backend.dismissByUser("new")
+
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
+    controller.retryIfNeeded()
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(visitA), .update("new")])
+    #expect(dismissals.contains(visitA))
+
+    // App relancée sur la même visite : toujours rien. Une autre visite en a une.
+    let relaunched = ActivityKitShoppingActivity(backend: backend, dismissals: dismissals)
+    relaunched.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    relaunched.retryIfNeeded()
+    await relaunched.waitUntilIdle()
+    #expect(await backend.calls.count == 2)
+    relaunched.start(attributes: attributes(visitB), state: state, lastActivity: t0)
+    await relaunched.waitUntilIdle()
+    #expect(await backend.calls.last == .request(visitB))
+  }
+
+  /// Sans visite (pas de magasin), le geste vaut pour ce mode courses seulement.
+  @Test func aDismissedVisitlessActivityComesBackWithTheNextShopping() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(nil), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    await backend.dismissByUser("new")
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == [.request(nil), .update("new")])
+
+    controller.start(attributes: attributes(nil), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls.last == .request(nil))
+  }
+
+  /// #52 : après une reprise de compte, la session redémarre l'activité sous la nouvelle visite ; la neuve paraît
+  /// avant que l'ancienne parte.
+  @Test func aRekeyedVisitReplacesItsActivityWithoutAGap() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(
+      await backend.calls == [.request(visitA), .request(visitB), .end("new", immediate: true), .update("new-2")])
   }
 
   @Test func endingWithoutAKnownActivityEndsTheOneLeftByAPreviousLaunch() async {
@@ -1459,15 +1578,19 @@ private actor FakeBackend: ActivityBackend {
     #expect(await backend.calls == [.end("a", immediate: false)])
   }
 
-  @Test func aRefusedRequestIsRetriedOnForeground() async {
+  /// #52 : activités désactivées, les mises à jour ne retentent pas ; seul le retour au premier plan le fait.
+  @Test func aRefusedRequestIsRetriedOnForegroundOnly() async {
     let refusing = FakeBackend(requestResult: nil)
     let controller = ActivityKitShoppingActivity(backend: refusing)
     controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
     controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
-    controller.retryIfNeeded()
+    controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
     await controller.waitUntilIdle()
-    // Démarrage, puis chaque mise à jour et chaque retour au premier plan retentent tant que rien n'existe.
-    #expect(await refusing.calls == [.request(visitA), .request(visitA), .request(visitA)])
+    #expect(await refusing.calls == [.request(visitA)])
+    controller.retryIfNeeded()
+    controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await refusing.calls == [.request(visitA), .request(visitA)])
   }
 
   @Test func updatesAfterTheEndAreIgnored() async {
@@ -1749,6 +1872,60 @@ extension Harness {
     #expect(try harness.item(missing).notFoundAt == nil)
   }
 
+  /// #52 : liste disparue pendant que l'app était fermée. La visite est close, son activité retirée ; le message de
+  /// fin d'une visite déjà terminée reste.
+  @Test func aVisitWhoseListIsGoneLosesItsActivityAtLaunch() async throws {
+    let harness = try Harness()
+    let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(300))
+    let backend = FakeBackend([
+      ActivityInfo(id: "done", visitId: UUID(), isActive: false), ActivityInfo(id: "a", visitId: visit, isActive: true),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    let environment = try AppEnvironment(container: harness.container, shoppingActivity: controller)
+    try harness.lists.deleteList(id: harness.listId, at: t0.addingTimeInterval(400))
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(500))
+    environment.endOrphanActivities(keeping: session?.visitId)
+    await controller.waitUntilIdle()
+    #expect(session == nil)
+    #expect(await backend.calls == [.end("a", immediate: true)])
+  }
+
+  /// #52 : aucune visite ouverte au lancement (crash pendant la fin, visite close ailleurs) : l'activité part.
+  @Test func withoutAnOpenVisitTheOrphanActivityEndsAtLaunch() async throws {
+    let harness = try Harness()
+    let backend = FakeBackend([ActivityInfo(id: "a", visitId: UUID(), isActive: true)])
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    let environment = try AppEnvironment(container: harness.container, shoppingActivity: controller)
+
+    let session = await environment.resumeShopping(now: t0)
+    environment.endOrphanActivities(keeping: session?.visitId)
+    await controller.waitUntilIdle()
+    #expect(session == nil)
+    #expect(await backend.calls == [.end("a", immediate: true)])
+  }
+
+  /// La visite reprise garde son activité, mise à jour sur place ; une autre part.
+  @Test func theResumedVisitKeepsItsActivityAtLaunch() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(60))
+    let backend = FakeBackend([
+      ActivityInfo(id: "a", visitId: visit, isActive: true), ActivityInfo(id: "b", visitId: UUID(), isActive: true),
+    ])
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    let environment = try AppEnvironment(container: harness.container, shoppingActivity: controller)
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(120))
+    environment.endOrphanActivities(keeping: session?.visitId)
+    await controller.waitUntilIdle()
+    #expect(session?.visitId == visit)
+    let calls = await backend.calls
+    #expect(calls.contains(.update("a")))
+    #expect(!calls.contains(.end("a", immediate: true)))
+    #expect(calls.contains(.end("b", immediate: true)))
+  }
+
   @Test func aVisitWhoseListIsGoneIsClosedAtItsLastCheck() async throws {
     let (environment, harness) = try environment()
     let lastCheck = t0.addingTimeInterval(300)
@@ -1764,7 +1941,9 @@ extension Harness {
 // MARK: - « Cocher le suivant »
 
 @Suite struct ActivityReconciliationTests {
-  private func describe(_ item: ListItem) -> (label: String, aisle: String?) { (item.label, "Rayon") }
+  private func describe(_ item: ListItem) -> (label: String, aisleId: String, aisle: String?) {
+    (item.label, item.categoryId, "Rayon")
+  }
 
   @MainActor @Test func theDisplayedOrderIsKeptAndTakenItemsLeave() throws {
     let harness = try Harness()
@@ -1778,6 +1957,7 @@ extension Harness {
     #expect(refreshed.pendingItemIds == [a, b])
     #expect(refreshed.nextItemLabel == "lait")
     #expect(refreshed.nextCategoryLabel == "Rayon")
+    #expect(refreshed.nextAisleId == "dairy")
     #expect(refreshed.remaining == 2)
     #expect(refreshed.total == 3)
   }
@@ -2159,5 +2339,103 @@ private final class Counter {
     #expect(try harness.item(bread).checkedAt != nil)
     #expect(try harness.visits.checks(visitId: visitId).map(\.itemId) == [bread])
     #expect(session.errorMessage == nil)
+  }
+}
+
+/// #54 : le LRU des instantanés compte l'usage, pas seulement le téléchargement.
+@Suite(.serialized) @MainActor struct GraphSnapshotUsageTests {
+  @Test func aStoreUsedForShoppingKeepsItsSnapshotAgainstStoresJustPassingBy() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.saveSnapshot()
+    for offset in 1..<SwiftDataGraphRepository.maxSnapshots {
+      try harness.graphs.saveSnapshot(
+        storeId: UUID(), snapshotVersion: 1, paramsVersion: 1, confidenceQ: 0, payload: Data(),
+        at: t0.addingTimeInterval(Double(offset)))
+    }
+
+    // Courses hors ligne (ou version inchangée au serveur) : rien n'est retéléchargé.
+    harness.date = t0.addingTimeInterval(60)
+    let session = harness.session()
+    await session.start()
+    #expect(session.knowledge != .unknown)
+
+    // Un magasin de passage arrive : c'est le moins récemment utilisé qui part, pas celui des courses.
+    try harness.graphs.saveSnapshot(
+      storeId: UUID(), snapshotVersion: 1, paramsVersion: 1, confidenceQ: 0, payload: Data(),
+      at: t0.addingTimeInterval(120))
+    #expect(try harness.graphs.snapshot(storeId: harness.storeId) != nil)
+    #expect(try harness.context.fetchCount(FetchDescriptor<GraphSnapshot>()) == SwiftDataGraphRepository.maxSnapshots)
+  }
+
+  @Test func touchingNeverMovesASnapshotBackInTime() throws {
+    let harness = try Harness()
+    try harness.saveSnapshot()
+    try harness.graphs.touch(storeId: harness.storeId, at: t0.addingTimeInterval(-60))
+    #expect(try harness.graphs.snapshot(storeId: harness.storeId)?.fetchedAt == t0)
+    try harness.graphs.touch(storeId: harness.storeId, at: t0.addingTimeInterval(60))
+    #expect(try harness.graphs.snapshot(storeId: harness.storeId)?.fetchedAt == t0.addingTimeInterval(60))
+  }
+}
+
+/// #54 : « Terminer » touché pendant la préparation du mode courses.
+@Suite(.serialized) @MainActor struct ShoppingPreparationTests {
+  @Test func finishingBeforeThePreparationEndsDoesNothing() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let gateway = SnapshotGateway(gated: true)
+    let session = harness.session(gateway: gateway, preloadTimeout: .seconds(30))
+    let starting = Task { await session.start() }
+    while await gateway.knownVersions.isEmpty { await Task.yield() }
+    #expect(!session.isPrepared)
+
+    session.finish(keepRemaining: true)
+    #expect(session.summary == nil)
+
+    await gateway.openGate()
+    await starting.value
+    // La visite ouverte par la préparation reste suivie : rien n'a été fermé avant elle.
+    let visitId = try #require(session.visitId)
+    #expect(try harness.visits.visit(id: visitId)?.endedAt == nil)
+    #expect(session.isPrepared)
+
+    session.finish(keepRemaining: true)
+    #expect(session.summary != nil)
+    #expect(try harness.visits.openVisit() == nil)
+  }
+
+  @Test func aSecondFinishDoesNotRewriteTheSummary() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    let session = harness.session()
+    await session.start()
+    session.finish(keepRemaining: true)
+    let summary = session.summary
+    harness.date = t0.addingTimeInterval(600)
+    session.finish(keepRemaining: false)
+    #expect(session.summary == summary)
+    #expect(try harness.lists.items(listId: harness.listId).count == 1)
+  }
+
+  /// #54 : « Annuler » touché pendant une reprise de compte. Sur iOS, la réidentification et sa correspondance
+  /// arrivent dans le même tour du MainActor : aucun toucher ne s'intercale, et l'annulation suit les nouveaux
+  /// identifiants. La coche retenue ne part pas.
+  @Test func undoRightAfterARekeyKeepsTheHeldCheckHome() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("pain")
+    let session = harness.session()
+    await session.start()
+    session.toggle(try row(session, "lait"))
+
+    // Ce que fait l'observateur de la notification, sans la diffuser aux sessions encore vivantes d'autres tests.
+    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    session.apply(remap)
+    session.performUndo()
+
+    #expect(session.errorMessage == nil)
+    #expect(try harness.outbox(.insertChecks).isEmpty)
+    #expect(try harness.outbox(.createVisit).isEmpty)
+    #expect(try harness.lists.items(listId: remap[harness.listId]).allSatisfy { $0.checkedAt == nil })
   }
 }
