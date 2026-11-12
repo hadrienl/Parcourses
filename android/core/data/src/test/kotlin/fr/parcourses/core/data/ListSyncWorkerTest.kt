@@ -27,6 +27,7 @@ class ListSyncWorkerTest : DataTest() {
         val enqueued = mutableListOf<Boolean>()
         val wakes = mutableListOf<Instant>()
         var periodic = 0
+        val started = mutableListOf<java.util.UUID>()
 
         override fun enqueue(pull: Boolean) {
             enqueued += pull
@@ -38,6 +39,10 @@ class ListSyncWorkerTest : DataTest() {
 
         override fun schedulePeriodic() {
             periodic++
+        }
+
+        override fun runStarted(workId: java.util.UUID) {
+            started += workId
         }
     }
 
@@ -65,6 +70,29 @@ class ListSyncWorkerTest : DataTest() {
             assertEquals(ListenableWorker.Result.success(), result)
             assertEquals(1, gateway.callsOf("saveList").size)
             assertTrue(scheduler.wakes.isEmpty())
+        }
+
+    @Test
+    fun theWorkerReportsItsStartToTheSchedulerBeforeItsPass() =
+        runBlocking {
+            val worker = worker(pull = false)
+
+            worker.startWork().get()
+
+            // Sans ce signal, le planificateur croirait la demande encore en attente et n'en ajouterait plus (#54).
+            assertEquals(listOf(worker.id), scheduler.started)
+        }
+
+    @Test
+    fun aLocalFailureBecomesAWakeAndNeverFailsTheWork() =
+        runBlocking {
+            // #54 : un travail en échec emporterait la demande ajoutée derrière lui (`APPEND_OR_REPLACE`).
+            db.close()
+
+            val result = worker(pull = false).startWork().get()
+
+            assertEquals(ListenableWorker.Result.success(), result)
+            assertEquals(1, scheduler.wakes.size)
         }
 
     @Test

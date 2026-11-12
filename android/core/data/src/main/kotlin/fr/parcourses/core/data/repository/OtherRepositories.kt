@@ -147,6 +147,12 @@ class RoomStoreRepository(
 interface GraphRepository {
     suspend fun snapshot(storeId: String): GraphSnapshotEntity?
 
+    /** L'instantané du magasin vient de servir : il passe en tête du LRU (`fetchedAt` = dernier usage, #54). */
+    suspend fun touch(
+        storeId: String,
+        at: Instant,
+    )
+
     /** Remplace l'instantané du magasin et ne garde que les plus récents (LRU sur `fetchedAt`). */
     @Suppress("LongParameterList")
     suspend fun saveSnapshot(
@@ -163,6 +169,13 @@ class RoomGraphRepository(
     private val db: ParcoursesDatabase,
 ) : GraphRepository {
     override suspend fun snapshot(storeId: String): GraphSnapshotEntity? = db.graphSnapshots().get(storeId)
+
+    override suspend fun touch(
+        storeId: String,
+        at: Instant,
+    ) {
+        db.graphSnapshots().touch(storeId, at)
+    }
 
     override suspend fun saveSnapshot(
         storeId: String,

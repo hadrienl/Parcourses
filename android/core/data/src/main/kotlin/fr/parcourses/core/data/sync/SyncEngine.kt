@@ -1,7 +1,3 @@
-// Machine à états portée d'iOS : sorties anticipées par état d'erreur ; toute erreur locale ou distante doit
-// devenir un délai, jamais un plantage de la passe (l'annulation est relancée à chaque fois).
-@file:Suppress("ReturnCount", "TooGenericExceptionCaught", "LoopWithTooManyJumpStatements", "CyclomaticComplexMethod")
-
 package fr.parcourses.core.data.sync
 
 import android.util.Log
@@ -76,8 +72,9 @@ class SyncEngine(
     /**
      * Anciens identifiants vers nouveaux depuis le lancement, tous les rekeys cumulés (chaque ancien identifiant
      * mène à l'identifiant courant). Un flux avec état : un écran ouvert après un rekey fait en arrière-plan
-     * reçoit tout de même la correspondance. En mémoire : après la mort du processus, les écrans repartent de
-     * la liste des listes.
+     * reçoit tout de même la correspondance. En mémoire seulement : après la mort du processus, la pile de navigation
+     * restaurée garde les anciens identifiants, et un écran Liste rouvert sur l'un d'eux affiche « Liste introuvable »
+     * (#54). L'écran Listes, lui, montre les listes sous leurs nouveaux identifiants.
      */
     val remaps: Flow<IdentifierRemap> = remapHistory.map { IdentifierRemap(it) }
 
@@ -138,7 +135,7 @@ class SyncEngine(
 
     // region Passe
 
-    @Suppress("ReturnCount")
+    @Suppress("CyclomaticComplexMethod", "ReturnCount") // port d'iOS : un cas par état, gardes de sortie anticipée
     private suspend fun pass(pull: Boolean) {
         var pullDue = pull
         reconcileQueueIfNeeded()
@@ -178,6 +175,7 @@ class SyncEngine(
         if (needsReconciliation && reconcileQueue()) needsReconciliation = false
     }
 
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun reconcileQueue(): Boolean =
         try {
             val queued = reconciliation.run(dependencies.now())
@@ -190,6 +188,7 @@ class SyncEngine(
             false
         }
 
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun restoreSession(): Boolean =
         try {
             gateway.ensureSession(null)
@@ -208,6 +207,7 @@ class SyncEngine(
      * Les données locales correspondent-elles au compte de la session ? Le curseur couvre un stockage de session
      * vidé, où la passerelle n'a plus de dernier compte à comparer.
      */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught") // port d'iOS : gardes, pannes en délais
     private suspend fun prepareAccount(): AccountState {
         try {
             if (!needsAccountRecovery) {
@@ -236,6 +236,7 @@ class SyncEngine(
      * lève [RemoteError.AccountChanged], rien ne part, et l'opération recommence depuis le début. Le seul chemin
      * qui acquitte le compte est celui-ci, après la réidentification : il n'y a pas de « annuler ».
      */
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun recoverAccount(): AccountState =
         try {
             // D'abord le compte : sans session établie (stockage verrouillé compris), on ne touche à rien.
@@ -285,6 +286,7 @@ class SyncEngine(
     }
 
     /** `null` si le serveur confirme la session. Une session perdue ne doit jamais produire de `FAILED`. */
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun confirmSession(): Next? =
         try {
             gateway.verifySession()
@@ -307,6 +309,7 @@ class SyncEngine(
     private enum class Next { Proceed, Stop }
 
     /** Nombre de lots envoyés, `null` si la passe s'est arrêtée sur une erreur passagère. */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught") // port d'iOS : gardes, pannes en délais
     private suspend fun sendQueue(): Int? {
         var sent = 0
         val singleChecks = mutableSetOf<String>()
@@ -440,6 +443,7 @@ class SyncEngine(
         return Next.Proceed
     }
 
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun handleRefusal(
         error: RemoteError,
         work: OutboxWork,
@@ -476,6 +480,7 @@ class SyncEngine(
      * La panne retient la file jusqu'à la fin du délai : une panne générale ne doit rien mettre de côté trop tôt.
      * Le départ de la panne n'est effacé que par un succès : une ligne déjà mise de côté y retourne dès son échec.
      */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun handleServerFailure(
         error: RemoteError,
         work: OutboxWork,
@@ -500,6 +505,7 @@ class SyncEngine(
      * `23514` : seul un horodatage trop loin dans le futur se corrige. Tout le lot d'un coup, sans essai consommé :
      * la date renvoyée n'est jamais après l'heure du serveur, le prochain refus éventuel a donc une autre cause.
      */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught") // port d'iOS : gardes, pannes en délais
     private suspend fun correctClock(work: OutboxWork): ClockOutcome {
         val serverNow =
             try {
@@ -524,6 +530,7 @@ class SyncEngine(
     }
 
     /** Compte un refus sur tout le lot : abandon au plafond, délai croissant sinon. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun capAttempts(
         error: RemoteError,
         work: OutboxWork,
@@ -541,6 +548,7 @@ class SyncEngine(
     }
 
     /** Un lot refusé pour une raison propre à une ligne repart ligne à ligne, sans consommer d'essai. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private fun split(
         work: OutboxWork,
         singleChecks: MutableSet<String>,
@@ -568,6 +576,7 @@ class SyncEngine(
             else -> failForbidden(work)
         }
 
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun handleForbiddenVisit(work: OutboxWork): Next {
         if (waitForList(work)) return Next.Proceed
         // Liste supprimée entre-temps : la visite reste utile au graphe, on la renvoie sans liste.
@@ -593,6 +602,7 @@ class SyncEngine(
      * remise en file si elle n'y est plus. Faux si la liste est reçue (ou abandonnée) : le refus est alors bien
      * celui de l'article.
      */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun waitForList(work: OutboxWork): Boolean {
         val listId = store.unsentListId(work) ?: return false
         if (!reconcileQueue()) return false
@@ -611,6 +621,7 @@ class SyncEngine(
      * compte et les coches ne sont arrivées nulle part : elles restent en local en `FAILED`, jamais marquées
      * reçues. Ne pas mettre toute la file en pause : une seule visite la bloquerait pour toujours.
      */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught") // port d'iOS : gardes, pannes en délais
     private suspend fun handleForbiddenChecks(work: OutboxWork): Next {
         val first = OutboxCoding.decode(CheckPayload.serializer(), work.payloads[0])
         val access =
@@ -649,6 +660,7 @@ class SyncEngine(
      * Donne un produit partagé aux articles saisis librement (apprentissage sans catalogue). Un échec ne retient
      * jamais la file : la résolution attend seule, et l'envoi décide du délai global s'il échoue aussi.
      */
+    @Suppress("LoopWithTooManyJumpStatements", "TooGenericExceptionCaught") // une garde par cas, pannes en délais
     private suspend fun resolveProducts() {
         val now = dependencies.now()
         if (resolutionBackoffUntil?.let { it > now } == true) return
@@ -677,6 +689,7 @@ class SyncEngine(
 
     // region Descente
 
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun pullAll(now: Instant) {
         try {
             val lists = gateway.fetchLists(cursors.lists)
@@ -719,10 +732,11 @@ class SyncEngine(
     // region Réveil
 
     /** Quand rappeler le moteur : prochaine entrée différée, délai d'erreur, descente à refaire. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun nextWake(): Instant? {
         if (!dependencies.isOnline() || isWaitingForSession) return null
         val date = dependencies.now()
-        // Demande arrivée après la dernière lecture de la boucle (WorkManager `KEEP` ne l'a pas relancée).
+        // Demande notée après la dernière lecture de la boucle : un rappel immédiat la couvre.
         if (isRunRequested.get()) return date
         // Une entrée déjà échue et libre compte : la passe a pu s'arrêter avant elle.
         val next = if (store.nextWork(date) != null) date else store.nextDueDate(date)

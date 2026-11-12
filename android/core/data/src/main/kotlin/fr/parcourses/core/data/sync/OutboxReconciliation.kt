@@ -1,6 +1,3 @@
-// Port de la réconciliation d'iOS : une garde `continue` par cas écarté, conditions de la règle 42501.
-@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "ComplexCondition")
-
 package fr.parcourses.core.data.sync
 
 import androidx.room3.withWriteTransaction
@@ -51,6 +48,7 @@ class OutboxReconciliation(
         return count
     }
 
+    @Suppress("LoopWithTooManyJumpStatements") // port d'iOS : une garde par cas écarté
     private suspend fun reconcileItems(
         queued: MutableMap<String, MutableSet<OutboxKind>>,
         now: Instant,
@@ -65,6 +63,7 @@ class OutboxReconciliation(
         return count
     }
 
+    @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements") // un cas par état, une garde par cas écarté
     private suspend fun reconcileVisits(
         queued: Map<String, Set<OutboxKind>>,
         now: Instant,
@@ -108,6 +107,7 @@ class OutboxReconciliation(
      * Les articles abandonnés en `42501` alors que leur liste n'est jamais partie repartent, derrière elle.
      * Remplacés par une entrée neuve : la valeur courante de l'article part, jamais une valeur périmée.
      */
+    @Suppress("ComplexCondition", "LoopWithTooManyJumpStatements") // port d'iOS : règle 42501, une garde par cas
     private suspend fun revokeWrongfulFailures(now: Instant): Int {
         var count = 0
         for (entry in db.outbox().failed()) {

@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,10 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -92,7 +95,13 @@ internal fun Dock(
                 text = { Text(stringResource(R.string.shopping_finish)) },
                 containerColor = Ticket.colors.accent,
                 contentColor = Ticket.colors.onAccent,
-                modifier = modifier.heightIn(min = TicketDimens.primaryAction).testTag(TAG_FINISH),
+                modifier =
+                    modifier
+                        .heightIn(min = TicketDimens.primaryAction)
+                        // Pas de `enabled` sur ce bouton : il est dit indisponible et estompé jusqu'au chargement.
+                        .semantics { if (!state.isLoaded) disabled() }
+                        .alpha(if (state.isLoaded) 1f else DISABLED_ALPHA)
+                        .testTag(TAG_FINISH),
             )
         }
         if (stacked) {
@@ -118,6 +127,8 @@ private fun EntryField(
     onFocus: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
+    // Comme l'écran Liste : seul le passage vide ↔ non vide recompose le bouton, pas chaque frappe (#54).
+    val canSubmit by remember(input) { derivedStateOf { input.text.isNotBlank() } }
     DockPill(modifier) {
         TextField(
             state = input,
@@ -129,7 +140,7 @@ private fun EntryField(
             colors = dockFieldColors(),
             modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) }.testTag(TAG_ENTRY),
         )
-        IconButton(onClick = actions.onSubmit, enabled = input.text.isNotBlank()) {
+        IconButton(onClick = actions.onSubmit, enabled = canSubmit) {
             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.shopping_add))
         }
     }
@@ -157,3 +168,6 @@ internal fun UndoBanner(
         Text(message, modifier = Modifier.padding(vertical = 4.dp))
     }
 }
+
+/** Opacité d'un contrôle indisponible (Material). */
+private const val DISABLED_ALPHA = 0.38f

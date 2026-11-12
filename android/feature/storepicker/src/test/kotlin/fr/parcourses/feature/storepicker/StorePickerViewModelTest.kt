@@ -40,10 +40,12 @@ class StorePickerViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
+    private val memory = InMemoryLocationPermissionMemory()
+
     private fun model(
         remote: FakeGateway? = gateway,
         requestTimeoutMs: Long = 10_000,
-    ) = StorePickerViewModel(location, remote, cache, requestTimeoutMs = requestTimeoutMs, now = { clock })
+    ) = StorePickerViewModel(location, remote, cache, memory, requestTimeoutMs = requestTimeoutMs, now = { clock })
 
     private fun TestScope.started(vm: StorePickerViewModel = model()): StorePickerViewModel {
         vm.ensureStarted()
@@ -243,6 +245,64 @@ class StorePickerViewModelTest {
             assertTrue(gateway.nearbyCalls.isEmpty())
         }
 
+    @Test
+    fun aPermanentRefusalIsRememberedForTheNextVisit() =
+        runTest {
+            // #54 : sans mémoire, le premier appui sur « Utiliser ma position » de la fois suivante ne faisait rien.
+            location.authorization = LocationAuthorization.Denied
+            // Deuxième refus : la demande était encore proposable juste avant.
+            started().onPermissionResult(canAskAgain = false, couldAskBefore = true)
+            assertTrue(memory.deniedPermanently)
+
+            val next = started(model())
+            assertEquals(StorePickerPhase.Denied(canAskAgain = false), next.phase)
+            assertEquals(0, location.reads)
+        }
+
+    @Test
+    fun aDismissedDialogIsNotRememberedAsAPermanentRefusal() =
+        runTest {
+            // Android 11+ : dialogue fermé (appui à côté) à la première demande, le rationale reste faux.
+            location.authorization = LocationAuthorization.Denied
+            val vm = started()
+            vm.onPermissionResult(canAskAgain = false, couldAskBefore = false)
+            assertFalse(memory.deniedPermanently)
+            assertEquals(StorePickerPhase.PermissionNeeded, started(model()).phase)
+        }
+
+    @Test
+    fun aSimpleRefusalIsNotRemembered() =
+        runTest {
+            location.authorization = LocationAuthorization.Denied
+            started().onPermissionResult(canAskAgain = true)
+            assertFalse(memory.deniedPermanently)
+            assertEquals(StorePickerPhase.PermissionNeeded, started(model()).phase)
+        }
+
+    @Test
+    fun accessGivenBackInTheSettingsForgetsThePermanentRefusal() =
+        runTest {
+            memory.deniedPermanently = true
+            gateway.nearby = { _, _, _, _ -> listOf(nearbyRow("A", 40.0)) }
+            val vm = started()
+            assertTrue(vm.phase is StorePickerPhase.Precise)
+            assertFalse(memory.deniedPermanently)
+            // Puis retiré de nouveau (sans « Ne plus demander ») : l'écran explique avant de demander.
+            location.authorization = LocationAuthorization.Denied
+            assertEquals(StorePickerPhase.PermissionNeeded, started(model()).phase)
+        }
+
+    @Test
+    fun aGrantAfterAPermanentRefusalForgetsIt() =
+        runTest {
+            memory.deniedPermanently = true
+            location.authorization = LocationAuthorization.Denied
+            val vm = started()
+            location.authorization = LocationAuthorization.Precise
+            vm.onPermissionResult(canAskAgain = false, couldAskBefore = true)
+            assertFalse(memory.deniedPermanently)
+        }
+
     // --- Autres états ---
 
     @Test
@@ -286,6 +346,44 @@ class StorePickerViewModelTest {
                 emptyList()
             }
             assertEquals(StorePickerPhase.Offline, started(model(requestTimeoutMs = 10_000)).phase)
+        }
+
+    @Test
+    fun comingBackFromTheLocationSettingsReadsThePositionAgain() =
+        runTest {
+            location.result = { LocationResult.Unavailable }
+            val vm = started()
+            assertEquals(StorePickerPhase.LocationUnavailable, vm.phase)
+            // Retour au premier plan sans être passé par les réglages : rien n'est relu.
+            vm.refreshAfterForeground()
+            advanceUntilIdle()
+            assertEquals(1, location.reads)
+
+            // #54 : la localisation activée dans les réglages, le retour relance la recherche.
+            vm.locationSettingsOpened()
+            location.result = { LocationResult.Fix(FakeLocationProvider.fix()) }
+            gateway.nearby = { _, _, _, _ -> listOf(nearbyRow("A", 40.0)) }
+            vm.refreshAfterForeground()
+            advanceUntilIdle()
+            assertTrue(vm.phase is StorePickerPhase.Precise)
+            assertEquals(2, location.reads)
+            // Une seule fois.
+            vm.refreshAfterForeground()
+            advanceUntilIdle()
+            assertEquals(2, location.reads)
+        }
+
+    @Test
+    fun aSessionNotYetCreatedCountsAsOffline() =
+        runTest {
+            // #54 : premier lancement hors ligne, la session anonyme n'existe pas encore.
+            gateway.nearby = { _, _, _, _ -> throw RemoteError.Unauthorized() }
+            val vm = started()
+            assertEquals(StorePickerPhase.Offline, vm.phase)
+            gateway.search = { _, _ -> throw RemoteError.Unauthorized() }
+            vm.onQueryChange("carrefour")
+            advanceUntilIdle()
+            assertEquals(StoreSearchState.Offline, vm.uiState.value.search)
         }
 
     @Test

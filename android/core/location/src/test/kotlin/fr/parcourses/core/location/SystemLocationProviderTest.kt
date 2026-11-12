@@ -1,6 +1,7 @@
 package fr.parcourses.core.location
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -8,7 +9,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.Executors
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SystemLocationProviderTest {
@@ -25,6 +28,32 @@ class SystemLocationProviderTest {
         now = { 0 },
         timeoutMs = FixSelection.TIMEOUT_MS,
     )
+
+    @Test
+    fun googlePlayServicesIsLookedUpOnlyAtTheFirstReadOffTheMainThread() =
+        runTest {
+            // #54 : la vérification se faisait à la construction, sur le fil principal.
+            val threads = mutableListOf<String>()
+            val io = Executors.newSingleThreadExecutor { Thread(it, "io-test") }.asCoroutineDispatcher()
+            val located =
+                SystemLocationProvider(
+                    authorizationSource = { LocationAuthorization.Precise },
+                    resolvePrimary = {
+                        threads += Thread.currentThread().name
+                        FixSource { flowOf(point) }
+                    },
+                    fallback = { error("pas appelée") },
+                    now = { 0 },
+                    timeoutMs = FixSelection.TIMEOUT_MS,
+                    io = io,
+                )
+            assertTrue(threads.isEmpty())
+
+            assertEquals(LocationResult.Fix(point), located.currentFix())
+            located.currentFix()
+            assertEquals(listOf("io-test"), threads)
+            io.close()
+        }
 
     @Test
     fun withoutAuthorizationNothingIsRequested() =

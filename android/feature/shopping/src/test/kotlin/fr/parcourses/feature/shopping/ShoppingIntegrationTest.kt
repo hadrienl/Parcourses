@@ -54,10 +54,14 @@ class ShoppingIntegrationTest : ShoppingTest() {
         }.getOrNull()
 
     /**
-     * La base locale, si elle est joignable : le conteneur doit publier son Postgres sur le port local 56322, celui
-     * du Supabase de ce projet (`supabase/config.toml`). Sinon aucune commande n'est envoyée.
+     * La base locale, si elle est joignable : le démon Docker doit être celui de cette machine (socket local, ni
+     * `DOCKER_HOST` distant ni autre contexte, voir [isLocalDockerEndpoint]), et le conteneur doit publier son
+     * Postgres sur le port local 56322, celui du Supabase de ce projet (`supabase/config.toml`). Sinon aucune
+     * commande n'est envoyée.
      */
     private val localDatabase: String? by lazy {
+        val endpoint = run("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}")
+        if (!isLocalDockerEndpoint(System.getenv("DOCKER_HOST"), endpoint)) return@lazy null
         val ports = run("docker", "port", DB_CONTAINER, "5432").orEmpty()
         DB_CONTAINER.takeIf { ports.lines().any { it.trim().endsWith(":$DB_PORT") } }
     }

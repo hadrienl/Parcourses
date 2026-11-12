@@ -1,11 +1,23 @@
 package fr.parcourses.feature.lists
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.repository.ListRepository
+import fr.parcourses.core.data.repository.RoomCategoryRepository
+import fr.parcourses.core.data.repository.RoomProductRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.ProductEntity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,6 +26,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 @RunWith(AndroidJUnit4::class)
 class ViewModelsTest : ListsTest() {
@@ -387,4 +400,144 @@ class ViewModelsTest : ListsTest() {
             assertEquals("Semaine", lists.list(moved.id)?.name)
             assertNull(model.uiState.value.errorDetail)
         }
+
+    // region Suites des relectures (#54)
+
+    /** Repository dont les ajouts attendent [gate] : une écriture reste en cours le temps du test. */
+    private class GatedLists(
+        private val inner: ListRepository,
+        val gate: CompletableDeferred<Unit> = CompletableDeferred(),
+    ) : ListRepository by inner {
+        override suspend fun addItem(
+            listId: String,
+            label: String,
+            normalizedName: String,
+            quantity: String?,
+            productId: String?,
+            categoryId: String,
+            at: Instant,
+        ): ListItemEntity {
+            gate.await()
+            return inner.addItem(listId, label, normalizedName, quantity, productId, categoryId, at)
+        }
+    }
+
+    private fun gatedModel(
+        listId: String,
+        gated: GatedLists,
+        computation: CoroutineDispatcher = Dispatchers.Unconfined,
+    ) = tracked {
+        ListDetailViewModel(
+            listId = listId,
+            lists = gated,
+            products = RoomProductRepository(db),
+            categories = RoomCategoryRepository(db),
+            analyzer = analyzer,
+            now = { clock },
+            computation = computation,
+        )
+    }
+
+    @Test
+    fun anEntryValidatedDuringAnotherWriteIsAddedToo() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val gated = GatedLists(lists)
+            val model = gatedModel(id, gated)
+            model.uiState.await { it.isLoaded }
+
+            model.type("lait")
+            model.submit()
+            // Le lait s'écrit encore : le pain est validé tout de même, et son texte quitte le champ.
+            model.type("pain")
+            model.submit()
+            assertEquals("", model.input.text.toString())
+
+            gated.gate.complete(Unit)
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } == 2 }
+            // Dans l'ordre de validation.
+            assertEquals(listOf("lait", "pain"), lists.items(id).sortedBy { it.position }.map { it.label })
+        }
+
+    @Test
+    fun aDoubleTapOnASuggestionAddsItOnce() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val other = lists.createList("Autre", clock).id
+            lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
+            val gated = GatedLists(lists)
+            val model = gatedModel(id, gated)
+            model.uiState.await { it.isLoaded }
+            model.type("tom")
+            val tomato =
+                model.uiState
+                    .await { it.suggestions.isNotEmpty() }
+                    .suggestions
+                    .single()
+
+            model.add(tomato)
+            model.add(tomato)
+            gated.gate.complete(Unit)
+
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } == 1 }
+            model.type("pain")
+            model.submit()
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } == 2 }
+            assertEquals(1, lists.items(id).count { it.label == "tomates" })
+        }
+
+    @Test
+    fun suggestionsAreComputedOffTheMainThread() {
+        val id = runBlocking { lists.createList("Courses", clock).id }
+        runBlocking {
+            val other = lists.createList("Autre", clock).id
+            lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
+        }
+        val computation = StandardTestDispatcher()
+        val model = gatedModel(id, GatedLists(lists, CompletableDeferred(Unit)), computation)
+        // Un écran abonné, comme en vrai : l'état n'est calculé que pour un abonné.
+        val screen = CoroutineScope(Dispatchers.Unconfined).launch { model.uiState.collect {} }
+        try {
+            // L'index se construit sur `computation` : rien n'est chargé tant qu'il ne tourne pas.
+            model.uiState.pumping(computation) { it.isLoaded }
+            model.type("tom")
+            Thread.sleep(SETTLE_MS)
+            // Le fil principal (ici `Unconfined`) n'a pas calculé la recherche à la frappe.
+            assertTrue(
+                model.uiState.value.suggestions
+                    .isEmpty(),
+            )
+            assertEquals(
+                listOf("tomate"),
+                model.uiState
+                    .pumping(computation) { it.suggestions.isNotEmpty() }
+                    .suggestions
+                    .map { it.normalizedName },
+            )
+        } finally {
+            screen.cancel()
+        }
+    }
+
+    /** Fait tourner [dispatcher] jusqu'à ce que l'état réponde au prédicat (au plus 5 s). */
+    private fun <T> StateFlow<T>.pumping(
+        dispatcher: TestDispatcher,
+        predicate: (T) -> Boolean,
+    ): T {
+        val deadline = System.currentTimeMillis() + PUMP_MS
+        while (System.currentTimeMillis() < deadline) {
+            dispatcher.scheduler.runCurrent()
+            if (predicate(value)) return value
+            Thread.sleep(PUMP_STEP_MS)
+        }
+        error("État attendu non atteint : $value")
+    }
+
+    // endregion
+
+    private companion object {
+        const val SETTLE_MS = 300L
+        const val PUMP_MS = 5_000L
+        const val PUMP_STEP_MS = 10L
+    }
 }

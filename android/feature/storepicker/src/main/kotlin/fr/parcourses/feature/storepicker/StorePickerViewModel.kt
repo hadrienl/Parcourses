@@ -109,6 +109,7 @@ class StorePickerViewModel(
     private val location: LocationProvider,
     private val gateway: RemoteGateway?,
     private val stores: StoreRepository,
+    private val permissionMemory: LocationPermissionMemory = InMemoryLocationPermissionMemory(),
     private val debounceMs: Long = DEBOUNCE_MS,
     private val requestTimeoutMs: Long = REQUEST_TIMEOUT_MS,
     private val now: () -> Instant = { Clock.System.now() },
@@ -129,6 +130,9 @@ class StorePickerViewModel(
     private var canAskAgain = true
     private var lastAuthorization: LocationAuthorization? = null
 
+    /** La personne est partie activer la localisation du téléphone : à son retour, on relit la position. */
+    private var awaitingLocationSettings = false
+
     /** À l'ouverture de l'écran : ne relance pas une recherche déjà en cours ou terminée (rotation). */
     fun ensureStarted() {
         if (!started) start()
@@ -145,13 +149,24 @@ class StorePickerViewModel(
 
     /**
      * Retour de la demande système. [canAskAgain] : `shouldShowRequestPermissionRationale`, faux après « Ne plus
-     * demander » ou un deuxième refus.
+     * demander » ou un deuxième refus. [couldAskBefore] : la même valeur lue juste avant la demande.
+     *
+     * Le refus n'est retenu comme définitif d'une ouverture à l'autre que s'il passe de vrai à faux (#54) : depuis
+     * Android 11, un dialogue simplement fermé (appui à côté, Retour) donne aussi faux, sans rien interdire.
      */
-    fun onPermissionResult(canAskAgain: Boolean) {
+    fun onPermissionResult(
+        canAskAgain: Boolean,
+        couldAskBefore: Boolean = false,
+    ) {
         permissionRequested = true
         this.canAskAgain = canAskAgain
         val current = state.value.phase
-        when (location.authorization) {
+        val authorization = location.authorization
+        // Un refus définitif survit à l'écran (#54) : sans cela, le premier appui sur « Utiliser ma position » d'une
+        // prochaine fois ne ferait rien, la demande système ne s'ouvrant plus.
+        permissionMemory.deniedPermanently =
+            authorization == LocationAuthorization.Denied && !canAskAgain && couldAskBefore
+        when (authorization) {
             LocationAuthorization.Denied -> {
                 showDenied()
             }
@@ -177,8 +192,21 @@ class StorePickerViewModel(
         start()
     }
 
-    /** Retour au premier plan : les réglages ont pu rendre l'accès à la position. */
+    /** L'écran ouvre les réglages de localisation du téléphone (position désactivée). */
+    fun locationSettingsOpened() {
+        awaitingLocationSettings = true
+    }
+
+    /**
+     * Retour au premier plan : les réglages ont pu rendre l'accès à la position, ou activer la localisation du
+     * téléphone (#54 : sans relance, il fallait appuyer sur « Réessayer »).
+     */
     fun refreshAfterForeground() {
+        if (awaitingLocationSettings && state.value.phase == StorePickerPhase.LocationUnavailable) {
+            awaitingLocationSettings = false
+            start()
+            return
+        }
         val waiting =
             when (state.value.phase) {
                 is StorePickerPhase.Denied,
@@ -202,11 +230,22 @@ class StorePickerViewModel(
     private suspend fun load() {
         val authorization = location.authorization
         lastAuthorization = authorization
-        if (authorization == LocationAuthorization.Denied) showDenied() else locate(authorization)
+        if (authorization == LocationAuthorization.Denied) {
+            showDenied()
+        } else {
+            // Accès rendu depuis les réglages : le refus définitif retenu n'a plus cours.
+            if (permissionMemory.deniedPermanently) permissionMemory.deniedPermanently = false
+            locate(authorization)
+        }
     }
 
     private fun showDenied() {
         lastAuthorization = LocationAuthorization.Denied
+        // Refus définitif d'une fois précédente : les réglages tout de suite, la demande système ne s'ouvrirait plus.
+        if (!permissionRequested && permissionMemory.deniedPermanently) {
+            permissionRequested = true
+            canAskAgain = false
+        }
         val phase =
             if (permissionRequested) StorePickerPhase.Denied(canAskAgain) else StorePickerPhase.PermissionNeeded
         state.update { it.copy(phase = phase) }
@@ -248,7 +287,7 @@ class StorePickerViewModel(
             phase(rows, isPrecise, fix)
         } catch (e: RemoteError) {
             // Une annulation est relancée par le gateway : seule une vraie panne arrive ici.
-            if (e is RemoteError.Network) StorePickerPhase.Offline else StorePickerPhase.ServiceError
+            if (e.meansOffline()) StorePickerPhase.Offline else StorePickerPhase.ServiceError
         }
     }
 
@@ -360,11 +399,19 @@ class StorePickerViewModel(
                         rows?.let { StoreSearchState.Results(it.map { row -> row.toCandidate() }) }
                             ?: StoreSearchState.Offline
                     } catch (e: RemoteError) {
-                        if (e is RemoteError.Network) StoreSearchState.Offline else StoreSearchState.Failed
+                        if (e.meansOffline()) StoreSearchState.Offline else StoreSearchState.Failed
                     }
                 state.update { it.copy(search = result) }
             }
     }
+
+    /**
+     * Réseau absent, ou session anonyme pas encore créée (premier lancement hors ligne, `Unauthorized`) : dans les
+     * deux cas, il faut du réseau, et le service n'est pas en cause (#54). Une session perdue en ligne donne aussi
+     * `Unauthorized` : l'écran dit alors « hors ligne » jusqu'à ce que la synchronisation reprenne le compte, ce qui
+     * reste le conseil utile (réessayer plus tard, ou continuer sans magasin).
+     */
+    private fun RemoteError.meansOffline(): Boolean = this is RemoteError.Network || this is RemoteError.Unauthorized
 
     companion object {
         const val MIN_QUERY_LENGTH = 2

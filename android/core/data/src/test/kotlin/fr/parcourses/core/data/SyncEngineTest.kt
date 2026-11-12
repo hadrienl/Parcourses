@@ -266,6 +266,43 @@ class SyncEngineTest : DataTest() {
         }
 
     @Test
+    fun aWriteMadeBetweenTheFetchAndTheMergeIsNotOverwritten() =
+        runBlocking {
+            // #54 : l'écran coche un article pendant la descente, après la lecture du serveur, avant la fusion.
+            val list = insertList(state = SyncState.SYNCED)
+            val milk = insertItem(list.id, state = SyncState.SYNCED)
+            val owner = Uuid.random()
+            gateway.remoteLists = listOf(ListRow(Uuid.parse(list.id), owner, "Liste", now, now - 10.minutes))
+            gateway.remoteItems =
+                listOf(
+                    ListItemRow(
+                        Uuid.parse(milk.id),
+                        Uuid.parse(list.id),
+                        null,
+                        "lait entier",
+                        null,
+                        null,
+                        now,
+                        now - 1.minutes,
+                    ),
+                )
+            gateway.beforeCall = { method ->
+                if (method == "fetchItems") repository.setChecked(milk.id, now, now)
+            }
+
+            engine.drain(pull = true)
+
+            // La coche locale reste, en attente d'envoi ; la version lue avant elle n'est pas appliquée.
+            val local = db.items().get(milk.id)!!
+            assertEquals(now, local.checkedAt)
+            assertEquals("lait", local.label)
+            assertEquals(SyncState.PENDING, local.syncState)
+            assertTrue(db.outbox().pendingFor(milk.id).isNotEmpty())
+            // Le curseur ne passe pas la ligne sautée : elle sera relue à la descente suivante.
+            assertEquals(now - 1.minutes, cursors.items)
+        }
+
+    @Test
     fun theCursorNeverPassesASkippedRow() =
         runBlocking {
             val list = insertList(state = SyncState.SYNCED)

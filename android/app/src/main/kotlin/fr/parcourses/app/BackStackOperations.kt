@@ -22,6 +22,17 @@ internal fun MutableList<NavKey>.applyRemap(remap: IdentifierRemap) {
 private fun Route.ShoppingSummary.remapped(remap: IdentifierRemap) =
     copy(listId = remap[listId], summary = summary.copy(visitId = summary.visitId?.let(remap::get)))
 
+/**
+ * Ouvre la liste [listId] depuis l'écran Listes, seulement si celui-ci est au sommet. Un double appui n'empile pas
+ * deux fois l'écran, et une liste créée après qu'on a quitté l'écran Listes (« À propos », autre liste ouverte
+ * pendant l'écriture) ne s'empile pas par-dessus (#54). Renvoie `true` si la liste a été ouverte.
+ */
+internal fun MutableList<NavKey>.openListFromLists(listId: String): Boolean {
+    if (lastOrNull() != Route.Lists) return false
+    add(Route.ListDetail(listId))
+    return true
+}
+
 /** Ouvre le choix du magasin, une seule fois même sur un double appui. */
 internal fun MutableList<NavKey>.openStorePicker(listId: String) {
     if (lastOrNull() !is Route.StorePicker) add(Route.StorePicker(listId))

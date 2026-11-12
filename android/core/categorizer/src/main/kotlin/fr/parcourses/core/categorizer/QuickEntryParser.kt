@@ -1,6 +1,3 @@
-// Port littéral de `QuickEntryParser` d'iOS (gardes successives).
-@file:Suppress("ReturnCount")
-
 package fr.parcourses.core.categorizer
 
 /** Résultat de l'analyse d'une saisie rapide. */
@@ -30,6 +27,7 @@ class QuickEntryParser(
     constructor() : this(CategoryResources.normalizationRules())
 
     /** Analyse une saisie. Le libellé est vide seulement si la saisie l'est. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     fun parse(raw: String): QuickEntry {
         val tokens = raw.split(WHITESPACE).filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return QuickEntry(null, "")
@@ -96,6 +94,7 @@ class QuickEntryParser(
     }
 
     /** `500g`, `2kg`, `2,5kg`, `1.5l`, `2x`, `6x33cl`. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private fun isGluedQuantity(token: String): Boolean {
         val lowered = token.lowercase()
         val number = lowered.takeWhile { isAsciiDigit(it) || it == ',' || it == '.' }

@@ -139,7 +139,7 @@ internal fun ShoppingContent(
                 state = state,
                 input = input,
                 actions = actions,
-                onFinish = { if (state.remainingCount > 0) showsRemaining = true else actions.onFinish(true) },
+                onFinish = { onFinishTapped(state, askRemaining = { showsRemaining = true }, actions.onFinish) },
             )
         },
     ) { padding ->
@@ -156,6 +156,22 @@ internal fun ShoppingContent(
         )
     }
     state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
+}
+
+/**
+ * « Terminer » : la question « garder ou retirer » s'il reste des articles, sinon la fin. Rien avant la fin du
+ * chargement : rien n'est encore compté, la question ne serait pas posée (#54).
+ */
+private fun onFinishTapped(
+    state: ShoppingUiState,
+    askRemaining: () -> Unit,
+    finish: (keepRemaining: Boolean) -> Unit,
+) {
+    when {
+        !state.isLoaded -> Unit
+        state.remainingCount > 0 -> askRemaining()
+        else -> finish(true)
+    }
 }
 
 /** Annonce le réordonnancement une fois, puis l'oublie après [ANNOUNCEMENT_MS]. */

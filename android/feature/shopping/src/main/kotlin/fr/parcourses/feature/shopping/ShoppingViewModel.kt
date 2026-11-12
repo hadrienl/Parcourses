@@ -122,6 +122,15 @@ class ShoppingViewModel(
     private var basket: List<ShoppingRow> = emptyList()
     private var notFound: List<ShoppingRow> = emptyList()
     private var undo: ShoppingUndo? = null
+
+    /**
+     * « Annuler » touché entre l'écriture d'une reprise de compte et l'arrivée de sa correspondance : la base ne
+     * connaît plus les anciens identifiants. L'annulation est rejouée sous les nouveaux dès qu'ils arrivent (#54) :
+     * la coche, toujours retenue (la reprise garde sa retenue), ne part pas. Un article supprimé ailleurs donne la
+     * même erreur : la bannière disparaît alors sans message, et l'annulation n'est jamais rejouée (plus rien à
+     * décocher, aucune correspondance ne le nommera).
+     */
+    private var undoAwaitingRemap: ShoppingUndo? = null
     private var highlighted: String? = null
     private var expired = false
     private var summary: ShoppingSummary? = null
@@ -474,9 +483,15 @@ class ShoppingViewModel(
         actDurably {
             val action = undo ?: return@actDurably
             clearUndo()
-            val date = now()
-            val succeeded =
-                perform {
+            undoNow(action)
+        }
+
+    private suspend fun undoNow(action: ShoppingUndo) {
+        val date = now()
+        var awaitsRemap = false
+        val succeeded =
+            perform {
+                try {
                     when (action.kind) {
                         ShoppingUndo.Kind.Check -> {
                             if (action.checkId != null) {
@@ -490,24 +505,29 @@ class ShoppingViewModel(
                             deps.lists.setNotFound(action.itemId, null)
                         }
                     }
+                } catch (expected: RepositoryException.NotFound) {
+                    // Reprise de compte en cours : rejouée à l'arrivée de la correspondance (voir `apply`).
+                    awaitsRemap = true
                 }
-            if (!succeeded) return@actDurably
-            settlingIds -= action.itemId
-            // La ligne reprend sa place : l'annulation n'est pas un nouveau trajet.
-            val order = toBuy.map { it.id }.filter { it != action.itemId }.toMutableList()
-            order.add(minOf(action.index, order.size), action.itemId)
-            reloadRows()
-            arrange(order)
-            settledOrder = toBuy.filter { !it.isChecked }.map { it.id }
-            // Le tri attendu par une autre coche reste dû ; sinon l'annulation ne déclenche aucun trajet.
-            if (settlingIds.isEmpty()) {
-                settleJob?.cancel()
-                hasUnsettledChange = false
-            } else {
-                scheduleSettle()
             }
-            publish()
+        if (awaitsRemap) undoAwaitingRemap = action
+        if (!succeeded || awaitsRemap) return
+        settlingIds -= action.itemId
+        // La ligne reprend sa place : l'annulation n'est pas un nouveau trajet.
+        val order = toBuy.map { it.id }.filter { it != action.itemId }.toMutableList()
+        order.add(minOf(action.index, order.size), action.itemId)
+        reloadRows()
+        arrange(order)
+        settledOrder = toBuy.filter { !it.isChecked }.map { it.id }
+        // Le tri attendu par une autre coche reste dû ; sinon l'annulation ne déclenche aucun trajet.
+        if (settlingIds.isEmpty()) {
+            settleJob?.cancel()
+            hasUnsettledChange = false
+        } else {
+            scheduleSettle()
         }
+        publish()
+    }
 
     fun dismissError() {
         errorMessage = null
@@ -762,9 +782,12 @@ class ShoppingViewModel(
 
     /**
      * Termine les courses. [keepRemaining] : les articles restants attendent la prochaine fois, sinon ils quittent
-     * la liste.
+     * la liste. Ignoré avant la fin du chargement : la personne n'a pas pu voir ce qui restait (#54).
      */
-    fun finish(keepRemaining: Boolean) = actDurably { finishNow(keepRemaining) }
+    fun finish(keepRemaining: Boolean) {
+        if (!_uiState.value.isLoaded) return
+        actDurably { finishNow(keepRemaining) }
+    }
 
     private suspend fun finishNow(keepRemaining: Boolean) {
         val date = now()
@@ -817,7 +840,7 @@ class ShoppingViewModel(
         settlingIds.clear()
         settlingIds += renamed
         highlighted = highlighted?.let { remap[it] }
-        undo = undo?.let { it.copy(itemId = remap[it.itemId], checkId = it.checkId?.let(remap::get)) }
+        undo = undo?.renamed(remap)
         expiredVisitId = expiredVisitId?.let { remap[it] }
 
         fun List<ShoppingRow>.remapped() = map { it.copy(id = remap[it.id]) }
@@ -826,7 +849,15 @@ class ShoppingViewModel(
         notFound = notFound.remapped()
         if (hasUnsettledChange) scheduleSettle()
         publish()
+        // Annulation touchée avant cette correspondance : rejouée sous les nouveaux identifiants, après ce verrou.
+        undoAwaitingRemap?.takeIf { it.itemId in remap.identifiers }?.let { pending ->
+            undoAwaitingRemap = null
+            actDurably { undoNow(pending.renamed(remap)) }
+        }
     }
+
+    private fun ShoppingUndo.renamed(remap: IdentifierRemap) =
+        copy(itemId = remap[itemId], checkId = checkId?.let(remap::get))
 
     private suspend fun item(id: String): ListItemEntity? =
         attempt { deps.lists.items(listId) }?.firstOrNull {

@@ -1,6 +1,3 @@
-// Port de `SyncStore` d'iOS : gardes de sortie anticipée dans les parcours de la file.
-@file:Suppress("ReturnCount", "LoopWithTooManyJumpStatements")
-
 package fr.parcourses.core.data.sync
 
 import android.util.Log
@@ -68,6 +65,7 @@ class SyncStore(
      * Première entrée due dont aucune dépendance antérieure n'attend. Les coches d'une visite sont regroupées,
      * sauf si [singleChecks] contient la visite : un lot refusé est renvoyé ligne à ligne pour isoler la fautive.
      */
+    @Suppress("LoopWithTooManyJumpStatements", "ReturnCount") // port d'iOS : une garde par cas, gardes
     suspend fun nextWork(
         now: Instant,
         singleChecks: Set<String> = emptySet(),
@@ -96,6 +94,7 @@ class SyncStore(
     }
 
     /** Liste d'un article ou d'une visite en file si elle existe encore et n'a pas été reçue par le serveur. */
+    @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     suspend fun unsentListId(work: OutboxWork): String? {
         val payload = work.payloads.firstOrNull() ?: return null
         val listId =
@@ -494,6 +493,7 @@ class SyncStore(
         attempts = entries.maxOf { it.attempts },
     )
 
+    @Suppress("LoopWithTooManyJumpStatements") // port d'iOS : une garde par cas écarté
     private suspend fun checksBatch(
         first: OutboxEntryEntity,
         visitId: String,

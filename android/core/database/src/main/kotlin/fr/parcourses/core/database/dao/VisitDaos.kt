@@ -124,6 +124,16 @@ abstract class GraphSnapshotDao {
     @Upsert
     abstract suspend fun upsert(snapshot: GraphSnapshotEntity)
 
+    /**
+     * Instantané lu pour des courses : il redevient le plus récent pour l'éviction (#54). `fetchedAt` sert de date
+     * de dernier usage : un magasin fréquent au graphe stable n'est plus évincé faute de nouvelle version.
+     */
+    @Query("UPDATE graph_snapshots SET fetchedAt = :at WHERE storeId = :storeId")
+    abstract suspend fun touch(
+        storeId: String,
+        at: Instant,
+    ): Int
+
     /** Évince les instantanés les plus anciens : on garde les [keep] derniers (LRU, #9 §4.2). */
     @Query(
         "DELETE FROM graph_snapshots WHERE storeId NOT IN " +

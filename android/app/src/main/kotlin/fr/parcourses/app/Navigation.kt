@@ -85,11 +85,8 @@ fun ParcoursesNavHost(
                         )
                     ListsRoute(
                         viewModel = model,
-                        onOpen = { id ->
-                            // Un double appui ne doit pas empiler deux fois le même écran.
-                            val top = backStack.lastOrNull()
-                            if (top !is Route.ListDetail || top.listId != id) backStack.add(Route.ListDetail(id))
-                        },
+                        // Appui sur une liste, ou liste qui vient d'être créée : voir `openListFromLists`.
+                        onOpen = { id -> backStack.openListFromLists(id) },
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
                     )
                 }
@@ -132,6 +129,7 @@ fun ParcoursesNavHost(
                                             container.location,
                                             container.gateway,
                                             container.stores,
+                                            container.locationPermission,
                                         )
                                     }
                                 },
