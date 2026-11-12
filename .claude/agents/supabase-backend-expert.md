@@ -68,7 +68,8 @@ Les références sont la conception dans l'issue GitHub #4 (modèle de données)
 
 - Arêtes non orientées, stockées une seule fois avec `product_a < product_b` (`CHECK`). Renforcement par `INSERT ... ON CONFLICT ... DO UPDATE`.
 - Décroissance temporelle : stocke le poids et la date de dernière observation, et applique la décroissance au calcul (`weight * exp(-ln(2) * age / half_life)`). Ne réécris pas toute la table chaque nuit.
-- Traitement des visites terminées : **pg_cron** appelle une fonction SQL, ou une Edge Function via `pg_net`. Il traite par lots les visites `ended_at IS NOT NULL AND processed_at IS NULL`, avec `FOR UPDATE SKIP LOCKED` pour éviter un double traitement.
+- Les dates du graphe ne sont gardées **qu'au jour** (minuit, Europe/Paris), une visite n'est apprise **qu'après minuit**, et l'instantané n'est publié qu'**une fois par nuit**, calculé à minuit (#70). Ne réintroduis ni heure précise dans le graphe, ni publication plus fréquente : elles dateraient les visites d'un contributeur.
+- Traitement des visites terminées : **pg_cron** appelle une fonction SQL, ou une Edge Function via `pg_net`. Il traite par lots les visites `ended_at IS NOT NULL AND processed_at IS NULL` (et terminées avant minuit, #70), avec `FOR UPDATE SKIP LOCKED` pour éviter un double traitement.
 - Pour un traitement plus lourd, utilise une file **Supabase Queues (pgmq)** plutôt qu'un cron qui balaie toute la table.
 - Les coches brutes sont conservées : tout le graphe doit pouvoir être recalculé si l'algorithme change.
 

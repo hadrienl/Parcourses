@@ -135,7 +135,7 @@ isOneToOne: false
                   }
                   ComputedFields: never
                   Insert: {
-                    "last_seen_at"?: string,"observations"?: number,"product_a": string,"product_b": string,"store_id": string,"weight"?: number
+                    "last_seen_at": string,"observations"?: number,"product_a": string,"product_b": string,"store_id": string,"weight"?: number
                   }
                   Update: {
                     "last_seen_at"?: string,"observations"?: number,"product_a"?: string,"product_b"?: string,"store_id"?: string,"weight"?: number
@@ -167,7 +167,7 @@ isOneToOne: false
                   }
                   ComputedFields: never
                   Insert: {
-                    "last_seen_at"?: string,"observations"?: number,"product_id": string,"store_id": string,"weight"?: number
+                    "last_seen_at": string,"observations"?: number,"product_id": string,"store_id": string,"weight"?: number
                   }
                   Update: {
                     "last_seen_at"?: string,"observations"?: number,"product_id"?: string,"store_id"?: string,"weight"?: number

@@ -73,13 +73,17 @@ class ShoppingIntegrationTest : ShoppingTest() {
 
     /**
      * Rejoue tout de suite le travail du cron : apprentissage des visites closes, puis publication. Renvoie `true`
-     * si la visite [visitId] a été apprise.
+     * si la visite [visitId] a été apprise. Le serveur n'apprend une visite qu'après minuit, heure de Paris (#70) :
+     * l'apprentissage est joué le lendemain (minuit + 36 h : toujours le lendemain à Paris, même un jour de 25 h).
      */
     private fun runServerGraphJobs(
         container: String,
         visitId: String,
     ): Boolean {
-        sql(container, "select graph.process_pending_visits(200)")
+        sql(
+            container,
+            "select graph.process_pending_visits(200, date_trunc('day', now(), 'Europe/Paris') + interval '36 hours')",
+        )
         sql(container, "select graph.publish_snapshots(50)")
         // L'identifiant vient de la base locale de l'app (UUID) : aucune entrée extérieure dans la requête.
         require(Uuid.parse(visitId).toString() == visitId)
