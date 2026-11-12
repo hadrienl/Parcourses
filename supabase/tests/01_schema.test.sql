@@ -25,13 +25,13 @@ insert into public.stores (id, name, location) values
   ('00000000-0000-0000-0000-0000000000f1', 's', extensions.st_makepoint(0.58, 43.64)::extensions.geography);
 
 select throws_ok($$
-  insert into public.store_edges (store_id, product_a, product_b)
-  values ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000a')
+  insert into public.store_edges (store_id, product_a, product_b, last_seen_at)
+  values ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000a', now())
 $$, '23514', null, 'product_a < product_b imposé');
 
 select lives_ok($$
-  insert into public.store_edges (store_id, product_a, product_b)
-  values ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')
+  insert into public.store_edges (store_id, product_a, product_b, last_seen_at)
+  values ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b', now())
 $$, 'arête ordonnée acceptée');
 
 select throws_ok($$
