@@ -7,6 +7,12 @@
 --    et leurs poids décrus ne disent plus l'heure d'une visite.
 -- Un jour d'écart change un poids de 0,77 % au plus (demi-vie de 90 jours) : sans effet sur le tri.
 
+-- Les jobs du graphe (apprentissage, publication) sont tenus à l'écart dès la première instruction : sinon un job
+-- démarré pendant la migration pourrait attendre un verrou de table qu'elle tient, pendant qu'elle attend le sien.
+-- Verrous de transaction réentrants : ceux des fonctions appelées plus bas réussissent ensuite.
+select pg_advisory_xact_lock(hashtext('graph-process'));
+select pg_advisory_xact_lock(hashtext('graph-snapshot'));
+
 -- Traitement des visites : copie de 20261031160002_graph_learn.sql, sauf deux points.
 -- - Seules les visites terminées avant minuit (v_today) sont apprises. Apprendre le jour même ferait changer le graphe
 --   entre minuit et la publication nocturne, ce qui daterait la visite.
