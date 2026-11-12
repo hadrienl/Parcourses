@@ -19,7 +19,8 @@ $$, 'toute fonction SECURITY DEFINER a un search_path vide');
 
 select ok(has_function_privilege('authenticated', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC exécutable par authenticated');
 select ok(not has_function_privilege('anon', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC fermée à anon');
-select ok(has_table_privilege('authenticated', 'public.store_graph_snapshots', 'SELECT'), 'instantanés lisibles');
+-- Instantanés servis par la RPC seule (#70) : plus de lecture directe.
+select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots', 'SELECT'), 'instantanés non lisibles en direct');
 select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots', 'INSERT,UPDATE,DELETE,TRUNCATE'), 'instantanés non modifiables');
 
 -- Colonnes de traitement : jamais modifiables par le client.

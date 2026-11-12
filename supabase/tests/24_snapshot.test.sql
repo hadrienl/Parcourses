@@ -57,11 +57,11 @@ select graph.process_pending_visits(200, timestamptz '2026-10-02 13:30+00');
 select is(graph.publish_snapshots(50, timestamptz '2026-10-02 13:30+00'), 1, 'graphe modifié : republié');
 select ok((select snapshot_version from public.store_graph_snapshots where store_id = :'store') > :'ver'::bigint, 'snapshot_version croissant');
 
--- RPC, en tant que client.
+-- RPC, en tant que client (qui ne lit plus la table directement, #70).
+select snapshot_version as current_ver from public.store_graph_snapshots where store_id = :'store' \gset
 select tests.authenticate_as(:'alice');
 select is(public.store_graph_snapshot(:'store', null) ->> 'store_id', :'store', 'RPC : instantané complet');
-select is(public.store_graph_snapshot(:'store', (select snapshot_version from public.store_graph_snapshots where store_id = :'store')),
-  null, 'RPC : null si version connue');
+select is(public.store_graph_snapshot(:'store', :'current_ver'::bigint), null, 'RPC : null si version connue');
 select is(public.store_graph_snapshot(:'empty_store'), '{"none": true}'::jsonb, 'RPC : none sans instantané');
 select throws_ok(format($$ update public.store_graph_snapshots set payload = '{}' where store_id = %L $$, :'store'),
   '42501', null, 'instantané non modifiable par le client');
