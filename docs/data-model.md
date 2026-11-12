@@ -20,7 +20,8 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 - **Graphe** (écrit par le serveur seulement, **illisible par les clients**, #70) : `store_edges`, `store_entries`,
   `store_stats`, `store_graph_snapshots`. Les apps reçoivent l'instantané par la RPC `store_graph_snapshot`
   (`security definer`), seule porte d'entrée. Pour un magasin à un seul contributeur, ces tables révéleraient
-  ses achats et l'heure de ses visites.
+  ses achats et l'heure de ses visites. Une RPC `security definer` exécutable par `authenticated` est voulue ici,
+  comme pour `resolve_products` : ne pas la « corriger » en `security invoker`, qui exigerait de rouvrir la table.
 
 ## Migrations
 

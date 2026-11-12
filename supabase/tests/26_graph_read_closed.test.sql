@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(19);
+select plan(20);
 
 select tests.create_user('alice@example.com') as alice \gset
 select tests.store(1) as store \gset
@@ -29,6 +29,7 @@ $$, 'aucune politique sur les tables du graphe');
 select ok((select p.prosecdef and p.proconfig @> array['search_path=""']
            from pg_proc as p where p.oid = 'public.store_graph_snapshot(uuid, bigint)'::regprocedure),
   'store_graph_snapshot : SECURITY DEFINER, search_path vide');
+select ok(has_function_privilege('authenticated', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC exécutable par authenticated');
 select ok(not has_function_privilege('anon', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC fermée à anon');
 
 -- En tant que client : lecture directe refusée.

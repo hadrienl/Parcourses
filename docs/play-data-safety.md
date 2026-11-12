@@ -144,11 +144,11 @@ Recommandation : 1 ou 2, dans un ticket serveur (#8). La déclaration Play de la
 
 Traité par #70, en trois lots :
 
-1. **70.1 (fait)** : `store_edges`, `store_entries`, `store_stats` et `store_graph_snapshots` ne sont plus lisibles par aucun compte (`…_graph_read_closed.sql`). L'instantané n'est servi que par la RPC `store_graph_snapshot`, magasin par magasin. Le signal « une visite vient d'être apprise » (`store_stats` mis à jour chaque minute) n'est plus observable.
+1. **70.1 (fait)** : `store_edges`, `store_entries`, `store_stats` et `store_graph_snapshots` ne sont plus lisibles par aucun compte (`…_graph_read_closed.sql`). L'instantané n'est servi que par la RPC `store_graph_snapshot`, magasin par magasin. Le signal « une visite vient d'être apprise » ne se lit plus dans `store_stats`, mis à jour chaque minute. Il reste visible dans la version de l'instantané, horodatée et republiée au plus une fois par heure : c'est ce que traite 70.2.
 2. **70.2 (à venir)** : dates du graphe arrondies au jour (Europe/Paris) et instantanés publiés une fois par nuit seulement. L'instantané ne date alors plus une visite qu'au jour près.
 3. **70.3 (à venir)** : l'instantané d'un magasin à un seul contributeur n'est servi qu'à ce contributeur.
 
-Tant que 70.2 et 70.3 ne sont pas livrés, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur : l'instantané donne ses produits et l'heure de sa visite à quelques minutes près.
+Tant que 70.2 et 70.3 ne sont pas livrés, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur : l'instantané donne ses produits et l'heure de sa visite, à quelques minutes près pour la première, à l'heure près ensuite.
 
 ## 6. Points à revoir si le code change
 

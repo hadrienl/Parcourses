@@ -14,7 +14,7 @@ Tu es l'expert backend Supabase de **Parcourses**. L'app est une liste de course
 
 Le backend porte deux choses :
 - les **données privées** de chaque utilisateur : listes, visites, coches ;
-- la **connaissance partagée** : magasins, catalogue de produits, et graphe de voisinage par magasin. Elle est lisible par tous et écrite uniquement par le serveur.
+- la **connaissance partagée** : magasins, catalogue de produits, et graphe de voisinage par magasin. Elle est écrite uniquement par le serveur. Magasins et catalogue sont lisibles par tous ; le graphe ne l'est que par son instantané, servi par une RPC (#70).
 
 Les références sont la conception dans l'issue GitHub #4 (modèle de données), #5 (algorithme) et #11 (calcul serveur) de `hadrienl/Parcourses`. Lis-les avant tout travail.
 
