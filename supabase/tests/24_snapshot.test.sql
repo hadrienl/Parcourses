@@ -9,25 +9,26 @@ select tests.store(1) as store \gset
 select tests.store(2) as empty_store \gset
 
 -- Deux visites identiques : 1 → 2 → 3, et une arête faible 3-4 (produit 4 inconnu).
-select tests.visit(:'alice', :'store', array[1,2,3,4], array[0,30,60,90]::float8[], timestamptz '2026-10-01 10:00+00');
-select tests.visit(:'alice', :'store', array[1,2,3], array[0,30,60]::float8[], timestamptz '2026-10-02 10:00+00');
+-- Visites de la veille et de l'avant-veille : une visite n'est apprise qu'après minuit (#70).
+select tests.visit(:'alice', :'store', array[1,2,3,4], array[0,30,60,90]::float8[], timestamptz '2026-09-30 10:00+00');
+select tests.visit(:'alice', :'store', array[1,2,3], array[0,30,60]::float8[], timestamptz '2026-10-01 10:00+00');
 select graph.process_pending_visits(200, timestamptz '2026-10-02 11:00+00');
 
-select is(graph.publish_snapshots(50, timestamptz '2026-10-02 11:00+00'), 1, 'premier instantané publié immédiatement');
+select is(graph.publish_snapshots(50, timestamptz '2026-10-02 11:00+00'), 1, 'premier instantané publié au premier passage');
 select payload as p, snapshot_version as ver, etag from public.store_graph_snapshots where store_id = :'store' \gset
 
--- Confiance : V_eff = 1 × 2^(−1/90) + 1 au 2 octobre (+ 1 h de décroissance), C = 1 − exp(−V/5).
+-- Confiance : V_eff = 1 × 2^(−1/90) + 1 à minuit le 1er octobre (dates au jour, #70), décru jusqu'à 11:00 UTC, C = 1 − exp(−V/5).
 select is((:'p'::jsonb ->> 'confidence_q')::int,
-  round(1000 * (1 - exp(-graph.decayed(1 + power(2, -1.0/90), timestamptz '2026-10-02 10:00+00', timestamptz '2026-10-02 11:00+00', 90 * 86400) / 5)))::int,
+  round(1000 * (1 - exp(-graph.decayed(1 + power(2, -1.0/90), timestamptz '2026-10-01 00:00+02', timestamptz '2026-10-02 11:00+00', 90 * 86400) / 5)))::int,
   'confidence_q = round(1000 × (1 − exp(−V_eff/5)))');
 select is(:'p'::jsonb -> 'params', (select device_params from graph.algo_versions where version = 1), 'params appareil livrés');
 select is(:'p'::jsonb ->> 'format_version', '1', 'format_version');
 select is((:'p'::jsonb ->> 'snapshot_version')::bigint, extract(epoch from timestamptz '2026-10-02 11:00+00')::bigint, 'snapshot_version = epoch de génération');
 
--- Arête 1-2 : (1 × 2^(−1/90) + 1) décru d'une heure, quantifiée.
+-- Arête 1-2 : (1 × 2^(−1/90) + 1) daté de minuit (Paris) le 1er octobre, décru jusqu'à 11:00 UTC, quantifié.
 select is((select (e ->> 'weight_q')::int from jsonb_array_elements(:'p'::jsonb -> 'edges') as e
            where e ->> 'a' = tests.product(1)::text and e ->> 'b' = tests.product(2)::text),
-  round(1000 * graph.decayed(1 + power(2, -1.0/90), timestamptz '2026-10-02 10:00+00', timestamptz '2026-10-02 11:00+00', 90 * 86400))::int,
+  round(1000 * graph.decayed(1 + power(2, -1.0/90), timestamptz '2026-10-01 00:00+02', timestamptz '2026-10-02 11:00+00', 90 * 86400))::int,
   'weight_q = round(1000 × w_eff)');
 -- Produit 4 : force 0,5 + 1 × ... < 1 seulement via 3-4 (1) et 2-4 (0,5) = 1,5 ≥ 1 → connu. On vérifie le tri.
 select ok((select bool_and(x.ok) from (
@@ -51,8 +52,8 @@ delete from public.store_edges where product_a = tests.product(7);
 -- Même instant, republication forcée : contenu identique, etag égal, rien de réécrit.
 select is(graph.publish_snapshots(50, timestamptz '2026-10-02 11:00+00', interval '0'), 0, 'contenu identique : rien de réécrit');
 select is((select snapshot_version from public.store_graph_snapshots where store_id = :'store'), :'ver'::bigint, 'snapshot_version inchangé');
--- Nouvelle visite : republication, version croissante.
-select tests.visit(:'alice', :'store', array[3,5,6], array[0,30,60]::float8[], timestamptz '2026-10-02 13:00+00');
+-- Nouvelle visite (la veille, traitée en retard) : republication, version croissante.
+select tests.visit(:'alice', :'store', array[3,5,6], array[0,30,60]::float8[], timestamptz '2026-10-01 13:00+00');
 select graph.process_pending_visits(200, timestamptz '2026-10-02 13:30+00');
 select is(graph.publish_snapshots(50, timestamptz '2026-10-02 13:30+00'), 1, 'graphe modifié : republié');
 select ok((select snapshot_version from public.store_graph_snapshots where store_id = :'store') > :'ver'::bigint, 'snapshot_version croissant');
