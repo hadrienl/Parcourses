@@ -56,7 +56,9 @@ class SyncSchedulerPoliciesTest {
             runs += inputData.getBoolean(ListSyncWorker.KEY_PULL, false)
             if (runs.size == 1) {
                 firstRunStarted.countDown()
-                if (holdsFirstRun) firstRunRelease.await(WAIT_SECONDS, TimeUnit.SECONDS)
+                if (holdsFirstRun) {
+                    check(firstRunRelease.await(WAIT_SECONDS, TimeUnit.SECONDS)) { "passe jamais libérée" }
+                }
             }
             return Result.success()
         }

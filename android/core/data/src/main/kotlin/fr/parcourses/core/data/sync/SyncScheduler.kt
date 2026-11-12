@@ -156,7 +156,7 @@ class ListSyncWorker(
     @Suppress("TooGenericExceptionCaught") // jamais d'échec (voir plus haut) : la panne devient un rappel
     override suspend fun doWork(): Result {
         scheduler.runStarted(id)
-        val wake =
+        val wake: Instant? =
             try {
                 passes()
             } catch (e: CancellationException) {
@@ -165,7 +165,7 @@ class ListSyncWorker(
                 Log.e(TAG, "Passe interrompue : ${e.javaClass.simpleName}")
                 clock() + FAILURE_RETRY
             }
-        wake?.let { at -> runCatching { scheduler.scheduleWake(at) } }
+        if (wake != null) runCatching { scheduler.scheduleWake(wake) }
         return Result.success()
     }
 

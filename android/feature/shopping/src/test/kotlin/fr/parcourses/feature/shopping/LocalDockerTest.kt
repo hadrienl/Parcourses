@@ -15,7 +15,7 @@ class LocalDockerTest {
 
     @Test
     fun aRemoteDaemonIsRefused() {
-        assertFalse(isLocalDockerEndpoint("tcp://10.0.0.5:2376", "unix:///var/run/docker.sock"))
+        assertFalse(isLocalDockerEndpoint("tcp://docker.example.org:2376", "unix:///var/run/docker.sock"))
         assertFalse(isLocalDockerEndpoint("ssh://moi@serveur", "unix:///var/run/docker.sock"))
         assertFalse(isLocalDockerEndpoint(null, "tcp://docker.example.org:2376"))
         assertFalse(isLocalDockerEndpoint(null, "ssh://moi@serveur"))

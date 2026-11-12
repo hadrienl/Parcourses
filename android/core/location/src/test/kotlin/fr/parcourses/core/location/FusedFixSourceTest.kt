@@ -45,7 +45,9 @@ private class FakeFusedClient {
                 "requestLocationUpdates" -> {
                     requested = args[0] as LocationRequest
                     callback = args[1] as LocationCallback
-                    updatesFailure?.let { Tasks.forException<Void>(it) } ?: Tasks.forResult<Void>(null)
+                    // Le type de la tâche est effacé à l'exécution : seul compte son issue.
+                    val failure = updatesFailure
+                    if (failure != null) Tasks.forException<Any?>(failure) else Tasks.forResult<Any?>(null)
                 }
 
                 "removeLocationUpdates" -> {
