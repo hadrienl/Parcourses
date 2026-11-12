@@ -26,7 +26,7 @@ fun createSupabaseGateway(
     context: Context,
     config: SupabaseConfig,
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
-): RemoteGateway {
+): SupabaseGateway {
     val store = DataStoreSecureStateStore.create(context, dispatcher)
     return SupabaseGateway(createSupabaseClient(config, store, OkHttp.create(), dispatcher), store)
 }

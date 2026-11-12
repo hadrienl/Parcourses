@@ -8,6 +8,8 @@ android {
     // Règles R8 transmises à l'app : celles dont le code de ce module a besoin (A12).
     defaultConfig.consumerProguardFiles("consumer-rules.pro")
     testOptions.unitTests.isReturnDefaultValues = true
+    // Tests instrumentés sur un vrai Keystore (#51) : `./gradlew :core:network:connectedDebugAndroidTest`.
+    defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 }
 
 // Racine du dépôt : les tests de contrat lisent shared/contract et supabase/migrations.
@@ -37,4 +39,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core)
 }

@@ -28,7 +28,9 @@ import fr.parcourses.core.location.LocationProvider
 import fr.parcourses.core.location.SystemLocationProvider
 import fr.parcourses.core.network.AuthBootstrap
 import fr.parcourses.core.network.RemoteGateway
+import fr.parcourses.core.network.SessionMaintenance
 import fr.parcourses.core.network.SupabaseConfig
+import fr.parcourses.core.network.SupabaseGateway
 import fr.parcourses.core.network.createSupabaseGateway
 import fr.parcourses.feature.shopping.GraphSnapshotCache
 import fr.parcourses.feature.shopping.ShoppingDependencies
@@ -72,7 +74,12 @@ class AppContainer(
 ) {
     val database: ParcoursesDatabase by lazy { openDatabase(context) }
 
-    val gateway: RemoteGateway? by lazy { config?.let { createSupabaseGateway(context, it) } }
+    private val supabase: SupabaseGateway? by lazy { config?.let { createSupabaseGateway(context, it) } }
+
+    val gateway: RemoteGateway? get() = supabase
+
+    /** Entretien de la session (écran À propos) : `null` sans configuration Supabase. */
+    val sessionMaintenance: SessionMaintenance? get() = supabase
 
     val scheduler by lazy { WorkManagerSyncScheduler(context) }
 
@@ -198,6 +205,27 @@ class AppContainer(
                 coordinator?.sessionDidChange()
             }
         }
+    }
+
+    /** Suites réseau des actions d'entretien : elles survivent à l'écran qui les a lancées. */
+    private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * « Réinitialiser la session » : session oubliée, puis, en tâche de fond, nouveau compte anonyme et
+     * synchronisation, qui réidentifie les données locales pour ce compte (voir [SessionMaintenance.resetSession]).
+     * @return `false` si la clé s'ouvre de nouveau : rien n'a été oublié.
+     * @throws fr.parcourses.core.network.RemoteError si la session n'a pas pu être oubliée.
+     */
+    suspend fun resetSession(): Boolean {
+        val reset = sessionMaintenance?.resetSession() == true
+        if (reset) {
+            maintenanceScope.launch {
+                // Hors ligne, la connexion échoue sans bruit : la synchronisation la retentera.
+                gateway?.let { AuthBootstrap.signIn(it) }
+                coordinator?.sessionDidChange()
+            }
+        }
+        return reset
     }
 
     /** Premier plan : une passe avec descente. */
