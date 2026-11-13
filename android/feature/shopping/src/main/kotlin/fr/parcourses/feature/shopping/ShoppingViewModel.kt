@@ -20,6 +20,7 @@ import fr.parcourses.core.model.SortItem
 import fr.parcourses.core.model.SortOutput
 import fr.parcourses.core.model.SortParams
 import fr.parcourses.core.model.SortStart
+import fr.parcourses.core.sorting.PreparedStore
 import fr.parcourses.core.sorting.sortItems
 import fr.parcourses.feature.shopping.live.LiveUpdateSink
 import fr.parcourses.feature.shopping.live.ShoppingLiveState
@@ -109,6 +110,9 @@ class ShoppingViewModel(
     private var categoryLabels: Map<String, String> = emptyMap()
     private var sortCategories: List<SortCategory> = emptyList()
     private var current: LoadedSnapshot? = null
+
+    /** Graphe et distances de [current], gardés d'un tri à l'autre de la visite (#30). */
+    private var prepared: PreparedStore? = null
     private var mode = SortOutput.Mode.Fallback
     private var knowledge: RouteKnowledge = RouteKnowledge.NoStore
 
@@ -615,7 +619,15 @@ class ShoppingViewModel(
         val items = attempt { remainingItems() }.orEmpty()
         val sortInput = sortInput(items, previous)
         return try {
-            val output = withContext(computation) { sortItems(sortInput) }
+            val before = prepared
+            val (store, output) =
+                withContext(computation) {
+                    // Un nouvel instantané (ou de nouveaux paramètres) remplace le magasin préparé.
+                    val store = before?.takeIf { it.matches(sortInput) } ?: prepare(sortInput)
+                    store to sortItems(sortInput, store)
+                }
+            // Un tri plus récent a pu installer son magasin entre-temps : on ne le remplace pas.
+            if (prepared === before) prepared = store
             mode = output.mode
             output.order
         } catch (ignored: IllegalArgumentException) {
@@ -624,6 +636,8 @@ class ShoppingViewModel(
             previous ?: items.map { it.id }
         }
     }
+
+    private fun prepare(input: SortInput): PreparedStore? = input.snapshot?.let { PreparedStore(it, input.params) }
 
     /** Rayon effectif d'un article pour ce magasin (#28) : celui du tri et des titres de section. */
     private fun aisle(item: ListItemEntity): String =

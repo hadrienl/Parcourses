@@ -23,8 +23,19 @@ private const val PERCENT = 100L
  * @throws fr.parcourses.core.model.SortError si un identifiant n'est pas en `[0-9a-z-]+`,
  * si un article ou une catégorie est en double, ou si un poids est négatif.
  */
-fun sortItems(input: SortInput): SortOutput {
-    validate(input)
+fun sortItems(input: SortInput): SortOutput = sortItems(input, prepared = null)
+
+/**
+ * Comme `sortItems(input)`, en réutilisant le travail de [prepared] (graphe, distances) quand
+ * il correspond à l'instantané et aux paramètres de [input] (#30). Sinon, ou si [prepared] est
+ * `null`, le tri repart de zéro. Le résultat est toujours celui de `sortItems(input)`.
+ */
+fun sortItems(
+    input: SortInput,
+    prepared: PreparedStore?,
+): SortOutput {
+    val reused = prepared?.takeIf { it.matches(input) }
+    if (reused != null) validateRequest(input) else validate(input)
     val snapshot = input.snapshot
     if (snapshot == null || snapshot.confidenceQ < input.params.confThresholdQ) {
         return SortOutput(SortOutput.Mode.Fallback, fallbackOrder(input.items, input.categories), null)
@@ -32,7 +43,7 @@ fun sortItems(input: SortInput): SortOutput {
     // Ordre canonique : le résultat ne dépend pas de l'ordre fourni.
     val items = input.items.sortedWith { x, y -> compareIds(x.id, y.id) }
     val ids = listOf("") + items.map { it.id }
-    val d = buildMatrix(input, items, StoreGraph(snapshot, input.params))
+    val d = buildMatrix(input, items, reused ?: PreparedStore.validated(snapshot, input.params))
 
     var path = twoOpt(d, nearestNeighbour(d, ids), input.params.twoOptMaxPasses)
     val previousOrder = input.previousOrder
@@ -87,8 +98,9 @@ private fun fallbackOrder(
 private fun buildMatrix(
     input: SortInput,
     items: List<SortItem>,
-    graph: StoreGraph,
+    store: PreparedStore,
 ): DistanceMatrix {
+    val graph = store.graph
     val rank = rankResolver(input.categories)
     val ranks = LongArray(items.size + 1)
     val products = arrayOfNulls<String>(items.size + 1)
@@ -103,17 +115,16 @@ private fun buildMatrix(
         products[0] = start.productId
         graphIndex[0] = graph.indexOf(start.productId)
     }
-    val entryDistances = if (start is SortStart.Entry) graph.distancesFromEntry() else null
-    // Un Dijkstra par produit distinct, mis en cache.
-    val cache = HashMap<Int, LongArray>()
+    val entryDistances = if (start is SortStart.Entry) store.distancesFromEntry() else null
     val matrix = DistanceMatrix(items.size + 1)
     val params = input.params
     for (i in 0 until matrix.size) {
         val source = graphIndex[i]
+        // Un Dijkstra par produit distinct, gardé par le magasin préparé.
         val distances =
             when {
                 i == 0 && entryDistances != null -> entryDistances
-                source >= 0 -> cache.getOrPut(source) { graph.distancesFrom(source) }
+                source >= 0 -> store.distancesFrom(source)
                 else -> null
             }
         for (j in 1 until matrix.size) {

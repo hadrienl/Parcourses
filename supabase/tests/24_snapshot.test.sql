@@ -21,7 +21,7 @@ select payload as p, snapshot_version as ver, etag from public.store_graph_snaps
 select is((:'p'::jsonb ->> 'confidence_q')::int,
   round(1000 * (1 - exp(-graph.decayed(1 + power(2, -1.0/90), timestamptz '2026-10-01 00:00+02', timestamptz '2026-10-02 11:00+00', 90 * 86400) / 5)))::int,
   'confidence_q = round(1000 × (1 − exp(−V_eff/5)))');
-select is(:'p'::jsonb -> 'params', (select device_params from graph.algo_versions where version = 1), 'params appareil livrés');
+select is(:'p'::jsonb -> 'params', (select device_params from graph.active_version()), 'params appareil livrés');
 select is(:'p'::jsonb ->> 'format_version', '1', 'format_version');
 select is((:'p'::jsonb ->> 'snapshot_version')::bigint, extract(epoch from timestamptz '2026-10-02 11:00+00')::bigint, 'snapshot_version = epoch de génération');
 
