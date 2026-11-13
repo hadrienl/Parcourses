@@ -1,6 +1,7 @@
 package fr.parcourses.core.data.account
 
 import android.content.Context
+import kotlin.time.Instant
 
 /** Étape atteinte par une suppression du compte, gardée dans le drapeau (#68 §5.3). Mêmes noms qu'iOS. */
 enum class AccountDeletionPhase(
@@ -18,10 +19,15 @@ enum class AccountDeletionPhase(
     }
 }
 
-/** Contenu du drapeau : l'étape, et le compte visé quand on le connaissait (`null` : pas de session). */
+/**
+ * Contenu du drapeau : l'étape, le compte visé quand on le connaissait (`null` : pas de session), et l'heure de la
+ * dernière tentative de la RPC (`null` : jamais tentée). Une seule tentative passée suffit pour qu'un refus ne soit
+ * plus cru sur parole : la précédente a peut-être supprimé le compte.
+ */
 data class AccountDeletionMarker(
     val phase: AccountDeletionPhase,
     val accountId: String?,
+    val lastAttemptAt: Instant? = null,
 )
 
 /**
@@ -49,18 +55,23 @@ class SharedPreferencesAccountDeletionFlag(
 ) : AccountDeletionFlag {
     private val prefs = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
+    /** `<phase>:<dernière tentative, ms>:<compte>`, champs vides pour `null`. */
     override fun read(): AccountDeletionMarker? {
         val value = prefs.getString(KEY, null) ?: return null
-        val phase = AccountDeletionPhase.fromWireName(value.substringBefore(SEPARATOR))
-        // Valeur illisible (version future) : la suppression reprend depuis le début, sans rien sauter.
+        val fields = value.split(SEPARATOR, limit = FIELDS)
+        // Étape illisible (version future) : la suppression reprend au début. Tentative illisible : tenue pour faite.
+        val attempt = fields.getOrNull(1).orEmpty()
         return AccountDeletionMarker(
-            phase ?: AccountDeletionPhase.Requested,
-            value.substringAfter(SEPARATOR, "").ifEmpty { null },
+            phase = AccountDeletionPhase.fromWireName(fields[0]) ?: AccountDeletionPhase.Requested,
+            accountId = fields.getOrNull(2)?.ifEmpty { null },
+            lastAttemptAt =
+                if (attempt.isEmpty()) null else Instant.fromEpochMilliseconds(attempt.toLongOrNull() ?: 0L),
         )
     }
 
     override fun write(marker: AccountDeletionMarker) {
-        val value = marker.phase.wireName + SEPARATOR + marker.accountId.orEmpty()
+        val attempt = marker.lastAttemptAt?.toEpochMilliseconds()?.toString().orEmpty()
+        val value = listOf(marker.phase.wireName, attempt, marker.accountId.orEmpty()).joinToString(SEPARATOR)
         check(prefs.edit().putString(KEY, value).commit()) { "Drapeau de suppression non écrit" }
     }
 
@@ -72,7 +83,8 @@ class SharedPreferencesAccountDeletionFlag(
         /** `shared_prefs/account_deletion.xml`, vérifié par `BackupRulesTest`. */
         const val FILE = "account_deletion"
         const val KEY = "account.deletion"
-        private const val SEPARATOR = ':'
+        private const val SEPARATOR = ":"
+        private const val FIELDS = 3
     }
 }
 

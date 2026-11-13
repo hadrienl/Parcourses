@@ -126,6 +126,8 @@ class WorkManagerSyncScheduler(
     override suspend fun cancelAll() {
         synchronized(lock) { waiting = null }
         for (name in WORK_NAMES) workManager.cancelUniqueWork(name).await()
+        // Une demande arrivée pendant l'annulation a été annulée avec les autres : elle n'attend plus rien.
+        synchronized(lock) { waiting = null }
     }
 
     override fun schedulePeriodic() {

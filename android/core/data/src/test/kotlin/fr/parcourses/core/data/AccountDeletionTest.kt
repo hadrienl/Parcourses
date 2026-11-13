@@ -13,6 +13,7 @@ import fr.parcourses.core.data.account.AccountDeletionHost
 import fr.parcourses.core.data.account.AccountDeletionMarker
 import fr.parcourses.core.data.account.AccountDeletionOutcome
 import fr.parcourses.core.data.account.AccountDeletionPhase
+import fr.parcourses.core.data.account.AccountDeletionTiming
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
 import fr.parcourses.core.data.account.LocalDataPurge
@@ -46,6 +47,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -97,12 +100,13 @@ class AccountDeletionTest : DataTest() {
             purge = LocalDataPurge(db, cursors),
             host = host,
             isOnline = { online },
-            timeout = 200.milliseconds,
+            timing = AccountDeletionTiming(timeout = 200.milliseconds, now = { now }),
         )
 
     private inner class Host : AccountDeletionHost {
         val events = mutableListOf<String>()
         var killAt: String? = null
+        var failClear = false
 
         private fun step(name: String) {
             events += name
@@ -118,6 +122,11 @@ class AccountDeletionTest : DataTest() {
         }
 
         override suspend fun endShopping() = step("endShopping")
+
+        override suspend fun clearLocalState() {
+            step("clearLocalState")
+            check(!failClear) { "préférences non effacées" }
+        }
 
         override fun resumeSync() {
             events += "resumeSync"
@@ -228,7 +237,7 @@ class AccountDeletionTest : DataTest() {
 
             assertEquals(AccountDeletionOutcome.Deleted, deletion().run())
 
-            assertEquals(listOf("suspendSync", "endShopping", "rebuild"), host.events)
+            assertEquals(listOf("suspendSync", "endShopping", "clearLocalState", "rebuild"), host.events)
             val order = gateway.calls.map { it.substringBefore(':') }
             assertTrue(order.indexOf("deleteAccount") < order.indexOf("signOutLocally"))
             assertTrue(order.indexOf("signOutLocally") < order.lastIndexOf("ensureSession"))
@@ -421,6 +430,7 @@ class AccountDeletionTest : DataTest() {
             everythingOnTheDevice()
             gateway.failNext("deleteAccount", RemoteError.Network())
             deletion().run()
+            advance(31.seconds)
 
             assertEquals(AccountDeletionOutcome.Cancelled, deletion().cancel())
 
@@ -438,6 +448,7 @@ class AccountDeletionTest : DataTest() {
             gateway.failNext("deleteAccount", RemoteError.Network())
             gateway.failNext("verifySession", RemoteError.Network(), times = 2)
             assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+            advance(31.seconds)
 
             // On ne sait pas si le serveur a supprimé : rendre la synchronisation pourrait tout renvoyer.
             assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().cancel())
@@ -452,10 +463,182 @@ class AccountDeletionTest : DataTest() {
             gateway.lostDeleteResponse = RemoteError.Network()
             gateway.failNext("verifySession", RemoteError.Network())
             assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+            advance(31.seconds)
 
             assertEquals(AccountDeletionOutcome.Deleted, deletion().cancel())
 
             assertDeletedAndStartedAfresh(old)
+        }
+
+    /** Reprise d'une suppression déjà tentée : le drapeau dit qu'une RPC est peut-être passée. */
+    private fun attempted(account: Uuid) =
+        AccountDeletionMarker(AccountDeletionPhase.Requested, account.toString(), now - 1.minutes)
+
+    @Test
+    fun afterAnAttemptALockedStorageIsADoubtNotARefusal() =
+        runBlocking {
+            val account = everythingOnTheDevice()
+            flag.write(attempted(account))
+            gateway.failNext("deleteAccount", RemoteError.SecureStorageLocked())
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().resumePending())
+
+            assertTrue(flag.isPending)
+            assertEquals(1L, count("lists"))
+        }
+
+    @Test
+    fun aLockedStorageIsADoubtEvenAtTheFirstAttempt() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.SecureStorageLocked())
+            gateway.failNext("sessionAccountId", RemoteError.SecureStorageLocked(), times = 3)
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+
+            assertTrue(flag.isPending)
+        }
+
+    @Test
+    fun afterAnAttemptARefusalIsOnlyBelievedOnceTheAccountIsFound() =
+        runBlocking {
+            val account = everythingOnTheDevice()
+            // 400 de l'Auth sans code : un refus, mais la tentative d'avant a peut-être supprimé le compte.
+            flag.write(attempted(account))
+            gateway.failNext("deleteAccount", RemoteError.Server("400"))
+            gateway.failNext("verifySession", RemoteError.Network())
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().resumePending())
+            assertTrue(flag.isPending)
+
+            // Compte trouvé : le refus est cru, rien n'est effacé.
+            gateway.failNext("deleteAccount", RemoteError.Server("400"))
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Refused), deletion().run())
+            assertNull(flag.read())
+            assertEquals(1L, count("lists"))
+            assertEquals(2, gateway.callsOf("verifySession").size)
+        }
+
+    @Test
+    fun atTheFirstAttemptARefusalNeedsNoVerification() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.Server("400"))
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Refused), deletion().run())
+
+            assertTrue(gateway.callsOf("verifySession").isEmpty())
+            assertNull(flag.read())
+        }
+
+    /** C4 : une requête jamais partie est un « hors ligne » : rien n'est touché, tout reprend. */
+    @Test
+    fun aRequestThatNeverLeftIsOfflineAndNothingIsErased() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.Network(notSent = true))
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Offline), deletion().run())
+
+            assertNull(flag.read())
+            assertEquals("resumeSync", host.events.last())
+            assertEquals(1L, count("lists"))
+        }
+
+    @Test
+    fun aConnectionCutDuringTheRequestIsADoubt() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.Network(notSent = false))
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+
+            assertTrue(flag.isPending)
+        }
+
+    @Test
+    fun afterAnAttemptARequestThatNeverLeftStillNeedsTheAccountToBeFound() =
+        runBlocking {
+            val account = everythingOnTheDevice()
+            flag.write(attempted(account))
+            gateway.failNext("deleteAccount", RemoteError.Network(notSent = true))
+            gateway.failNext("verifySession", RemoteError.Network(notSent = true))
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().resumePending())
+            assertTrue(flag.isPending)
+        }
+
+    /** C1 : seul un code GoTrue de suppression vaut preuve ; `bad_jwt` reste un doute. */
+    @Test
+    fun onlyTheDeletionCodesProveTheDeletion() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.Server("502"))
+            gateway.failNext("verifySession", RemoteError.Unauthorized(authCode = "bad_jwt"))
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+
+            assertTrue(flag.isPending)
+            assertEquals(1L, count("lists"))
+        }
+
+    /** C2 : « Annuler » juste après une tentative : la RPC peut encore aboutir, « Réessayez dans un instant. ». */
+    @Test
+    fun cancellingTooSoonAfterAnAttemptChangesNothing() =
+        runBlocking {
+            everythingOnTheDevice()
+            gateway.failNext("deleteAccount", RemoteError.Server("503"))
+            deletion().run()
+            advance(10.seconds)
+
+            assertEquals(
+                AccountDeletionOutcome.Failed(AccountDeletionError.Unknown, retrySoon = true),
+                deletion().cancel(),
+            )
+
+            assertTrue(flag.isPending)
+            assertEquals(1, gateway.callsOf("verifySession").size)
+        }
+
+    @Test
+    fun cancellingWithoutLocalSessionKeepsTheData() =
+        runBlocking {
+            val account = everythingOnTheDevice()
+            flag.write(attempted(account))
+            gateway.hasSession = false
+
+            assertEquals(AccountDeletionOutcome.Cancelled, deletion().cancel())
+
+            assertNull(flag.read())
+            assertEquals(1L, count("lists"))
+            assertEquals("resumeSync", host.events.last())
+        }
+
+    @Test
+    fun aBuildWithoutServerCancelsWithoutPurging() =
+        runBlocking {
+            everythingOnTheDevice()
+            flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, null))
+
+            assertEquals(AccountDeletionOutcome.Cancelled, deletion(withServer = false).cancel())
+
+            assertNull(flag.read())
+            assertEquals(1L, count("lists"))
+        }
+
+    @Test
+    fun aFailureToClearTheLiveUpdatePreferencesKeepsTheFlag() =
+        runBlocking {
+            everythingOnTheDevice()
+            host.killAt = null
+            host.failClear = true
+
+            assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
+
+            assertEquals(AccountDeletionPhase.ServerDeleted, flag.read()?.phase)
+            host.failClear = false
+            assertEquals(AccountDeletionOutcome.Deleted, deletion().run())
+            assertNull(flag.read())
         }
 
     // endregion
@@ -511,8 +694,9 @@ class AccountDeletionTest : DataTest() {
     @Test
     fun killedWhileTheAppWasRebuilt() = killedThenRelaunched { host.killAt = "rebuild" }
 
+    /** C3 : relance avec le drapeau et sans session locale : l'appareil est purgé, avec un message distinct. */
     @Test
-    fun aRelaunchWithoutSessionPurgesDirectly() =
+    fun aRelaunchWithoutSessionPurgesTheDeviceAndSaysSo() =
         runBlocking {
             val old = everythingOnTheDevice()
             // Le serveur a supprimé, puis la session a disparu de l'appareil avant la fin (processus tué).
@@ -520,10 +704,43 @@ class AccountDeletionTest : DataTest() {
             gateway.hasSession = false
             flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, old.toString()))
 
-            assertEquals(AccountDeletionOutcome.Deleted, deletion().resumePending())
+            assertEquals(AccountDeletionOutcome.DeletedLocally, deletion().resumePending())
 
-            assertTrue(gateway.callsOf("deleteAccount").size <= 1)
+            assertTrue(gateway.callsOf("deleteAccount").isEmpty())
             assertDeletedAndStartedAfresh(old)
+        }
+
+    /** C7 : la session locale est celle d'un autre compte que le drapeau : traitée comme une session absente. */
+    @Test
+    fun aSessionOfAnotherAccountIsNeverDeletedInsteadOfTheFlaggedOne() =
+        runBlocking {
+            everythingOnTheDevice()
+            val other = gateway.account
+            flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, Uuid.random().toString()))
+
+            assertEquals(AccountDeletionOutcome.DeletedLocally, deletion().resumePending())
+
+            assertTrue(gateway.callsOf("deleteAccount").isEmpty())
+            assertTrue(gateway.deletedAccounts.isEmpty())
+            assertNull(flag.read())
+            for (table in personalTables) assertEquals(table, 0L, count(table))
+            assertNotEquals(other, gateway.account)
+        }
+
+    @Test
+    fun theFlagIsWrittenBeforeTheSessionIsReadAndThenNamesItsAccount() =
+        runBlocking {
+            everythingOnTheDevice()
+            val account = gateway.account
+            var pendingWhileReading: Boolean? = null
+            gateway.beforeCall = { method -> if (method == "sessionAccountId") pendingWhileReading = flag.isPending }
+            gateway.failNext("deleteAccount", RemoteError.Server("503"))
+
+            deletion().run()
+
+            assertEquals(true, pendingWhileReading)
+            assertEquals(account.toString(), flag.read()?.accountId)
+            assertEquals(now, flag.read()?.lastAttemptAt)
         }
 
     @Test

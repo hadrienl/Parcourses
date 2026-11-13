@@ -24,19 +24,19 @@ class AccountDeletionFlagTest {
     @Test
     fun theFlagSurvivesARelaunchWithItsPhaseAndAccount() {
         val account = Uuid.random().toString()
-        SharedPreferencesAccountDeletionFlag(context).write(
-            AccountDeletionMarker(AccountDeletionPhase.ServerDeleted, account),
-        )
+        val attempt = Instant.fromEpochMilliseconds(1_763_000_000_123)
+        val marker = AccountDeletionMarker(AccountDeletionPhase.ServerDeleted, account, attempt)
+        SharedPreferencesAccountDeletionFlag(context).write(marker)
 
         val relaunched = SharedPreferencesAccountDeletionFlag(context)
         assertTrue(relaunched.isPending)
-        assertEquals(AccountDeletionMarker(AccountDeletionPhase.ServerDeleted, account), relaunched.read())
+        assertEquals(marker, relaunched.read())
         // Le fichier et la clé sont ceux que les règles de sauvegarde excluent.
         val raw =
             context
                 .getSharedPreferences("account_deletion", Context.MODE_PRIVATE)
                 .getString("account.deletion", null)
-        assertEquals("serverDeleted:$account", raw)
+        assertEquals("serverDeleted:1763000000123:$account", raw)
 
         relaunched.clear()
         assertFalse(SharedPreferencesAccountDeletionFlag(context).isPending)
@@ -46,14 +46,17 @@ class AccountDeletionFlagTest {
     fun aFlagWithoutAccountOrWithAnUnknownPhaseRestartsFromTheBeginning() {
         val flag = SharedPreferencesAccountDeletionFlag(context)
         flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, null))
-        assertEquals(AccountDeletionMarker(AccountDeletionPhase.Requested, null), flag.read())
+        assertEquals(AccountDeletionMarker(AccountDeletionPhase.Requested, null, null), flag.read())
 
-        context
-            .getSharedPreferences("account_deletion", Context.MODE_PRIVATE)
-            .edit()
-            .putString("account.deletion", "laterPhase:abc")
-            .commit()
-        assertEquals(AccountDeletionMarker(AccountDeletionPhase.Requested, "abc"), flag.read())
+        val prefs = context.getSharedPreferences("account_deletion", Context.MODE_PRIVATE)
+        prefs.edit().putString("account.deletion", "laterPhase:12:abc").commit()
+        assertEquals(
+            AccountDeletionMarker(AccountDeletionPhase.Requested, "abc", Instant.fromEpochMilliseconds(12)),
+            flag.read(),
+        )
+        // Tentative illisible : tenue pour faite, un refus ne sera pas cru sur parole.
+        prefs.edit().putString("account.deletion", "requested:x:abc").commit()
+        assertEquals(Instant.fromEpochMilliseconds(0), flag.read()?.lastAttemptAt)
     }
 
     @Test
