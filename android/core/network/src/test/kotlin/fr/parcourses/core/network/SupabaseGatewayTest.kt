@@ -126,6 +126,87 @@ class SupabaseGatewayTest {
 
     // endregion
 
+    // region Suppression du compte (#68)
+
+    @Test
+    fun deletingTheAccountRefreshesTheSessionThenCallsTheRpcWithAnEmptyBody() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.reply("POST rpc/delete_my_account", Reply(HttpStatusCode.NoContent, ""))
+
+            gateway.deleteAccount()
+
+            assertEquals(1, server.refreshes)
+            val rpc = server.restRequests().single()
+            assertEquals("/rest/v1/rpc/delete_my_account", rpc.url.encodedPath)
+            assertEquals(json("{}"), json(server.bodyOf(rpc)))
+            // Rafraîchie avant l'appel : la requête part avec le jeton neuf.
+            val refresh = server.requests.indexOfFirst { it.url.encodedPath.endsWith("/auth/v1/token") }
+            assertTrue(refresh < server.requests.indexOf(rpc))
+            assertEquals(1, server.signUps)
+        }
+
+    @Test
+    fun deletingWithoutSessionCreatesNoAccountAndSendsNothing() =
+        runBlocking<Unit> {
+            expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }
+            assertEquals(0, server.signUps)
+            assertTrue(server.requests.isEmpty())
+        }
+
+    @Test
+    fun theDeletionTargetsTheSessionAccountEvenWhenItDiffersFromTheLastKnown() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            harness.store.update { it.copy(lastAccountId = "bbbbbbbb-0000-4000-8000-000000000002") }
+            server.reply("POST rpc/delete_my_account", Reply(HttpStatusCode.NoContent, ""))
+
+            gateway.deleteAccount()
+
+            assertEquals(1, server.restRequests().size)
+        }
+
+    @Test
+    fun temporaryRpcErrorsStayRetryableAndADeletedAccountIsUnauthorized() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            // Verrou du calcul du graphe, puis délai de requête : temporaires (contrat 68.1).
+            for (code in listOf("55P03", "57014")) {
+                server.rest.clear()
+                server.reply(
+                    "POST rpc/delete_my_account",
+                    Reply(HttpStatusCode.InternalServerError, """{"code":"$code","message":"temp"}"""),
+                )
+                assertEquals(code, expectError<RemoteError.Server> { gateway.deleteAccount() }.code)
+            }
+            // Réponse perdue : le compte n'existe plus, le serveur le dit des deux façons.
+            server.accountGone = true
+            expectError<RemoteError.Unauthorized> { gateway.verifySession() }
+            expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }
+            assertEquals(1, server.signUps)
+        }
+
+    @Test
+    fun signingOutLocallyEmptiesTheStorageWithoutCallingTheServer() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            val before = server.requests.size
+
+            gateway.signOutLocally()
+
+            assertEquals(before, server.requests.size)
+            assertEquals(0, server.logouts)
+            assertNull(harness.store.read().session)
+            assertNull(harness.store.read().lastAccountId)
+            expectError<RemoteError.Unauthorized> { gateway.sessionAccountId() }
+            // Sans dernier compte connu, le nouveau compte est adopté sans être signalé comme un changement.
+            server.userId = "cccccccc-0000-4000-8000-000000000003"
+            assertEquals(Uuid.parse(server.userId), gateway.ensureSession())
+            assertEquals(Uuid.parse(server.userId), gateway.currentAccountId())
+        }
+
+    // endregion
+
     // region Écritures
 
     @Test

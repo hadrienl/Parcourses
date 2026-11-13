@@ -20,6 +20,7 @@ import fr.parcourses.core.network.dto.TableSpec
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitClose
 import fr.parcourses.core.network.dto.VisitInsert
+import fr.parcourses.core.network.session.SecureState
 import fr.parcourses.core.network.session.SecureStateStore
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
@@ -55,6 +56,7 @@ internal val RemoteJson: Json =
 
 /**
  * Seul type de l'app qui parle à supabase-kt. Aucune opération ne crée de compte, sauf [ensureSession].
+ * [deleteAccount] et [signOutLocally] servent à « Supprimer mes données » (#68).
  */
 @Suppress("TooManyFunctions")
 class SupabaseGateway internal constructor(
@@ -93,6 +95,28 @@ class SupabaseGateway internal constructor(
 
     override suspend fun acknowledgeAccount(id: Uuid) {
         mapped { store.update { it.copy(lastAccountId = id.toString()) } }
+    }
+
+    override suspend fun deleteAccount() {
+        mapped {
+            // Sans garde du dernier compte : c'est le compte de la session qu'on supprime, quel qu'il soit.
+            existingSessionUser()
+            auth.refreshCurrentSession()
+            // Réponse 204 sans corps : rien à décoder.
+            rest.rpc("delete_my_account", buildJsonObject {})
+        }
+    }
+
+    override suspend fun signOutLocally() {
+        mapped {
+            // Sous le verrou de connexion : aucun compte ne se crée pendant la déconnexion.
+            signInLock.withLock {
+                // `clearSession` arrête le rafraîchissement automatique et vide la session enregistrée, sans réseau
+                // (au contraire de `signOut(SignOutScope.LOCAL)`, qui appelle `/logout`).
+                auth.clearSession()
+                store.update { SecureState() }
+            }
+        }
     }
 
     override val isSessionStorageStuck: StateFlow<Boolean> get() = store.isStuck

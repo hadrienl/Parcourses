@@ -42,6 +42,22 @@ interface RemoteGateway {
     /** Les données locales ont été réidentifiées pour [id] : il devient le dernier compte connu. */
     suspend fun acknowledgeAccount(id: Uuid)
 
+    /**
+     * Supprime, sur le serveur, le compte de la session et tout ce qui y est rattaché (RPC `delete_my_account`, #68).
+     * Rafraîchit d'abord la session : le jeton d'accès reste alors valable une heure, le temps de rejouer l'appel
+     * (idempotent) si la réponse s'est perdue. Vise le compte de la session, même s'il diffère du dernier connu.
+     * Jamais de création : [RemoteError.Unauthorized] sans session.
+     */
+    suspend fun deleteAccount()
+
+    /**
+     * Déconnexion locale, **sans appel au serveur** : la session du SDK, la session enregistrée et le dernier compte
+     * connu sont vidés. Le prochain [ensureSession] adopte alors un nouveau compte sans le signaler comme un
+     * changement (aucune réidentification). Le jeu de clés et la clé du Keystore restent.
+     * @throws RemoteError.SecureStorageLocked si le stockage chiffré refuse l'écriture.
+     */
+    suspend fun signOutLocally()
+
     /** Heure du serveur (en-tête HTTP `Date`), `null` si la réponse n'en porte pas de lisible. */
     suspend fun serverDate(): Instant?
 
