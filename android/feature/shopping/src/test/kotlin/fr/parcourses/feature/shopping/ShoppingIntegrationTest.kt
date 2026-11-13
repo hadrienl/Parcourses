@@ -84,7 +84,8 @@ class ShoppingIntegrationTest : ShoppingTest() {
             container,
             "select graph.process_pending_visits(200, date_trunc('day', now(), 'Europe/Paris') + interval '36 hours')",
         )
-        sql(container, "select graph.publish_snapshots(50)")
+        // Publication forcée (#70) : le public compté doit inclure le compte de ce passage, même relancé dans l'heure.
+        sql(container, "select graph.publish_snapshots(50, now(), interval '0')")
         // L'identifiant vient de la base locale de l'app (UUID) : aucune entrée extérieure dans la requête.
         require(Uuid.parse(visitId).toString() == visitId)
         return sql(container, "select processed_at is not null from public.visits where id = '$visitId'") == "t"

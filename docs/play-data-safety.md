@@ -2,7 +2,7 @@
 
 Lot A12 (#10). Ce document recense, à partir du code de l'app Android au 9 novembre 2026 (`main` à `58b43bb`, plus le lot A12), chaque donnée qui quitte l'appareil. Il propose ensuite les réponses au formulaire de la Play Console.
 
-> **Statut : proposition, à valider par l'utilisateur.** Rien n'est saisi dans la Play Console. Cinq points restent à trancher (§5) : la déclaration de la position, la place des visites dans le formulaire, la suppression du compte anonyme, les libellés publiés dans le catalogue et les horodatages lisibles dans le graphe.
+> **Statut : proposition, à valider par l'utilisateur.** Rien n'est saisi dans la Play Console. Cinq points restaient à trancher (§5) : la déclaration de la position, la place des visites dans le formulaire, la suppression du compte anonyme, les libellés publiés dans le catalogue et les horodatages lisibles dans le graphe. Le dernier est traité côté serveur par #70 (§5.5).
 
 ## 1. Définitions de Google Play
 
@@ -62,7 +62,7 @@ Toutes les données partent vers le projet Supabase de Parcourses, en HTTPS. La 
 
 L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donnée « adresse IP » ; on la mentionne pour être complet.
 
-**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`), puis en publie un instantané (`store_graph_snapshots`). Ce graphe ne contient pas d'identifiant d'utilisateur. Il contient en revanche des dates issues des visites : `last_seen_at` (jour de la dernière visite qui a touché l'arête ou l'entrée) et `store_stats.last_visit_at`, ramenées au jour depuis #70. Depuis #70 (lot 70.1), aucun compte ne peut lire ces tables : les apps reçoivent seulement l'instantané d'un magasin, par la RPC `store_graph_snapshot`. Depuis le lot 70.2, le graphe ne date une visite qu'au jour près : il n'apprend que des journées terminées, et l'instantané, publié une fois par nuit et calculé à minuit, ne dit plus l'heure d'une visite. Seule exception : les poids appris avant 70.2 gardent de petits écarts entre visites anciennes (moins d'un jour), déjà publiés, qui s'effacent avec la décroissance. Il révèle encore les produits d'un magasin à un seul contributeur : le lot 70.3 (instantané servi à ce seul contributeur) ferme ce point (§5.5).
+**Données dérivées.** Le serveur agrège les visites closes en graphe de voisinage par magasin (`store_edges`, `store_entries`, `store_stats`), puis en publie un instantané (`store_graph_snapshots`). Ce graphe ne contient pas d'identifiant d'utilisateur. Il contient en revanche des dates issues des visites : `last_seen_at` (jour de la dernière visite qui a touché l'arête ou l'entrée) et `store_stats.last_visit_at`, ramenées au jour depuis #70. Depuis #70 (lot 70.1), aucun compte ne peut lire ces tables : les apps reçoivent seulement l'instantané d'un magasin, par la RPC `store_graph_snapshot`. Depuis le lot 70.2, le graphe ne date une visite qu'au jour près : il n'apprend que des journées terminées, et l'instantané, publié une fois par nuit et calculé à minuit, ne dit plus l'heure d'une visite. Seule exception : les poids appris avant 70.2 gardent de petits écarts entre visites anciennes (moins d'un jour), déjà publiés, qui s'effacent avec la décroissance. Depuis le lot 70.3, l'instantané d'un magasin qui n'a qu'un seul contributeur n'est servi qu'à ce contributeur : les autres comptes ne voient ni ses produits ni le jour de ses visites. Il faut au moins deux comptes contributeurs distincts dans les 180 derniers jours pour que l'instantané soit servi à tous (§5.5).
 
 ## 4. Réponses proposées au formulaire
 
@@ -146,9 +146,9 @@ Traité par #70, en trois lots :
 
 1. **70.1 (fait)** : `store_edges`, `store_entries`, `store_stats` et `store_graph_snapshots` ne sont plus lisibles par aucun compte (`…_graph_read_closed.sql`). L'instantané n'est servi que par la RPC `store_graph_snapshot`, magasin par magasin. Le signal « une visite vient d'être apprise » ne se lit plus dans `store_stats`, mis à jour chaque minute. Jusqu'au lot 70.2, il restait visible dans la version de l'instantané, horodatée et republiée au plus une fois par heure.
 2. **70.2 (fait)** : dates du graphe arrondies au jour (Europe/Paris), lignes existantes comprises ; une visite n'est apprise qu'après minuit ; instantanés publiés une fois par nuit seulement, calculés à minuit (`…_graph_day_granularity.sql`). L'instantané ne date plus une visite qu'au jour près.
-3. **70.3 (à venir)** : l'instantané d'un magasin à un seul contributeur n'est servi qu'à ce contributeur.
+3. **70.3 (fait)** : l'instantané d'un magasin à un seul contributeur n'est servi qu'à ce contributeur ; il faut deux contributeurs distincts dans les 180 derniers jours pour qu'il soit servi à tous (`…_snapshot_min_contributors.sql`). Seuls des nombres de contributeurs sont gardés, jamais leur identité.
 
-Tant que 70.3 n'est pas livré, l'argument « données anonymisées, donc rien de partagé » reste fragile pour les magasins à un seul contributeur : l'instantané donne ses produits et le jour de ses visites.
+Limites qui restent, assumées dans la conception de #70. Le seuil protège contre la curiosité passive, **pas contre un attaquant ciblé** : avec un seuil de 2, il suffit d'un seul compte et d'une visite apprise (3 coches) dans le magasin visé pour recevoir l'instantané le lendemain et y retrancher sa propre contribution. Dans un magasin à deux contributeurs, chacun peut de même en partie déduire l'autre. Une même personne qui a plusieurs comptes anonymes (réinstallation, second appareil) compte pour plusieurs contributeurs : rien ne permet de les dédoublonner sans identité. Un produit rare acheté par une seule personne reste visible dans un magasin partagé. Enfin, les instantanés déjà téléchargés restent sur les appareils. Le seuil se relève par paramètre (`PUBLISH_MIN_CONTRIBUTORS`).
 
 ## 6. Points à revoir si le code change
 
