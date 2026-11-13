@@ -170,6 +170,8 @@ struct DottedRule: View {
   var body: some View {
     GeometryReader { proxy in
       Path { path in
+        // Sans largeur, rien : un trait nul à bouts ronds dessinerait un point.
+        guard proxy.size.width > 0 else { return }
         path.move(to: CGPoint(x: 0, y: lineWidth / 2))
         path.addLine(to: CGPoint(x: proxy.size.width, y: lineWidth / 2))
       }
