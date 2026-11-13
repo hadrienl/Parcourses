@@ -84,13 +84,24 @@ jobs:
         run: |
           udid=$(scripts/simulator.sh "${{ matrix.ios }}")
           xcrun simctl list devices | grep "$udid"
-          # Relevé de charge (#79) : les processus les plus gourmands toutes les 30 s, lu à l'étape suivante.
+          # Relevé de charge (#79) : les processus les plus gourmands toutes les 30 s, affiché en cas d'échec.
           (while true; do date -u +%FT%TZ; top -l 2 -s 1 -o cpu -n 12 -stats pid,cpu,mem,command | tail -13; sleep 30; done) \
             > "$RUNNER_TEMP/charge.log" 2>&1 &
-          xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses \
+          # Simulateur démarré pendant la compilation (#79) : un simulateur neuf sature le runner environ deux minutes
+          # après son démarrage (diagnosticd, apsd, mobileassetd… jusqu'à 500 % de CPU). Démarré par xcodebuild juste
+          # avant les tests, ce pic tombait sur les premiers audits, qui dépassaient leur délai. Il retombe en moins de
+          # 3 min : les tests partent au plus tôt 4 min après le démarrage, même si la compilation est plus courte.
+          xcrun simctl boot "$udid"
+          booted=$(date +%s)
+          xcodebuild build-for-testing -project Parcourses.xcodeproj -scheme Parcourses \
+            -destination "id=$udid" -derivedDataPath DerivedData
+          xcrun simctl bootstatus "$udid" -b
+          settle=$((240 - ($(date +%s) - booted)))
+          if ((settle > 0)); then echo "Simulateur démarré depuis peu : $settle s d'attente"; sleep "$settle"; fi
+          xcodebuild test-without-building -project Parcourses.xcodeproj -scheme Parcourses \
             -destination "id=$udid" -derivedDataPath DerivedData -resultBundlePath TestResults.xcresult
       - name: Charge du runner pendant les tests
-        if: always()
+        if: failure()
         run: cat "$RUNNER_TEMP/charge.log" || true
       - name: Bundle iPhone signable (un bundle mal formé empêche l'installation)
         if: matrix.ios != '18'
