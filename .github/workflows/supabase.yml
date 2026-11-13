@@ -86,7 +86,7 @@ jobs:
           done
 
       - name: Lint de la base
-        run: supabase db lint -s public,graph,accounts --level warning --fail-on warning
+        run: supabase db lint -s public,graph,accounts,catalog --level warning --fail-on warning
 
       - name: Advisors
         run: supabase db advisors --local --level warn --fail-on warn

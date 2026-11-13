@@ -16,7 +16,8 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 
 - **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `visits`, `checks`.
 - **Connaissance partagée** (lecture par `authenticated`, écriture par la Secret key seulement) :
-  `categories`, `products`, `stores`.
+  `categories`, `products`, `stores`. Seuls les produits **publiés** (`published_at` non nul) sont lisibles (#69) :
+  voir « Catalogue : produit privé, publication à 3 comptes ».
 - **Graphe** (écrit par le serveur seulement, **illisible par les clients**, #70) : `store_edges`, `store_entries`,
   `store_stats`, `store_graph_snapshots`. Les apps reçoivent l'instantané par la RPC `store_graph_snapshot`
   (`security definer`), seule porte d'entrée. Pour un magasin à un seul contributeur, ces tables révéleraient
@@ -55,6 +56,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_graph_read_closed.sql` | Lecture directe du graphe et des instantanés retirée aux clients ; `store_graph_snapshot` en `security definer` (#70) |
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
+| `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -64,7 +66,8 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 
 | Table | SELECT | INSERT (colonnes) | UPDATE (colonnes) | DELETE |
 | --- | --- | --- | --- | --- |
-| `categories`, `products`, `stores` | ✅ | — | — | — |
+| `categories`, `stores` | ✅ | — | — | — |
+| `products` | ✅ produits publiés seulement (RLS `published_at is not null`) | — | — | — |
 | `store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots` | — (RPC `store_graph_snapshot`) | — | — | — |
 | `lists` | ✅ | `id, name` | `name` | ✅ |
 | `list_items` | ✅ | `id, list_id, label, quantity, product_id, checked_at` | `label, quantity, product_id, checked_at, list_id` | ✅ |
@@ -114,34 +117,82 @@ Repli sans position : renvoie `id, name, chain, address, organic_aisle` des maga
 
 ## RPC `resolve_products(p_items)`
 
-Apprentissage sans catalogue : donne un produit partagé aux articles saisis librement, pour que leurs coches
-nourrissent le graphe. `p_items` est un tableau d'au plus 100 objets `{ "name", "category_slug" }` (libellé
-sans quantité, catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entrée, dans l'ordre :
-`normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`.
+Apprentissage sans catalogue : donne un produit aux articles saisis librement, pour que leurs coches nourrissent le
+graphe. `p_items` est un tableau d'au plus 100 objets `{ "name", "category_slug" }` (libellé sans quantité,
+catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entrée, dans l'ordre :
+`normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`. Signature et colonnes inchangées
+depuis #46 : les versions installées des apps n'y voient aucune différence.
 
-- Forme normalisée déjà connue : le produit existant est renvoyé, sa catégorie n'est pas modifiée.
-- Sinon le produit est créé avec le libellé et la catégorie reçus, sauf si le libellé est vide, si la catégorie
-  est absente, inconnue ou `bio` (le rayon bio dépend du magasin, #28), ou si un plafond du jour est atteint
-  (voir ci-dessous). Dans ces cas `id` est nul.
+- **Produit publié** de même forme : renvoyé avec son libellé et sa catégorie, sans rien consommer.
+- Sinon, une entrée **valide** (libellé de 200 caractères bruts au plus, non vide ; catégorie connue autre que
+  `bio`, le rayon bio dépend du magasin, #28) **revendique** la forme pour le compte : le produit est créé, privé,
+  s'il n'existe pas. Il est renvoyé avec **le libellé et la catégorie de l'appelant** (ceux de sa première
+  revendication), jamais ceux d'un autre compte.
+- Un produit privé que l'appelant n'a pas revendiqué (entrée sans catégorie, plafond atteint) donne `id` nul,
+  **comme un produit absent** : la réponse ne dit jamais si un autre compte a saisi ce libellé.
 - Un libellé de plus de 200 caractères (longueur brute, espaces compris) est écarté avant toute normalisation :
   `normalized_name` et `id` sont nuls.
-- Deux entrées de même forme donnent le même produit ; une création concurrente reprend la ligne existante.
-  Les produits sont insérés dans l'ordre de leur forme normalisée, pas des entrées : deux appels qui créent
-  les mêmes formes ne s'interbloquent pas.
+- Deux entrées de même forme donnent le même produit (la première donne le libellé et la catégorie) ; une
+  création concurrente reprend la ligne existante. Produits et revendications sont insérés dans l'ordre des
+  formes, pas des entrées : deux appels ne s'interbloquent pas.
 
-Plafonds de créations par jour (Europe/Paris), constantes de `public.resolve_products` (une migration qui
-recrée la fonction les change) :
+Plafonds de revendications nouvelles par jour (Europe/Paris), constantes de `public.resolve_products` (une
+migration qui recrée la fonction les change). La première revendication d'une forme coûte une unité, que le
+produit existe déjà ou non : sinon la consommation, ou l'épuisement du plafond global par un tiers, trahirait
+l'existence. Depuis #69, le plafond global compte donc des revendications, plus seulement des créations : une
+forme courante encore privée coûte une unité à chaque nouveau compte, tant qu'elle n'est pas publiée.
 
 | Constante | Valeur | Compteur | Portée |
 | --- | --- | --- | --- |
 | `c_daily_quota` | 300 | `catalog.product_creations` | par compte |
 | `c_daily_global_quota` | 2 000 | `catalog.daily_product_creations` | tous comptes, anonymes compris |
 
-Un plafond atteint n'empêche que les créations : les produits existants restent renvoyés, et les premières
-entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés (`for update`), toujours dans
-le même ordre : compte, puis global. Le compteur global n'est verrouillé que si l'appel peut créer quelque chose,
-et il sérialise les créations du jour.
-- `SECURITY DEFINER` (les clients ne peuvent pas écrire `products`), réservée à `authenticated`.
+Un plafond atteint n'empêche que les revendications : les produits publiés et ceux déjà revendiqués restent
+renvoyés, et les premières entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés
+(`for update`), toujours dans le même ordre : compte, puis global. Le compteur global n'est verrouillé que si
+l'appel peut revendiquer quelque chose, et il sérialise les revendications (donc les publications) du jour.
+- `SECURITY DEFINER` (les clients ne peuvent écrire ni `products` ni `catalog`), réservée à `authenticated`.
+
+## Catalogue : produit privé, publication à 3 comptes (#69)
+
+Un libellé saisi librement peut contenir une donnée personnelle (« médicament de Paul »). Un produit naît donc
+**privé** et n'est publié qu'une fois saisi par plusieurs comptes indépendants.
+
+- `products.published_at` : nul tant que le produit est privé. Un produit privé n'est lisible par **aucun** client,
+  pas même son créateur (il connaît son libellé) : RLS `products_select … using (published_at is not null)`. Son
+  `name` ne garde que la forme normalisée : le libellé saisi par chaque compte n'est que dans sa revendication.
+- `catalog.product_claims (product_id, user_id, label, category_id, claimed_at)` : une revendication par compte et
+  par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
+  suppression d'un compte (#68) emporte ses revendications.
+- **Publication** (`catalog.publish_claimed`, constante `c_min_accounts` = **3**) : à 3 comptes distincts, dans la
+  transaction de la revendication qui atteint le seuil, après verrouillage des revendications du produit (une
+  suppression de compte en cours est attendue et ne compte pas). Libellé : le plus fréquent parmi les
+  revendications (même forme normalisée : seules la casse, les accents et les espaces diffèrent), débarrassé des
+  caractères de contrôle et des espaces répétés ; à égalité en tête, la forme normalisée. Catégorie : la plus
+  votée ; à égalité, le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Aucun départage par
+  l'ancienneté : deux comptes qui saisissent deux graphies ne font pas publier celle du premier créateur. Les
+  revendications sont alors supprimées.
+- **Filtre** (`catalog.is_publishable`) : une forme sans lettre ni chiffre, ou contenant `://`, `www.`, un domaine
+  (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
+  consécutifs, 8 chiffres séparés au plus par un espace, un point ou un tiret (téléphone) ou un caractère de
+  contrôle n'est jamais publiée ; elle reste privée.
+- **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
+  `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
+  fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
+  tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
+- **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
+  180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
+  installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
+  #69, cache non vidé sur une réponse vide), et un article envoyé avec un produit disparu serait refusé (`23503`).
+  La suppression des produits privés orphelins vient avec le lot apps de #69. D'ici là, la forme normalisée d'un
+  produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
+  illisible par tout client et rattachée à personne.
+- **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
+  depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
+  produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
+  exécution, tous les produits existants deviennent privés.
+- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée. Les helpers de test
+  `tests.product(n)` créent aussi des produits publiés.
 
 ## Types et contrat
 
