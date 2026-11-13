@@ -53,12 +53,12 @@ Toutes les données partent vers le projet Supabase de Parcourses, en HTTPS. La 
 | **Coordonnées** (latitude, longitude) | `nearby_stores(lat, lng, radius_m, max_results)` : à chaque ouverture du choix du magasin si la position est déjà autorisée (et au retour au premier plan si l'autorisation a changé), sinon quand la personne touche « Utiliser ma position » | Proposer le magasin où l'on se trouve | Oui pendant la requête (appel authentifié), mais jamais enregistrées | Aucune : la fonction SQL ne les écrit pas (« La position reçue n'est jamais stockée »). L'appel est un `POST`, les coordonnées sont dans le corps de la requête et non dans l'URL que journalise la passerelle | **Oui** |
 | Précision : exacte (`ACCESS_FINE_LOCATION`, `PRIORITY_HIGH_ACCURACY`) ou approximative (`ACCESS_COARSE_LOCATION` seule, `PRIORITY_BALANCED_POWER_ACCURACY`) | | | | | |
 | **Recherche de magasin** (texte saisi) | `search_stores(q, max_results)` | Trouver un magasin par nom ou adresse | Oui pendant la requête, jamais enregistrée | Aucune | **Oui** |
-| **Identifiant anonyme** (UUID du compte Supabase, jetons de session) | Connexion anonyme au premier lancement (`signInAnonymously`), puis chaque requête | Rattacher les listes et les visites à leur propriétaire, appliquer les droits (RLS) | C'est l'identifiant | Tant que le compte existe. Aucun nom ni e-mail | Non |
+| **Identifiant anonyme** (UUID du compte Supabase, jetons de session) | Connexion anonyme au premier lancement (`signInAnonymously`), puis chaque requête | Rattacher les listes et les visites à leur propriétaire, appliquer les droits (RLS) | C'est l'identifiant | Jusqu'à la suppression du compte dans l'app, ou 365 jours sans activité (§5.3). Aucun nom ni e-mail | Non |
 | **Listes et articles** (nom de liste, libellé, quantité, coché ou non, horodatages) | Tables `lists` et `list_items` | Synchroniser les listes et les retrouver après réinstallation sur le même compte | Oui (`owner_id`) | Jusqu'à leur suppression dans l'app (la suppression est envoyée au serveur) | Non |
-| **Magasin et heure des visites** (`store_id`, liste, liste triée ou non, début et fin) | Table `visits` | Apprendre l'ordre des rayons du magasin | Oui (`user_id`) | Sans limite à ce jour. Clôture automatique au bout de 2 h d'inactivité (pg_cron) | Non |
-| **Articles cochés** (produit ou rayon, heure de la coche, ordre) | Table `checks` | Même finalité : l'ordre des coches est la matière de l'apprentissage | Oui, par la visite | Sans limite à ce jour | Non |
+| **Magasin et heure des visites** (`store_id`, liste, liste triée ou non, début et fin) | Table `visits` | Apprendre l'ordre des rayons du magasin | Oui (`user_id`) | Jusqu'à la suppression du compte, ou 365 jours sans activité (§5.3). Clôture automatique au bout de 2 h d'inactivité (pg_cron) | Non |
+| **Articles cochés** (produit ou rayon, heure de la coche, ordre) | Table `checks` | Même finalité : l'ordre des coches est la matière de l'apprentissage | Oui, par la visite | Comme les visites (§5.3) | Non |
 | **Catalogue de produits** (libellé de l'article **tel que saisi**, et rayon choisi par le classifieur) | `resolve_products` à la synchro des articles (`ProductResolution` envoie `name = label`) | Relier les articles de tous les utilisateurs au même produit pour apprendre le graphe | Le produit créé n'est pas rattaché au compte. Seul un compteur de créations par compte et par jour l'est (`catalog.product_creations`), pour limiter les abus | Durable. Un libellé nouveau est enregistré tel quel (rogné) dans `products.name`, **lisible par tous les comptes** (§5.4) | Non |
-| **Données techniques** : adresse IP, en-têtes HTTP des bibliothèques (version du client, aucun identifiant d'appareil), horodatage | Toute requête | Faire fonctionner le service, journaux de sécurité de Supabase (dont `auth.audit_log_entries`) | Partiellement (journaux d'authentification) | Selon la rétention des journaux Supabase | Non |
+| **Données techniques** : adresse IP, en-têtes HTTP des bibliothèques (version du client, aucun identifiant d'appareil), horodatage | Toute requête | Faire fonctionner le service, journaux de sécurité de Supabase (dont `auth.audit_log_entries`) | Partiellement (journaux d'authentification) | Selon la rétention des journaux Supabase. Les lignes de `auth.audit_log_entries` qui citent le compte sont effacées avec lui (§5.3) | Non |
 
 L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donnée « adresse IP » ; on la mentionne pour être complet.
 
@@ -72,7 +72,7 @@ L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donné
 | --- | --- | --- |
 | Votre app collecte-t-elle ou partage-t-elle des types de données utilisateur obligatoires ? | **Oui** | Voir §3 |
 | Toutes les données collectées sont-elles chiffrées lors de leur transit ? | **Oui** | HTTPS seulement : `network_security_config` de la release, `usesCleartextTraffic="false"` |
-| Proposez-vous un moyen de demander la suppression des données ? | **À trancher** (§5.3) | Aujourd'hui, l'app supprime les listes mais pas le compte, ni les visites |
+| Proposez-vous un moyen de demander la suppression des données ? | **Oui**, une fois les lots 68.2, 68.3 et la page web livrés (§5.3) | Suppression du compte et de ses données dans l'app (RPC `delete_my_account`, faite) et sur une page web (à venir) |
 
 ### 4.2 Types de données
 
@@ -127,6 +127,14 @@ Options :
 3. Purger automatiquement les visites et coches au bout de 90 jours. La FAQ accepte le badge si l'on *"automatically initiate deletion or anonymization of collected data within 90 days of collection"*. Cela ne couvre ni le compte ni les listes, mais limite la conservation.
 
 Recommandation : **2**, éventuellement complétée de 3. À faire avant la publication, dans un ticket dédié.
+
+**Décision (#68, 12 novembre 2026)** : option 2, sans l'option 3. À la place de l'option 3, les comptes anonymes inactifs depuis 365 jours sont purgés. Trois lots :
+
+1. **68.1 (fait, serveur)** : la RPC `delete_my_account()` (`…_account_deletion.sql`) supprime le compte de l'appelant, sans paramètre. La cascade efface ses listes et articles, ses visites (dont celles pas encore apprises) et leurs coches, le compteur `catalog.product_creations`, ses identités, sessions (adresse IP, agent) et jetons. Les lignes du journal d'authentification qui citent le compte sont effacées dans la même transaction. Le graphe agrégé est gardé : il ne contient aucun identifiant, il est daté au jour et réservé aux magasins à plusieurs contributeurs (§5.5). Le job `accounts-purge-inactive` (chaque nuit à 04:47 UTC) supprime de la même façon, par lots de 1 000, les comptes anonymes sans activité depuis 365 jours : rien de plus récent dans le compte, ses sessions, ses listes, ses articles ni ses visites. Un compte qui a lié un e-mail n'est jamais purgé. C'est le seul recours de qui a désinstallé l'app, puisqu'un compte anonyme ne peut pas être retrouvé sans elle. Si l'app revient après une purge, elle repart sur un compte neuf et y renvoie ce qu'elle a en local (`AccountRekey`).
+2. **68.2 (iOS) et 68.3 (Android), à faire** : « Supprimer mes données… » dans À propos, avec confirmation, réseau exigé, puis purge de l'appareil et nouveau compte anonyme.
+3. **Page web, à faire en dernier** : domaine et contact restent à choisir (#68, Q4 et Q5).
+
+Réponse au §4.1 : « Oui » quand les lots 68.2, 68.3 et la page web seront livrés.
 
 ### 5.4 Libellés publiés dans le catalogue
 
