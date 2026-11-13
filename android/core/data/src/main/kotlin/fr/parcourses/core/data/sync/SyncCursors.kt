@@ -11,6 +11,9 @@ interface SyncCursors {
     var lists: Instant?
     var items: Instant?
     var catalog: Instant?
+
+    /** Oublie tous les curseurs, compte compris (suppression du compte, #68). Écrit avant de rendre la main. */
+    fun clear()
 }
 
 /** Curseurs en mémoire, pour les tests. */
@@ -19,6 +22,13 @@ class InMemorySyncCursors : SyncCursors {
     override var lists: Instant? = null
     override var items: Instant? = null
     override var catalog: Instant? = null
+
+    override fun clear() {
+        accountId = null
+        lists = null
+        items = null
+        catalog = null
+    }
 }
 
 /** Curseurs dans des préférences ordinaires (ni jeton ni donnée personnelle). Dates en ISO 8601. */
@@ -42,6 +52,11 @@ class SharedPreferencesSyncCursors(
     override var catalog: Instant?
         get() = read(CATALOG)
         set(value) = write(CATALOG, value)
+
+    override fun clear() {
+        // `commit` : le drapeau de suppression n'est effacé qu'après, il ne doit pas survivre à des curseurs perdus.
+        check(prefs.edit().clear().commit()) { "Curseurs non effacés" }
+    }
 
     private fun read(key: String): Instant? =
         prefs.getString(key, null)?.let {

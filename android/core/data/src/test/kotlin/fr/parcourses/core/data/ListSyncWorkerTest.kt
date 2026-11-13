@@ -44,6 +44,12 @@ class ListSyncWorkerTest : DataTest() {
         override fun runStarted(workId: java.util.UUID) {
             started += workId
         }
+
+        var cancelled = 0
+
+        override suspend fun cancelAll() {
+            cancelled++
+        }
     }
 
     private val gateway = FakeRemoteGateway()
