@@ -86,7 +86,7 @@ class FakeRemoteGateway : RemoteGateway {
         enter("deleteAccount")
         requireSession()
         // Rejouée après une réponse perdue : le rafraîchissement est refusé, la session ne vaut plus rien.
-        if (account in deletedAccounts) throw RemoteError.Unauthorized()
+        if (account in deletedAccounts) throw RemoteError.Unauthorized(authCode = "refresh_token_not_found")
         deletedAccounts += account
         lostDeleteResponse?.let {
             lostDeleteResponse = null
@@ -101,17 +101,19 @@ class FakeRemoteGateway : RemoteGateway {
 
     override suspend fun currentAccountId(): Uuid = account.also { enter("currentAccountId") }.also { requireSession() }
 
-    /** Après [deleteAccount], le serveur répond « introuvable » : `Unauthorized`. */
-    override suspend fun verifySession() {
+    /** Après [deleteAccount], le serveur répond « introuvable », avec le code de GoTrue (contrat 68.1). */
+    override suspend fun verifySession(refresh: Boolean) {
         enter("verifySession")
         requireSession()
-        if (account in deletedAccounts) throw RemoteError.Unauthorized()
+        if (account in deletedAccounts) {
+            throw RemoteError.Unauthorized(authCode = if (refresh) "refresh_token_not_found" else "user_not_found")
+        }
     }
 
     override suspend fun sessionAccountId(): Uuid = account.also { enter("sessionAccountId") }.also { requireSession() }
 
     private fun requireSession() {
-        if (!hasSession) throw RemoteError.Unauthorized()
+        if (!hasSession) throw RemoteError.Unauthorized(noLocalSession = true)
     }
 
     override suspend fun acknowledgeAccount(id: Uuid) {

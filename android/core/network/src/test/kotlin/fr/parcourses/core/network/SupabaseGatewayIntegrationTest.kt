@@ -194,10 +194,12 @@ class SupabaseGatewayIntegrationTest {
 
             gateway.deleteAccount()
 
-            // Réponse perdue : le jeton d'accès vaut encore, mais `getUser` répond « introuvable ».
-            assertTrue(runCatching { gateway.verifySession() }.exceptionOrNull() is RemoteError.Unauthorized)
+            // Réponse perdue : le jeton d'accès vaut encore, mais `getUser` répond « introuvable » (code GoTrue gardé).
+            val notFound = runCatching { gateway.verifySession() }.exceptionOrNull()
+            assertEquals("user_not_found", (notFound as RemoteError.Unauthorized).authCode)
             // Le rafraîchissement est refusé : la session est perdue pour de bon.
-            assertTrue(runCatching { gateway.deleteAccount() }.exceptionOrNull() is RemoteError.Unauthorized)
+            val refused = runCatching { gateway.verifySession(refresh = true) }.exceptionOrNull()
+            assertEquals("refresh_token_not_found", (refused as RemoteError.Unauthorized).authCode)
             gateway.signOutLocally()
             val fresh = gateway.ensureSession()
             assertTrue(gateway.fetchLists(null).isEmpty())

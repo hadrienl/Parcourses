@@ -20,12 +20,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -179,11 +184,30 @@ class SupabaseGatewayTest {
                 )
                 assertEquals(code, expectError<RemoteError.Server> { gateway.deleteAccount() }.code)
             }
-            // Réponse perdue : le compte n'existe plus, le serveur le dit des deux façons.
+            // Réponse perdue : le compte n'existe plus, le serveur le dit des deux façons, code GoTrue compris.
             server.accountGone = true
-            expectError<RemoteError.Unauthorized> { gateway.verifySession() }
-            expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }
+            assertEquals("user_not_found", expectError<RemoteError.Unauthorized> { gateway.verifySession() }.authCode)
+            val refreshes = server.refreshes
+            val refused = expectError<RemoteError.Unauthorized> { gateway.verifySession(refresh = true) }
+            assertEquals("refresh_token_not_found", refused.authCode)
+            assertEquals(refreshes + 1, server.refreshes)
+            assertEquals("refresh_token_not_found", expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }.authCode)
             assertEquals(1, server.signUps)
+        }
+
+    @Test
+    fun verifyingWithARefreshTargetsTheSessionAccountAndWithoutSessionSaysSo() =
+        runBlocking<Unit> {
+            val none = expectError<RemoteError.Unauthorized> { gateway.verifySession(refresh = true) }
+            assertTrue(none.noLocalSession)
+            assertNull(none.authCode)
+            assertTrue(server.requests.isEmpty())
+
+            gateway.ensureSession()
+            harness.store.update { it.copy(lastAccountId = "bbbbbbbb-0000-4000-8000-000000000002") }
+            // Sans garde du dernier compte : le compte de la session existe, la vérification passe.
+            gateway.verifySession(refresh = true)
+            assertEquals(1, server.refreshes)
         }
 
     @Test
@@ -417,7 +441,23 @@ class SupabaseGatewayTest {
         runBlocking<Unit> {
             gateway.ensureSession()
             server.failWith = IOException("unreachable")
-            expectError<RemoteError.Network> { gateway.fetchCategories() }
+            assertFalse(expectError<RemoteError.Network> { gateway.fetchCategories() }.notSent)
+        }
+
+    /** #68, C4 : seule une requête jamais partie (marquée par `NotSentInterceptor`) est un « hors ligne » sûr. */
+    @Test
+    fun aRequestThatNeverLeftTheDeviceIsToldApart() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            for (cause in listOf(UnknownHostException("h"), ConnectException("refused"), NoRouteToHostException("r"))) {
+                // supabase-kt ne garde que le message : c'est ce que l'intercepteur produit qui doit suffire.
+                server.failWith = markIfNotSent(cause)
+                assertTrue(cause.javaClass.simpleName, expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent)
+            }
+            for (cause in listOf(SocketTimeoutException("t"), IOException("connection reset"))) {
+                server.failWith = markIfNotSent(cause)
+                assertFalse(cause.javaClass.simpleName, expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent)
+            }
         }
 
     @Test

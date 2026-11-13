@@ -84,9 +84,14 @@ class SupabaseGateway internal constructor(
 
     override suspend fun currentAccountId(): Uuid = mapped { resolveExistingSession() }
 
-    override suspend fun verifySession() {
+    override suspend fun verifySession(refresh: Boolean) {
         mapped {
-            resolveExistingSession()
+            if (refresh) {
+                existingSessionUser()
+                auth.refreshCurrentSession()
+            } else {
+                resolveExistingSession()
+            }
             auth.retrieveUserForCurrentSession(updateSession = false)
         }
     }
@@ -162,7 +167,7 @@ class SupabaseGateway internal constructor(
         if (auth.currentSessionOrNull() == null) {
             // Stockage inaccessible : `currentSessionOrNull` est nul alors que la session existe.
             store.read()
-            throw RemoteError.Unauthorized()
+            throw RemoteError.Unauthorized(noLocalSession = true)
         }
         refreshIfExpiring()
         return userId()
@@ -175,7 +180,7 @@ class SupabaseGateway internal constructor(
     }
 
     private fun userId(): Uuid {
-        val id = auth.currentUserOrNull()?.id ?: throw RemoteError.Unauthorized()
+        val id = auth.currentUserOrNull()?.id ?: throw RemoteError.Unauthorized(noLocalSession = true)
         return Uuid.parse(id)
     }
 

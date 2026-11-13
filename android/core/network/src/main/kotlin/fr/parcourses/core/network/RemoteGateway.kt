@@ -30,8 +30,12 @@ interface RemoteGateway {
     /** Compte de la session existante, sans jamais en créer : [RemoteError.Unauthorized] s'il n'y en a pas. */
     suspend fun currentAccountId(): Uuid
 
-    /** Interroge le serveur : [RemoteError.Unauthorized] si la session n'y est plus valable. */
-    suspend fun verifySession()
+    /**
+     * Interroge le serveur : [RemoteError.Unauthorized] si la session n'y est plus valable. [refresh] : rafraîchit
+     * d'abord la session, et vise le compte de la session même s'il diffère du dernier connu (vérification d'une
+     * suppression du compte, #68 : `refresh_token_not_found` ou `user_not_found` prouvent qu'il n'existe plus).
+     */
+    suspend fun verifySession(refresh: Boolean = false)
 
     /**
      * Compte de la session, même différent du dernier connu. Jamais de création : [RemoteError.Unauthorized]
