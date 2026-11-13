@@ -39,6 +39,9 @@ class FakeSupabase {
     var userId = "aaaaaaaa-0000-4000-8000-000000000001"
     var failWith: Throwable? = null
 
+    /** Compte supprimé (#68) : le rafraîchissement répond `refresh_token_not_found` et `/user`, `user_not_found`. */
+    var accountGone = false
+
     /** Réponses REST, par `méthode chemin`. Absent : `200 []`. */
     val rest = mutableMapOf<String, MutableList<Reply>>()
 
@@ -57,6 +60,10 @@ class FakeSupabase {
 
     val signUps get() = requests.count { it.url.encodedPath.endsWith("/auth/v1/signup") }
 
+    val refreshes get() = requests.count { it.url.encodedPath.endsWith("/auth/v1/token") }
+
+    val logouts get() = requests.count { it.url.encodedPath.endsWith("/auth/v1/logout") }
+
     fun restRequests() = requests.filter { it.url.encodedPath.startsWith("/rest/v1/") }
 
     fun bodyOf(request: HttpRequestData): String = (request.body as TextContent).text
@@ -69,6 +76,18 @@ class FakeSupabase {
             when {
                 path.endsWith("/auth/v1/signup") -> {
                     json(sessionJson())
+                }
+
+                path.endsWith("/auth/v1/token") && accountGone -> {
+                    authError(HttpStatusCode.BadRequest, "refresh_token_not_found")
+                }
+
+                path.endsWith("/auth/v1/token") -> {
+                    json(sessionJson())
+                }
+
+                path.endsWith("/auth/v1/user") && accountGone -> {
+                    authError(HttpStatusCode.Forbidden, "user_not_found")
                 }
 
                 path.endsWith("/auth/v1/user") -> {
@@ -106,6 +125,17 @@ class FakeSupabase {
 
     private fun MockRequestHandleScope.json(body: String): HttpResponseData =
         respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+
+    /** Erreur de GoTrue telle que la pile locale la renvoie (#68, contrat 68.1). */
+    private fun MockRequestHandleScope.authError(
+        status: HttpStatusCode,
+        code: String,
+    ): HttpResponseData =
+        respond(
+            """{"code":${status.value},"error_code":"$code","msg":"$code"}""",
+            status,
+            headersOf(HttpHeaders.ContentType, "application/json"),
+        )
 
     private fun sessionJson(): String {
         val exp = System.currentTimeMillis() / 1000 + 3600

@@ -1,6 +1,7 @@
 package fr.parcourses.feature.shopping.live
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -83,6 +84,9 @@ interface LiveUpdatePreferences {
 
     /** L'explication de l'autorisation a déjà été montrée : on ne la redemande pas. */
     var permissionAsked: Boolean
+
+    /** Oublie tout (suppression des données, #68). Écrit avant de rendre la main. */
+    fun clear()
 }
 
 class SharedPreferencesLiveUpdatePreferences(
@@ -98,6 +102,12 @@ class SharedPreferencesLiveUpdatePreferences(
     override var permissionAsked: Boolean
         get() = prefs.getBoolean(KEY_ASKED, false)
         set(value) = prefs.edit { putBoolean(KEY_ASKED, value) }
+
+    // `edit(commit = true) {}` de KTX ne rend pas le résultat : un échec doit lever (la suppression garde son drapeau).
+    @SuppressLint("UseKtx")
+    override fun clear() {
+        check(prefs.edit().clear().commit()) { "Préférences de la Live Update non effacées" }
+    }
 
     private companion object {
         const val KEY_DISMISSED = "dismissed_visit_id"

@@ -94,6 +94,12 @@ class ShoppingLiveUpdates(
 
         /** Autorisation accordée : l'état courant est reposé. */
         data object Refresh : Command
+
+        /** Suppression des données (#68) : plus rien d'affiché ni de retenu en mémoire, jusqu'à [Resume]. */
+        data object EndAll : Command
+
+        /** Suppression refusée ou annulée : la Live Update reprend. */
+        data object Resume : Command
     }
 
     private class Request(
@@ -111,6 +117,9 @@ class ShoppingLiveUpdates(
     private var lastPostAt: Instant? = null
     private var blockedLogged = false
 
+    /** Arrêtée par [endAll] : rien n'est affiché ni coché tant qu'une suppression des données est en cours. */
+    private var ended = false
+
     init {
         scope.launch { run() }
         scope.launch { remaps.collect { if (it.identifiers.isNotEmpty()) send(Command.Remap(it)) } }
@@ -127,6 +136,16 @@ class ShoppingLiveUpdates(
 
     /** Au lancement, et après la reprise d'une visite : retire toute notification sans visite ouverte. */
     fun reconcile(): Deferred<Unit> = request(Command.Reconcile)
+
+    /**
+     * « Supprimer mes données » (#68) : la notification `10_010` est retirée et l'état en mémoire oublié ; ensuite,
+     * ni affichage ni « Cocher le suivant » jusqu'à [resume]. Les préférences restent : elles ne sont effacées
+     * qu'à la purge, une suppression refusée ou annulée les garde. Équivalent de `ShoppingActivity.endAll` d'iOS.
+     */
+    fun endAll(): Deferred<Unit> = request(Command.EndAll)
+
+    /** Suppression refusée ou annulée : la Live Update reprend, l'écran la reposera à son prochain état. */
+    fun resume() = send(Command.Resume)
 
     /**
      * Action « Cocher le suivant » : coche [itemId], l'article que la notification affichait, par la même règle que
@@ -174,7 +193,15 @@ class ShoppingLiveUpdates(
         waiting: MutableList<CompletableDeferred<Unit>>,
     ) {
         request.done?.let(waiting::add)
+        if (isIgnoredWhileEnded(request.command)) return
         guarded(request.command.javaClass.simpleName) { apply(request.command) }
+    }
+
+    /** Arrêtée par [endAll] : seule la reprise compte ; l'écran et l'action de la notification sont ignorés. */
+    private fun isIgnoredWhileEnded(command: Command): Boolean {
+        if (!ended || command == Command.Resume) return false
+        if (command is Command.Publish || command is Command.CheckNext) log.info("Live Update arrêtée : ignoré")
+        return true
     }
 
     @Suppress("TooGenericExceptionCaught") // La boucle ne doit jamais s'arrêter ; l'échec est journalisé.
@@ -232,7 +259,26 @@ class ShoppingLiveUpdates(
                 blockedLogged = false
                 restored()
             }
+
+            Command.EndAll -> {
+                stop()
+            }
+
+            Command.Resume -> {
+                ended = false
+                blockedLogged = false
+                restored()
+            }
         }
+    }
+
+    /** Suppression des données : notification retirée, état oublié, plus rien jusqu'à [resume]. */
+    private fun stop() {
+        ended = true
+        current = null
+        posted = null
+        lastPostAt = null
+        notifier.cancel()
     }
 
     /** L'écran d'une autre visite ne remplace la notification que si cette visite est bien ouverte. */
@@ -301,6 +347,8 @@ class ShoppingLiveUpdates(
     // region Affichage
 
     private suspend fun render() {
+        // Arrêtée : rien ne revient, même si une demande est arrivée juste avant.
+        if (ended) return hide()
         val state = current
         val last = state?.let { lastActivityIfLive(it) }
         if (state == null || last == null) return hide()

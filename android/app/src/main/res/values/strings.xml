@@ -16,6 +16,37 @@
     <string name="about_font_body">JetBrains Mono, © The JetBrains Mono Project Authors, sous licence SIL Open Font License 1.1.</string>
     <string name="about_version_title">Version</string>
 
+    <!-- À propos, section « Vos données » et suppression (#68 §5.2) : mêmes textes qu'iOS. -->
+    <string name="about_account_title">Vos données</string>
+    <string name="about_account_body">Vous pouvez effacer vos listes, vos visites et votre identifiant anonyme, sur cet appareil et sur nos serveurs.</string>
+    <!-- Build sans Supabase (§5.7) : l'appareil seul. -->
+    <string name="about_account_body_local">Vous pouvez effacer vos listes et vos visites de cet appareil.</string>
+    <!-- Confidentialité, seulement avec un serveur. -->
+    <string name="about_privacy_deletion">Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l\'app.</string>
+    <string name="about_account_action">Supprimer mes données…</string>
+    <string name="about_account_confirm_title">Supprimer toutes vos données ?</string>
+    <string name="about_account_confirm_body">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
+    <string name="about_account_confirm_body_local">Vos listes et vos visites seront effacées de cet appareil.</string>
+    <string name="about_account_confirm_visit">Vos courses en cours seront interrompues.</string>
+    <string name="about_account_confirm_action">Supprimer</string>
+    <string name="about_account_cancel">Annuler</string>
+    <string name="about_account_running">Suppression…</string>
+    <string name="about_account_done">Vos données ont été supprimées.</string>
+    <!-- Relance sans session locale : le serveur ne peut plus être atteint, la purge des inactifs s'en charge. -->
+    <string name="about_account_done_local_title">Vos données ont été supprimées de cet appareil.</string>
+    <string name="about_account_done_local_body">Celles de nos serveurs seront supprimées après 365 jours sans utilisation.</string>
+    <string name="about_account_offline">Connexion requise. Rien n\'a été effacé.</string>
+    <string name="about_account_refused">La suppression n\'a pas abouti. Rien n\'a été effacé. Réessayez plus tard.</string>
+    <!-- Doute (règles communes iOS et Android, C6) : ni Retour ni appui à côté, seulement « Réessayer » ou « Annuler ». -->
+    <string name="about_account_unconfirmed_title">La suppression n\'a pas pu être confirmée.</string>
+    <string name="about_account_unconfirmed_body">Vérifiez votre connexion, puis réessayez. Vos données sont peut-être encore sur nos serveurs.</string>
+    <!-- Build sans Supabase : la purge de l'appareil n'est pas allée au bout. Texte propre à Android, à aligner. -->
+    <string name="about_account_unconfirmed_body_local">Réessayez. Vos données sont peut-être encore sur cet appareil.</string>
+    <!-- « Annuler » moins de 30 s après la dernière tentative (C2). -->
+    <string name="about_account_retry_soon">Réessayez dans un instant.</string>
+    <string name="about_account_retry">Réessayer</string>
+    <string name="about_account_ok">OK</string>
+
     <!-- À propos, section « Session » : seulement quand la clé de session reste illisible (#51, Android). -->
     <string name="about_session_title">Session</string>
     <string name="about_session_body">Parcourses n\'arrive plus à lire la clé qui protège votre session sur cet appareil. Vos listes ne sont plus synchronisées.</string>
