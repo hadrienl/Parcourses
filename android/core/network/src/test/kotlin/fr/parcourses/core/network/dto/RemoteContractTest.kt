@@ -44,9 +44,13 @@ class RemoteContractTest {
     private val tablesWithoutDto =
         setOf("stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots")
 
-    /** Colonnes internes au calcul du graphe (#11), que l'app ne lit pas. Toute autre colonne doit avoir son DTO. */
+    /**
+     * Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
+     * avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
+     */
     private val serverOnlyColumns =
         mapOf(
+            "products" to setOf("published_at"),
             "visits" to
                 setOf(
                     "auto_closed",

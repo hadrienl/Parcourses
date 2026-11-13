@@ -43,12 +43,14 @@ struct RemoteContractTests {
     return Set(try #require(object as? [String: Any]).keys)
   }
 
-  /// Colonnes internes au calcul du graphe (#11), que l'app ne lit pas. Toute autre colonne doit avoir son DTO.
+  /// Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
+  /// avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
   private static let serverOnlyColumns: [String: Set<String>] = [
+    "products": ["published_at"],
     "visits": [
       "auto_closed", "learn_outcome", "learn_weight", "next_attempt_at", "process_attempts", "process_error",
       "processed_algo_version",
-    ]
+    ],
   ]
 
   private static let id = UUID()

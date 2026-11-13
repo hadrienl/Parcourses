@@ -1,6 +1,6 @@
 begin;
 \ir 00_helpers.psql
-select plan(34);
+select plan(38);
 
 -- Droits.
 select ok(has_function_privilege('authenticated', 'public.resolve_products(jsonb)', 'EXECUTE'), 'authenticated peut appeler resolve_products');
@@ -20,10 +20,20 @@ create function tests.creation_days(p_user uuid) returns integer
 language sql security definer set search_path = '' as $$
   select count(*)::integer from catalog.product_creations as p where p.user_id = p_user
 $$;
-grant execute on function tests.creations(uuid), tests.creation_days(uuid) to authenticated;
+-- Produits d'une forme, lus comme postgres : un produit privé est invisible des clients (#69).
+create function tests.product_count(p_norm text) returns integer
+language sql security definer set search_path = '' as $$
+  select count(*)::integer from public.products as p where p.normalized_name = p_norm
+$$;
+create function tests.product_id(p_norm text) returns uuid
+language sql security definer set search_path = '' as $$
+  select p.id from public.products as p where p.normalized_name = p_norm
+$$;
+grant execute on function tests.creations(uuid), tests.creation_days(uuid), tests.product_count(text),
+  tests.product_id(text) to authenticated;
 select tests.authenticate_as(:'alice');
 
--- Produit existant : repris tel quel, même avec une autre catégorie.
+-- Produit publié : repris tel quel, même avec une autre catégorie.
 select results_eq($$
   select normalized_name, id, name, category_slug
   from public.resolve_products('[{"name": "  Baguette ", "category_slug": "frozen"}]')
@@ -31,22 +41,31 @@ $$, $$
   select p.normalized_name, p.id, p.name, c.slug
   from public.products as p join public.categories as c on c.id = p.category_id
   where p.normalized_name = 'baguette'
-$$, 'produit existant renvoyé, catégorie inchangée');
+$$, 'produit publié renvoyé, catégorie inchangée');
 
--- Création : libellé saisi, catégorie du client, forme normalisée par le serveur.
+-- Création : produit privé, revendiqué par l'appelant ; libellé saisi, catégorie du client, forme normalisée par le serveur.
 select results_eq($$
   select normalized_name, name, category_slug, id is not null
   from public.resolve_products('[{"name": "Pâte à Tartiner", "category_slug": "sweet-grocery"}]')
 $$, $$ values ('pate a tartiner', 'Pâte à Tartiner', 'sweet-grocery', true) $$, 'produit créé');
-select is((select count(*)::int from public.products where normalized_name = 'pate a tartiner'), 1, 'une seule ligne créée');
-select is(tests.creations(:'alice'), 1, 'création comptée');
+select is(tests.product_count('pate a tartiner'), 1, 'une seule ligne créée');
+select is((select count(*)::int from public.products where normalized_name = 'pate a tartiner'), 0,
+          'produit privé invisible, même de son créateur');
+select is(tests.creations(:'alice'), 1, 'revendication comptée');
 
--- Deuxième appel, autre utilisateur : même produit, rien de créé.
+-- Deuxième compte : même produit, rien de créé ; sa revendication est comptée comme une création.
+-- Il reçoit son propre libellé et sa propre catégorie, jamais ceux d'Alice.
 select tests.authenticate_as(:'bob');
-select is((select id from public.resolve_products('[{"name": "pate a tartiner", "category_slug": "snacks"}]')),
-          (select id from public.products where normalized_name = 'pate a tartiner'), 'forme déjà connue reprise');
+select results_eq($$
+  select id, name, category_slug from public.resolve_products('[{"name": "pate a tartiner", "category_slug": "snacks"}]')
+$$, $$ values (tests.product_id('pate a tartiner'), 'pate a tartiner', 'snacks') $$, 'forme déjà connue reprise, réponse propre à l''appelant');
+select is(tests.product_count('pate a tartiner'), 1, 'rien de créé');
 select is(tests.creation_days(:'bob'), 1, 'compteur du jour créé');
-select is(tests.creations(:'bob'), 0, 'rien compté pour une reprise');
+select is(tests.creations(:'bob'), 1, 'revendication comptée, que le produit existe ou non');
+select results_eq($$
+  select id, name from public.resolve_products('[{"name": "PATE A TARTINER", "category_slug": "sweet-grocery"}]')
+$$, $$ values (tests.product_id('pate a tartiner'), 'pate a tartiner') $$, 'revendication déjà faite : premier libellé gardé');
+select is(tests.creations(:'bob'), 1, 'revendication déjà faite : rien de compté');
 
 -- Ordre, doublons et entrées refusées.
 select results_eq($$
@@ -69,9 +88,9 @@ $$, $$ values
   (null, null, null, true),
   ('kombucha', 'Kombucha', 'beverages', false)
 $$, 'une ligne par entrée, dans l''ordre');
-select is((select count(*)::int from public.products where normalized_name in ('graines de chia', 'truc', 'machin')), 0,
+select is(tests.product_count('graines de chia') + tests.product_count('truc') + tests.product_count('machin'), 0,
           'bio, slug inconnu ou absent : rien de créé');
-select is(tests.creations(:'bob'), 1, 'doublon compté une fois');
+select is(tests.creations(:'bob'), 2, 'doublon compté une fois');
 
 -- Longueur brute : écartée avant toute normalisation, même si l'entrée tient en 200 caractères une fois rognée.
 select results_eq($$
@@ -82,7 +101,7 @@ select results_eq($$
     jsonb_build_object('name', repeat('b', 200), 'category_slug', 'other')))
 $$, $$ values (null::text, false), (null, false), (repeat('b', 200), true) $$,
    'libellé de plus de 200 caractères bruts : ni normalisé ni créé');
-select is((select count(*)::int from public.products where normalized_name in (repeat('a', 201), 'tisane')), 0,
+select is(tests.product_count(repeat('a', 201)) + tests.product_count('tisane'), 0,
           'rien de créé pour un libellé trop long');
 select is((select count(*)::int from public.resolve_products('[]')), 0, 'tableau vide');
 
@@ -172,8 +191,8 @@ select results_eq($$
     {"name": "Baguette", "category_slug": "bakery"},
     {"name": "Global un", "category_slug": "other"}
   ]$j$)
-$$, $$ values ('global quatre', false), ('baguette', true), ('global un', true) $$,
-   'plafond global atteint : rien de créé, les produits existants restent renvoyés (compte anonyme)');
+$$, $$ values ('global quatre', false), ('baguette', true), ('global un', false) $$,
+   'plafond global atteint : rien de créé, les produits publiés restent renvoyés, un produit privé d''autrui non (compte anonyme)');
 select is(tests.global_creations(), 2000, 'compteur global au plafond');
 select is(coalesce(tests.creations(:'carol'), 0), 0, 'rien compté pour le compte anonyme');
 

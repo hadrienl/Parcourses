@@ -36,7 +36,8 @@
     "id",
     "name",
     "normalized_name",
-    "off_code"
+    "off_code",
+    "published_at"
   ],
   "store_edges": [
     "last_seen_at",
