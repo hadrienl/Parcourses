@@ -92,9 +92,9 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
         }
 
-    /** « Supprimer mes données » (#68) : notification retirée, préférences et état en mémoire oubliés. */
+    /** « Supprimer mes données » (#68) : notification retirée, état en mémoire oublié, préférences gardées. */
     @Test
-    fun endingEverythingRemovesTheNotificationAndForgetsThePreferences() =
+    fun endingEverythingRemovesTheNotificationAndKeepsThePreferences() =
         runTest(main) {
             val (_, state) = shopping()
             val live = controller()
@@ -108,13 +108,36 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
 
             assertTrue(done.isCompleted)
             assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
-            assertEquals(null, preferences.dismissedVisitId)
-            assertFalse(preferences.permissionAsked)
-            // L'état en mémoire est oublié : une réconciliation ne repose rien.
-            live.reconcile()
+            // Effacées seulement à la purge : une suppression refusée ou annulée les garde.
+            assertEquals("une-visite-ecartee", preferences.dismissedVisitId)
+            assertTrue(preferences.permissionAsked)
+        }
+
+    /** B3 : après `endAll`, ni l'écran ni l'action de la notification ne la font revenir, jusqu'à `resume`. */
+    @Test
+    fun nothingComesBackAfterEndingEverythingUntilResumed() =
+        runTest(main) {
+            val (visit, state) = shopping()
+            val live = controller()
+            live.publish(state)
             runCurrent()
-            assertEquals(1, notifier.posts.size)
+            live.endAll()
+            runCurrent()
+            val posts = notifier.posts.size
+
+            live.publish(state.copy(pending = state.pending.drop(1)))
+            live.checkNext(visit.id, state.pending.first().id)
+            live.refresh()
+            runCurrent()
+
+            assertEquals(posts, notifier.posts.size)
             assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+            assertTrue(visits.checks(visit.id).isEmpty())
+
+            live.resume()
+            live.publish(state)
+            runCurrent()
+            assertEquals(state.visitId, notifier.state?.visitId)
         }
 
     @Test

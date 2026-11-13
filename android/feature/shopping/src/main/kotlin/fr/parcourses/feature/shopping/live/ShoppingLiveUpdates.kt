@@ -95,8 +95,11 @@ class ShoppingLiveUpdates(
         /** Autorisation accordée : l'état courant est reposé. */
         data object Refresh : Command
 
-        /** Suppression des données (#68) : plus rien d'affiché ni de retenu. */
+        /** Suppression des données (#68) : plus rien d'affiché ni de retenu en mémoire, jusqu'à [Resume]. */
         data object EndAll : Command
+
+        /** Suppression refusée ou annulée : la Live Update reprend. */
+        data object Resume : Command
     }
 
     private class Request(
@@ -113,6 +116,9 @@ class ShoppingLiveUpdates(
     private var posted: Pair<ShoppingLiveState, Instant>? = null
     private var lastPostAt: Instant? = null
     private var blockedLogged = false
+
+    /** Arrêtée par [endAll] : rien n'est affiché ni coché tant qu'une suppression des données est en cours. */
+    private var ended = false
 
     init {
         scope.launch { run() }
@@ -132,10 +138,14 @@ class ShoppingLiveUpdates(
     fun reconcile(): Deferred<Unit> = request(Command.Reconcile)
 
     /**
-     * « Supprimer mes données » (#68) : la notification `10_010` est retirée et les préférences (`live_updates`)
-     * effacées, l'état en mémoire oublié. Terminé quand c'est fait. Équivalent de `ShoppingActivity.endAll` d'iOS.
+     * « Supprimer mes données » (#68) : la notification `10_010` est retirée et l'état en mémoire oublié ; ensuite,
+     * ni affichage ni « Cocher le suivant » jusqu'à [resume]. Les préférences restent : elles ne sont effacées
+     * qu'à la purge, une suppression refusée ou annulée les garde. Équivalent de `ShoppingActivity.endAll` d'iOS.
      */
     fun endAll(): Deferred<Unit> = request(Command.EndAll)
+
+    /** Suppression refusée ou annulée : la Live Update reprend, l'écran la reposera à son prochain état. */
+    fun resume() = send(Command.Resume)
 
     /**
      * Action « Cocher le suivant » : coche [itemId], l'article que la notification affichait, par la même règle que
@@ -205,6 +215,10 @@ class ShoppingLiveUpdates(
     // region Commandes
 
     private suspend fun apply(command: Command) {
+        if (ended && command != Command.Resume) {
+            if (command is Command.Publish || command is Command.CheckNext) log.info("Live Update arrêtée : ignoré")
+            return
+        }
         when (command) {
             is Command.Publish -> {
                 accept(command.state)
@@ -243,11 +257,17 @@ class ShoppingLiveUpdates(
             }
 
             Command.EndAll -> {
+                ended = true
                 current = null
                 posted = null
                 lastPostAt = null
                 notifier.cancel()
-                preferences.clear()
+            }
+
+            Command.Resume -> {
+                ended = false
+                blockedLogged = false
+                restored()
             }
         }
     }
@@ -318,6 +338,8 @@ class ShoppingLiveUpdates(
     // region Affichage
 
     private suspend fun render() {
+        // Arrêtée : rien ne revient, même si une demande est arrivée juste avant.
+        if (ended) return hide()
         val state = current
         val last = state?.let { lastActivityIfLive(it) }
         if (state == null || last == null) return hide()
