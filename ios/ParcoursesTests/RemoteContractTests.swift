@@ -50,7 +50,7 @@ struct RemoteContractTests {
     "visits": [
       "auto_closed", "learn_outcome", "learn_weight", "next_attempt_at", "process_attempts", "process_error",
       "processed_algo_version",
-    ]
+    ],
   ]
 
   private static let id = UUID()
