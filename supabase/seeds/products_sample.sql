@@ -1,6 +1,7 @@
 -- Produits courants d'exemple (local, CI), classés comme le ferait le classifieur partagé.
-insert into public.products (name, normalized_name, category_id)
-select n.name, public.normalize_label(n.name), c.id
+-- Publiés d'emblée : ce sont des libellés génériques, relus (#69).
+insert into public.products (name, normalized_name, category_id, published_at)
+select n.name, public.normalize_label(n.name), c.id, now()
 from (values
   ('produce', array['Pommes', 'Bananes', 'Tomates', 'Carottes', 'Salade', 'Pommes de terre', 'Oignons', 'Citrons']),
   ('bakery', array['Baguette', 'Pain de mie', 'Croissants']),
