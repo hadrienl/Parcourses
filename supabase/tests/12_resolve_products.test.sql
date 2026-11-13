@@ -46,10 +46,10 @@ $$, 'produit publié renvoyé, catégorie inchangée');
 -- Création : produit privé, revendiqué par l'appelant ; libellé saisi, catégorie du client, forme normalisée par le serveur.
 select results_eq($$
   select normalized_name, name, category_slug, id is not null
-  from public.resolve_products('[{"name": "Pâte à Tartiner", "category_slug": "sweet-grocery"}]')
-$$, $$ values ('pate a tartiner', 'Pâte à Tartiner', 'sweet-grocery', true) $$, 'produit créé');
-select is(tests.product_count('pate a tartiner'), 1, 'une seule ligne créée');
-select is((select count(*)::int from public.products where normalized_name = 'pate a tartiner'), 0,
+  from public.resolve_products('[{"name": "Pâte de Spéculoos", "category_slug": "sweet-grocery"}]')
+$$, $$ values ('pate de speculoos', 'Pâte de Spéculoos', 'sweet-grocery', true) $$, 'produit créé');
+select is(tests.product_count('pate de speculoos'), 1, 'une seule ligne créée');
+select is((select count(*)::int from public.products where normalized_name = 'pate de speculoos'), 0,
           'produit privé invisible, même de son créateur');
 select is(tests.creations(:'alice'), 1, 'revendication comptée');
 
@@ -57,14 +57,14 @@ select is(tests.creations(:'alice'), 1, 'revendication comptée');
 -- Il reçoit son propre libellé et sa propre catégorie, jamais ceux d'Alice.
 select tests.authenticate_as(:'bob');
 select results_eq($$
-  select id, name, category_slug from public.resolve_products('[{"name": "pate a tartiner", "category_slug": "snacks"}]')
-$$, $$ values (tests.product_id('pate a tartiner'), 'pate a tartiner', 'snacks') $$, 'forme déjà connue reprise, réponse propre à l''appelant');
-select is(tests.product_count('pate a tartiner'), 1, 'rien de créé');
+  select id, name, category_slug from public.resolve_products('[{"name": "pate de speculoos", "category_slug": "snacks"}]')
+$$, $$ values (tests.product_id('pate de speculoos'), 'pate de speculoos', 'snacks') $$, 'forme déjà connue reprise, réponse propre à l''appelant');
+select is(tests.product_count('pate de speculoos'), 1, 'rien de créé');
 select is(tests.creation_days(:'bob'), 1, 'compteur du jour créé');
 select is(tests.creations(:'bob'), 1, 'revendication comptée, que le produit existe ou non');
 select results_eq($$
-  select id, name from public.resolve_products('[{"name": "PATE A TARTINER", "category_slug": "sweet-grocery"}]')
-$$, $$ values (tests.product_id('pate a tartiner'), 'pate a tartiner') $$, 'revendication déjà faite : premier libellé gardé');
+  select id, name from public.resolve_products('[{"name": "PATE DE SPECULOOS", "category_slug": "sweet-grocery"}]')
+$$, $$ values (tests.product_id('pate de speculoos'), 'pate de speculoos') $$, 'revendication déjà faite : premier libellé gardé');
 select is(tests.creations(:'bob'), 1, 'revendication déjà faite : rien de compté');
 
 -- Ordre, doublons et entrées refusées.
