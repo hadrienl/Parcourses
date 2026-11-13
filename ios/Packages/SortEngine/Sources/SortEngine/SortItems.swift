@@ -22,7 +22,15 @@ public let sortInfinity: Int64 = 1 << 40
 /// - Throws: ``SortError`` si un identifiant n'est pas en `[0-9a-z-]+`, si un article ou une
 ///   catégorie est en double, ou si un poids sort de `0...2^53-1`.
 public func sortItems(_ input: SortInput) throws(SortError) -> SortOutput {
-  try validate(input)
+  try sortItems(input, prepared: nil)
+}
+
+/// Comme ``sortItems(_:)``, en réutilisant le travail de `prepared` (graphe, distances) quand il
+/// correspond à l'instantané et aux paramètres de `input` (#30). Sinon, ou si `prepared` vaut
+/// `nil`, le tri repart de zéro. Le résultat est toujours celui de ``sortItems(_:)``.
+public func sortItems(_ input: SortInput, prepared: PreparedStore?) throws(SortError) -> SortOutput {
+  let reused = prepared.flatMap { $0.matches(input) ? $0 : nil }
+  if reused != nil { try validateRequest(input) } else { try validate(input) }
   let ranks = RankResolver(input.categories)
   guard let snapshot = input.snapshot, snapshot.confidenceQ >= input.params.confThresholdQ else {
     return SortOutput(mode: .fallback, order: fallbackOrder(input.items, ranks), cost: nil)
@@ -30,7 +38,8 @@ public func sortItems(_ input: SortInput) throws(SortError) -> SortOutput {
   // Ordre canonique : le résultat ne dépend pas de l'ordre fourni.
   let items = input.items.sorted { bytesPrecede($0.id, $1.id) }
   let ids = items.map(\.id)
-  let matrix = DistanceMatrix(input: input, snapshot: snapshot, items: items, ranks: ranks)
+  let store = reused ?? PreparedStore(validated: snapshot, params: input.params)
+  let matrix = DistanceMatrix(input: input, store: store, items: items, ranks: ranks)
 
   let optimized = twoOpt(
     matrix, path: nearestNeighbour(matrix, ids: ids), maxPasses: input.params.twoOptMaxPasses)

@@ -15,7 +15,7 @@ func edgeCost(_ weightQ: Int64, _ params: SortParams) -> Int64 {
 /// Graphe à indices entiers. Les produits sont numérotés dans l'ordre de leurs octets : départager
 /// la file de priorité par indice revient à la départager par `product_id`. L'entrée est un nœud
 /// virtuel (indice `entry`) avec des arcs sortants uniquement : aucun chemin ne la traverse.
-struct StoreGraph {
+struct StoreGraph: Sendable {
   /// Indice de chaque produit connu du graphe.
   let indexByProduct: [String: Int]
   /// Voisins de chaque nœud (entrée comprise), triés par indice : (voisin, coût minimal).
@@ -23,14 +23,18 @@ struct StoreGraph {
   var entry: Int { adjacency.count - 1 }
 
   init(_ snapshot: SortSnapshot, _ params: SortParams) {
-    var products = snapshot.edges.flatMap { [$0.a, $0.b] } + snapshot.entries.map(\.productId)
-    products.sort(by: bytesPrecede)
-    var indexByProduct: [String: Int] = [:]
-    var count = 0
-    for product in products where indexByProduct[product] == nil {
-      indexByProduct[product] = count
-      count += 1
+    // Dédoublonnés avant le tri : les identifiants sont ASCII, l'égalité de `String` y est donc
+    // celle des octets (#30, le tri de toutes les extrémités d'arêtes coûtait plusieurs ms).
+    var unique = Set<String>()
+    for edge in snapshot.edges {
+      unique.insert(edge.a)
+      unique.insert(edge.b)
     }
+    for entry in snapshot.entries { unique.insert(entry.productId) }
+    let products = unique.sorted(by: bytesPrecede)
+    var indexByProduct: [String: Int] = [:]
+    for (index, product) in products.enumerated() { indexByProduct[product] = index }
+    let count = products.count
     // En cas de doublon (y compris (a,b) et (b,a)), on garde le coût minimal.
     var best = [[Int: Int64]](repeating: [:], count: count + 1)
     func put(_ from: Int, _ to: Int, _ cost: Int64) {

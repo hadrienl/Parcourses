@@ -2,6 +2,13 @@
 // que de deviner.
 
 func validate(_ input: SortInput) throws(SortError) {
+  try validateRequest(input)
+  if let snapshot = input.snapshot { try validateSnapshot(snapshot) }
+}
+
+/// Tout sauf l'instantané, déjà validé par ``PreparedStore`` (#30). L'instantané vient en dernier
+/// dans ``validate(_:)`` : l'omettre ne change pas l'erreur levée sur une entrée invalide.
+func validateRequest(_ input: SortInput) throws(SortError) {
   var seenCategories = Set<String>()
   for category in input.categories {
     try checkId(category.id, "category")
@@ -18,7 +25,10 @@ func validate(_ input: SortInput) throws(SortError) {
   }
   if case .product(let productId) = input.start { try checkId(productId, "start.product_id") }
   for id in input.previousOrder ?? [] { try checkId(id, "previous_order") }
-  guard let snapshot = input.snapshot else { return }
+}
+
+/// Validation de l'instantané seul, dans l'ordre de la référence : arêtes puis entrées.
+func validateSnapshot(_ snapshot: SortSnapshot) throws(SortError) {
   for edge in snapshot.edges {
     try checkId(edge.a, "edge.a")
     try checkId(edge.b, "edge.b")

@@ -55,6 +55,16 @@ struct SortVectorTests {
     #expect(try sortItems(vector.input) == vector.expected)
   }
 
+  /// #30 : le magasin préparé ne change rien au résultat, même construit sur une copie.
+  @Test("Même résultat avec un magasin préparé", arguments: SortVector.all)
+  func matchesReferenceWithPreparedStore(_ vector: SortVector) throws {
+    guard var snapshot = vector.input.snapshot else { return }
+    snapshot.edges = snapshot.edges.map { $0 }
+    let prepared = try PreparedStore(snapshot: snapshot, params: vector.input.params)
+    #expect(prepared.matches(vector.input))
+    #expect(try sortItems(vector.input, prepared: prepared) == vector.expected)
+  }
+
   @Test("Le résultat ne dépend pas de l'ordre des entrées", arguments: SortVector.all)
   func independentOfInputOrder(_ vector: SortVector) throws {
     var generator = SplitMix64(seed: 0x5EED)
