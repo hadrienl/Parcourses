@@ -81,6 +81,8 @@ jobs:
           path: ios/DerivedData
           key: dd-${{ matrix.ios }}-${{ hashFiles('ios/project.yml', 'ios/Package.resolved', 'ios/Config/*.xcconfig', 'ios/Packages/*/Package.swift') }}
       - name: Build et tests
+        # ~35 min mesurées : borne un démarrage de simulateur bloqué (bootstatus attend sans limite).
+        timeout-minutes: 75
         run: |
           udid=$(scripts/simulator.sh "${{ matrix.ios }}")
           xcrun simctl list devices | grep "$udid"
@@ -88,10 +90,11 @@ jobs:
           (while true; do date -u +%FT%TZ; top -l 2 -s 1 -o cpu -n 12 -stats pid,cpu,mem,command | tail -13; sleep 30; done) \
             > "$RUNNER_TEMP/charge.log" 2>&1 &
           # Simulateur démarré pendant la compilation (#79) : un simulateur neuf sature le runner environ deux minutes
-          # après son démarrage (diagnosticd, apsd, mobileassetd… jusqu'à 500 % de CPU). Démarré par xcodebuild juste
-          # avant les tests, ce pic tombait sur les premiers audits, qui dépassaient leur délai. Il retombe en moins de
-          # 3 min : les tests partent au plus tôt 4 min après le démarrage, même si la compilation est plus courte.
-          xcrun simctl boot "$udid"
+          # après son démarrage (diagnosticd, apsd, mobileassetd… près de 500 % de CPU cumulés, sur plusieurs cœurs).
+          # Démarré par xcodebuild juste avant les tests, ce pic tombait sur les premiers audits, qui dépassaient leur
+          # délai. Il était retombé moins de 3 min après le démarrage : les tests partent au plus tôt 4 min après le
+          # démarrage, même si la compilation est plus courte. `|| true` : déjà démarré, il n'y a rien à faire.
+          xcrun simctl boot "$udid" || true
           booted=$(date +%s)
           xcodebuild build-for-testing -project Parcourses.xcodeproj -scheme Parcourses \
             -destination "id=$udid" -derivedDataPath DerivedData
