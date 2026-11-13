@@ -263,6 +263,13 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     try await remote.acknowledgeAccount(id)
   }
+  func deleteAccount() async throws {
+    try check()
+    try await remote.deleteAccount()
+  }
+  func signOutLocally() async throws {
+    try await remote.signOutLocally()
+  }
   func serverDate() async throws -> Date? {
     try check()
     return try await remote.serverDate()
@@ -624,5 +631,140 @@ private nonisolated final class Box<Value>: @unchecked Sendable {
   var value: Value {
     get { lock.withLock { stored } }
     set { lock.withLock { stored = newValue } }
+  }
+}
+
+/// Suspend le moteur comme le fait `AppModel` ; le reste n'a pas de sens sans écran.
+@MainActor
+private final class IntegrationDeletionHost: AccountDeletionHost {
+  let engine: SyncEngine
+  init(engine: SyncEngine) { self.engine = engine }
+  func suspendSync() async { await engine.suspend() }
+  func resumeSync() {
+    let engine = engine
+    Task { await engine.resume() }
+  }
+  func endShopping() {
+    // Pas de Live Activity ni de mode courses dans ce test.
+  }
+  func restart() {
+    // Le test reconstruit lui-même le moteur.
+  }
+}
+
+/// Suppression du compte de bout en bout contre le Supabase local (#68, lot 68.2).
+@MainActor
+@Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
+struct AccountDeletionIntegrationTests {
+  private struct Device {
+    let gateway: SupabaseGateway
+    let keychain: KeychainStore
+    let defaults: UserDefaults
+    let flags: UserDefaultsAccountDeletionFlagStore
+  }
+
+  /// Keychain et préférences isolés : jamais ceux de l'app hôte des tests.
+  private func makeDevice() throws -> Device {
+    let configuration = try #require(LocalSupabase.configuration)
+    let keychain = KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
+    let defaults = try #require(UserDefaults(suiteName: "tests.it.deletion.\(UUID().uuidString)"))
+    let flags = UserDefaultsAccountDeletionFlagStore(defaults: defaults)
+    let gateway = SupabaseGateway(configuration: configuration, store: keychain, deletionFlags: flags)
+    return Device(gateway: gateway, keychain: keychain, defaults: defaults, flags: flags)
+  }
+
+  private func makeEngine(_ device: Device, container: ModelContainer) throws -> SyncEngine {
+    SyncEngine(
+      gateway: device.gateway, container: container, cursors: UserDefaultsSyncCursors(defaults: device.defaults),
+      classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+  }
+
+  /// Créer une liste, cocher en magasin, supprimer : le nouveau compte ne voit rien et ne reçoit rien.
+  /// `PARCOURSES_IT_DELETION_OUT` : `integration-test.sh` y lit les identifiants pour vérifier la base.
+  @Test func deletionErasesTheAccountAndStartsAnEmptyOne() async throws {
+    let device = try makeDevice()
+    let old = try await device.gateway.ensureSession()
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    try SwiftDataCategoryRepository(context: context).seedIfNeeded()
+    let lists = SwiftDataListRepository(context: context)
+    let visits = SwiftDataVisitRepository(context: context)
+    var engine = try makeEngine(device, container: container)
+
+    let storeId = try #require(
+      try await device.gateway.nearbyStores(lat: 43.646, lng: 0.586, radiusM: 20000, maxResults: 1).first
+    ).id
+    let start = Date.now.addingTimeInterval(-120)
+    let list = try lists.createList(name: "IT-68 suppression", at: start)
+    let item = try lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: start)
+    let visit = try visits.startVisit(storeId: storeId, listId: list.id, listWasSorted: false, at: start)
+    try visits.addCheck(
+      visitId: visit.id, itemId: item.id, subject: .category("dairy"), checkedAt: start.addingTimeInterval(1))
+    try visits.closeVisit(id: visit.id, at: start.addingTimeInterval(2))
+    await engine.drain(pull: true)
+    #expect(try await device.gateway.fetchLists(updatedAfter: nil).map(\.id) == [list.id])
+    #expect(try await device.gateway.visitAccess(id: visit.id) == .closed)
+    // Une modification encore en file au moment de la suppression : elle ne doit partir nulle part.
+    try lists.renameList(id: list.id, name: "IT-68 jamais envoyée", at: .now)
+
+    let deletion = AccountDeletion(
+      gateway: device.gateway, flags: device.flags,
+      purge: LocalDataPurge(
+        container: container, keychain: device.keychain, defaults: device.defaults,
+        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
+      isOnline: { true })
+    let host = IntegrationDeletionHost(engine: engine)
+    deletion.host = host
+    await deletion.delete()
+
+    #expect(deletion.status == .deleted)
+    #expect(device.flags.load() == nil)
+    #expect(try ModelContext(container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    #expect(try ModelContext(container).fetchCount(FetchDescriptor<OutboxEntry>()) == 0)
+    let new = try await device.gateway.currentAccountId()
+    #expect(new != old)
+
+    // App reconstruite : moteur neuf et passes complètes. Le nouveau compte ne voit et ne reçoit rien.
+    engine = try makeEngine(device, container: container)
+    await engine.drain(pull: true)
+    await engine.drain(pull: true)
+    #expect(try await device.gateway.fetchLists(updatedAfter: nil).isEmpty)
+    #expect(try await device.gateway.fetchItems(updatedAfter: nil).isEmpty)
+    #expect(try await device.gateway.visitAccess(id: visit.id) == .notVisible)
+    #expect(try ModelContext(container).fetchCount(FetchDescriptor<OutboxEntry>()) == 0)
+
+    if let path = ProcessInfo.processInfo.environment["PARCOURSES_IT_DELETION_OUT"] {
+      try "\(old.uuidString.lowercased()) \(new.uuidString.lowercased()) \(visit.id.uuidString.lowercased())\n"
+        .write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    try device.keychain.removeAll()
+  }
+
+  /// Les deux signaux qui lèvent le doute après une réponse perdue : session refusée et compte introuvable.
+  @Test func afterDeletionTheSessionIsRefused() async throws {
+    let device = try makeDevice()
+    try await device.gateway.ensureSession()
+    try await device.gateway.deleteAccount()
+    // Compte introuvable (`auth.user()` : 403 `user_not_found`).
+    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.verifySession() }
+    // Rejouée, la suppression rafraîchit d'abord : jeton refusé (400 `refresh_token_not_found`).
+    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.deleteAccount() }
+    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.verifySession() }
+    try await device.gateway.signOutLocally()
+    try device.keychain.removeAll()
+  }
+
+  /// Drapeau présent : aucun compte n'est créé ; effacé, la connexion anonyme reprend.
+  @Test func noAccountIsCreatedWhileTheDeletionIsPending() async throws {
+    let device = try makeDevice()
+    device.flags.save(AccountDeletionFlag(accountId: nil, phase: .requested))
+    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.ensureSession() }
+    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.currentAccountId() }
+    device.flags.clear()
+    _ = try await device.gateway.ensureSession()
+    try device.keychain.removeAll()
   }
 }
