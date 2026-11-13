@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(41);
+select plan(45);
 
 -- Droits.
 select ok(has_function_privilege('authenticated', 'public.delete_my_account()', 'EXECUTE'), 'RPC exécutable par authenticated');
@@ -109,59 +109,76 @@ select throws_ok($$ select public.delete_my_account() $$, '42501', null, 'refus 
 select tests.clear_authentication();
 
 -- Purge des comptes anonymes inactifs.
--- old_idle : anonyme, rien depuis 400 jours → purgé, avec son journal.
--- old_session : session rafraîchie hier → gardé. old_visit : visite il y a 10 jours → gardé.
--- old_item : article modifié il y a 10 jours → gardé. old_email : e-mail lié → gardé. young : créé il y a 10 jours → gardé.
-select tests.create_user(null, true) as old_idle \gset
-select tests.create_user(null, true) as old_session \gset
-select tests.create_user(null, true) as old_visit \gset
-select tests.create_user(null, true) as old_item \gset
-select tests.create_user('linked@test.local') as old_email \gset
-select tests.create_user(null, true) as young \gset
-update auth.users set created_at = now() - interval '400 days', updated_at = now() - interval '400 days',
-                      last_sign_in_at = now() - interval '400 days'
-where id in (:'old_idle', :'old_session', :'old_visit', :'old_item', :'old_email');
-update auth.users set created_at = now() - interval '10 days', updated_at = now() - interval '10 days' where id = :'young';
+-- idle, idle2 : anonymes, rien depuis 400 jours → purgés (idle d'abord : plus ancien), avec leur journal.
+-- Gardés : session rafraîchie hier (sess_refresh), session modifiée hier sans refreshed_at (sess_update),
+-- connexion hier (login), liste modifiée il y a 10 jours (list), article modifié il y a 10 jours (item),
+-- visite il y a 10 jours (visit), e-mail lié (email), compte créé il y a 10 jours (young).
+create temporary table purge_users (who text primary key, id uuid not null) on commit drop;
+insert into purge_users
+select w, tests.create_user(case when w = 'email' then 'linked@test.local' end, w <> 'email')
+from unnest(array['idle', 'idle2', 'sess_refresh', 'sess_update', 'login', 'list', 'item', 'visit', 'email', 'young']) as w;
+update auth.users as u
+set created_at = now() - case when p.who = 'idle' then interval '401 days' else interval '400 days' end,
+    updated_at = now() - interval '400 days',
+    last_sign_in_at = now() - interval '400 days'
+from purge_users as p where p.id = u.id and p.who <> 'young';
+update auth.users set last_sign_in_at = now() - interval '1 day' where id = (select id from purge_users where who = 'login');
+update auth.users set created_at = now() - interval '10 days', updated_at = now() - interval '10 days'
+where id = (select id from purge_users where who = 'young');
 
-insert into auth.sessions (id, user_id, created_at, updated_at, refreshed_at) values
-  (gen_random_uuid(), :'old_idle', now() - interval '400 days', now() - interval '400 days', (now() - interval '400 days') at time zone 'UTC'),
-  (gen_random_uuid(), :'old_session', now() - interval '400 days', now() - interval '400 days', (now() - interval '1 day') at time zone 'UTC');
-insert into public.lists (id, owner_id, name, created_at, updated_at) values
-  (gen_random_uuid(), :'old_idle', 'vieille', now() - interval '400 days', now() - interval '400 days'),
-  (gen_random_uuid(), :'old_item', 'vieille', now() - interval '400 days', now() - interval '400 days');
-insert into public.list_items (list_id, label, created_at, updated_at)
-select l.id, 'pain', now() - interval '400 days', case when l.owner_id = :'old_item' then now() - interval '10 days' else now() - interval '400 days' end
-from public.lists as l where l.owner_id in (:'old_idle', :'old_item');
--- Le trigger updated_at réécrit la date à l'insertion : on la remet après coup.
-alter table public.list_items disable trigger list_items_set_updated_at;
+insert into auth.sessions (id, user_id, created_at, updated_at, refreshed_at)
+select gen_random_uuid(), p.id, now() - interval '400 days',
+       case when p.who = 'sess_update' then now() - interval '1 day' else now() - interval '400 days' end,
+       case when p.who = 'sess_refresh' then (now() - interval '1 day') at time zone 'UTC'
+            when p.who = 'sess_update' then null
+            else (now() - interval '400 days') at time zone 'UTC' end
+from purge_users as p where p.who in ('idle', 'sess_refresh', 'sess_update');
+
+-- Le trigger updated_at réécrit la date : désactivé le temps de dater les lignes (transaction annulée).
 alter table public.lists disable trigger lists_set_updated_at;
-update public.lists set updated_at = now() - interval '400 days' where owner_id in (:'old_idle', :'old_item');
-update public.list_items as i set updated_at = case when l.owner_id = :'old_item' then now() - interval '10 days' else now() - interval '400 days' end
-from public.lists as l where l.id = i.list_id and l.owner_id in (:'old_idle', :'old_item');
-alter table public.list_items enable trigger list_items_set_updated_at;
+alter table public.list_items disable trigger list_items_set_updated_at;
+insert into public.lists (id, owner_id, name, created_at, updated_at)
+select gen_random_uuid(), p.id, 'vieille', now() - interval '400 days',
+       case when p.who = 'list' then now() - interval '10 days' else now() - interval '400 days' end
+from purge_users as p where p.who in ('idle', 'list', 'item');
+insert into public.list_items (list_id, label, created_at, updated_at)
+select l.id, 'pain', now() - interval '400 days',
+       case when p.who = 'item' then now() - interval '10 days' else now() - interval '400 days' end
+from public.lists as l join purge_users as p on p.id = l.owner_id where p.who in ('idle', 'item');
 alter table public.lists enable trigger lists_set_updated_at;
-select tests.visit(:'old_visit', :'store', array[1,2,3], array[0,30,60]::float8[], now() - interval '10 days') as recent_visit \gset
+alter table public.list_items enable trigger list_items_set_updated_at;
+select tests.visit((select id from purge_users where who = 'visit'), :'store', array[1,2,3], array[0,30,60]::float8[],
+  now() - interval '10 days') as recent_visit \gset
 insert into auth.audit_log_entries (id, payload, created_at)
-values (gen_random_uuid(), json_build_object('actor_id', :'old_idle', 'action', 'login'), now() - interval '400 days');
+select gen_random_uuid(), json_build_object('actor_id', p.id, 'action', 'login'), now() - interval '400 days'
+from purge_users as p where p.who in ('idle', 'idle2');
 
 select throws_ok($$ select accounts.purge_inactive_anonymous(now(), interval '1 day') $$, '22023', null, 'durée trop courte refusée');
 select throws_ok($$ select accounts.purge_inactive_anonymous(now(), interval '365 days', 0) $$, '22023', null, 'lot vide refusé');
 
 select count(*) as runs_before from graph.runs where kind = 'purge_accounts' \gset
+-- Lot d'un compte : le plus ancien part, l'autre attend le passage suivant.
+select is(accounts.purge_inactive_anonymous(now(), interval '365 days', 1), 1, 'lot d''un compte : un seul purgé');
+select is((select array_agg(p.who order by p.who) from purge_users as p where not exists (select 1 from auth.users as u where u.id = p.id)),
+  array['idle'], 'le plus ancien d''abord');
 select accounts.purge_inactive_anonymous(now(), interval '365 days', 100000) as purged \gset
-select ok(:'purged'::int >= 1, 'au moins un compte purgé');
-select is((select count(*)::int from auth.users where id = :'old_idle'), 0, 'compte anonyme inactif purgé');
-select is((select count(*)::int from public.lists where owner_id = :'old_idle'), 0, 'ses listes purgées');
-select is((select count(*)::int from auth.audit_log_entries where payload ->> 'actor_id' = :'old_idle'), 0, 'son journal effacé');
-select is((select count(*)::int from auth.users where id in (:'old_session', :'old_visit', :'old_item', :'old_email', :'young', :'bob')), 6,
-  'comptes actifs, liés à un e-mail ou récents gardés');
-select is((select count(*)::int from graph.runs where kind = 'purge_accounts'), :'runs_before'::int + 1, 'passage journalisé');
-select is((select claimed from graph.runs where kind = 'purge_accounts' order by id desc limit 1), :'purged'::int, 'nombre journalisé');
-select ok((select to_jsonb(r)::text not like '%' || :'old_idle' || '%' from graph.runs as r where kind = 'purge_accounts' order by id desc limit 1),
-  'journal sans identifiant');
-select is(accounts.purge_inactive_anonymous(now(), interval '365 days', 100000), 0, 'second passage : plus rien à purger');
+select ok(:'purged'::int >= 1, 'passage suivant : le reste de l''arriéré');
+select is((select array_agg(p.who order by p.who) from purge_users as p where not exists (select 1 from auth.users as u where u.id = p.id)),
+  array['idle', 'idle2'], 'seuls les comptes anonymes inactifs sont purgés');
+select is((select count(*)::int from public.lists as l join purge_users as p on p.id = l.owner_id where p.who = 'idle'), 0, 'leurs listes purgées');
+select is((select count(*)::int from auth.sessions as s join purge_users as p on p.id = s.user_id where p.who = 'idle'), 0, 'leurs sessions purgées');
+select is((select count(*)::int from auth.audit_log_entries as e join purge_users as p on e.payload ->> 'actor_id' = p.id::text
+           where p.who in ('idle', 'idle2')), 0, 'leur journal effacé');
+select is((select count(*)::int from public.visits where id = :'recent_visit'), 1, 'visite récente gardée');
+select is((select count(*)::int from graph.runs where kind = 'purge_accounts'), :'runs_before'::int + 2, 'chaque passage journalisé');
+select is((select r.claimed from graph.runs as r where r.kind = 'purge_accounts' order by r.id desc limit 1), :'purged'::int, 'nombre journalisé');
+select is((select r.detail ->> 'inactive_days' from graph.runs as r where r.kind = 'purge_accounts' order by r.id desc limit 1), '365',
+  'durée journalisée en jours');
+select ok((select bool_and(to_jsonb(r)::text not like '%' || p.id::text || '%')
+           from graph.runs as r cross join purge_users as p where r.kind = 'purge_accounts'), 'journal sans identifiant');
+select is(accounts.purge_inactive_anonymous(now(), interval '365 days', 100000), 0, 'troisième passage : plus rien à purger');
 
-select is((select schedule from cron.job where jobname = 'accounts-purge-inactive'), '47 4 * * *', 'purge planifiée chaque nuit');
+select is((select schedule from cron.job where jobname = 'accounts-purge-inactive'), '47 * * * *', 'purge planifiée toutes les heures');
 
 select * from finish();
 rollback;

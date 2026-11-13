@@ -5,6 +5,24 @@
 -- Le graphe agrégé (store_edges, store_entries, store_stats, instantanés) est gardé : il ne contient aucun
 -- identifiant, et #70 l'a daté au jour et réservé aux magasins à plusieurs contributeurs (décision G1).
 
+-- Garde : les fonctions ci-dessous s'exécutent avec les droits du propriétaire (le rôle qui applique la migration).
+-- Les tables du schéma auth ont la RLS active sans politique : sans BYPASSRLS, un DELETE n'y toucherait aucune
+-- ligne, sans erreur, et la RPC répondrait « supprimé » à tort. La migration échoue alors plutôt que de mentir.
+do $$
+begin
+  if not exists (select 1 from pg_catalog.pg_roles as r where r.rolname = current_user and (r.rolsuper or r.rolbypassrls))
+     -- Un droit par appel : avec une liste, has_table_privilege répond vrai dès que l'un d'eux est accordé.
+     or not has_table_privilege('auth.users', 'SELECT')
+     or not has_table_privilege('auth.users', 'UPDATE')
+     or not has_table_privilege('auth.users', 'DELETE')
+     or not has_table_privilege('auth.audit_log_entries', 'SELECT')
+     or not has_table_privilege('auth.audit_log_entries', 'DELETE')
+     or not has_table_privilege('auth.sessions', 'SELECT') then
+    raise exception 'role % cannot delete accounts (BYPASSRLS and DELETE on auth.users, auth.audit_log_entries required)', current_user;
+  end if;
+end;
+$$;
+
 -- Schéma interne : jamais exposé par PostgREST, aucun droit pour les clients.
 create schema if not exists accounts;
 revoke all on schema accounts from public, anon, authenticated;
@@ -36,7 +54,10 @@ $$;
 -- Sans paramètre : elle n'agit que sur auth.uid() et ne lit rien d'un autre compte.
 -- Idempotente : un second appel avec le même jeton d'accès (valide jusqu'à son expiration) ne trouve plus
 -- rien et réussit. lock_timeout : une visite verrouillée par le calcul du graphe fait échouer l'appel en
--- 55P03 au bout de 5 s, sans suppression partielle ; l'app réessaie.
+-- 55P03 au bout de 5 s, sans suppression partielle ; plusieurs attentes peuvent aussi atteindre le
+-- statement_timeout du rôle (57014). Les deux sont temporaires : l'app réessaie.
+-- Le compte d'abord, le journal ensuite : une ligne de journal écrite par GoTrue pendant l'appel (jeton
+-- rafraîchi) est validée avant que la cascade obtienne le verrou de la session, donc vue par le second DELETE.
 create or replace function public.delete_my_account()
 returns void
 language plpgsql
@@ -52,8 +73,8 @@ begin
     raise exception 'not authenticated' using errcode = '42501';
   end if;
 
-  perform accounts.forget_audit_log(array[v_user]);
   delete from auth.users as u where u.id = v_user;
+  perform accounts.forget_audit_log(array[v_user]);
 end;
 $$;
 
@@ -71,7 +92,9 @@ alter table graph.runs add constraint runs_kind_check check (kind in ('process',
 -- d'appareil Android). Inactif = rien de plus récent que la date limite, ni dans le compte, ni dans ses
 -- sessions (l'app rafraîchit son jeton à chaque ouverture), ni dans ses listes, articles et visites.
 -- Un compte qui a lié un e-mail (is_anonymous à false) n'est jamais purgé.
--- skip locked : un compte que GoTrue est en train de modifier attend le passage suivant.
+-- skip locked : un compte que GoTrue est en train de modifier attend le passage suivant. Le DELETE revérifie
+-- les sessions : un rafraîchissement de jeton ne verrouille pas auth.users, et une personne revenue entre la
+-- sélection et la suppression est gardée.
 create or replace function accounts.purge_inactive_anonymous(
   p_now timestamptz default now(),
   p_inactive interval default interval '365 days',
@@ -124,14 +147,24 @@ begin
   select coalesce(array_agg(c.id), '{}') into v_ids from candidates as c;
 
   if cardinality(v_ids) > 0 then
+    with deleted as (
+      delete from auth.users as u
+      where u.id = any(v_ids)
+        and not exists (
+          select 1 from auth.sessions as s
+          where s.user_id = u.id
+            and greatest(s.created_at, s.updated_at, s.refreshed_at at time zone 'UTC') >= v_cutoff
+        )
+      returning u.id
+    )
+    select coalesce(array_agg(d.id), '{}') into v_ids from deleted as d;
+    v_deleted := cardinality(v_ids);
     perform accounts.forget_audit_log(v_ids);
-    delete from auth.users as u where u.id = any(v_ids);
-    get diagnostics v_deleted = row_count;
   end if;
 
   insert into graph.runs (kind, started_at, finished_at, claimed, detail)
   values ('purge_accounts', v_started_at, clock_timestamp(), v_deleted,
-          jsonb_build_object('inactive_days', extract(day from p_inactive)::integer, 'batch', p_batch));
+          jsonb_build_object('inactive_days', (extract(epoch from p_inactive) / 86400)::integer, 'batch', p_batch));
 
   return v_deleted;
 end;
@@ -139,6 +172,7 @@ $$;
 
 revoke all on function accounts.purge_inactive_anonymous(timestamptz, interval, integer) from public, anon, authenticated;
 
--- Une fois par nuit, après la publication des instantanés (03:32) et la purge des journaux (04:15).
--- cron.schedule remplace un job du même nom : migration idempotente.
-select cron.schedule('accounts-purge-inactive', '47 4 * * *', 'select accounts.purge_inactive_anonymous()');
+-- Toutes les heures, à la minute 47 (hors des multiples de 5 des autres jobs) : jusqu'à 24 000 comptes par jour,
+-- pour que l'arriéré ne s'accumule pas si les connexions anonymes dépassent 1 000 par jour. Un passage sans
+-- compte à purger ne coûte qu'une lecture d'index. cron.schedule remplace un job du même nom : idempotent.
+select cron.schedule('accounts-purge-inactive', '47 * * * *', 'select accounts.purge_inactive_anonymous()');

@@ -53,12 +53,24 @@ Deno.test("delete_my_account efface le compte, ses données et sa session", asyn
   const listId = crypto.randomUUID();
   const list = await call("/rest/v1/lists", { method: "POST", token, body: JSON.stringify({ id: listId, name: "E2E #68" }) });
   assert(list.status === 201, `liste : ${list.status}`);
+  await list.body?.cancel();
   const item = await call("/rest/v1/list_items", {
     method: "POST",
     token,
     body: JSON.stringify({ id: crypto.randomUUID(), list_id: listId, label: "lait" }),
   });
   assert(item.status === 201, `article : ${item.status}`);
+  await item.body?.cancel();
+
+  // Avant : une session existe, et une ligne de journal la cite. GoTrue local n'écrit pas son journal en base :
+  // la ligne est ajoutée à la main, comme celles qu'écrit le projet hébergé.
+  const before = await psql(`
+    insert into auth.audit_log_entries (id, payload, created_at)
+    values (gen_random_uuid(), json_build_object('actor_id', '${userId}', 'action', 'token_refreshed'), now());
+    select (select count(*) from auth.sessions where user_id = '${userId}')
+         || '/' || (select count(*) from auth.audit_log_entries where payload ->> 'actor_id' = '${userId}');
+  `);
+  assert(before === "1/1", `état avant suppression : ${before}`);
 
   // Suppression.
   const deleted = await call("/rest/v1/rpc/delete_my_account", { method: "POST", token, body: "{}" });
@@ -83,13 +95,15 @@ Deno.test("delete_my_account efface le compte, ses données et sa session", asyn
     method: "POST",
     body: JSON.stringify({ refresh_token: session.refresh_token }),
   });
-  assert(refresh.status >= 400 && refresh.status < 500, `rafraîchissement accepté : ${refresh.status}`);
-  await refresh.body?.cancel();
+  const refreshError = await refresh.json();
+  assert(refresh.status === 400 && refreshError.error_code === "refresh_token_not_found",
+    `rafraîchissement : ${refresh.status} ${JSON.stringify(refreshError)}`);
 
   // GoTrue ne connaît plus le compte (verifySession / auth.getUser).
   const user = await call("/auth/v1/user", { token });
-  assert(user.status >= 400 && user.status < 500, `compte encore connu : ${user.status}`);
-  await user.body?.cancel();
+  const userError = await user.json();
+  assert(user.status === 403 && userError.error_code === "user_not_found",
+    `compte encore connu : ${user.status} ${JSON.stringify(userError)}`);
 
   // Un nouveau compte anonyme est vide.
   const fresh = (await (await call("/auth/v1/signup", { method: "POST", body: "{}" })).json()) as Session;
