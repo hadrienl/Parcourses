@@ -111,14 +111,14 @@ isOneToOne: false
                   ]
                 },"products": {
                   Row: {
-                    "category_id": number | null,"created_at": string,"id": string,"name": string,"normalized_name": string,"off_code": string | null
+                    "category_id": number | null,"created_at": string,"id": string,"name": string,"normalized_name": string,"off_code": string | null,"published_at": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "category_id"?: number | null,"created_at"?: string,"id"?: string,"name": string,"normalized_name": string,"off_code"?: string | null
+                    "category_id"?: number | null,"created_at"?: string,"id"?: string,"name": string,"normalized_name": string,"off_code"?: string | null,"published_at"?: string | null
                   }
                   Update: {
-                    "category_id"?: number | null,"created_at"?: string,"id"?: string,"name"?: string,"normalized_name"?: string,"off_code"?: string | null
+                    "category_id"?: number | null,"created_at"?: string,"id"?: string,"name"?: string,"normalized_name"?: string,"off_code"?: string | null,"published_at"?: string | null
                   }
                   Relationships: [
                     {

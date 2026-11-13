@@ -6,7 +6,7 @@ returns jsonb
 language sql
 as $$ select server_params from graph.algo_versions where activated_at is not null and retired_at is null $$;
 
--- Produit de test : identifiant déterministe 00000000-0000-0000-0000-000000000pNN.
+-- Produit de test, publié : identifiant déterministe 00000000-0000-0000-0000-000000000pNN.
 create or replace function tests.product(p_n integer)
 returns uuid
 language plpgsql
@@ -14,8 +14,8 @@ as $$
 declare
   v_id uuid := ('00000000-0000-0000-0000-' || lpad(to_hex(4096 + p_n), 12, '0'))::uuid;
 begin
-  insert into public.products (id, name, normalized_name)
-  values (v_id, 'produit ' || p_n, 'produit test ' || p_n)
+  insert into public.products (id, name, normalized_name, published_at)
+  values (v_id, 'produit ' || p_n, 'produit test ' || p_n, now())
   on conflict (id) do nothing;
   return v_id;
 end;
