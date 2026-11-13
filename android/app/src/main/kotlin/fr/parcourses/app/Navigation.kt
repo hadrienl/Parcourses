@@ -25,7 +25,6 @@ import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Une seule activité, une pile de routes, un ViewModel par entrée. [coldStart] : l'activité démarre sans état
@@ -41,11 +40,23 @@ fun ParcoursesNavHost(
     // Clé de session illisible : pastille sur À propos, qui propose de réinitialiser la session (#51).
     val sessionStuckFlow = remember(container) { container.sessionMaintenance?.isSessionStorageStuck ?: NotStuck }
 
+    val deletion by container.accountDeletion.state.collectAsState()
+
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
-        (container.engine?.remaps ?: emptyFlow()).collect { remap ->
+        container.remaps.collect { remap ->
             backStack.applyRemap(remap)
         }
+    }
+
+    // Données supprimées (#68) : l'état de l'app a été recréé, la navigation repart sur les listes, pile vidée.
+    LaunchedEffect(container) {
+        container.generation.collect { if (container.consumeNavigationReset()) backStack.resetToLists() }
+    }
+
+    // Suppression en cours : le mode courses se ferme, sans `closeVisit` (la visite va être effacée).
+    LaunchedEffect(deletion) {
+        if (deletion == AccountDeletionState.Running) backStack.closeShopping()
     }
 
     // Choix du magasin : le collecteur est ici car cette composition ne quitte jamais l'écran (voir `storeChoices`).
@@ -63,9 +74,20 @@ fun ParcoursesNavHost(
     // Live Update touchée : le mode courses de sa visite, si elle est encore ouverte. Collecteur toujours composé.
     LaunchedEffect(container) {
         container.shoppingLinks.collect { visitId ->
+            // `linkedVisit` ne rend rien pendant une suppression des données.
             container.linkedVisit(visitId)?.let { backStack.openLinkedShopping(it) }
         }
     }
+
+    // Voile et messages de la suppression, par-dessus tous les écrans.
+    AccountDeletionOverlay(
+        deletion,
+        AccountDeletionOverlayActions(
+            onAcknowledge = container.accountDeletion::acknowledge,
+            onRetry = { container.accountDeletion.start() },
+            onCancel = { container.accountDeletion.cancel() },
+        ),
+    )
 
     NavDisplay(
         backStack = backStack,
@@ -85,7 +107,7 @@ fun ParcoursesNavHost(
                                     initializer {
                                         ListsViewModel(
                                             container.lists,
-                                            container.engine?.remaps ?: emptyFlow(),
+                                            container.remaps,
                                         )
                                     }
                                 },
@@ -108,11 +130,28 @@ fun ParcoursesNavHost(
                                 },
                         )
                     val resetState by reset.state.collectAsState()
+                    val deletionModel: AccountDeletionViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        AccountDeletionViewModel(
+                                            deletion = container.accountDeletion.state,
+                                            hasOpenVisit = { container.visits.openVisit() != null },
+                                            start = container.accountDeletion::start,
+                                            localOnly = container.isLocalOnly,
+                                        )
+                                    }
+                                },
+                        )
+                    val deletionState by deletionModel.state.collectAsState()
                     AboutScreen(
                         version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
                         sessionReset = resetState,
                         sessionResetActions = reset.actions,
+                        accountDeletion = deletionState,
+                        accountDeletionActions = deletionModel.actions,
                     )
                 }
                 entry<Route.ListDetail>(clazzContentKey = { it.slot }) { key ->
@@ -127,7 +166,7 @@ fun ParcoursesNavHost(
                                             products = container.products,
                                             categories = container.categories,
                                             analyzer = container.analyzer,
-                                            remaps = container.engine?.remaps ?: emptyFlow(),
+                                            remaps = container.remaps,
                                         )
                                     }
                                 },
@@ -172,7 +211,7 @@ fun ParcoursesNavHost(
                                             listId = key.listId,
                                             storeId = key.storeId,
                                             deps = container.shopping,
-                                            remaps = container.engine?.remaps ?: emptyFlow(),
+                                            remaps = container.remaps,
                                         )
                                     }
                                 },
