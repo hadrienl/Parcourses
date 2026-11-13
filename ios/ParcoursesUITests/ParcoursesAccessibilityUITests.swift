@@ -29,7 +29,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let launchedAtLargestSize: Bool
     let keyboard: CGRect?
     let navigationBar: CGRect?
-    /// Haut du dock au premier plan. `nil` quand une feuille le recouvre : tout le contenu de la feuille est audité.
+    /// Haut du dock au premier plan, halo du verre compris. `nil` quand une feuille le recouvre : tout le contenu de
+    /// la feuille est audité.
     let dockTop: CGFloat?
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
@@ -45,7 +46,12 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       self.keyboard = keyboard.exists ? keyboard.frame : nil
       let bar = app.navigationBars.firstMatch
       navigationBar = bar.exists ? bar.frame : nil
-      let top = ParcoursesAccessibilityUITests.dockTop(app)
+      // Verre dessiné : ni Réduire la transparence ni Contraste augmenté, qui le remplacent par un fond opaque.
+      let environment = app.launchEnvironment
+      let glass =
+        environment["PARCOURSES_TEST_REDUCE_TRANSPARENCY"] == nil
+        && environment["PARCOURSES_TEST_INCREASE_CONTRAST"] == nil
+      let top = ParcoursesAccessibilityUITests.dockTop(app, glass: glass)
       dockTop = top
       linesCutByDock = top.map { ParcoursesAccessibilityUITests.linesCut(at: $0, in: app) } ?? 0
       sheetIsShown = app.buttons["keepRemaining"].exists
@@ -115,9 +121,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       let inSuggestionBar = screen.keyboard?.insetBy(dx: 0, dy: -50).intersects(frame) ?? false
       return inSuggestionBar ? .known("5 suggestions du clavier") : nil
     case .contrast, .textClipped:
-      // 6. Contenu de la liste sous le clavier ou sous le dock opaque : l'audit mesure des pixels mélangés au
-      //    fond, ou un texte que le dock recouvre. Le dock lui-même reste audité, et rien n'est exclu quand une
-      //    feuille recouvre le dock.
+      // 6. Contenu de la liste sous le clavier, sous le dock ou dans le halo de son verre (`glassHalo`) : l'audit
+      //    mesure des pixels mélangés au fond, ou un texte que le dock recouvre. Le dock lui-même reste audité, et
+      //    rien n'est exclu quand une feuille recouvre le dock.
       if screen.keyboard?.intersects(frame) ?? false { return .known("6 sous le clavier") }
       if !dockIdentifiers.contains(element.identifier), let top = screen.dockTop, frame.maxY > top {
         return .known("6 sous le dock")
@@ -145,10 +151,17 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     }
   }
 
-  /// Haut du dock : le plus haut de ses éléments au premier plan, moins sa marge. Un élément recouvert par une
-  /// feuille n'est pas « hittable » : sans élément au premier plan, aucune zone n'est exclue.
+  /// Halo d'ombre du verre Liquid Glass au-dessus du dock (iOS 26+). Il assombrit le papier sur quelques points :
+  /// une ligne qui s'arrête juste au-dessus du verre échoue au contraste alors que son texte est encre sur papier
+  /// (constaté sur iPhone 11 iOS 26.5, ligne 6,5 pt au-dessus du verre ; le même écran passe avec Réduire la
+  /// transparence, et avec deux articles au lieu de trois). Sans verre, la zone n'est pas élargie.
+  private static let glassHalo: CGFloat = 12
+
+  /// Haut du dock : le plus haut de ses éléments au premier plan, moins sa marge, et le halo du verre quand il est
+  /// dessiné. Un élément recouvert par une feuille n'est pas « hittable » : sans élément au premier plan, aucune
+  /// zone n'est exclue.
   @MainActor
-  fileprivate static func dockTop(_ app: XCUIApplication) -> CGFloat? {
+  fileprivate static func dockTop(_ app: XCUIApplication, glass: Bool) -> CGFloat? {
     let candidates =
       ["quickEntry", "shoppingEntry", "undoMessage", "allChecked"].map {
         app.descendants(matching: .any).matching(identifier: $0).firstMatch
@@ -157,7 +170,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       element.exists && element.isHittable ? element.frame.minY : nil
     }
     // Sans clavier ni dock (écran Listes) : pas de zone exclue.
-    return tops.min().map { $0 - 8 }
+    return tops.min().map { $0 - 8 - (glass ? glassHalo : 0) }
   }
 
   /// Lignes de la liste au premier plan coupées par le haut du dock. La liste recouverte (l'écran Liste sous le
