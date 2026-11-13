@@ -165,14 +165,17 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
   suppression d'un compte (#68) emporte ses revendications.
 - **Publication** (`catalog.publish_claimed`, constante `c_min_accounts` = **3**) : à 3 comptes distincts, dans la
-  transaction de la revendication qui atteint le seuil. Libellé : le plus fréquent parmi les revendications (même
-  forme normalisée : seules la casse, les accents et les espaces diffèrent), puis le plus ancien, puis l'ordre des
-  octets, débarrassé des caractères de contrôle et des espaces répétés. Catégorie : la plus votée, puis la plus
-  ancienne, puis le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Les revendications sont
-  alors supprimées.
-- **Filtre** (`catalog.is_publishable`) : une forme contenant `://`, `www.`, un domaine (`.fr`, `.com`, `.net`,
-  `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres consécutifs, 8 chiffres au total
-  (téléphone avec séparateurs) ou un caractère de contrôle n'est jamais publiée ; elle reste privée.
+  transaction de la revendication qui atteint le seuil, après verrouillage des revendications du produit (une
+  suppression de compte en cours est attendue et ne compte pas). Libellé : le plus fréquent parmi les
+  revendications (même forme normalisée : seules la casse, les accents et les espaces diffèrent), débarrassé des
+  caractères de contrôle et des espaces répétés ; à égalité en tête, la forme normalisée. Catégorie : la plus
+  votée ; à égalité, le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Aucun départage par
+  l'ancienneté : deux comptes qui saisissent deux graphies ne font pas publier celle du premier créateur. Les
+  revendications sont alors supprimées.
+- **Filtre** (`catalog.is_publishable`) : une forme sans lettre ni chiffre, ou contenant `://`, `www.`, un domaine
+  (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
+  consécutifs, 8 chiffres séparés au plus par un espace, un point ou un tiret (téléphone) ou un caractère de
+  contrôle n'est jamais publiée ; elle reste privée.
 - **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
   `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
@@ -181,7 +184,9 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
   installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
   #69, cache non vidé sur une réponse vide), et un article envoyé avec un produit disparu serait refusé (`23503`).
-  La suppression des produits privés orphelins vient avec le lot apps de #69.
+  La suppression des produits privés orphelins vient avec le lot apps de #69. D'ici là, la forme normalisée d'un
+  produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
+  illisible par tout client et rattachée à personne.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première

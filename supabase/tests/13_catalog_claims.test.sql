@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(61);
+select plan(64);
 
 -- Droits : rien pour les clients sur les revendications ni sur les fonctions internes.
 select ok(not has_table_privilege('authenticated', 'catalog.product_claims', 'SELECT'), 'product_claims non lisible');
@@ -100,7 +100,7 @@ select results_eq($$
   select name, category_slug from public.resolve_products('[{"name": "Kéfir", "category_slug": "dairy"}]')
 $$, $$ values ('kefir', 'beverages') $$, 'le premier créateur reçoit désormais le produit publié');
 
--- 4. Égalités : libellé le plus ancien, catégorie de la première revendication.
+-- 4. Égalités : forme normalisée et plus petit id de catégorie, jamais la graphie ni le rayon du premier créateur.
 select tests.authenticate_as(:'alice');
 select * from public.resolve_products('[{"name": "Pâtisson", "category_slug": "produce"}]');
 select tests.clear_authentication();
@@ -111,9 +111,9 @@ select * from public.resolve_products('[{"name": "PATISSON", "category_slug": "f
 select tests.authenticate_as(:'dave');
 select * from public.resolve_products('[{"name": "patisson", "category_slug": "other"}]');
 select tests.clear_authentication();
-select results_eq($$ select p.name, c.slug from public.products as p join public.categories as c on c.id = p.category_id
-                     where p.normalized_name = 'patisson' $$,
-                  $$ values ('Pâtisson', 'produce') $$, 'égalité : libellé et catégorie de la revendication la plus ancienne');
+select results_eq($$ select p.name, p.category_id from public.products as p where p.normalized_name = 'patisson' $$,
+                  $$ select 'patisson', min(id) from public.categories where slug in ('produce', 'frozen', 'other') $$,
+                  'égalité : forme normalisée, plus petit id de catégorie, l''ancienneté ne compte pas');
 
 -- 5. Filtre : téléphone, adresse web, e-mail restent privés, même à 3 comptes.
 select tests.authenticate_as(:'alice');
@@ -127,6 +127,8 @@ select ok(not tests.published('rappeler 0612345678') and not tests.published('ww
           'formes filtrées : jamais publiées');
 select is(tests.claims('rappeler 0612345678'), 3, 'revendications gardées jusqu''à la purge');
 select ok(catalog.is_publishable('biere 1664'), 'quatre chiffres acceptés (marque)');
+select ok(catalog.is_publishable('biere 1664 pack 20x25cl'), 'chiffres en groupes séparés par des mots acceptés');
+select ok(not catalog.is_publishable(' ') and not catalog.is_publishable('--'), 'forme sans lettre ni chiffre refusée');
 select ok(catalog.is_publishable('eau 1,5 l pack de 6') and catalog.is_publishable('lait'), 'libellés courants acceptés');
 select ok(not catalog.is_publishable('appeler 06 12 34 56 78') and not catalog.is_publishable('06.12.34.56.78'),
           'téléphone avec séparateurs refusé');
@@ -228,7 +230,9 @@ select results_eq($$ select name, published_at is not null from public.products 
                   $$ values ('Mâche', true) $$, 'trois comptes : publié sous le libellé majoritaire');
 select ok(not tests.published('rare') and tests.claims('rare') = 2, 'article renommé ignoré : deux comptes, privé');
 select is((select name from public.products where normalized_name = 'rare'), 'rare', 'rattrapage : produit privé sous sa forme normalisée');
-select is(catalog.backfill_claims(), 0, 'rattrapage rejouable');
+select count(*) as claims_before from catalog.product_claims \gset
+select is(catalog.backfill_claims(), 0, 'rattrapage rejouable : rien de plus publié');
+select is((select count(*) from catalog.product_claims), :claims_before::bigint, 'rattrapage rejouable : aucune revendication ajoutée');
 
 select * from finish();
 rollback;

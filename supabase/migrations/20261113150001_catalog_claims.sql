@@ -21,7 +21,8 @@ create policy products_select on public.products for select to authenticated
   using (published_at is not null);
 
 -- Revendications : quels comptes ont soumis la forme d'un produit privé, avec leur libellé et leur catégorie.
--- Le libellé est déjà dans list_items du même compte : aucune exposition nouvelle. Supprimées à la publication
+-- Le libellé vient de list_items du même compte, mais la revendication peut lui survivre (180 jours au moins, tant
+-- que le compte n'a plus d'article qui renvoie au produit), jamais au compte. Supprimées à la publication
 -- (elles ont servi au vote), après 180 jours sans article du compte qui y renvoie (catalog.purge_claims), ou avec
 -- le compte (#68).
 create table if not exists catalog.product_claims (
@@ -39,9 +40,10 @@ revoke all on catalog.product_claims from public, anon, authenticated;
 -- Défense en profondeur : sans politique, tout accès d'un client est refusé, même si un droit revenait par erreur.
 alter table catalog.product_claims enable row level security;
 
--- Forme publiable : ni adresse web (://, www., domaine en .fr, .com…), ni e-mail (@, « at » ou « arobase »), ni
--- suite de 5 chiffres (code postal, code), ni 8 chiffres au total (téléphone « 06 12 34 56 78 »), ni caractère de
--- contrôle. Une forme refusée reste privée ; ses revendications partent à la purge.
+-- Forme publiable : au moins une lettre ou un chiffre ; ni adresse web (://, www., domaine en .fr, .com…), ni e-mail
+-- (@, « at » ou « arobase »), ni suite de 5 chiffres (code postal, code), ni 8 chiffres séparés au plus par un
+-- espace, un point ou un tiret (téléphone « 06 12 34 56 78 »), ni caractère de contrôle. Une forme refusée reste
+-- privée ; ses revendications partent à la purge.
 create or replace function catalog.is_publishable(p_norm text)
 returns boolean
 language sql
@@ -49,14 +51,18 @@ immutable
 parallel safe
 set search_path = ''
 as $$
-  select p_norm !~ '(://|www\.|@|[0-9]{5,}|[[:cntrl:]]|\.(fr|com|net|org|eu|io|be|ch)\M|\m(at|arobase)\M)'
-     and char_length(regexp_replace(p_norm, '[^0-9]', '', 'g')) < 8;
+  select p_norm ~ '[[:alnum:]]'
+     and p_norm !~ '(://|www\.|@|[0-9]{5,}|([0-9][ .-]?){8,}|[[:cntrl:]]|\.(fr|com|net|org|eu|io|be|ch)\M|\m(at|arobase)\M)';
 $$;
 
 -- Publie, parmi p_product_ids, les produits privés revendiqués par au moins 3 comptes distincts.
 -- Libellé : le plus fréquent parmi les revendications (même forme normalisée : seules la casse, les accents et
--- les espaces diffèrent), puis le plus ancien, puis l'ordre des octets. Catégorie : la plus votée, puis la plus
--- ancienne, puis le plus petit id ; sans vote, celle du produit reste. Renvoie le nombre de produits publiés.
+-- les espaces diffèrent) ; à égalité en tête, la forme normalisée. Catégorie : la plus votée ; à égalité, le plus
+-- petit id. Aucun départage par l'ancienneté : deux comptes qui saisissent deux graphies ne font pas publier celle
+-- du premier créateur. Sans vote, celle du produit reste. Renvoie le nombre de produits publiés.
+-- Les revendications du produit sont verrouillées avant d'être comptées : une suppression de compte en cours
+-- (#68) est attendue, et sa revendication n'est pas comptée. Un interblocage avec une suppression de compte reste
+-- possible (40P01) : l'un des deux appels échoue et se réessaie.
 -- Les appels qui ajoutent des revendications sont déjà sérialisés par le compteur global de resolve_products ;
 -- le verrou de ligne, pris dans l'ordre des formes, couvre les autres appelants.
 create or replace function catalog.publish_claimed(p_product_ids uuid[])
@@ -81,22 +87,28 @@ begin
     for no key update
   loop
     continue when not catalog.is_publishable(v_product.normalized_name);
+    perform 1 from catalog.product_claims as c where c.product_id = v_product.id order by c.user_id for update;
     continue when (
       select count(*) from catalog.product_claims as c where c.product_id = v_product.id
     ) < c_min_accounts;
 
-    select c.label into v_label
-    from catalog.product_claims as c
-    where c.product_id = v_product.id
-    group by c.label
-    order by count(*) desc, min(c.claimed_at), c.label collate "C"
-    limit 1;
+    -- Libellé en tête seulement s'il l'est seul, sinon la forme normalisée.
+    select case when count(*) filter (where v.n = v.top) = 1
+                then max(v.label) filter (where v.n = v.top)
+                else left(v_product.normalized_name, 200) end
+    into v_label
+    from (
+      select c.label, count(*) as n, max(count(*)) over () as top
+      from catalog.product_claims as c
+      where c.product_id = v_product.id
+      group by c.label
+    ) as v;
 
     select c.category_id into v_category
     from catalog.product_claims as c
     where c.product_id = v_product.id and c.category_id is not null
     group by c.category_id
-    order by count(*) desc, min(c.claimed_at), c.category_id
+    order by count(*) desc, c.category_id
     limit 1;
 
     -- Libellé publié : caractères de contrôle et espaces répétés ramenés à un espace (la forme normalisée, déjà
