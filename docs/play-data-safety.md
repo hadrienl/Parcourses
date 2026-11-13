@@ -145,7 +145,7 @@ Le libellé saisi librement (« médicament de Paul », « cadeau pour Marie »)
 - un produit naît **privé** : aucun compte ne le lit, pas même son créateur, et il n'apparaît dans aucun instantané du graphe. Le graphe l'apprend quand même ;
 - il est **publié** quand 3 comptes distincts l'ont saisi, sous le libellé le plus fréquent et le rayon majoritaire. Un libellé contenant une adresse web, un e-mail ou une suite de 5 chiffres ou plus (téléphone, code) n'est jamais publié ;
 - `resolve_products` ne renvoie à chaque compte que son propre libellé et son propre rayon tant que le produit est privé, et répond de la même façon qu'un libellé ait déjà été saisi ou non ;
-- les produits déjà en base sont devenus privés, sauf ceux que 3 comptes avaient déjà dans leurs listes. Les appareils effacent les noms qui ne sont plus publiés au téléchargement suivant du catalogue (lots iOS et Android de #69).
+- les produits déjà en base sont devenus privés, sauf ceux que 3 comptes avaient déjà dans leurs listes. Les appareils effacent les noms qui ne sont plus publiés au téléchargement suivant du catalogue (quotidien), y compris quand plus aucun produit n'est publié (lot apps de #69). L'écran À propos le dit : « Les noms d'articles que vous saisissez restent privés. Un nom ne rejoint le catalogue commun, sans lien avec vous, qu'une fois saisi par au moins trois personnes. »
 
 Effet sur le formulaire : la ligne « Autres contenus générés par l'utilisateur » reste **collectée, non partagée**. Un libellé n'est rendu visible aux autres comptes que lorsqu'il est devenu générique (saisi indépendamment par 3 comptes), et il n'est alors rattaché à personne.
 

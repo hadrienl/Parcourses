@@ -183,7 +183,8 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
 - **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
   180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
   installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
-  #69, cache non vidé sur une réponse vide), et un article envoyé avec un produit disparu serait refusé (`23503`).
+  #69 ; depuis le lot apps de #69, le cache est vidé même sur une réponse vide, si les catégories de la même passe
+  sont arrivées), et un article envoyé avec un produit disparu serait refusé (`23503`).
   La suppression des produits privés orphelins vient avec le lot apps de #69. D'ici là, la forme normalisée d'un
   produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
   illisible par tout client et rattachée à personne.

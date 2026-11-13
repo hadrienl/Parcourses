@@ -80,6 +80,7 @@ fun AboutScreen(
                 Section(stringResource(R.string.about_privacy_title)) {
                     Paragraph(stringResource(R.string.about_privacy_tracking))
                     Paragraph(stringResource(R.string.about_privacy_data))
+                    Paragraph(stringResource(R.string.about_privacy_catalog))
                     Paragraph(stringResource(R.string.about_privacy_location))
                 }
                 Section(stringResource(R.string.about_font_title)) {

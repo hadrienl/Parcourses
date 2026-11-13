@@ -655,8 +655,11 @@ actor SyncEngine {
       cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
       cursors.items = Self.later(cursors.items, itemsMerge.cursor)
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
-        try await store.applyCategories(try await gateway.fetchCategories())
-        try await store.replaceProducts(try await gateway.fetchProducts())
+        let categories = try await gateway.fetchCategories()
+        try await store.applyCategories(categories)
+        // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit publié »
+        // (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+        try await store.replaceProducts(try await gateway.fetchProducts(), catalogReadable: !categories.isEmpty)
         cursors.catalog = now
       }
       lastPull = now

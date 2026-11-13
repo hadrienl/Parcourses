@@ -346,8 +346,10 @@ actor SyncStore {
     try modelContext.save()
   }
 
-  /// Remplacement du cache. Une réponse vide ne l'efface pas : elle n'apprend rien sur le catalogue.
-  func replaceProducts(_ rows: [RemoteProduct]) throws {
+  /// Remplacement du cache par le catalogue publié (#69). Une réponse vide ne l'efface que si le catalogue était
+  /// lisible (`catalogReadable` : les catégories de la même passe sont arrivées) : plus aucun produit n'est publié, et
+  /// les noms téléchargés avant ne doivent pas rester sur l'appareil. Sinon elle n'apprend rien sur le catalogue.
+  func replaceProducts(_ rows: [RemoteProduct], catalogReadable: Bool) throws {
     let known = Set(try modelContext.fetch(FetchDescriptor<Category>()).map(\.id))
     var existing = Dictionary(
       try modelContext.fetch(FetchDescriptor<Product>()).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -363,7 +365,7 @@ actor SyncStore {
           Product(id: row.id, name: row.name, normalizedName: row.normalizedName, categoryId: categoryId))
       }
     }
-    if !rows.isEmpty { existing.values.forEach(modelContext.delete) }
+    if !rows.isEmpty || catalogReadable { existing.values.forEach(modelContext.delete) }
     try modelContext.save()
   }
 
