@@ -138,7 +138,9 @@ depuis #46 : les versions installées des apps n'y voient aucune différence.
 
 Plafonds de revendications nouvelles par jour (Europe/Paris), constantes de `public.resolve_products` (une
 migration qui recrée la fonction les change). La première revendication d'une forme coûte une unité, que le
-produit existe déjà ou non (sinon la consommation trahirait l'existence) :
+produit existe déjà ou non : sinon la consommation, ou l'épuisement du plafond global par un tiers, trahirait
+l'existence. Depuis #69, le plafond global compte donc des revendications, plus seulement des créations : une
+forme courante encore privée coûte une unité à chaque nouveau compte, tant qu'elle n'est pas publiée.
 
 | Constante | Valeur | Compteur | Portée |
 | --- | --- | --- | --- |
@@ -157,27 +159,33 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
 **privé** et n'est publié qu'une fois saisi par plusieurs comptes indépendants.
 
 - `products.published_at` : nul tant que le produit est privé. Un produit privé n'est lisible par **aucun** client,
-  pas même son créateur (il connaît son libellé) : RLS `products_select … using (published_at is not null)`.
+  pas même son créateur (il connaît son libellé) : RLS `products_select … using (published_at is not null)`. Son
+  `name` ne garde que la forme normalisée : le libellé saisi par chaque compte n'est que dans sa revendication.
 - `catalog.product_claims (product_id, user_id, label, category_id, claimed_at)` : une revendication par compte et
   par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
   suppression d'un compte (#68) emporte ses revendications.
 - **Publication** (`catalog.publish_claimed`, constante `c_min_accounts` = **3**) : à 3 comptes distincts, dans la
   transaction de la revendication qui atteint le seuil. Libellé : le plus fréquent parmi les revendications (même
   forme normalisée : seules la casse, les accents et les espaces diffèrent), puis le plus ancien, puis l'ordre des
-  octets. Catégorie : la plus votée, puis la plus ancienne, puis le plus petit id (#47 : elle n'est plus fixée par
-  le premier créateur). Les revendications sont alors supprimées.
-- **Filtre** (`catalog.is_publishable`) : une forme contenant `://`, `www.`, `@`, 5 chiffres consécutifs ou un
-  caractère de contrôle n'est jamais publiée ; elle reste privée.
+  octets, débarrassé des caractères de contrôle et des espaces répétés. Catégorie : la plus votée, puis la plus
+  ancienne, puis le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Les revendications sont
+  alors supprimées.
+- **Filtre** (`catalog.is_publishable`) : une forme contenant `://`, `www.`, un domaine (`.fr`, `.com`, `.net`,
+  `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres consécutifs, 8 chiffres au total
+  (téléphone avec séparateurs) ou un caractère de contrôle n'est jamais publiée ; elle reste privée.
 - **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
   `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
   tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
 - **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
-  180 jours, puis produits privés sans revendication ni référence (article, coche, arête, entrée), 10 000 au plus
-  par passage. Un produit privé référencé reste, caché.
+  180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
+  installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
+  #69, cache non vidé sur une réponse vide), et un article envoyé avec un produit disparu serait refusé (`23503`).
+  La suppression des produits privés orphelins vient avec le lot apps de #69.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
-  produit), puis publication à 3 comptes. À la première exécution, tous les produits existants deviennent privés.
+  produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
+  exécution, tous les produits existants deviennent privés.
 - Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée. Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
 

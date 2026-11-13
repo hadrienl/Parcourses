@@ -10,7 +10,8 @@
 select pg_advisory_xact_lock(hashtext('graph-snapshot'));
 select pg_advisory_xact_lock(hashtext('graph-process'));
 
--- Date de publication : nulle tant que le produit est privé.
+-- Date de publication : nulle tant que le produit est privé. Un produit privé ne garde dans name que sa forme
+-- normalisée : le libellé brut de chaque compte n'est que dans sa revendication, supprimée avec le compte (#68).
 alter table public.products add column if not exists published_at timestamptz;
 create index if not exists products_unpublished_idx on public.products (id) where published_at is null;
 
@@ -21,7 +22,8 @@ create policy products_select on public.products for select to authenticated
 
 -- Revendications : quels comptes ont soumis la forme d'un produit privé, avec leur libellé et leur catégorie.
 -- Le libellé est déjà dans list_items du même compte : aucune exposition nouvelle. Supprimées à la publication
--- (elles ont servi au vote), après 180 jours (catalog.purge_claims), ou avec le compte (#68).
+-- (elles ont servi au vote), après 180 jours sans article du compte qui y renvoie (catalog.purge_claims), ou avec
+-- le compte (#68).
 create table if not exists catalog.product_claims (
   product_id   uuid not null references public.products (id) on delete cascade,
   user_id      uuid not null references auth.users (id) on delete cascade,
@@ -37,8 +39,9 @@ revoke all on catalog.product_claims from public, anon, authenticated;
 -- Défense en profondeur : sans politique, tout accès d'un client est refusé, même si un droit revenait par erreur.
 alter table catalog.product_claims enable row level security;
 
--- Forme publiable : ni adresse web, ni e-mail, ni suite de 5 chiffres ou plus (téléphone, code), ni caractère
--- de contrôle. Une forme refusée reste privée ; ses revendications partent à la purge.
+-- Forme publiable : ni adresse web (://, www., domaine en .fr, .com…), ni e-mail (@, « at » ou « arobase »), ni
+-- suite de 5 chiffres (code postal, code), ni 8 chiffres au total (téléphone « 06 12 34 56 78 »), ni caractère de
+-- contrôle. Une forme refusée reste privée ; ses revendications partent à la purge.
 create or replace function catalog.is_publishable(p_norm text)
 returns boolean
 language sql
@@ -46,7 +49,8 @@ immutable
 parallel safe
 set search_path = ''
 as $$
-  select p_norm !~ '(://|www\.|@|[0-9]{5,}|[[:cntrl:]])';
+  select p_norm !~ '(://|www\.|@|[0-9]{5,}|[[:cntrl:]]|\.(fr|com|net|org|eu|io|be|ch)\M|\m(at|arobase)\M)'
+     and char_length(regexp_replace(p_norm, '[^0-9]', '', 'g')) < 8;
 $$;
 
 -- Publie, parmi p_product_ids, les produits privés revendiqués par au moins 3 comptes distincts.
@@ -95,9 +99,11 @@ begin
     order by count(*) desc, min(c.claimed_at), c.category_id
     limit 1;
 
+    -- Libellé publié : caractères de contrôle et espaces répétés ramenés à un espace (la forme normalisée, déjà
+    -- filtrée, les a aussi remplacés).
     update public.products as p
     set published_at = now(),
-        name = v_label,
+        name = btrim(regexp_replace(v_label, '[[:cntrl:][:space:]]+', ' ', 'g')),
         category_id = coalesce(v_category, p.category_id)
     where p.id = v_product.id;
 
@@ -216,9 +222,10 @@ begin
   end if;
 
   if v_norms is not null then
-    -- Produits absents : créés privés. Création concurrente de la même forme : la ligne existante est reprise.
+    -- Produits absents : créés privés, sous leur seule forme normalisée (le libellé de l'appelant va dans sa
+    -- revendication). Création concurrente de la même forme : la ligne existante est reprise.
     insert into public.products (name, normalized_name, category_id)
-    select u.label, u.norm, u.category_id
+    select left(u.norm, 200), u.norm, u.category_id
     from unnest(v_labels, v_norms, v_categories) as u (label, norm, category_id)
     order by u.norm
     on conflict (normalized_name) do nothing;
@@ -264,9 +271,11 @@ $$;
 revoke execute on function public.resolve_products(jsonb) from public, anon;
 grant execute on function public.resolve_products(jsonb) to authenticated, service_role;
 
--- Purge quotidienne : revendications de plus de 180 jours, puis produits privés sans revendication ni référence
--- (aucun article, aucune coche, aucune arête ni entrée du graphe). Un produit privé référencé reste, caché.
--- Renvoie le nombre de lignes supprimées (revendications + produits). 10 000 produits au plus par passage.
+-- Purge quotidienne des revendications de plus de 180 jours dont le compte n'a plus aucun article qui renvoie au
+-- produit : un produit encore dans une liste garde la voix de son compte. Renvoie le nombre de revendications
+-- supprimées. Les produits privés devenus orphelins ne sont pas supprimés ici : les apps installées peuvent encore
+-- proposer leur id depuis leur cache (catalogue téléchargé avant #69), et un article envoyé avec un produit disparu
+-- serait refusé (23503). Leur suppression vient avec le lot apps de #69, qui vide le cache des produits non publiés.
 create or replace function catalog.purge_claims(p_now timestamptz default now())
 returns integer
 language plpgsql
@@ -275,26 +284,17 @@ set search_path = ''
 as $$
 declare
   v_claims integer;
-  v_products integer;
 begin
-  delete from catalog.product_claims as c where c.claimed_at < p_now - interval '180 days';
+  delete from catalog.product_claims as c
+  where c.claimed_at < p_now - interval '180 days'
+    and not exists (
+      select 1
+      from public.list_items as i
+      inner join public.lists as l on l.id = i.list_id
+      where i.product_id = c.product_id and l.owner_id = c.user_id
+    );
   get diagnostics v_claims = row_count;
-
-  delete from public.products as p
-  where p.id in (
-    select o.id
-    from public.products as o
-    where o.published_at is null
-      and not exists (select 1 from catalog.product_claims as c where c.product_id = o.id)
-      and not exists (select 1 from public.list_items as i where i.product_id = o.id)
-      and not exists (select 1 from public.checks as k where k.product_id = o.id)
-      and not exists (select 1 from public.store_edges as e where e.product_a = o.id)
-      and not exists (select 1 from public.store_edges as e where e.product_b = o.id)
-      and not exists (select 1 from public.store_entries as n where n.product_id = o.id)
-    limit 10000
-  );
-  get diagnostics v_products = row_count;
-  return v_claims + v_products;
+  return v_claims;
 end;
 $$;
 
@@ -388,7 +388,8 @@ revoke all on function graph.snapshot_content(uuid, timestamptz, jsonb) from pub
 -- Rattrapage des produits encore privés (tous, à la première exécution) : revendications reconstituées depuis
 -- list_items, une par compte et par produit, avec le libellé de son article le plus ancien de même forme (un article
 -- renommé qui garde son produit ne compte pas). Le serveur ne connaît pas la catégorie de chaque compte : celle du
--- produit. Puis publication des produits à 3 comptes ou plus. Rejouable. Renvoie le nombre de produits publiés.
+-- produit. Libellé des produits privés ramené à leur forme normalisée. Puis publication des produits à 3 comptes ou
+-- plus. Rejouable. Renvoie le nombre de produits publiés.
 create or replace function catalog.backfill_claims()
 returns integer
 language plpgsql
@@ -407,6 +408,11 @@ begin
   order by i.product_id, l.owner_id, i.created_at, i.id
   on conflict (product_id, user_id) do nothing;
 
+  -- Un produit privé ne garde que sa forme normalisée : le libellé de son premier créateur n'est plus conservé.
+  update public.products as p
+  set name = left(p.normalized_name, 200)
+  where p.published_at is null and p.name <> left(p.normalized_name, 200);
+
   return catalog.publish_claimed(array(select p.id from public.products as p where p.published_at is null));
 end;
 $$;
@@ -414,7 +420,7 @@ $$;
 revoke all on function catalog.backfill_claims() from public, anon, authenticated;
 
 -- Données existantes, projet hébergé compris : rattrapage, puis instantanés recalculés à minuit, sans les produits
--- privés. Les produits privés sans référence partent avec la première purge nocturne.
+-- privés.
 do $$
 begin
   perform catalog.backfill_claims();

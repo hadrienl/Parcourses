@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(49);
+select plan(57);
 
 -- Droits : rien pour les clients sur les revendications ni sur les fonctions internes.
 select ok(not has_table_privilege('authenticated', 'catalog.product_claims', 'SELECT'), 'product_claims non lisible');
@@ -46,6 +46,13 @@ select is((select count(*)::int from public.products where normalized_name = 'me
 select tests.authenticate_as(:'bob');
 select is((select count(*)::int from public.products where normalized_name = 'medicament de paul'), 0, 'invisible pour Bob');
 select ok(not tests.published('medicament de paul'), 'non publié');
+select tests.clear_authentication();
+select is((select name from public.products where normalized_name = 'medicament de paul'), 'medicament de paul',
+          'produit privé : seule la forme normalisée est gardée dans products.name');
+select is((select label from catalog.product_claims as c join public.products as p on p.id = c.product_id
+           where p.normalized_name = 'medicament de paul' and c.user_id = :'alice'), 'Médicament de Paul',
+          'le libellé saisi n''est que dans la revendication du compte');
+select tests.authenticate_as(:'bob');
 
 -- 2. Oracle fermé. Bob, sans catégorie : même réponse pour un produit privé d'autrui que pour un libellé absent.
 select results_eq($$
@@ -120,6 +127,23 @@ select ok(not tests.published('rappeler 0612345678') and not tests.published('ww
           'formes filtrées : jamais publiées');
 select is(tests.claims('rappeler 0612345678'), 3, 'revendications gardées jusqu''à la purge');
 select ok(catalog.is_publishable('biere 1664'), 'quatre chiffres acceptés (marque)');
+select ok(catalog.is_publishable('eau 1,5 l pack de 6') and catalog.is_publishable('lait'), 'libellés courants acceptés');
+select ok(not catalog.is_publishable('appeler 06 12 34 56 78') and not catalog.is_publishable('06.12.34.56.78'),
+          'téléphone avec séparateurs refusé');
+select ok(not catalog.is_publishable('paul at gmail') and not catalog.is_publishable('paul arobase gmail'),
+          'e-mail en toutes lettres refusé');
+select ok(not catalog.is_publishable('commande sur monsite.fr') and not catalog.is_publishable('livraison 32000'),
+          'domaine et code postal refusés');
+-- Libellé publié nettoyé : tabulation et espaces répétés ramenés à un espace.
+select tests.authenticate_as(:'alice');
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\tchiches', 'category_slug', 'savory-grocery')));
+select tests.authenticate_as(:'bob');
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\tchiches', 'category_slug', 'savory-grocery')));
+select tests.authenticate_as(:'dave');
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\t chiches', 'category_slug', 'savory-grocery')));
+select tests.clear_authentication();
+select is((select name from public.products where normalized_name = 'pois chiches'), 'Pois chiches',
+          'libellé publié sans caractère de contrôle');
 
 -- 6. Suppression d'un compte : ses revendications partent, un produit publié reste.
 select tests.authenticate_as(:'erin');
@@ -132,21 +156,27 @@ select is(tests.claims('cadeau pour marie'), 1, 'cascade : revendication d''Erin
 delete from auth.users where id = :'dave';
 select ok(tests.published('kefir'), 'produit publié conservé après suppression d''un votant');
 
--- 7. Purge : revendications de plus de 180 jours, puis produits privés sans revendication ni référence.
+-- 7. Purge : revendications de plus de 180 jours dont le compte n'a plus d'article qui renvoie au produit.
+-- Aucun produit n'est supprimé (les apps peuvent encore avoir leur id en cache).
 select tests.authenticate_as(:'alice');
 select id as referenced from public.resolve_products('[{"name": "Topinambour", "category_slug": "produce"}]') \gset
 select * from public.resolve_products('[{"name": "Orphelin", "category_slug": "other"}]');
 insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000069a1', 'Courses');
 insert into public.list_items (id, list_id, label, product_id)
 values ('00000000-0000-0000-0000-0000000069b1', '00000000-0000-0000-0000-0000000069a1', 'Topinambour', :'referenced');
+select tests.authenticate_as(:'bob');
+select * from public.resolve_products('[{"name": "Topinambour", "category_slug": "produce"}]');
 select tests.clear_authentication();
 update catalog.product_claims set claimed_at = now() - interval '181 days'
 where product_id in (select id from public.products where normalized_name in ('topinambour', 'orphelin'));
-select cmp_ok(catalog.purge_claims(), '>=', 3, 'purge : deux revendications et un produit au moins');
-select is(tests.claims('topinambour') + tests.claims('orphelin'), 0, 'revendications anciennes supprimées');
-select is((select count(*)::int from public.products where normalized_name = 'orphelin'), 0, 'produit privé orphelin supprimé');
-select is((select count(*)::int from public.products where normalized_name = 'topinambour'), 1, 'produit privé référencé conservé');
-select is((select count(*)::int from public.products where normalized_name = 'kefir'), 1, 'produit publié conservé');
+select is(catalog.purge_claims(), 2, 'purge : deux revendications anciennes sans article du compte');
+select is(tests.claims('orphelin'), 0, 'revendication ancienne, sans article : supprimée');
+select is((select count(*)::int from catalog.product_claims where user_id = :'alice'
+           and product_id = :'referenced'), 1, 'revendication ancienne, produit encore dans une liste du compte : gardée');
+select is((select count(*)::int from catalog.product_claims where user_id = :'bob'
+           and product_id = :'referenced'), 0, 'même produit, compte sans article : supprimée');
+select is((select count(*)::int from public.products where normalized_name in ('orphelin', 'topinambour')), 2,
+          'aucun produit supprimé');
 select is(tests.claims('medicament de paul'), 2, 'revendications récentes conservées');
 
 -- 8. Instantané : un produit privé est appris mais ne sort pas ; publié, il apparaît avec son poids accumulé.
@@ -188,6 +218,7 @@ select cmp_ok(catalog.backfill_claims(), '>=', 1, 'rattrapage : au moins un prod
 select results_eq($$ select name, published_at is not null from public.products where normalized_name = 'mache' $$,
                   $$ values ('Mâche', true) $$, 'trois comptes : publié sous le libellé majoritaire');
 select ok(not tests.published('rare') and tests.claims('rare') = 2, 'article renommé ignoré : deux comptes, privé');
+select is((select name from public.products where normalized_name = 'rare'), 'rare', 'rattrapage : produit privé sous sa forme normalisée');
 select is(catalog.backfill_claims(), 0, 'rattrapage rejouable');
 
 select * from finish();
