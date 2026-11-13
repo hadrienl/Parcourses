@@ -168,7 +168,7 @@ select is(tests.claims('cadeau pour marie'), 1, 'delete_my_account : revendicati
 select is((select count(*)::int from catalog.product_claims where user_id = :'frank'), 0, 'plus aucune revendication de Frank');
 
 -- 7. Purge : revendications de plus de 180 jours dont le compte n'a plus d'article qui renvoie au produit.
--- Aucun produit n'est supprimé (les apps peuvent encore avoir leur id en cache).
+-- Puis les produits privés orphelins (S2) : « orphelin » n'a plus ni revendication ni référence.
 select tests.authenticate_as(:'alice');
 select id as referenced from public.resolve_products('[{"name": "Topinambour", "category_slug": "produce"}]') \gset
 select * from public.resolve_products('[{"name": "Orphelin", "category_slug": "other"}]');
@@ -180,14 +180,14 @@ select * from public.resolve_products('[{"name": "Topinambour", "category_slug":
 select tests.clear_authentication();
 update catalog.product_claims set claimed_at = now() - interval '181 days'
 where product_id in (select id from public.products where normalized_name in ('topinambour', 'orphelin'));
-select is(catalog.purge_claims(), 2, 'purge : deux revendications anciennes sans article du compte');
+select is(catalog.purge_claims(), 3, 'purge : deux revendications anciennes sans article du compte, un produit orphelin');
 select is(tests.claims('orphelin'), 0, 'revendication ancienne, sans article : supprimée');
 select is((select count(*)::int from catalog.product_claims where user_id = :'alice'
            and product_id = :'referenced'), 1, 'revendication ancienne, produit encore dans une liste du compte : gardée');
 select is((select count(*)::int from catalog.product_claims where user_id = :'bob'
            and product_id = :'referenced'), 0, 'même produit, compte sans article : supprimée');
-select is((select count(*)::int from public.products where normalized_name in ('orphelin', 'topinambour')), 2,
-          'aucun produit supprimé');
+select results_eq($$ select normalized_name from public.products where normalized_name in ('orphelin', 'topinambour') $$,
+                  $$ values ('topinambour') $$, 'produit privé orphelin supprimé, produit encore dans une liste gardé');
 select is(tests.claims('medicament de paul'), 2, 'revendications récentes conservées');
 
 -- 8. Instantané : un produit privé est appris mais ne sort pas ; publié, il apparaît avec son poids accumulé.

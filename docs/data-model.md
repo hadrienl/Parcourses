@@ -57,6 +57,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
+| `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -181,16 +182,23 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
   tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
 - **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
-  180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
-  installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
-  #69, cache non vidé sur une réponse vide), et un article envoyé avec un produit disparu serait refusé (`23503`).
-  La suppression des produits privés orphelins vient avec le lot apps de #69. D'ici là, la forme normalisée d'un
-  produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
-  illisible par tout client et rattachée à personne.
+  180 jours dont le compte n'a plus d'article qui renvoie au produit, puis (depuis le lot S2) **produits privés
+  orphelins** : sans revendication, ni article, ni coche, ni arête, ni entrée, 10 000 au plus par passage. La forme
+  normalisée d'un produit privé ne reste donc pas en base après la suppression du dernier compte qui l'avait saisie
+  (#68). Les candidats sont verrouillés (`for update skip locked` : une revendication en cours garde son produit),
+  puis la suppression revérifie chaque condition. Cette suppression suppose que les apps ne gardent plus en cache
+  l'id d'un produit non publié (lot apps de #69, cache vidé même sur un catalogue vide) : sinon un article envoyé
+  avec un produit disparu serait refusé (`23503`). À appliquer sur l'hébergé après la mise à jour des apps.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
   exécution, tous les produits existants deviennent privés.
+- **Catalogue de départ** (lot S2, `…_starter_catalog.sql`) : 150 produits courants publiés d'emblée, la liste de
+  `shared/catalog/starter.fr.json`. `scripts/check-starter-catalog.ts` vérifie en CI que la migration la reprend
+  telle quelle, que le classifieur des apps (`shared/reference/classify.ts`) range chaque libellé dans sa
+  catégorie, et qu'aucune forme normalisée n'est en double. Une forme déjà en base et privée est publiée sous ce
+  libellé et cette catégorie ; une forme déjà publiée par vote n'est pas touchée. Un changement de la liste impose
+  une nouvelle migration (copier la précédente, puis `--write`).
 - Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée. Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
 
