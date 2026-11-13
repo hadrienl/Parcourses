@@ -94,6 +94,9 @@ class ShoppingLiveUpdates(
 
         /** Autorisation accordée : l'état courant est reposé. */
         data object Refresh : Command
+
+        /** Suppression des données (#68) : plus rien d'affiché ni de retenu. */
+        data object EndAll : Command
     }
 
     private class Request(
@@ -127,6 +130,12 @@ class ShoppingLiveUpdates(
 
     /** Au lancement, et après la reprise d'une visite : retire toute notification sans visite ouverte. */
     fun reconcile(): Deferred<Unit> = request(Command.Reconcile)
+
+    /**
+     * « Supprimer mes données » (#68) : la notification `10_010` est retirée et les préférences (`live_updates`)
+     * effacées, l'état en mémoire oublié. Terminé quand c'est fait. Équivalent de `ShoppingActivity.endAll` d'iOS.
+     */
+    fun endAll(): Deferred<Unit> = request(Command.EndAll)
 
     /**
      * Action « Cocher le suivant » : coche [itemId], l'article que la notification affichait, par la même règle que
@@ -231,6 +240,14 @@ class ShoppingLiveUpdates(
                 posted = null
                 blockedLogged = false
                 restored()
+            }
+
+            Command.EndAll -> {
+                current = null
+                posted = null
+                lastPostAt = null
+                notifier.cancel()
+                preferences.clear()
             }
         }
     }

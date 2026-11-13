@@ -92,6 +92,31 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
         }
 
+    /** « Supprimer mes données » (#68) : notification retirée, préférences et état en mémoire oubliés. */
+    @Test
+    fun endingEverythingRemovesTheNotificationAndForgetsThePreferences() =
+        runTest(main) {
+            val (_, state) = shopping()
+            val live = controller()
+            live.publish(state)
+            runCurrent()
+            preferences.dismissedVisitId = "une-visite-ecartee"
+            preferences.permissionAsked = true
+
+            val done = live.endAll()
+            runCurrent()
+
+            assertTrue(done.isCompleted)
+            assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+            assertEquals(null, preferences.dismissedVisitId)
+            assertFalse(preferences.permissionAsked)
+            // L'état en mémoire est oublié : une réconciliation ne repose rien.
+            live.reconcile()
+            runCurrent()
+            assertEquals(1, notifier.posts.size)
+            assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+        }
+
     @Test
     fun theEndOfAnotherVisitLeavesTheNotificationAlone() =
         runTest(main) {
