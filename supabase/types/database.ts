@@ -273,7 +273,10 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "nearby_stores":
+            "delete_my_account":
+{ Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"nearby_stores":
 { Args: { "lat": number,"lng": number,"max_results"?: number,"radius_m"?: number }; Returns: {
               "address": string,"chain": string,"distance_m": number,"id": string,"name": string,"organic_aisle": boolean
             }[]

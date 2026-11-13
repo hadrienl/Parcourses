@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(57);
+select plan(61);
 
 -- Droits : rien pour les clients sur les revendications ni sur les fonctions internes.
 select ok(not has_table_privilege('authenticated', 'catalog.product_claims', 'SELECT'), 'product_claims non lisible');
@@ -155,6 +155,15 @@ delete from auth.users where id = :'erin';
 select is(tests.claims('cadeau pour marie'), 1, 'cascade : revendication d''Erin supprimée');
 delete from auth.users where id = :'dave';
 select ok(tests.published('kefir'), 'produit publié conservé après suppression d''un votant');
+-- Par la RPC des apps (#68) : delete_my_account emporte les revendications du compte.
+select tests.create_user(null, true) as frank \gset
+select tests.authenticate_as(:'frank');
+select * from public.resolve_products('[{"name": "Cadeau pour Marie", "category_slug": "other"}]');
+select is(tests.claims('cadeau pour marie'), 2, 'Bob et Frank ont revendiqué');
+select lives_ok($$ select public.delete_my_account() $$, 'Frank supprime son compte');
+select tests.clear_authentication();
+select is(tests.claims('cadeau pour marie'), 1, 'delete_my_account : revendication de Frank supprimée');
+select is((select count(*)::int from catalog.product_claims where user_id = :'frank'), 0, 'plus aucune revendication de Frank');
 
 -- 7. Purge : revendications de plus de 180 jours dont le compte n'a plus d'article qui renvoie au produit.
 -- Aucun produit n'est supprimé (les apps peuvent encore avoir leur id en cache).
