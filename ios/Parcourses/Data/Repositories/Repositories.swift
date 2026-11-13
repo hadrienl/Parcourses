@@ -136,6 +136,8 @@ extension VisitRepository {
 /// Instantanés du graphe. Le contenu vient toujours du serveur.
 protocol GraphRepository {
   func snapshot(storeId: UUID) throws -> GraphSnapshot?
+  /// L'instantané redevient le plus récent du LRU (`fetchedAt` = dernier usage), sans changer son contenu.
+  func touch(storeId: UUID, at date: Date) throws
   /// Remplace l'instantané du magasin et ne garde que les plus récents (LRU sur `fetchedAt`).
   func saveSnapshot(
     storeId: UUID, snapshotVersion: Int64, paramsVersion: Int64, confidenceQ: Int64, payload: Data, at date: Date

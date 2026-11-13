@@ -142,6 +142,14 @@ struct PaletteContrastTests {
     }
   }
 
+  /// Le libellé blanc du balayage « Pas trouvé » se lit sur sa teinte, en sombre comme en clair (#66 : 1,9:1 en
+  /// sombre avec la couleur du rayon épicerie).
+  @Test(arguments: 0..<4) func notFoundSwipeLabelIsReadable(appearance: Int) {
+    let traits = Self.traits(appearance)
+    let ratio = Self.contrast(.white, Self.resolve(Palette.notFoundSwipe, traits))
+    #expect(ratio >= 4.5, "blanc sur notFoundSwipe : \(ratio)")
+  }
+
   /// Contraste augmenté : le fil à parcourir et les anneaux des perles tiennent 3:1.
   @Test func idleThreadIsVisibleWithIncreasedContrast() {
     for appearance in [2, 3] {

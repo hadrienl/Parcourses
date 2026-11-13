@@ -14,6 +14,8 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes, Equatable {
     var nextItemLabel: String?
     /// Rayon de ce prochain article.
     var nextCategoryLabel: String?
+    /// Identifiant de ce rayon (`shared/categories/`, rayon bio compris) : son icône et sa couleur.
+    var nextAisleId: String?
     /// Visite terminée : l'activité n'affiche plus qu'un message de fin.
     var isFinished: Bool
     /// Articles à prendre dans l'ordre affiché, le prochain en tête (`maxPendingItems` au plus). L'état est autonome,
@@ -23,12 +25,13 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes, Equatable {
 
     init(
       remaining: Int, total: Int, nextItemLabel: String? = nil, nextCategoryLabel: String? = nil,
-      isFinished: Bool = false, pendingItemIds: [UUID] = []
+      nextAisleId: String? = nil, isFinished: Bool = false, pendingItemIds: [UUID] = []
     ) {
       self.remaining = remaining
       self.total = total
       self.nextItemLabel = nextItemLabel
       self.nextCategoryLabel = nextCategoryLabel
+      self.nextAisleId = nextAisleId
       self.isFinished = isFinished
       self.pendingItemIds = pendingItemIds
     }
@@ -40,6 +43,7 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes, Equatable {
       total = try container.decodeIfPresent(Int.self, forKey: .total) ?? 0
       nextItemLabel = try container.decodeIfPresent(String.self, forKey: .nextItemLabel)
       nextCategoryLabel = try container.decodeIfPresent(String.self, forKey: .nextCategoryLabel)
+      nextAisleId = try container.decodeIfPresent(String.self, forKey: .nextAisleId)
       isFinished = try container.decodeIfPresent(Bool.self, forKey: .isFinished) ?? false
       pendingItemIds = try container.decodeIfPresent([UUID].self, forKey: .pendingItemIds) ?? []
     }

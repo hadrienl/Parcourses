@@ -115,6 +115,7 @@ struct ShoppingView: View {
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in session.syncDidChange() }
     // Le ticket porte son propre titre (le magasin, sinon la liste) : pas de barre de navigation au-dessus.
     .toolbar(.hidden, for: .navigationBar)
+    .statusBarPaper()
     .sensoryFeedback(.success, trigger: checkTrigger)
     .sensoryFeedback(.impact(weight: .light), trigger: uncheckTrigger)
     .safeAreaInset(edge: .bottom) { dock }
@@ -221,7 +222,7 @@ struct ShoppingView: View {
 
   /// Compteur du ticket, sur deux chiffres au moins.
   static func counter(_ value: Int) -> String {
-    value < 10 ? "0\(max(0, value))" : "\(value)"
+    TicketCounter.text(value)
   }
 
   private var remaining: Int {
@@ -291,7 +292,7 @@ struct ShoppingView: View {
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
-          .tint(Palette.Aisle.grocery)
+          .tint(Palette.notFoundSwipe)
       }
     }
     .contextMenu {
@@ -431,7 +432,9 @@ struct ShoppingView: View {
       // Jamais tronqué : si la place manque, `ViewThatFits` passe le bouton sous le champ.
       Text("Terminer").fixedSize()
     }
-    .prominentButton()
+    .prominentButton(size: .dock)
+    // Le mode courses ne s'affiche qu'une fois prêt ; garde-fou si cela change (#54).
+    .disabled(!session.isPrepared)
     .accessibilityIdentifier("finish")
   }
 
@@ -514,6 +517,7 @@ struct ShoppingSummaryView: View {
     }
     .background(Palette.paper.ignoresSafeArea())
     .toolbar(.hidden, for: .navigationBar)
+    .statusBarPaper()
     .sensoryFeedback(.success, trigger: appeared)
     .onAppear { appeared = true }
   }

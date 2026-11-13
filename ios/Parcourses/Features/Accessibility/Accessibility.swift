@@ -30,22 +30,38 @@ private struct EntryFieldStyle: ViewModifier {
   }
 }
 
-/// Bouton plein : accent et texte `onAccent` (8:1 en clair, 7,6:1 en sombre), capsule d'au moins 50 pt.
+/// Hauteur d'un bouton plein (jeton `size.primaryAction`, maquette `.bar` / `.cta`).
+enum ProminentButtonSize {
+  /// Bouton seul : 56 pt.
+  case standalone
+  /// Dans le dock flottant, à côté du champ : 44 pt, pour un dock de 56 pt comme la barre de la maquette.
+  case dock
+
+  var minHeight: CGFloat {
+    switch self {
+    case .standalone: TicketMetrics.primaryAction
+    case .dock: TicketMetrics.touchMin
+    }
+  }
+}
+
+/// Bouton plein : accent et texte `onAccent` (8:1 en clair, 7,6:1 en sombre), en capsule.
 private struct ProminentButtonStyle: ButtonStyle {
+  var size = ProminentButtonSize.standalone
   /// Bouton à pictogramme seul : marges réduites.
   var compact = false
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.colorSchemeContrast) private var contrast
 
   func makeBody(configuration: Configuration) -> some View {
-    let shape = RoundedRectangle(cornerRadius: 25, style: .continuous)
+    let shape = RoundedRectangle(cornerRadius: size.minHeight / 2, style: .continuous)
     configuration.label
       .font(.body.weight(.bold))
       // Désactivé : texte secondaire sur le bord du papier ; l'encre en Contraste augmenté, où le fond fonce.
       .foregroundStyle(isEnabled ? Palette.onAccent : (contrast == .increased ? Palette.ink : Palette.inkMuted))
       .padding(.horizontal, compact ? Space.xs / 2 : Space.l)
       .padding(.vertical, Space.xs / 2)
-      .frame(minHeight: 50)
+      .frame(minHeight: size.minHeight)
       .background(isEnabled ? Palette.accent : Palette.paperEdge, in: shape)
       .opacity(configuration.isPressed ? 0.8 : 1)
       .contentShape(shape)
@@ -70,9 +86,10 @@ extension View {
     touchTarget(minHeight: 48)
   }
 
-  /// Bouton principal : plein, à l'accent du ticket, 50 pt au moins (sa propre zone tactile).
-  func prominentButton(compact: Bool = false) -> some View {
-    buttonStyle(ProminentButtonStyle(compact: compact))
+  /// Bouton principal : plein, à l'accent du ticket, 56 pt au moins seul, 44 pt dans le dock (sa propre zone
+  /// tactile).
+  func prominentButton(size: ProminentButtonSize = .standalone, compact: Bool = false) -> some View {
+    buttonStyle(ProminentButtonStyle(size: size, compact: compact))
   }
 
   /// Liste qui défile sous le dock : pas d'effet de bord de défilement (iOS 26), dont le flou rend illisible le
@@ -82,6 +99,22 @@ extension View {
       scrollEdgeEffectHidden(true, for: .bottom)
     } else {
       self
+    }
+  }
+
+  /// Écran sans barre de navigation (le ticket porte son titre) : sur iOS 18, le contenu défilerait sous la barre
+  /// d'état, sans fond, l'heure par-dessus le texte. Une bande de papier la couvre. iOS 26 y pose son effet de bord
+  /// de défilement.
+  @ViewBuilder func statusBarPaper() -> some View {
+    if #available(iOS 26, *) {
+      self
+    } else {
+      safeAreaInset(edge: .top, spacing: 0) {
+        Color.clear
+          .frame(height: 0)
+          .background(Palette.paper.ignoresSafeArea(edges: .top))
+          .accessibilityHidden(true)
+      }
     }
   }
 

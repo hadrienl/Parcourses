@@ -49,7 +49,18 @@ struct GraphSnapshotCache {
   let gateway: (any RemoteGateway)?
   var now: () -> Date = { .now }
 
+  /// Instantané en cache, pour des courses dans ce magasin : il redevient le plus récent du LRU (#54), sans quoi un
+  /// magasin fréquent au graphe stable (aucune nouvelle version, ou hors ligne) finirait évincé par des magasins de
+  /// passage. Comme `GraphSnapshotCache.cached` d'Android.
   func cached(storeId: UUID) -> LoadedSnapshot? {
+    guard let loaded = stored(storeId: storeId) else { return nil }
+    // Accessoire : un échec d'écriture ne prive pas les courses de l'instantané lu.
+    try? graphs.touch(storeId: storeId, at: now())
+    return loaded
+  }
+
+  /// Version en cache, sans compter comme un usage.
+  private func stored(storeId: UUID) -> LoadedSnapshot? {
     guard let row = try? graphs.snapshot(storeId: storeId) else { return nil }
     return GraphSnapshotPayload.decode(row.payload)?.loaded
   }
@@ -58,7 +69,7 @@ struct GraphSnapshotCache {
   /// Un instantané illisible ne donne pas sa version : il sera redemandé en entier.
   func refresh(storeId: UUID) async throws -> LoadedSnapshot? {
     guard let gateway else { return nil }
-    let known = cached(storeId: storeId)?.version
+    let known = stored(storeId: storeId)?.version
     guard case .payload(let data) = try await gateway.graphSnapshot(storeId: storeId, knownVersion: known),
       let payload = GraphSnapshotPayload.decode(data)
     else { return nil }

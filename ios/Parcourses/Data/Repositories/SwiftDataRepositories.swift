@@ -488,6 +488,12 @@ final class SwiftDataGraphRepository: GraphRepository {
     try context.fetch(FetchDescriptor<GraphSnapshot>(predicate: #Predicate { $0.storeId == storeId })).first
   }
 
+  func touch(storeId: UUID, at date: Date) throws {
+    guard let existing = try snapshot(storeId: storeId), existing.fetchedAt < date else { return }
+    existing.fetchedAt = date
+    try context.commit()
+  }
+
   func saveSnapshot(
     storeId: UUID, snapshotVersion: Int64, paramsVersion: Int64, confidenceQ: Int64, payload: Data, at date: Date
   ) throws {

@@ -67,6 +67,77 @@ nonisolated final class LiveActivityUITests: ParcoursesUITestCase {
     confirm.tap()
   }
 
+  /// Captures de la Live Activity (#52) : îlot compact, îlot étendu et carte de l'écran verrouillé (vue dans le
+  /// centre de notifications), dans l'apparence du simulateur. Vérification locale :
+  /// `TEST_RUNNER_PARCOURSES_LIVE_ACTIVITY_CAPTURE=1 xcodebuild test …
+  /// -only-testing:ParcoursesUITests/LiveActivityUITests/testCaptureLiveActivityPresentations`.
+  @MainActor
+  func testCaptureLiveActivityPresentations() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_LIVE_ACTIVITY_CAPTURE"] != nil, "vérification locale seulement")
+    finishLeftoverShopping()
+    let app = enterShopping(
+      confidenceQ: nil, items: ["lait demi-écrémé", "pain de campagne", "tomates"], testStore: nil)
+    // Une coche : le fil a avancé.
+    let first = app.descendants(matching: .any)["shoppingList"].switches
+      .matching(NSPredicate(format: "value == %@", "non coché")).firstMatch
+    XCTAssertTrue(first.waitForExistence(timeout: 5))
+    first.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "2 restants")).firstMatch
+        .waitForExistence(timeout: 10))
+    XCUIDevice.shared.press(.home)
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "îlot")], timeout: 3)
+    keep(springboard, "live-activity-ilot-compact")
+
+    // Îlot étendu : appui long sur l'îlot.
+    let island = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.025))
+    island.press(forDuration: 1.2)
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "îlot étendu")], timeout: 2)
+    keep(springboard, "live-activity-ilot-etendu")
+    springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "repli")], timeout: 1)
+
+    // Carte de l'écran verrouillé, dans le centre de notifications.
+    let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.005))
+    top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
+    let button = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Cocher ")).firstMatch
+    XCTAssertTrue(button.waitForExistence(timeout: 10), "bouton de la Live Activity introuvable")
+    keep(springboard, "live-activity-ecran-verrouille")
+    springboard.swipeUp()
+
+    // Fin propre, puis message de fin.
+    app.activate()
+    XCTAssertTrue(app.buttons["finish"].waitForExistence(timeout: 10))
+    app.buttons["finish"].tap()
+    app.buttons["keepRemaining"].tap()
+    XCTAssertTrue(app.buttons["closeSummary"].waitForExistence(timeout: 10))
+    XCUIDevice.shared.press(.home)
+    top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "fin")], timeout: 3)
+    keep(springboard, "live-activity-terminee")
+    springboard.swipeUp()
+    app.activate()
+    app.buttons["closeSummary"].tap()
+    if !app.navigationBars["Mes listes"].waitForExistence(timeout: 3) { app.navigationBars.buttons.firstMatch.tap() }
+    let list = app.buttons.containing(.staticText, identifier: "Samedi").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 5))
+    list.swipeLeft()
+    app.buttons["Supprimer"].firstMatch.tap()
+    let confirm = app.buttons["Supprimer la liste"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+  }
+
+  @MainActor
+  private func keep(_ springboard: XCUIApplication, _ name: String) {
+    let attachment = XCTAttachment(screenshot: springboard.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
   /// Un passage précédent interrompu a pu laisser une visite ouverte, rouverte au lancement.
   @MainActor
   private func finishLeftoverShopping() {

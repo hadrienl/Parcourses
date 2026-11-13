@@ -24,6 +24,9 @@ enum Palette {
   static let threadIdle = dynamic(light: 0xD5CEC0, dark: 0x353A48, lightHigh: 0x8C8577, darkHigh: 0x6B7180)
   /// Libellé d'un article coché, qui est aussi barré.
   static let checked = inkMuted
+  /// Fond du balayage « Pas trouvé », sous un libellé blanc imposé par le système : l'ocre de l'épicerie claire
+  /// (5,6:1) dans les deux apparences. L'ocre sombre (`Aisle.grocery`) n'y tient que 1,9:1.
+  static let notFoundSwipe = dynamic(light: 0xA3520A, dark: 0xA3520A)
 
   /// Familles de couleur des rayons. La couleur ne touche que le trait de l'icône et l'anneau du nœud : le libellé
   /// du rayon est toujours affiché.
@@ -80,7 +83,10 @@ enum TicketMetrics {
   static let checkBox: CGFloat = 28
   static let checkBoxRadius: CGFloat = 4
   static let rowMin: CGFloat = 56
+  /// Bouton plein seul, et hauteur du dock flottant.
   static let primaryAction: CGFloat = 56
+  /// Cible tactile minimale (`size.touchMin.ios`).
+  static let touchMin: CGFloat = 44
   static let radius: CGFloat = 8
 }
 

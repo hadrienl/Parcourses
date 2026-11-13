@@ -6,7 +6,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 src="$root/design/icons/categories"
-dst="$root/ios/Parcourses/Assets.xcassets/Categories"
+dst="$root/ios/Shared/DesignAssets.xcassets/Categories"
 contents='{
   "images" : [
     {
@@ -42,7 +42,7 @@ for svg in "$src"/*.svg; do
 done
 if [[ $check == 1 ]]; then
   diff -r "$tmp/Categories" "$dst" >/dev/null || {
-    echo "::error::Assets.xcassets/Categories diffère de design/icons/categories (lancer ios/scripts/sync-category-icons.sh)"
+    echo "::error::Shared/DesignAssets.xcassets/Categories diffère de design/icons/categories (lancer ios/scripts/sync-category-icons.sh)"
     status=1
   }
   exit $status

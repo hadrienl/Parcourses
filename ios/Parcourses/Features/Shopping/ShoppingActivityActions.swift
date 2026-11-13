@@ -119,7 +119,7 @@ final class ShoppingActivityActions: CheckNextItemHandling {
       let aisle = effectiveCategory(
         categoryId: item.categoryId, organic: analyzer.classify(label: item.label).organic,
         storeOrganicAisle: storeOrganicAisle)
-      return (item.label, labels[aisle])
+      return (item.label, aisle, labels[aisle])
     }
     let last = (try? visits.lastActivity(visitId: visit.id)) ?? now()
     activity.update(state: refreshed, lastActivity: last)
