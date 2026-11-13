@@ -14,7 +14,7 @@ Tu es l'expert backend Supabase de **Parcourses**. L'app est une liste de course
 
 Le backend porte deux choses :
 - les **données privées** de chaque utilisateur : listes, visites, coches ;
-- la **connaissance partagée** : magasins, catalogue de produits, et graphe de voisinage par magasin. Elle est lisible par tous et écrite uniquement par le serveur.
+- la **connaissance partagée** : magasins, catalogue de produits, et graphe de voisinage par magasin. Elle est écrite uniquement par le serveur. Magasins et catalogue sont lisibles par tous ; le graphe ne l'est que par son instantané, servi par une RPC (#70).
 
 Les références sont la conception dans l'issue GitHub #4 (modèle de données), #5 (algorithme) et #11 (calcul serveur) de `hadrienl/Parcourses`. Lis-les avant tout travail.
 
@@ -33,7 +33,8 @@ Les références sont la conception dans l'issue GitHub #4 (modèle de données)
 
 ## Contraintes
 
-- RLS active sur **toutes** les tables, y compris les tables partagées : lecture `TO authenticated`, sans politique d'écriture, car l'écriture passe par la Secret key côté serveur.
+- RLS active sur **toutes** les tables, y compris les tables partagées : lecture `TO authenticated` (`categories`, `products`, `stores`), sans politique d'écriture, car l'écriture passe par la Secret key côté serveur.
+- Le **graphe** (`store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots`) n'est **pas lisible** par les clients (#70) : ni `select`, ni politique. Les apps n'y accèdent que par la RPC `store_graph_snapshot` (`security definer`). N'y rouvre jamais la lecture directe : dans un magasin à un seul contributeur, elle révèle ses achats et l'heure de ses visites.
 - **Anti-empoisonnement** : un client ne peut jamais écrire le graphe (`store_edges`, `store_entries`, `store_stats`), ni modifier une visite après coup, ni marquer lui-même une coche comme ignorée. Restreins aussi les colonnes modifiables avec `GRANT UPDATE (col)`, pas seulement avec des politiques.
 - **Confidentialité** : on ne stocke jamais la position GPS de l'utilisateur, seulement le magasin choisi. Le graphe ne garde aucune trace de qui a contribué.
 - **Hors ligne** : les UUID sont générés côté client, et `checked_at` est l'heure de l'appareil. Les insertions doivent être idempotentes (`ON CONFLICT (id) DO NOTHING`) pour supporter les renvois après une perte de réseau.
@@ -67,7 +68,8 @@ Les références sont la conception dans l'issue GitHub #4 (modèle de données)
 
 - Arêtes non orientées, stockées une seule fois avec `product_a < product_b` (`CHECK`). Renforcement par `INSERT ... ON CONFLICT ... DO UPDATE`.
 - Décroissance temporelle : stocke le poids et la date de dernière observation, et applique la décroissance au calcul (`weight * exp(-ln(2) * age / half_life)`). Ne réécris pas toute la table chaque nuit.
-- Traitement des visites terminées : **pg_cron** appelle une fonction SQL, ou une Edge Function via `pg_net`. Il traite par lots les visites `ended_at IS NOT NULL AND processed_at IS NULL`, avec `FOR UPDATE SKIP LOCKED` pour éviter un double traitement.
+- Les dates du graphe ne sont gardées **qu'au jour** (minuit, Europe/Paris), une visite n'est apprise **qu'après minuit**, et l'instantané n'est publié qu'**une fois par nuit**, calculé à minuit (#70). Ne réintroduis ni heure précise dans le graphe, ni publication plus fréquente : elles dateraient les visites d'un contributeur.
+- Traitement des visites terminées : **pg_cron** appelle une fonction SQL, ou une Edge Function via `pg_net`. Il traite par lots les visites `ended_at IS NOT NULL AND processed_at IS NULL` (et terminées avant minuit, #70), avec `FOR UPDATE SKIP LOCKED` pour éviter un double traitement.
 - Pour un traitement plus lourd, utilise une file **Supabase Queues (pgmq)** plutôt qu'un cron qui balaie toute la table.
 - Les coches brutes sont conservées : tout le graphe doit pouvoir être recalculé si l'algorithme change.
 

@@ -380,5 +380,32 @@ class SupabaseGatewayTest {
             }
         }
 
+    @Test
+    fun noAccountIsCreatedWhenItsSessionCouldNotBeSaved() =
+        runBlocking<Unit> {
+            // Premier lancement : le fichier vide se lit sans la clé, mais la session ne pourrait pas s'écrire.
+            val unwritable =
+                object : fr.parcourses.core.network.session.SecureStateStore by MemorySecureStateStore() {
+                    override suspend fun checkWritable() =
+                        throw fr.parcourses.core.network.session
+                            .SecureStorageUnavailableException("key")
+
+                    override suspend fun update(
+                        transform: (
+                            fr.parcourses.core.network.session.SecureState,
+                        ) -> fr.parcourses.core.network.session.SecureState,
+                    ) = throw fr.parcourses.core.network.session
+                        .SecureStorageUnavailableException("key")
+                }
+            val app = GatewayHarness(FakeSupabase(), unwritable)
+            try {
+                expectError<RemoteError.SecureStorageLocked> { app.gateway.ensureSession() }
+                // Sinon le compte existerait sur le serveur sans session sur l'appareil : orphelin.
+                assertEquals(0, app.server.signUps)
+            } finally {
+                app.close()
+            }
+        }
+
     // endregion
 }

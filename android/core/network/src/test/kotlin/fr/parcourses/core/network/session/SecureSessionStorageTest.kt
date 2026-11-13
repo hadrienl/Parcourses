@@ -11,9 +11,13 @@ import io.github.jan.supabase.auth.exception.NoSessionFoundException
 import io.github.jan.supabase.auth.user.UserSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -27,6 +31,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.security.GeneralSecurityException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.time.Instant
 
 class SecureSessionStorageTest {
@@ -49,13 +55,25 @@ class SecureSessionStorageTest {
         aead: () -> Aead,
     ): DataStoreSecureStateStore = storeFrom(file, AeadSource { aead() })
 
+    /** Horloge monotone des tests : seule la durée d'une série d'échecs compte. */
+    private var clock = 0L
+
     private fun storeFrom(
         file: File,
         source: AeadSource,
+        keys: SessionKeys = SessionKeys.None,
     ): DataStoreSecureStateStore {
         val scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
         scopes += scope
-        return DataStoreSecureStateStore.create(file, File(file.parentFile, file.name + ".account"), source, scope)
+        return DataStoreSecureStateStore.create(
+            file,
+            File(file.parentFile, file.name + ".account"),
+            source,
+            scope,
+            keys = keys,
+            io = Dispatchers.Unconfined,
+            monotonicMillis = { clock },
+        )
     }
 
     private fun restart() {
@@ -179,15 +197,137 @@ class SecureSessionStorageTest {
         }
 
     @Test
-    fun aSignOutIsNotUndoneByALateRefreshOfTheSameSnapshotOrder() =
-        runTest {
+    fun aSignOutWaitsForARefreshAlreadyWritingAndIsNotUndoneByIt() =
+        runBlocking {
             val aead = newAead()
             val state = store(File(folder.root, "o.pb")) { aead }
             val manager = EncryptedSessionManager(state)
             manager.saveSession(session)
-            manager.deleteSession()
-            // Chaque opération est atomique : la dernière écrite gagne, sans état mélangé.
+            val refreshed = session.copy(accessToken = "refreshed-secret-token")
+
+            // Vraie course sur deux fils : le rafraîchissement tient le verrou, la déconnexion arrive pendant.
+            val refreshing = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val refresh =
+                launch(Dispatchers.Default) {
+                    state.update {
+                        refreshing.countDown()
+                        release.await()
+                        it.copy(session = refreshed)
+                    }
+                }
+            val signOut: Job
+            val signedOutEarly: Boolean
+            try {
+                assertTrue(refreshing.await(5, TimeUnit.SECONDS))
+                signOut = launch(Dispatchers.Default) { manager.deleteSession() }
+                // Sans verrou, la déconnexion écrirait tout de suite, puis le rafraîchissement la défairait.
+                delay(200)
+                signedOutEarly = signOut.isCompleted
+            } finally {
+                // Toujours libérer le rafraîchissement : sinon un échec bloquerait `runBlocking` pour toujours.
+                release.countDown()
+            }
+            joinAll(refresh, signOut)
+            assertFalse("la déconnexion n'attend pas le rafraîchissement en cours", signedOutEarly)
             assertNull(state.read().session)
+        }
+
+    @Test
+    fun repeatedKeyFailuresOverTimeMarkTheStorageStuckUntilTheKeyOpens() =
+        runBlocking {
+            val file = File(folder.root, "stuck.pb")
+            val aead = newAead()
+            EncryptedSessionManager(store(file) { aead }).saveSession(session)
+            restart()
+
+            var keyAvailable = false
+            val state = store(file) { if (keyAvailable) aead else throw SecureStorageUnavailableException("key") }
+            // Plusieurs échecs d'affilée, mais dans la même seconde : une panne passagère.
+            repeat(KeyAccessMonitor.STUCK_AFTER_FAILURES + 2) { runCatching { state.read() } }
+            assertFalse(state.isStuck.value)
+            clock += KeyAccessMonitor.STUCK_AFTER_MILLIS
+            runCatching { state.read() }
+            assertTrue(state.isStuck.value)
+
+            keyAvailable = true
+            assertEquals(session, state.read().session)
+            assertFalse(state.isStuck.value)
+        }
+
+    @Test
+    fun readingAnEmptyFileSaysNothingAboutTheKey() =
+        runBlocking {
+            // Premier lancement : la lecture réussit sans clé, l'écriture échoue. Le compteur ne repart pas à zéro.
+            val state = store(File(folder.root, "empty.pb")) { throw SecureStorageUnavailableException("key") }
+            repeat(KeyAccessMonitor.STUCK_AFTER_FAILURES) {
+                state.read()
+                runCatching { state.checkWritable() }
+                clock += KeyAccessMonitor.STUCK_AFTER_MILLIS
+            }
+            assertTrue(state.isStuck.value)
+        }
+
+    /** Session enregistrée, puis la clé ne s'ouvre plus sans preuve de corruption : rien n'est effacé. */
+    private fun stuckStore(file: File): Pair<DataStoreSecureStateStore, FakeKeysetEnvironment> {
+        val env = FakeKeysetEnvironment()
+        runBlocking { storeFrom(file, KeystoreAeadSource(env)).update { SecureState(session, "account-1") } }
+        restart()
+        val stuckKey =
+            object : KeysetEnvironment by env {
+                override fun build(): Aead =
+                    if (env.keysetDeletions == 0) throw GeneralSecurityException("?") else env.build()
+            }
+        val source = KeystoreAeadSource(stuckKey)
+        return storeFrom(file, source, keys = source) to env
+    }
+
+    @Test
+    fun resettingAStuckSessionStartsOverAndKeepsTheKnownAccount() =
+        runBlocking {
+            val file = File(folder.root, "datastore/reset.pb")
+            val (state, env) = stuckStore(file)
+            repeat(KeyAccessMonitor.STUCK_AFTER_FAILURES) {
+                runCatching { state.read() }
+                clock += KeyAccessMonitor.STUCK_AFTER_MILLIS
+            }
+            assertTrue(state.isStuck.value)
+            assertFalse(env.erased)
+
+            assertTrue(state.resetSession())
+
+            assertFalse(state.isStuck.value)
+            assertEquals(SecureState(null, "account-1"), state.read())
+            assertEquals(1, env.keysetDeletions)
+            assertEquals(1, env.masterKeyDeletions)
+            // La nouvelle clé chiffre la suite : une session enregistrée se relit après un redémarrage.
+            EncryptedSessionManager(state).saveSession(session)
+            restart()
+            assertEquals(session, EncryptedSessionManager(storeFrom(file, KeystoreAeadSource(env))).loadSession())
+        }
+
+    @Test
+    fun aResetDestroysNothingOnceTheKeyOpensAgain() =
+        runBlocking {
+            val file = File(folder.root, "healthy.pb")
+            val env = FakeKeysetEnvironment()
+            val source = KeystoreAeadSource(env)
+            val state = storeFrom(file, source, keys = source)
+            state.update { SecureState(session, "account-1") }
+            assertFalse(state.resetSession())
+            assertFalse(env.erased)
+            assertEquals(SecureState(session, "account-1"), state.read())
+        }
+
+    @Test
+    fun anEmptyFileIsNotWritableWithoutItsKey() =
+        runBlocking<Unit> {
+            // Premier lancement : rien à lire, donc la lecture seule ne touche jamais la clé.
+            val state = store(File(folder.root, "empty.pb")) { throw SecureStorageUnavailableException("key") }
+            assertNull(state.read().session)
+            assertThrows(SecureStorageUnavailableException::class.java) {
+                runBlocking { state.checkWritable() }
+            }
         }
 
     @Test

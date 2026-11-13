@@ -5,12 +5,14 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.KeysetHandle
 import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
+import com.google.crypto.tink.shaded.protobuf.InvalidProtocolBufferException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.CharConversionException
 import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.InvalidKeyException
@@ -26,7 +28,11 @@ internal class FakeKeysetEnvironment(
     var keystoreError: Throwable? = null,
     var buildError: Throwable? = null,
     var buildCreatesAlias: Boolean = true,
+    /** Tink n'a pas obtenu la clé maîtresse : le jeu de clés écrit par [build] est en clair. */
+    var buildWritesCleartext: Boolean = false,
+    var protectionError: Throwable? = null,
 ) : KeysetEnvironment {
+    var cleartext = false
     var keysetDeletions = 0
     var masterKeyDeletions = 0
 
@@ -46,13 +52,23 @@ internal class FakeKeysetEnvironment(
                 ?: KeysetHandle
                     .generateNew(KeyTemplates.get("AES256_GCM"))
                     .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
+        if (keyset == null) cleartext = buildWritesCleartext
         keyset = aead
         if (buildCreatesAlias) aliasPresent = true
         return aead
     }
 
+    override fun keysetProtection(): KeysetProtection =
+        protectionError?.let { KeysetProtection.Unverifiable(it) }
+            ?: when {
+                cleartext -> KeysetProtection.Cleartext
+                aliasPresent -> KeysetProtection.Encrypted
+                else -> KeysetProtection.Unverifiable(IllegalStateException("pas de clé maîtresse"))
+            }
+
     override fun deleteKeyset() {
         keyset = null
+        cleartext = false
         keysetDeletions++
     }
 
@@ -158,5 +174,85 @@ class KeystoreAeadSourceTest {
         val env = FakeKeysetEnvironment(buildCreatesAlias = false)
         assertThrows(SecureStorageUnavailableException::class.java) { KeystoreAeadSource(env).get() }
         assertFalse(env.keysetExists())
+    }
+
+    @Test
+    fun aKeysetWrittenInClearOnFirstUseIsErasedAndRefused() {
+        // Clé maîtresse générée, mais `getAead` échoue : Tink écrit le jeu de clés en clair, sans erreur.
+        val env = FakeKeysetEnvironment(buildWritesCleartext = true)
+        assertThrows(SecureStorageUnavailableException::class.java) { KeystoreAeadSource(env).get() }
+        assertFalse(env.keysetExists())
+        // Le lancement suivant, le Keystore répondant, crée un jeu de clés protégé.
+        env.buildWritesCleartext = false
+        assertNotNull(KeystoreAeadSource(env).get())
+        assertFalse(env.cleartext)
+    }
+
+    @Test
+    fun aKeysetLeftInClearByAnEarlierLaunchIsReplaced() {
+        val env = existing().apply { cleartext = true }
+        val old = env.keyset
+        assertNotNull(KeystoreAeadSource(env).get())
+        assertEquals(1, env.keysetDeletions)
+        assertEquals(1, env.masterKeyDeletions)
+        assertFalse(old === env.keyset)
+        assertFalse(env.cleartext)
+    }
+
+    @Test
+    fun anUnverifiableProtectionNeverErasesAnExistingKeyset() {
+        val env = existing().apply { protectionError = ProviderException("keystore busy") }
+        assertThrows(SecureStorageUnavailableException::class.java) { KeystoreAeadSource(env).get() }
+        assertFalse(env.erased)
+        assertTrue(env.keysetExists())
+    }
+
+    @Test
+    fun hexAndWireTypeCorruptionAreProvenLosses() {
+        val proofs =
+            listOf<Throwable>(
+                // Préférences dont la valeur n'est pas de l'hexadécimal (`readKeysetFromPrefs`).
+                CharConversionException("not hex"),
+                IOException("wrap", CharConversionException("not hex")),
+                // Sous-classe : seule la superclasse est gardée par R8 et reconnue par son nom.
+                InvalidProtocolBufferException.InvalidWireTypeException("bad wire type"),
+                GeneralSecurityException("wrap", InvalidProtocolBufferException.InvalidWireTypeException("x")),
+            )
+        for (proof in proofs) {
+            val env = existing()
+            var failures = 1
+            val failing =
+                object : KeysetEnvironment by env {
+                    override fun build(): Aead = if (failures-- > 0) throw proof else env.build()
+                }
+            assertNotNull(proof.toString(), KeystoreAeadSource(failing).get())
+            assertEquals(proof.toString(), 1, env.keysetDeletions)
+        }
+    }
+
+    @Test
+    fun theKeyIsKeptForTheProcessUntilDestroyed() {
+        val env = FakeKeysetEnvironment()
+        val source = KeystoreAeadSource(env)
+        val first = source.get()
+        // Une panne ultérieure du Keystore ne touche pas la clé déjà obtenue.
+        env.keystoreError = ProviderException("gone")
+        assertTrue(first === source.get())
+        env.keystoreError = null
+        source.destroy()
+        assertFalse(env.keysetExists())
+        assertFalse(env.aliasPresent)
+        val fresh = source.get()
+        assertFalse(first === fresh)
+    }
+
+    @Test
+    fun aRefusedDestructionIsReportedAsUnavailable() {
+        val env = existing()
+        val refusing =
+            object : KeysetEnvironment by env {
+                override fun deleteMasterKey() = throw KeyStoreException("refused")
+            }
+        assertThrows(SecureStorageUnavailableException::class.java) { KeystoreAeadSource(refusing).destroy() }
     }
 }

@@ -19,16 +19,18 @@ $$, 'toute fonction SECURITY DEFINER a un search_path vide');
 
 select ok(has_function_privilege('authenticated', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC exécutable par authenticated');
 select ok(not has_function_privilege('anon', 'public.store_graph_snapshot(uuid, bigint)', 'EXECUTE'), 'RPC fermée à anon');
-select ok(has_table_privilege('authenticated', 'public.store_graph_snapshots', 'SELECT'), 'instantanés lisibles');
+-- Instantanés servis par la RPC seule (#70) : plus de lecture directe.
+select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots', 'SELECT'), 'instantanés non lisibles en direct');
 select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots', 'INSERT,UPDATE,DELETE,TRUNCATE'), 'instantanés non modifiables');
 
 -- Colonnes de traitement : jamais modifiables par le client.
 select ok(not has_column_privilege('authenticated', 'public.visits', c, 'INSERT,UPDATE'), 'visits.' || c || ' réservé au serveur')
 from unnest(array['learn_outcome', 'process_attempts', 'next_attempt_at']) as c;
 
-select is((select count(*)::int from cron.job where jobname like 'graph-%'), 5, 'cinq jobs pg_cron du graphe');
+-- Publication nocturne seule depuis #70 : graph-snapshot-decay a disparu.
+select is((select count(*)::int from cron.job where jobname like 'graph-%'), 4, 'quatre jobs pg_cron du graphe');
 
-select is((select schedule from cron.job where jobname = 'graph-snapshot-decay'), '32 3 * * *', 'décroissance hors des passages de graph-snapshot');
+select is((select schedule from cron.job where jobname = 'graph-snapshot'), '32 3 * * *', 'instantanés publiés une fois par nuit');
 
 select * from finish();
 rollback;
