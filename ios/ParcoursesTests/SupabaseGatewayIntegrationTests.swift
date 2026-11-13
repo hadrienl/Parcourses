@@ -726,8 +726,10 @@ struct AccountDeletionIntegrationTests {
       isOnline: { true })
     let host = IntegrationDeletionHost(engine: engine)
     deletion.host = host
-    // `host` est une référence faible de la suppression : il doit vivre jusqu'à la fin.
-    await withExtendedLifetime(host) { await deletion.delete() }
+    await deletion.delete()
+    // `host` est une référence faible de la suppression : il doit vivre jusqu'à la fin. La surcharge
+    // asynchrone de `withExtendedLifetime` manque au SDK de la CI : on prolonge sa vie après coup.
+    withExtendedLifetime(host) {}
 
     #expect(deletion.status == .deleted)
     #expect(device.flags.load() == nil)
