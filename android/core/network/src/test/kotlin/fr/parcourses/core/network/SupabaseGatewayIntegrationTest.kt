@@ -185,6 +185,27 @@ class SupabaseGatewayIntegrationTest {
             }
         }
 
+    /** #68 : la RPC supprime le compte et ses lignes, puis le serveur dit « introuvable » ; rejouée, elle réussit. */
+    @Test
+    fun deletingTheAccountRemovesItsRowsAndIsReportedAsGone() =
+        runBlocking<Unit> {
+            val gateway = signedIn()
+            gateway.saveList(ListUpsert(Uuid.random(), "À effacer"))
+
+            gateway.deleteAccount()
+
+            // Réponse perdue : le jeton d'accès vaut encore, mais `getUser` répond « introuvable » (code GoTrue gardé).
+            val notFound = runCatching { gateway.verifySession() }.exceptionOrNull()
+            assertEquals("user_not_found", (notFound as RemoteError.Unauthorized).authCode)
+            // Le rafraîchissement est refusé : la session est perdue pour de bon.
+            val refused = runCatching { gateway.verifySession(refresh = true) }.exceptionOrNull()
+            assertEquals("refresh_token_not_found", (refused as RemoteError.Unauthorized).authCode)
+            gateway.signOutLocally()
+            val fresh = gateway.ensureSession()
+            assertTrue(gateway.fetchLists(null).isEmpty())
+            assertEquals(fresh, gateway.currentAccountId())
+        }
+
     @Test
     fun anUnknownCategorySlugIsAnErrorAndASharedOneIsAccepted() =
         runBlocking<Unit> {

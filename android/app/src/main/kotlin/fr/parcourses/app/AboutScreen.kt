@@ -33,7 +33,8 @@ import fr.parcourses.core.designsystem.TicketType
  * « À propos » (iOS : `AboutView`, lot 9.12) : d'où viennent les magasins (OpenStreetMap, ODbL), ce que l'app
  * enregistre et pourquoi, la police embarquée et la version. Mêmes textes qu'iOS.
  *
- * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement).
+ * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement). La section
+ * « Vos données » (#68), sous « Confidentialité », propose de tout supprimer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +44,8 @@ fun AboutScreen(
     modifier: Modifier = Modifier,
     sessionReset: SessionResetUiState = SessionResetUiState(),
     sessionResetActions: SessionResetActions = SessionResetActions(),
+    accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
+    accountDeletionActions: AccountDeletionActions = AccountDeletionActions(),
 ) {
     val colors = Ticket.colors
     Scaffold(
@@ -81,6 +84,11 @@ fun AboutScreen(
                     Paragraph(stringResource(R.string.about_privacy_tracking))
                     Paragraph(stringResource(R.string.about_privacy_data))
                     Paragraph(stringResource(R.string.about_privacy_location))
+                    // Seulement avec un serveur : sans lui, rien n'en part.
+                    if (!accountDeletion.localOnly) Paragraph(stringResource(R.string.about_privacy_deletion))
+                }
+                Section(stringResource(R.string.about_account_title)) {
+                    AccountDeletionContent(accountDeletion, accountDeletionActions)
                 }
                 Section(stringResource(R.string.about_font_title)) {
                     Paragraph(stringResource(R.string.about_font_body))

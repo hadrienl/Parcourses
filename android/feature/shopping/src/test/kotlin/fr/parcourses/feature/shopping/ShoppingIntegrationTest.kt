@@ -2,9 +2,17 @@ package fr.parcourses.feature.shopping
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.categorizer.CategoryClassifier
+import fr.parcourses.core.data.account.AccountDeletion
+import fr.parcourses.core.data.account.AccountDeletionHost
+import fr.parcourses.core.data.account.AccountDeletionOutcome
+import fr.parcourses.core.data.account.DeletionGuardedGateway
+import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
+import fr.parcourses.core.data.account.LocalDataPurge
+import fr.parcourses.core.data.repository.CheckSubject
 import fr.parcourses.core.data.repository.RoomCategoryRepository
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.PulledItemClassification
+import fr.parcourses.core.data.sync.SyncDependencies
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.network.RemoteGateway
@@ -294,6 +302,106 @@ class ShoppingIntegrationTest : ShoppingTest() {
             )
             assertEquals(SyncState.SYNCED, checks.single().syncState)
             assertTrue(db.outbox().all().isEmpty())
+        }
+
+    /** Lignes du compte [account] sur le serveur, table par table (et le compte lui-même). */
+    private fun serverRows(
+        container: String,
+        account: Uuid,
+    ): Map<String, Int> {
+        // L'identifiant vient de la passerelle (UUID) : aucune entrée extérieure dans la requête.
+        val id = Uuid.parse(account.toString()).toString()
+        val queries =
+            mapOf(
+                "auth.users" to "select count(*) from auth.users where id = '$id'",
+                "lists" to "select count(*) from public.lists where owner_id = '$id'",
+                "list_items" to
+                    "select count(*) from public.list_items i join public.lists l on l.id = i.list_id " +
+                    "where l.owner_id = '$id'",
+                "visits" to "select count(*) from public.visits where user_id = '$id'",
+                "checks" to
+                    "select count(*) from public.checks c join public.visits v on v.id = c.visit_id " +
+                    "where v.user_id = '$id'",
+            )
+        return queries.mapValues { (_, query) -> sql(container, query).toInt() }
+    }
+
+    /**
+     * « Supprimer mes données » (#68) sur la pile locale : une liste, une visite cochée, puis la suppression. En base,
+     * l'ancien compte et ses lignes n'existent plus, et le nouveau compte anonyme ne reçoit rien (aucune reprise de
+     * compte, aucun renvoi).
+     */
+    @Test
+    fun deletingTheAccountLeavesNothingOnTheServerAndNothingForTheNewAccount() =
+        runBlocking<Unit> {
+            val database = localDatabase
+            assumeTrue("base locale (port $DB_PORT) injoignable : suppression non vérifiable en base", database != null)
+            val flag = InMemoryAccountDeletionFlag()
+            val remote = DeletionGuardedGateway(createInMemorySupabaseGateway(config!!), flag)
+            val cursors = InMemorySyncCursors()
+
+            fun newEngine() =
+                SyncEngine(
+                    remote,
+                    db,
+                    cursors,
+                    { classifier.classify(it).let { c -> PulledItemClassification(c.normalized, c.categoryId) } },
+                    SyncDependencies(isAccountDeletionPending = { flag.isPending }),
+                )
+            var engine = newEngine()
+            remote.ensureSession()
+            engine.drain(pull = true)
+            val old = remote.currentAccountId()
+
+            // Une liste, puis une visite avec une coche, envoyées à l'ancien compte.
+            val shop =
+                remote
+                    .nearbyStores(43.646, 0.586, 20_000, 1)
+                    .first()
+                    .id
+                    .toString()
+            val milk = product(remote, "Lait")
+            val start = Clock.System.now() - 10.minutes
+            val listId = lists.createList("Courses IT", start).id
+            val item = lists.addItem(listId, "lait", "lait", null, milk.id.toString(), "dairy", start)
+            val visit = visits.startVisit(shop, listId, false, start)
+            visits.checkItem(visit.id, item.id, CheckSubject.Product(milk.id.toString()), start + 1.minutes)
+            assertEquals(null, engine.drain())
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(
+                mapOf("auth.users" to 1, "lists" to 1, "list_items" to 1, "visits" to 1, "checks" to 1),
+                serverRows(database!!, old),
+            )
+
+            val host =
+                object : AccountDeletionHost {
+                    override suspend fun suspendSync() = engine.suspend()
+
+                    override suspend fun endShopping() = Unit
+
+                    override suspend fun clearLocalState() = Unit
+
+                    override fun resumeSync() = engine.resume()
+
+                    override suspend fun rebuild() {
+                        engine = newEngine()
+                    }
+                }
+            val deletion = AccountDeletion(remote, flag, LocalDataPurge(db, cursors), host, isOnline = { true })
+
+            assertEquals(AccountDeletionOutcome.Deleted, deletion.run())
+
+            assertTrue(serverRows(database, old).values.all { it == 0 })
+            val fresh = remote.currentAccountId()
+            assertTrue(fresh != old)
+            assertTrue(db.lists().getAll().isEmpty())
+            // Synchronisation sur le nouveau compte : rien ne repart.
+            engine.drain(pull = true)
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(
+                mapOf("auth.users" to 1, "lists" to 0, "list_items" to 0, "visits" to 0, "checks" to 0),
+                serverRows(database, fresh),
+            )
         }
 
     private companion object {

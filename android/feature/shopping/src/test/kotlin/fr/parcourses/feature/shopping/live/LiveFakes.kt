@@ -35,6 +35,11 @@ class FakeNotifier : LiveUpdateNotifier {
 class FakePreferences : LiveUpdatePreferences {
     override var dismissedVisitId: String? = null
     override var permissionAsked: Boolean = false
+
+    override fun clear() {
+        dismissedVisitId = null
+        permissionAsked = false
+    }
 }
 
 class RecordingLog : LiveUpdateLog {
