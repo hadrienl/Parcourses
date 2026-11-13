@@ -107,6 +107,16 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  func signOutLocally() async throws {
+    categoryMap = nil
+    try await mapped {
+      // `LocalDataPurge` a déjà vidé le Keychain : sans session lisible, `signOut` ne contacte pas le serveur.
+      // S'il en restait une, le SDK la retire avant d'appeler `logout`, dont l'échec ne change rien.
+      try? await self.client.auth.signOut(scope: .local)
+      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
+    }
+  }
+
   func localSessionAccountId() async throws -> UUID? {
     do {
       guard let session = client.auth.currentSession else {
