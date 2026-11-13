@@ -87,6 +87,7 @@ fun ParcoursesNavHost(
             onRetry = { container.accountDeletion.start() },
             onCancel = { container.accountDeletion.cancel() },
         ),
+        localOnly = container.isLocalOnly,
     )
 
     NavDisplay(

@@ -100,6 +100,20 @@ class AccountDeletionViewModelTest {
     }
 
     @Test
+    fun anUnreadableVisitStillOpensTheConfirmation() {
+        val model =
+            AccountDeletionViewModel(
+                deletion = deletion,
+                hasOpenVisit = { error("base illisible") },
+                start = { true },
+                localOnly = false,
+            )
+        model.actions.onRequest()
+        assertTrue(model.state.value.confirming)
+        assertFalse(model.state.value.visitOpen)
+    }
+
+    @Test
     fun aBuildWithoutServerSaysSo() {
         assertTrue(model(localOnly = true).state.value.localOnly)
         assertFalse(model().state.value.localOnly)
@@ -126,6 +140,8 @@ class AccountDeletionViewModelTest {
         }
 
         override suspend fun endShopping() = Unit
+
+        override suspend fun clearLocalState() = Unit
 
         override fun resumeSync() = Unit
 
@@ -170,8 +186,12 @@ class AccountDeletionViewModelTest {
             assertFalse(controller(host, flag).resumeAtLaunch())
 
             flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, null))
+            host.gate = CompletableDeferred()
             val controller = controller(host, flag)
             assertTrue(controller.resumeAtLaunch())
+            // Suppression déjà en cours : le lancement ne doit toujours rien démarrer d'autre.
+            assertTrue(controller.resumeAtLaunch())
+            host.gate?.complete(Unit)
             withTimeout(5_000) { controller.state.first { it == AccountDeletionState.Done } }
             assertFalse(flag.isPending)
         }

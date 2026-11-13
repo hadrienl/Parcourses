@@ -84,6 +84,8 @@ fun AboutScreen(
                     Paragraph(stringResource(R.string.about_privacy_tracking))
                     Paragraph(stringResource(R.string.about_privacy_data))
                     Paragraph(stringResource(R.string.about_privacy_location))
+                    // Seulement avec un serveur : sans lui, rien n'en part.
+                    if (!accountDeletion.localOnly) Paragraph(stringResource(R.string.about_privacy_deletion))
                 }
                 Section(stringResource(R.string.about_account_title)) {
                     AccountDeletionContent(accountDeletion, accountDeletionActions)

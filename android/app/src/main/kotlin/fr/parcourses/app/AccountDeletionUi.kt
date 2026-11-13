@@ -1,6 +1,7 @@
 package fr.parcourses.app
 
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -56,8 +57,13 @@ sealed interface AccountDeletionState {
     /** « Vos données ont été supprimées. », par-dessus l'écran Listes vide. */
     data object Done : AccountDeletionState
 
+    /** Relance sans session locale (C3) : l'appareil est vide, le serveur purgera le compte inactif. */
+    data object DoneLocally : AccountDeletionState
+
+    /** [retrySoon] : « Annuler » trop tôt après la dernière tentative (C2). */
     data class Failed(
         val error: AccountDeletionError,
+        val retrySoon: Boolean = false,
     ) : AccountDeletionState
 }
 
@@ -75,14 +81,21 @@ class AccountDeletionController(
     /** Après confirmation, ou « Réessayer ». `false` si une suppression tourne déjà. */
     fun start(): Boolean = launch { deletion.run() }
 
-    /** Au lancement, si le drapeau existe : la suppression interrompue reprend, voile affiché. */
-    fun resumeAtLaunch(): Boolean =
-        deletion.isPending && launch { deletion.resumePending() ?: AccountDeletionOutcome.Cancelled }
+    /**
+     * Au lancement, si le drapeau existe : la suppression interrompue reprend, voile affiché. `true` dès que le
+     * drapeau existe, même si une suppression tourne déjà : le lancement ne doit alors rien démarrer d'autre. Lit le
+     * disque : jamais sur le fil principal.
+     */
+    fun resumeAtLaunch(): Boolean {
+        if (!deletion.isPending) return false
+        launch { deletion.resumePending() ?: AccountDeletionOutcome.Cancelled }
+        return true
+    }
 
     /** « Annuler », quand la suppression n'est pas confirmée. */
     fun cancel(): Boolean = launch { deletion.cancel() }
 
-    /** Message lu et fermé. Un doute fermé garde le drapeau : « Supprimer mes données… » réessaiera. */
+    /** Message lu et fermé. Le doute, lui, ne se ferme que par « Réessayer » ou « Annuler » (C5). */
     fun acknowledge() {
         current.update { if (it == AccountDeletionState.Running) it else AccountDeletionState.Idle }
     }
@@ -94,7 +107,15 @@ class AccountDeletionController(
             if (seen == AccountDeletionState.Running) return false
             if (current.compareAndSet(seen, AccountDeletionState.Running)) break
         }
-        scope.launch { current.value = outcome(work) }
+        scope.launch {
+            // Le voile ne doit jamais rester, même sur une erreur que rien ne rattrape.
+            var result: AccountDeletionState = AccountDeletionState.Failed(AccountDeletionError.Unknown)
+            try {
+                result = outcome(work)
+            } finally {
+                current.value = result
+            }
+        }
         return true
     }
 
@@ -103,8 +124,9 @@ class AccountDeletionController(
         try {
             when (val result = work()) {
                 AccountDeletionOutcome.Deleted -> AccountDeletionState.Done
+                AccountDeletionOutcome.DeletedLocally -> AccountDeletionState.DoneLocally
                 AccountDeletionOutcome.Cancelled -> AccountDeletionState.Idle
-                is AccountDeletionOutcome.Failed -> AccountDeletionState.Failed(result.error)
+                is AccountDeletionOutcome.Failed -> AccountDeletionState.Failed(result.error, result.retrySoon)
             }
         } catch (e: CancellationException) {
             throw e
@@ -158,7 +180,8 @@ class AccountDeletionViewModel(
         requesting = true
         viewModelScope.launch {
             try {
-                visitOpen.value = hasOpenVisit()
+                // Lecture impossible : la confirmation s'ouvre quand même, sans la phrase sur les courses.
+                visitOpen.value = runCatching { hasOpenVisit() }.getOrDefault(false)
                 confirming.value = true
             } finally {
                 requesting = false
@@ -245,12 +268,13 @@ data class AccountDeletionOverlayActions(
 
 /**
  * Par-dessus toute l'app : le voile « Suppression… » (bloquant, ni Retour ni appui à côté), puis le résultat. Le doute
- * propose « Réessayer » ou « Annuler » ; le fermer garde la suppression en suspens (synchronisation arrêtée).
+ * ne se ferme que par « Réessayer » ou « Annuler » (C5). [localOnly] : build sans Supabase, rien sur « nos serveurs ».
  */
 @Composable
 internal fun AccountDeletionOverlay(
     state: AccountDeletionState,
     actions: AccountDeletionOverlayActions,
+    localOnly: Boolean = false,
 ) {
     when (state) {
         AccountDeletionState.Idle -> {
@@ -262,14 +286,22 @@ internal fun AccountDeletionOverlay(
         }
 
         AccountDeletionState.Done -> {
-            Message(R.string.about_account_done, actions.onAcknowledge)
+            Message(null, R.string.about_account_done, actions.onAcknowledge)
+        }
+
+        AccountDeletionState.DoneLocally -> {
+            Message(
+                R.string.about_account_done_local_title,
+                R.string.about_account_done_local_body,
+                actions.onAcknowledge,
+            )
         }
 
         is AccountDeletionState.Failed -> {
             when (state.error) {
-                AccountDeletionError.Offline -> Message(R.string.about_account_offline, actions.onAcknowledge)
-                AccountDeletionError.Refused -> Message(R.string.about_account_refused, actions.onAcknowledge)
-                AccountDeletionError.Unknown -> Unconfirmed(actions)
+                AccountDeletionError.Offline -> Message(null, R.string.about_account_offline, actions.onAcknowledge)
+                AccountDeletionError.Refused -> Message(null, R.string.about_account_refused, actions.onAcknowledge)
+                AccountDeletionError.Unknown -> Unconfirmed(state.retrySoon, localOnly, actions)
             }
         }
     }
@@ -305,11 +337,14 @@ private fun RunningVeil() {
 
 @Composable
 private fun Message(
-    text: Int,
+    @StringRes title: Int?,
+    @StringRes text: Int,
     onAcknowledge: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onAcknowledge,
+        // Le type attendu (lambda composable) passe dans les branches du `if`.
+        title = if (title != null) ({ Text(stringResource(title)) }) else null,
         text = {
             Text(
                 stringResource(text),
@@ -324,15 +359,31 @@ private fun Message(
     )
 }
 
+/** Doute (C5, C6) : ni Retour ni appui à côté ; « Réessayer » ou « Annuler », rien d'autre. */
 @Composable
-private fun Unconfirmed(actions: AccountDeletionOverlayActions) {
+private fun Unconfirmed(
+    retrySoon: Boolean,
+    localOnly: Boolean,
+    actions: AccountDeletionOverlayActions,
+) {
     AlertDialog(
-        onDismissRequest = actions.onAcknowledge,
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text(stringResource(R.string.about_account_unconfirmed_title)) },
         text = {
-            Text(
-                stringResource(R.string.about_account_unconfirmed),
+            Column(
+                verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
                 modifier = Modifier.testTag(TAG_ACCOUNT_MESSAGE).semantics { liveRegion = LiveRegionMode.Polite },
-            )
+            ) {
+                val body =
+                    if (localOnly) {
+                        R.string.about_account_unconfirmed_body_local
+                    } else {
+                        R.string.about_account_unconfirmed_body
+                    }
+                Text(stringResource(body))
+                if (retrySoon) Text(stringResource(R.string.about_account_retry_soon))
+            }
         },
         confirmButton = {
             TextButton(
@@ -341,9 +392,10 @@ private fun Unconfirmed(actions: AccountDeletionOverlayActions) {
             ) { Text(stringResource(R.string.about_account_retry)) }
         },
         dismissButton = {
-            TextButton(onClick = actions.onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.about_account_cancel))
-            }
+            TextButton(
+                onClick = actions.onCancel,
+                modifier = Modifier.heightIn(min = 48.dp).testTag(TAG_ACCOUNT_UNCONFIRMED_CANCEL),
+            ) { Text(stringResource(R.string.about_account_cancel)) }
         },
     )
 }
@@ -358,3 +410,4 @@ internal const val TAG_ACCOUNT_RUNNING = "account-deletion-running"
 internal const val TAG_ACCOUNT_MESSAGE = "account-deletion-message"
 internal const val TAG_ACCOUNT_OK = "account-deletion-ok"
 internal const val TAG_ACCOUNT_RETRY = "account-deletion-retry"
+internal const val TAG_ACCOUNT_UNCONFIRMED_CANCEL = "account-deletion-unconfirmed-cancel"

@@ -378,6 +378,8 @@ class ShoppingIntegrationTest : ShoppingTest() {
 
                     override suspend fun endShopping() = Unit
 
+                    override suspend fun clearLocalState() = Unit
+
                     override fun resumeSync() = engine.resume()
 
                     override suspend fun rebuild() {

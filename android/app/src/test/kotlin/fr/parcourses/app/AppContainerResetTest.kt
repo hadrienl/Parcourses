@@ -58,17 +58,26 @@ class AppContainerResetTest {
         assertFalse(container.consumeNavigationReset())
     }
 
+    /**
+     * Le processus est mort pendant une suppression : au lancement suivant, la visite ouverte n'est pas reprise, la
+     * suppression se termine (base, préférences de la Live Update), l'état de l'app est recréé et la navigation
+     * repart sur les listes.
+     */
     @Test
-    fun anInterruptedDeletionFinishesAtLaunchBeforeAnythingElse() =
+    fun aDeletionInterruptedByTheProcessIsFinishedAtTheNextLaunch() =
         runBlocking {
             val now = Clock.System.now()
             val list = container.lists.createList("Courses", now)
             val milk = container.lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
             val visit = container.visits.startVisit("00000000-0000-4000-8000-000000000001", list.id, false, now)
             container.visits.checkItem(visit.id, milk.id, CheckSubject.Category("dairy"), now)
+            container.livePreferences.permissionAsked = true
+            container.livePreferences.dismissedVisitId = visit.id
             container.deletionFlag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, null))
-            // Le processus est mort pendant la suppression : la visite ouverte n'est pas reprise.
+            val live = container.liveUpdates
+            // Drapeau présent : la visite ouverte n'est pas reprise (ni abandonnée).
             assertNull(container.resumableVisit())
+            assertNull(container.visits.visit(visit.id)?.endedAt)
 
             container.start(scope)
 
@@ -77,6 +86,10 @@ class AppContainerResetTest {
             assertTrue(container.lists.lists().isEmpty())
             assertNull(container.visits.openVisit())
             assertTrue(container.categories.categories().isNotEmpty())
+            assertFalse(container.livePreferences.permissionAsked)
+            assertNull(container.livePreferences.dismissedVisitId)
+            assertNotSame(live, container.liveUpdates)
+            assertEquals(1, container.generation.value)
             assertTrue(container.consumeNavigationReset())
         }
 }

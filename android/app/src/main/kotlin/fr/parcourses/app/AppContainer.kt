@@ -65,6 +65,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Clock
@@ -253,7 +254,8 @@ class AppContainer(
      */
     suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
         // Suppression interrompue : la visite va être effacée, elle n'est pas rouverte (ni abandonnée vers le serveur).
-        if (deletionFlag.isPending) return null
+        // Le drapeau est lu sur le disque : jamais sur le fil principal, d'où vient la reprise au lancement.
+        if (withContext(IO) { deletionFlag.isPending }) return null
         val visit = visits.openVisit() ?: return null
         val now = Clock.System.now()
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
@@ -333,14 +335,18 @@ class AppContainer(
         override suspend fun endShopping() {
             // Le mode courses se ferme dans la navigation (voile affiché), sans `closeVisit` : la visite sera effacée.
             val ended = withTimeoutOrNull(LIVE_UPDATE_BUDGET) { liveUpdates.endAll().await() }
-            if (ended == null) {
-                // Boucle de la Live Update bloquée : la notification et ses préférences partent quand même.
-                notifier.cancel()
-                livePreferences.clear()
-            }
+            // Boucle de la Live Update bloquée : la notification part quand même.
+            if (ended == null) notifier.cancel()
+        }
+
+        override suspend fun clearLocalState() {
+            // Base vidée : une notification reposée entre-temps part, puis les préférences. Un échec lève (doute).
+            notifier.cancel()
+            livePreferences.clear()
         }
 
         override fun resumeSync() {
+            liveUpdates.resume()
             // `sessionDidChange` relance le moteur (`SyncEngine.resume`) puis une passe avec descente.
             coordinator?.start()
             coordinator?.sessionDidChange()
@@ -348,6 +354,8 @@ class AppContainer(
 
         override suspend fun rebuild() {
             reset()
+            // La nouvelle instance retire toute notification sans visite ouverte (il n'y en a plus).
+            liveUpdates.reconcile()
             coordinator?.start()
             coordinator?.sessionDidChange()
         }
