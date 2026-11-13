@@ -57,6 +57,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
+| `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -181,20 +182,38 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
   tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
 - **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
-  180 jours dont le compte n'a plus d'article qui renvoie au produit. **Aucun produit n'est supprimé** : les apps
-  installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
-  #69 ; depuis le lot apps de #69, le cache est vidé même sur une réponse vide, si les catégories de la même passe
-  sont arrivées), et un article envoyé avec un produit disparu serait refusé (`23503`).
-  La suppression des produits privés orphelins vient avec le lot S2 de #69, à appliquer sur l'hébergé une fois les
-  apps de ce lot installées (une version plus ancienne garde dans son cache, sur un catalogue vide, l'id d'un produit
-  devenu privé). D'ici là, la forme normalisée d'un
-  produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
-  illisible par tout client et rattachée à personne.
+  180 jours dont le compte n'a plus d'article qui renvoie au produit, et revendications laissées sur un produit
+  déjà publié ; puis (depuis le lot S2) **produits privés que plus aucun compte n'a** : sans revendication, ni
+  article, ni coche, 10 000 au plus par passage. Leurs arêtes et entrées du graphe partent avec eux (cascade) :
+  elles ne sortaient jamais du serveur et n'apprennent plus rien à personne. La forme normalisée d'un libellé ne
+  reste donc pas en base une fois que plus aucun compte ne l'a (#68 : suppression du compte ou purge des comptes
+  inactifs, puis la nuit suivante).
+  - Concurrence : les candidats sont verrouillés (`for update skip locked`), puis la suppression revérifie chaque
+    condition avec un instantané neuf. Une écriture dont le contrôle de clé étrangère est passé avant garde son
+    produit. Dans l'autre ordre (la purge verrouille d'abord, 04:17 UTC), l'écriture attend puis échoue en `23503` :
+    `resolve_products` se réessaie et recrée le produit ; un article ou une coche portant ce produit est refusé.
+  - Cette suppression suppose que les apps ne proposent plus l'id d'un produit non publié (lot apps de #69 : cache
+    vidé même sur un catalogue vide). À appliquer sur l'hébergé après la mise à jour des apps.
+  - **Limite connue** : un article garde sur l'appareil le `productId` d'un produit privé qu'il a résolu. Si le
+    compte disparaît côté serveur (purge des comptes anonymes inactifs, #68) puis que l'app revient, `AccountRekey`
+    renvoie l'article avec ce `productId`, déjà purgé : `23503`, l'article est mis de côté après 8 essais. Piste : à
+    la reprise de compte, retirer le `productId` des articles dont le produit n'est pas dans le cache publié, pour
+    qu'ils soient résolus à nouveau.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
   exécution, tous les produits existants deviennent privés.
-- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée. Les helpers de test
+- **Catalogue de départ** (lot S2, `…_starter_catalog.sql`) : 150 produits courants publiés d'emblée, la liste de
+  `shared/catalog/starter.fr.json`. `scripts/check-starter-catalog.ts` vérifie en CI que la migration la reprend
+  telle quelle (`catalog.starter_catalog()`), que le classifieur des apps (`shared/reference/classify.ts`) range
+  chaque libellé dans sa catégorie, qu'aucune forme normalisée n'est en double et que chaque libellé est publiable.
+  `catalog.publish_starter(jsonb)` publie la liste (rejouable).
+  Le serveur ne passe pas au singulier : « Tomate » et « Tomates » restent deux produits, l'autocomplétion oriente
+  vers la forme du catalogue. Une forme déjà en base et privée est publiée sous ce
+  libellé et cette catégorie ; une forme déjà publiée par vote n'est pas touchée. Un changement de la liste impose
+  une nouvelle migration (copier la précédente, puis `--write`).
+- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée, tous repris par le
+  catalogue de départ (il ne sert plus qu'à une base sans cette migration). Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
 
 ## Types et contrat
