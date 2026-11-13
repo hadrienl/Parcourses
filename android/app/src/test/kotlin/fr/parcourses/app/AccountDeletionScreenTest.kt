@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -63,15 +65,25 @@ class AccountDeletionScreenTest {
     fun tearDown() = container.database.close()
 
     private fun openAbout() {
+        // La liste arrive de Room, sur un autre fil.
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("Courses de la semaine").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Courses de la semaine").assertIsDisplayed()
         rule.onNodeWithContentDescription("À propos").performClick()
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performScrollTo()
     }
 
+    /** « Supprimer mes données… » : la confirmation s'ouvre après la lecture de la visite ouverte (Room). */
+    private fun requestDeletion() {
+        rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performClick()
+        rule.waitUntil(5_000) {
+            rule.onAllNodesWithTag(TAG_ACCOUNT_DELETE_CONFIRM).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
     @Test
     fun cancellingTheConfirmationDeletesNothing() {
         openAbout()
-        rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performClick()
+        requestDeletion()
         rule.onNodeWithText(text(R.string.about_account_confirm_title)).assertIsDisplayed()
 
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE_CANCEL).performClick()
@@ -85,7 +97,7 @@ class AccountDeletionScreenTest {
     @Test
     fun confirmingDeletesEverythingThenShowsTheMessageOverEmptyLists() {
         openAbout()
-        rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performClick()
+        requestDeletion()
         // Build sans Supabase : le texte ne parle que de l'appareil (§5.7).
         rule.onNodeWithText(text(R.string.about_account_confirm_body_local)).assertIsDisplayed()
 
@@ -115,7 +127,7 @@ class AccountDeletionScreenTest {
             .onNodeWithTag(TAG_ACCOUNT_DELETE)
             .assert(hasText(text(R.string.about_account_action)))
             .assertHasClickAction()
-        rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performClick()
+        requestDeletion()
 
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE_CONFIRM).assert(hasText(text(R.string.about_account_confirm_action)))
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE_CANCEL).assert(hasText(text(R.string.about_account_cancel)))
