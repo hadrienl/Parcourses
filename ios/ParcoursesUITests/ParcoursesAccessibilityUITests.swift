@@ -4,9 +4,9 @@ import XCTest
 /// de texte par défaut, en `AccessibilityXXXL` (AX5), en mode sombre, avec Contraste augmenté et avec Réduire la
 /// transparence. Exécuté avec le reste des tests UI en CI.
 ///
-/// Toutes les catégories d'audit sont actives (`.all`). Les exceptions sont filtrées au cas par cas dans
-/// `exception(for:screen:)`, chacune bornée à des éléments ou à une situation précise et justifiée, et journalisées
-/// (`AUDIT-EXCEPTION[écran]`) avec leur règle.
+/// Toutes les catégories d'audit sont actives (`.all`, en trois passes : voir `auditPasses`). Les exceptions sont
+/// filtrées au cas par cas dans `exception(for:screen:)`, chacune bornée à des éléments ou à une situation précise et
+/// justifiée, et journalisées (`AUDIT-EXCEPTION[écran]`) avec leur règle.
 nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// Tous les problèmes d'un parcours sont listés d'un coup : on ne s'arrête pas au premier échec.
   override func setUp() {
@@ -185,6 +185,87 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     return list.cells.allElementsBoundByIndex.filter { $0.frame.minY < top && $0.frame.maxY > top }.count
   }
 
+  /// Passes de l'audit d'un écran. Leur réunion est `.all` : aucune catégorie n'est retirée.
+  ///
+  /// `testmanagerd` donne 15 s à chaque appel de `performAccessibilityAudit` (« timeout: 15.000000 » dans le journal
+  /// du simulateur), sans réglage public. Les catégories d'un même appel s'exécutent en parallèle : sur un Mac rapide,
+  /// l'appel dure autant que la plus lente (2,4 s pour `.all` contre 2,0 s pour le texte rogné seul, écran du mode
+  /// courses). Sur le runner de CI à 3 cœurs, saturé par le simulateur, leurs coûts s'additionnent : `.all` y prend
+  /// jusqu'à 12,6 s sur un passage réussi, et dépasse les 15 s au moindre pic de charge (code -56). Le Dynamic Type et
+  /// le texte rogné, qui refont la mise en page de l'app, sont les deux catégories coûteuses : chacune a sa passe,
+  /// avec ses 15 s. Mesuré sur un simulateur ralenti à 10 % : `.all` 15,0 s (délai dépassé), texte rogné 14,5 s,
+  /// Dynamic Type 15,1 s, chacune des autres catégories moins de 2,3 s.
+  private static let auditPasses: [(name: String, types: XCUIAccessibilityAuditType)] = [
+    ("Dynamic Type", .dynamicType),
+    ("texte rogné", .textClipped),
+    ("autres catégories", XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .textClipped])),
+  ]
+
+  /// Code d'erreur `com.apple.xcode.xctest.accessibilityAudit` « Audit failed to complete in time ».
+  private static let auditTimedOut = -56
+
+  /// Pause avant la nouvelle tentative d'une passe expirée : un pic de charge passager a le temps de retomber.
+  private static let retryPause: TimeInterval = 5
+
+  /// Audit de chauffe fait une fois par exécution de la suite.
+  @MainActor private static var warmedUp = false
+
+  /// Le premier audit d'un simulateur neuf charge les outils d'analyse (3 fois plus long : 7,4 s contre 2,4 s en
+  /// local). Sur la CI, où chaque simulateur est neuf, il dépasse le délai : les quatre premiers essais de la suite
+  /// ont expiré sur iOS 18 (run de 35299a2), puis tout est passé. Un audit de chauffe, dont les résultats sont
+  /// ignorés, absorbe ce coût avant le premier audit réel, qui garde toutes ses catégories et sa seule nouvelle
+  /// tentative. Il est borné en durée : s'il n'aboutit pas, les audits réels échouent normalement.
+  @MainActor
+  private func warmUpAudit(_ app: XCUIApplication) {
+    guard !Self.warmedUp else { return }
+    Self.warmedUp = true
+    let deadline = Date.now.addingTimeInterval(120)
+    for (pass, types) in Self.auditPasses {
+      while Date.now < deadline {
+        do {
+          try app.performAccessibilityAudit(for: types) { _ in true }
+          NSLog("AUDIT-CHAUFFE passe « \(pass) » terminée")
+          break
+        } catch let error as NSError where error.code == Self.auditTimedOut {
+          NSLog("AUDIT-CHAUFFE passe « \(pass) » : délai dépassé")
+        } catch {
+          // Erreur autre qu'un délai : l'audit réel la rencontrera et la signalera.
+          NSLog("AUDIT-CHAUFFE passe « \(pass) » impossible : \(error)")
+          return
+        }
+      }
+    }
+  }
+
+  /// Une passe d'audit : problèmes bloquants, exceptions retenues, et quota de lignes coupées restant.
+  @MainActor
+  private static func auditPass(
+    _ app: XCUIApplication, _ types: XCUIAccessibilityAuditType, screen: Screen, cutLineQuota: Int
+  ) throws -> (problems: [String], exceptions: [String], cutLineQuota: Int) {
+    var problems: [String] = []
+    var exceptions: [String] = []
+    var quota = cutLineQuota
+    try app.performAccessibilityAudit(for: types) { issue in
+      // Exception : journal sans l'élément, pour ne pas le résoudre une fois de plus pendant l'audit.
+      let summary = "\(issue.auditType): \(issue.compactDescription)"
+      switch exception(for: issue, screen: screen) {
+      case .known(let reason):
+        exceptions.append("\(reason) — \(summary)")
+        return true
+      case .cutLine where quota > 0:
+        quota -= 1
+        exceptions.append("2 ter ligne coupée par le dock — \(summary)")
+        return true
+      case .cutLine, nil:
+        // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
+        let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
+        problems.append("\(summary) [\(element)] — \(issue.detailedDescription)")
+        return true
+      }
+    }
+    return (problems, exceptions, quota)
+  }
+
   /// Audit complet d'un écran. Les problèmes sont réunis puis consignés après l'audit, pas depuis son gestionnaire :
   /// consigner un échec à l'intérieur du gestionnaire bloque l'audit (constaté sur Xcode 26/27, simulateurs
   /// iOS 26.5 et 27.0 : le test dépasse son délai).
@@ -195,38 +276,33 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     // Les feuilles s'animent à l'arrivée : l'audit lit les cadres pendant la transition sinon.
     Thread.sleep(forTimeInterval: 1)
     capture(app, "audit-\(screen)")
+    warmUpAudit(app)
     let state = Screen(app, modal: modal)
     var problems: [String] = []
     var exceptions: [String] = []
-    // Un audit qui dépasse son délai (machines de CI chargées) est relancé une fois.
-    for attempt in 1...2 {
-      problems = []
-      exceptions = []
-      var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
-      do {
-        try app.performAccessibilityAudit(for: .all) { issue in
-          // Exception : journal sans l'élément, pour ne pas le résoudre une fois de plus pendant l'audit.
-          let summary = "\(issue.auditType): \(issue.compactDescription)"
-          switch Self.exception(for: issue, screen: state) {
-          case .known(let reason):
-            exceptions.append("\(reason) — \(summary)")
-            return true
-          case .cutLine where cutLineQuota > 0:
-            cutLineQuota -= 1
-            exceptions.append("2 ter ligne coupée par le dock — \(summary)")
-            return true
-          case .cutLine, nil:
-            // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
-            let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
-            problems.append("\(summary) [\(element)] — \(issue.detailedDescription)")
-            return true
-          }
+    // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
+    var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
+    for (pass, types) in Self.auditPasses {
+      // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
+      // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.
+      for attempt in 1...2 {
+        let start = Date.now
+        // Durée de l'essai, à comparer aux 15 s du délai : la marge restante se lit dans les journaux de CI.
+        let duration = { String(format: "%.1f s", Date.now.timeIntervalSince(start)) }
+        do {
+          let result = try Self.auditPass(app, types, screen: state, cutLineQuota: cutLineQuota)
+          NSLog("AUDIT-DUREE[\(screen)] \(pass) : \(duration())")
+          problems += result.problems
+          exceptions += result.exceptions
+          cutLineQuota = result.cutLineQuota
+          break
+        } catch let error as NSError where error.code == Self.auditTimedOut && attempt == 1 {
+          NSLog("AUDIT[\(screen)] \(pass) : délai dépassé après \(duration()), nouvel essai")
+          Thread.sleep(forTimeInterval: Self.retryPause)
+        } catch {
+          XCTFail("Audit d'accessibilité « \(screen) » (\(pass)) impossible après \(duration()) : \(error)")
+          break
         }
-        break
-      } catch let error as NSError where error.code == -56 && attempt == 1 {
-        NSLog("AUDIT[\(screen)] délai dépassé, nouvel essai")
-      } catch {
-        XCTFail("Audit d'accessibilité « \(screen) » impossible : \(error)")
       }
     }
     // Journal : lisible dans la sortie de xcodebuild même si la consignation de l'échec est lente. Les exceptions
@@ -321,7 +397,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 5))
     audit(app, "mode-courses\(suffix)", modal: true)
 
-    let tomatoes = row(app, "tomates", "non coché")
+    let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
     tomatoes.tap()
     XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))

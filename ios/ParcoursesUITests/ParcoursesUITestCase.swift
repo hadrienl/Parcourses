@@ -23,9 +23,14 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
   }
 
   /// Ligne d'article, par libellé et état annoncés à VoiceOver.
+  /// `list` : identifiant de la liste où chercher. En mode courses, il faut `shoppingList` : la liste recouverte par
+  /// le plein écran reste dans l'arbre d'accessibilité avec les mêmes lignes, et le premier élément trouvé peut être
+  /// le sien. L'appui tombe alors à l'emplacement de la ligne cachée, sur un autre élément du mode courses, et rien
+  /// n'est coché (constaté en CI, `testAuditShoppingAX5` sur 282bf9b : bannière « Annuler » absente).
   @MainActor
-  func row(_ app: XCUIApplication, _ label: String, _ state: String) -> XCUIElement {
-    app.descendants(matching: .any)
+  func row(_ app: XCUIApplication, _ label: String, _ state: String, in list: String? = nil) -> XCUIElement {
+    let scope: XCUIElement = list.map { app.collectionViews[$0] } ?? app
+    return scope.descendants(matching: .any)
       .matching(NSPredicate(format: "label == %@ AND value == %@", label, state)).firstMatch
   }
 
