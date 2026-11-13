@@ -46,7 +46,11 @@ extension AppModel: AccountDeletionHost {
 
   func resumeSync() {
     sync?.resume()
-    CheckNextItemRouter.handler = try? environment.get().activityActions
+    (try? environment.get())?.resumeShoppingAfterDeletion()
+  }
+
+  func stopSync() async {
+    await sync?.stop()
   }
 
   func endShopping() {
@@ -62,6 +66,8 @@ extension AppModel: AccountDeletionHost {
     deletion = next?.makeAccountDeletion()
     deletion?.host = self
     CheckNextItemRouter.handler = next?.activityActions
+    // Aucune visite ne survit à la purge : toute activité encore affichée est orpheline.
+    next?.endOrphanActivities(keeping: nil)
     SyncRuntime.scheduleBackgroundRefresh()
   }
 }

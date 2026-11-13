@@ -32,9 +32,11 @@ struct AboutView: View {
           Text(
             "Seule votre position GPS n'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée."
           )
-          Text(
-            "Vous pouvez supprimer ces données à tout moment ci-dessous ; sans utilisation de l'app pendant 365 jours, elles le sont automatiquement."
-          )
+          if deletion?.deletesServerData == true {
+            Text(
+              "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
+            )
+          }
         } header: {
           Text("Confidentialité")
         }
@@ -50,7 +52,7 @@ struct AboutView: View {
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {
           Button("OK") { dismiss() }
-            .disabled(isDeleting)
+            .disabled(isBlocking)
             .accessibilityIdentifier("closeAbout")
         }
       }
@@ -67,8 +69,8 @@ struct AboutView: View {
       }
     }
     .accountDeletionPresentation(deletion)
-    // Une fois la requête partie, la feuille ne se ferme plus d'un glissé.
-    .interactiveDismissDisabled(isDeleting)
+    // Une fois la requête partie, et tant qu'un doute attend « Réessayer » ou « Annuler », la feuille reste ouverte.
+    .interactiveDismissDisabled(isBlocking)
   }
 
   private func yourData(_ deletion: AccountDeletion) -> some View {
@@ -86,7 +88,7 @@ struct AboutView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .touchTarget()
       }
-      .disabled(isDeleting)
+      .disabled(isBlocking)
       .accessibilityHint("Demande une confirmation avant d'effacer")
       .accessibilityIdentifier("deleteMyData")
     } header: {
@@ -94,8 +96,9 @@ struct AboutView: View {
     }
   }
 
-  private var isDeleting: Bool {
-    deletion?.status == .deleting
+  /// Suppression en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
+  private var isBlocking: Bool {
+    deletion?.status == .deleting || deletion?.status == .failed(.unknown)
   }
 
   /// Textes de #68 §5.2 et §5.7.

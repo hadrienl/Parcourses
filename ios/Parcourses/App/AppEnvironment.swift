@@ -59,9 +59,10 @@ final class AppEnvironment {
   }
 
   /// Environnement neuf sur le même store, après une suppression de compte : modèles d'écran, moteur de
-  /// synchronisation et état en mémoire repartent de zéro. L'ancien moteur, suspendu, n'écoute plus le réseau.
+  /// synchronisation et état en mémoire repartent de zéro. L'ancien moteur a été arrêté avant la purge. La même
+  /// instance ActivityKit est gardée (ses appels restent ordonnés) et publie à nouveau.
   func restarted() throws -> AppEnvironment {
-    sync?.stop()
+    shoppingActivity.resumePublishing()
     return try AppEnvironment(container: container, gateway: gateway, shoppingActivity: shoppingActivity)
   }
 
@@ -71,16 +72,28 @@ final class AppEnvironment {
     let visits = visits
     return AccountDeletion(
       gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: LocalDataPurge(container: container),
-      isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil })
+      isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil },
+      beginBackgroundWork: {
+        let activity = BackgroundActivity(name: "account-deletion")
+        // À l'expiration, le drapeau reste : la suppression reprendra au lancement suivant.
+        activity.begin {}
+        return { activity.end() }
+      })
   }
 
   /// Étape 2 de la suppression : rien ne reste affiché hors de l'app (nom de liste, magasin, article suivant), et
   /// plus rien n'écrit dans le store. La visite ouverte n'est pas close : elle va disparaître.
   func endShoppingForDeletion() {
-    shoppingActivity.endAll(except: nil)
+    shoppingActivity.endEverything()
     CheckNextItemRouter.handler = nil
     currentSession = nil
     NotificationCenter.default.post(name: .accountDeletionDidBegin, object: nil)
+  }
+
+  /// Suppression abandonnée ou refusée : « Cocher le suivant » et la Live Activity reviennent.
+  func resumeShoppingAfterDeletion() {
+    shoppingActivity.resumePublishing()
+    CheckNextItemRouter.handler = activityActions
   }
 
   static func live(gateway: (any RemoteGateway)?) throws -> AppEnvironment {

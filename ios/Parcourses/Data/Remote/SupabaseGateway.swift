@@ -94,23 +94,47 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   func deleteAccount() async throws {
-    try await mapped {
+    do {
       // Le compte de la session, même s'il diffère du dernier connu : c'est celui que la personne utilise.
-      _ = try await self.existingSessionUser()
+      _ = try await existingSessionUser()
       // Jeton neuf, valable une heure : un nouvel essai après une réponse perdue passe avec le même compte.
-      _ = try await self.client.auth.refreshSession()
+      // Refusé (`refresh_token_not_found`) : le compte a déjà été supprimé.
+      _ = try await client.auth.refreshSession()
       // Réponse 204 sans corps. Idempotente : rejouée après succès, elle ne trouve plus rien et réussit.
-      _ = try await self.rest.rpc("delete_my_account").execute()
+      _ = try await rest.rpc("delete_my_account").execute()
+    } catch {
+      throw Self.classifyForDeletion(error)
     }
   }
 
-  func signOutLocally() async throws {
-    categoryMap = nil
-    try await mapped {
-      // `LocalDataPurge` a déjà vidé le Keychain : sans session lisible, `signOut` ne contacte pas le serveur.
-      // S'il en restait une, le SDK la retire avant d'appeler `logout`, dont l'échec ne change rien.
-      try? await self.client.auth.signOut(scope: .local)
-      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
+  func localSessionAccountId() async throws -> UUID? {
+    do {
+      guard let session = client.auth.currentSession else {
+        // Keychain verrouillé : `currentSession` est nil alors que la session existe peut-être.
+        try store.verifyAvailable()
+        return nil
+      }
+      return session.user.id
+    } catch {
+      throw Self.classify(error)
+    }
+  }
+
+  func confirmAccountDeleted() async throws -> Bool {
+    do {
+      guard client.auth.currentSession != nil else {
+        try store.verifyAvailable()
+        // Pas de session sur l'appareil : le serveur ne peut rien prouver.
+        throw RemoteError.unauthorized
+      }
+      // Toujours un rafraîchissement, puis le compte : seuls trois codes GoTrue concluent à la suppression.
+      _ = try await client.auth.refreshSession()
+      _ = try await client.auth.user()
+      return false
+    } catch let error as AuthError where Self.deletionProofCode(error) != nil {
+      return true
+    } catch {
+      throw Self.classifyForDeletion(error)
     }
   }
 
@@ -447,6 +471,36 @@ actor SupabaseGateway: RemoteGateway {
     let status = response.statusCode
     if status == 401 || status == 403 || code == .userNotFound { return .unauthorized }
     return .server(code: String(status))
+  }
+
+  /// Codes GoTrue qui prouvent qu'un compte ou sa session n'existent plus (#68) : rien d'autre ne le prouve.
+  static let deletionProofCodes: [ErrorCode] = [.userNotFound, .refreshTokenNotFound, .sessionNotFound]
+
+  /// Code GoTrue d'une preuve de suppression, `nil` sinon.
+  static func deletionProofCode(_ error: AuthError) -> String? {
+    guard case .api(_, let code, _, _) = error, deletionProofCodes.contains(code) else { return nil }
+    return code.rawValue
+  }
+
+  /// Erreurs d'URLSession où la requête n'a pas quitté l'appareil. Un délai dépassé ou une connexion perdue
+  /// laissent un doute : la requête a pu arriver.
+  static let notSentURLErrors: Set<URLError.Code> = [
+    .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed,
+    .internationalRoamingOff,
+  ]
+
+  /// Classement propre à la suppression du compte : garde le code GoTrue d'une preuve (`accountGone`) et distingue
+  /// une requête jamais partie (`notSent`). Le reste suit `classify`.
+  static func classifyForDeletion(_ error: any Error) -> RemoteError {
+    switch error {
+    case let error as AuthError:
+      if let code = deletionProofCode(error) { return .accountGone(code: code) }
+      return classify(error)
+    case let error as URLError where notSentURLErrors.contains(error.code):
+      return .notSent
+    default:
+      return classify(error)
+    }
   }
 
   /// La session ne reviendra pas : seul un nouveau compte anonyme permet de continuer.

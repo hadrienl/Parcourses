@@ -1,11 +1,14 @@
 import XCTest
 
-/// « Supprimer mes données… » (#68 §5.1, §5.2). Les tests UI tournent sans Supabase : la suppression ne purge que
-/// l'appareil (§5.7), avec les mêmes écrans.
+/// « Supprimer mes données… » (#68 §5.1, §5.2), lancée sans passerelle : la suppression ne purge que l'appareil
+/// (§5.7), avec les mêmes écrans.
 nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
+  /// `AuthBootstrap.localOnlyArgument` : sans passerelle, même avec `Local.xcconfig`.
+  static let localOnly = ["PARCOURSES_TEST_LOCAL_ONLY"]
+
   @MainActor
   func testCancelKeepsEverythingAndDeleteEmptiesTheLists() {
-    let app = launch(reset: true)
+    let app = launch(reset: true, launchArguments: Self.localOnly)
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
@@ -40,14 +43,14 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
 
     // Rien ne revient après une relance.
     app.terminate()
-    let relaunched = launch(reset: false)
+    let relaunched = launch(reset: false, launchArguments: Self.localOnly)
     XCTAssertTrue(relaunched.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
   }
 
   /// Libellés lus par VoiceOver : section, bouton et son indice, confirmation et ses boutons.
   @MainActor
   func testVoiceOverLabels() {
-    let app = launch(reset: true)
+    let app = launch(reset: true, launchArguments: Self.localOnly)
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
     openAbout(app)
     let button = app.buttons["deleteMyData"]

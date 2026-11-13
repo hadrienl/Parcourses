@@ -26,6 +26,11 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   case unknownCategory(String)
   /// Keychain verrouillé (arrière-plan avant le premier déverrouillage) : la session existe peut-être encore.
   case keychainLocked
+  /// Suppression du compte seulement : GoTrue répond que le compte ou sa session n'existent plus
+  /// (`user_not_found`, `refresh_token_not_found`, `session_not_found`). Seule preuve d'une suppression faite.
+  case accountGone(code: String)
+  /// Suppression du compte seulement : la requête n'a pas quitté l'appareil (pas de réseau, hôte introuvable).
+  case notSent
 
   /// PostgREST ne trouve pas la fonction appelée : serveur en retard d'une migration. Reste `rejected`, la file
   /// n'en dépend pas ; seule la résolution des produits la réessaie plus tôt (`SyncRetryPolicy.resolutionDelay`).
@@ -35,7 +40,7 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   var isRetryable: Bool {
     switch self {
     case .network, .unauthorized, .dependencyMissing, .server, .unexpected, .accountChanged, .unknownCategory,
-      .keychainLocked:
+      .keychainLocked, .accountGone, .notSent:
       true
     case .forbidden, .constraint, .rejected:
       false
@@ -143,6 +148,13 @@ nonisolated protocol RemoteGateway: Sendable {
   func deleteAccount() async throws
   /// Oublie la session dans le SDK, sans appel au serveur : elle n'y existe plus.
   func signOutLocally() async throws
+  /// Compte de la session enregistrée sur l'appareil, sans appel au serveur : `nil` s'il n'y en a pas.
+  /// `keychainLocked` si le Keychain ne peut pas le dire.
+  func localSessionAccountId() async throws -> UUID?
+  /// Suppression du compte : le serveur prouve-t-il que le compte de la session n'existe plus ? `true` sur
+  /// `user_not_found`, `refresh_token_not_found` ou `session_not_found` ; `false` si le compte répond. Tout le reste
+  /// lève : le doute demeure. Sans comparaison au dernier compte connu.
+  func confirmAccountDeleted() async throws -> Bool
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws

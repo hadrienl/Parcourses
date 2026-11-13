@@ -217,6 +217,8 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   private var isWaitingForForeground = false
   /// La personne a écarté l'activité de cette visite : plus rien ne la rouvre.
   private var isDismissed = false
+  /// Suppression du compte en cours : plus rien n'est publié, jusqu'à `resumePublishing()`.
+  private(set) var isHalted = false
   private var chain: Task<Void, Never>?
 
   init(
@@ -241,6 +243,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   func start(
     attributes: ShoppingActivityAttributes, state: ShoppingActivityAttributes.ContentState, lastActivity: Date
   ) {
+    guard !isHalted else { return }
     self.attributes = attributes
     lastState = state
     self.lastActivity = lastActivity
@@ -252,6 +255,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   }
 
   func update(state: ShoppingActivityAttributes.ContentState, lastActivity: Date) {
+    guard !isHalted else { return }
     lastState = state
     self.lastActivity = lastActivity
     // Calculée à l'appel : la chaîne s'exécute plus tard, quand une coche suivante a pu la changer.
@@ -283,6 +287,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   }
 
   func restore(visitId: UUID) async -> ShoppingActivityAttributes.ContentState? {
+    guard !isHalted else { return nil }
     let previous = chain
     let task = Task { () -> ShoppingActivityAttributes.ContentState? in
       await previous?.value
@@ -307,6 +312,7 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   }
 
   func end(state: ShoppingActivityAttributes.ContentState) {
+    guard !isHalted else { return }
     attributes = nil
     lastState = nil
     enqueue {
@@ -324,11 +330,40 @@ final class ActivityKitShoppingActivity: ShoppingActivityControlling {
   }
 
   func retryIfNeeded() {
+    guard !isHalted else { return }
     enqueue {
       guard self.attributes != nil, self.activityId == nil, !self.isDismissed else { return }
       self.isWaitingForForeground = false
       await self.open(staleDate: self.staleDate)
     }
+  }
+
+  /// Suppression du compte : toutes les activités partent tout de suite, terminées comprises (« Courses terminées »
+  /// garde le nom de la liste et du magasin), et l'état en mémoire est oublié. Plus rien n'est publié ensuite.
+  func endEverything() {
+    isHalted = true
+    reset()
+    enqueue {
+      for info in await self.backend.current() {
+        await self.backend.end(id: info.id, state: nil, policy: .immediate)
+      }
+      // Un appel déjà dans la chaîne a pu rouvrir une activité : rien ne doit en rester.
+      self.reset()
+    }
+  }
+
+  /// Suppression finie ou abandonnée : les sessions suivantes publient à nouveau.
+  func resumePublishing() {
+    isHalted = false
+  }
+
+  private func reset() {
+    activityId = nil
+    attributes = nil
+    lastState = nil
+    lastActivity = .distantPast
+    isWaitingForForeground = false
+    isDismissed = false
   }
 
   func endAll(except visitId: UUID?) {

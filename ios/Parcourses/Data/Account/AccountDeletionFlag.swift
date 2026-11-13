@@ -13,9 +13,31 @@ nonisolated enum AccountDeletionPhase: String, Codable, Sendable {
 nonisolated struct AccountDeletionFlag: Codable, Equatable, Sendable {
   static let key = "account.deletion"
 
-  /// Compte à supprimer, `nil` s'il n'y avait pas de session (rien à supprimer côté serveur).
+  /// Compte à supprimer, `nil` s'il n'y avait pas de session. À la reprise, une session absente ou d'un autre compte
+  /// ne permet plus d'atteindre ce compte : l'appareil seul est purgé.
   var accountId: UUID?
   var phase: AccountDeletionPhase
+  /// La RPC a été envoyée au moins une fois : un refus ou un envoi impossible ne prouvent plus que rien n'a été
+  /// supprimé, seul `confirmAccountDeleted` permet alors d'abandonner.
+  var rpcAttempted: Bool
+
+  init(accountId: UUID?, phase: AccountDeletionPhase, rpcAttempted: Bool = false) {
+    self.accountId = accountId
+    self.phase = phase
+    self.rpcAttempted = rpcAttempted
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case accountId, phase, rpcAttempted
+  }
+
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    accountId = try container.decodeIfPresent(UUID.self, forKey: .accountId)
+    phase = try container.decode(AccountDeletionPhase.self, forKey: .phase)
+    // Absent : traité comme envoyé, la prudence l'emporte.
+    rpcAttempted = try container.decodeIfPresent(Bool.self, forKey: .rpcAttempted) ?? true
+  }
 }
 
 /// Lecture et écriture du drapeau, injectables dans les tests.
@@ -29,7 +51,8 @@ nonisolated extension AccountDeletionFlagStore {
   var isDeletionPending: Bool { load() != nil }
 }
 
-/// Dans `UserDefaults.standard`, à côté des curseurs : rien de secret, et lisible avant le premier déverrouillage.
+/// Dans `UserDefaults.standard`, à côté des curseurs : rien de secret. Comme eux, il n'est lisible qu'après le premier
+/// déverrouillage ; avant, la session (Keychain) et le store ne le sont pas non plus, donc aucune passe n'aboutit.
 nonisolated struct UserDefaultsAccountDeletionFlagStore: AccountDeletionFlagStore, @unchecked Sendable {
   private let defaults: UserDefaults
 
@@ -42,7 +65,7 @@ nonisolated struct UserDefaultsAccountDeletionFlagStore: AccountDeletionFlagStor
   func load() -> AccountDeletionFlag? {
     guard let data = defaults.data(forKey: AccountDeletionFlag.key) else { return nil }
     return (try? JSONDecoder().decode(AccountDeletionFlag.self, from: data))
-      ?? AccountDeletionFlag(accountId: nil, phase: .requested)
+      ?? AccountDeletionFlag(accountId: nil, phase: .requested, rpcAttempted: true)
   }
 
   func save(_ flag: AccountDeletionFlag) {

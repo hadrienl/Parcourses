@@ -9,41 +9,52 @@ extension View {
 
 /// Issue présentée à la personne. Gardée à part du statut : une alerte qui se ferme ne doit pas réapparaître le temps
 /// que l'action lancée par son bouton change le statut.
-private enum AccountDeletionOutcome: Identifiable {
-  case deleted
-  case failed(AccountDeletionError)
-
-  var id: String {
-    switch self {
-    case .deleted: "deleted"
-    case .failed(let error): "\(error)"
-    }
+private struct AccountDeletionOutcome {
+  enum Kind {
+    /// « OK » : le message est lu, l'app continue (reconstruite après une suppression).
+    case acknowledgement
+    /// Doute : seuls « Réessayer » et « Annuler » le referment, jamais un geste implicite.
+    case doubt
   }
 
-  init?(_ status: AccountDeletion.Status) {
-    switch status {
-    case .deleted: self = .deleted
-    case .failed(let error): self = .failed(error)
-    case .idle, .deleting: return nil
-    }
-  }
+  let kind: Kind
+  let title: String
+  let message: String?
 
-  var title: String {
-    switch self {
-    case .deleted: "Vos données ont été supprimées."
-    case .failed(.offline): "Connexion requise."
-    case .failed(.refused): "La suppression n'a pas abouti."
-    case .failed(.unknown): "La suppression n'a pas pu être confirmée."
-    }
-  }
-
-  var message: String? {
-    switch self {
-    case .deleted: nil
-    case .failed(.offline): "Rien n'a été effacé."
-    case .failed(.refused): "Rien n'a été effacé. Réessayez plus tard."
+  /// Textes communs à iOS et Android (#68 §5.2, §5.7 et relecture de 68.2).
+  init?(_ deletion: AccountDeletion) {
+    let server = deletion.deletesServerData
+    switch deletion.status {
+    case .idle, .deleting:
+      return nil
+    case .deleted:
+      kind = .acknowledgement
+      title = "Vos données ont été supprimées."
+      message = nil
+    case .deletedFromDevice:
+      kind = .acknowledgement
+      title = "Vos données ont été supprimées de cet appareil."
+      message = "Celles de nos serveurs seront supprimées après 365 jours sans utilisation."
+    case .failed(.offline):
+      kind = .acknowledgement
+      title = "Connexion requise."
+      message = "Rien n'a été effacé."
+    case .failed(.refused):
+      kind = .acknowledgement
+      title = "La suppression n'a pas abouti."
+      message = "Rien n'a été effacé. Réessayez plus tard."
+    case .failed(.unknown) where !server:
+      kind = .doubt
+      title = "La suppression n'a pas abouti."
+      message = "Réessayez, ou annulez pour garder ce qui reste sur cet appareil."
+    case .failed(.unknown) where deletion.isCancelDeferred:
+      kind = .doubt
+      title = "La suppression n'a pas pu être confirmée."
+      message = "Réessayez dans un instant."
     case .failed(.unknown):
-      "Vos données sont peut-être encore sur nos serveurs. Réessayez, ou annulez pour les garder si elles y sont."
+      kind = .doubt
+      title = "La suppression n'a pas pu être confirmée."
+      message = "Vérifiez votre connexion, puis réessayez. Vos données sont peut-être encore sur nos serveurs."
     }
   }
 }
@@ -57,17 +68,18 @@ private struct AccountDeletionPresentation: ViewModifier {
       .overlay {
         if deletion?.status == .deleting { AccountDeletionVeil() }
       }
-      .onChange(of: deletion?.status) { _, status in
-        outcome = status.flatMap(AccountDeletionOutcome.init)
+      // Chaque issue publiée, même identique à la précédente (« Réessayez dans un instant »), est présentée.
+      .onChange(of: deletion?.revision) {
+        outcome = deletion.flatMap(AccountDeletionOutcome.init)
       }
       .alert(outcome?.title ?? "", isPresented: isPresented, presenting: outcome) { outcome in
-        switch outcome {
-        case .failed(.unknown):
+        switch outcome.kind {
+        case .doubt:
           Button("Réessayer") { Task { await deletion?.retry() } }
             .accessibilityIdentifier("retryDeletion")
           Button("Annuler", role: .cancel) { Task { await deletion?.cancel() } }
             .accessibilityIdentifier("abandonDeletion")
-        case .deleted, .failed:
+        case .acknowledgement:
           Button("OK", role: .cancel) { deletion?.acknowledge() }
             .accessibilityIdentifier("acknowledgeDeletion")
         }

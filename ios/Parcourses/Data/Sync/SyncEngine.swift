@@ -89,6 +89,8 @@ actor SyncEngine {
   /// Suppression du compte en cours (#68 §5.3) : aucune passe ne démarre, aucun réveil n'est planifié. Les demandes
   /// sont retenues et partent à la reprise.
   private(set) var isSuspended: Bool
+  /// Arrêté pour de bon : le moteur d'un compte supprimé, remplacé par un neuf.
+  private(set) var isStopped = false
   /// Une erreur serveur a retenu la file : le prochain succès prouve la reprise et libère les lignes mises de côté.
   /// En mémoire : après un relancement pendant la panne, une ligne attend au pire la fin de son délai.
   private var isServerOutageSuspected = false
@@ -124,11 +126,19 @@ actor SyncEngine {
   }
 
   /// Une session valide est peut-être revenue, ou la suppression du compte est abandonnée : lève la suspension.
+  /// Sans effet après `stop()`.
   func resume() {
+    guard !isStopped else { return }
     isSuspended = false
     isWaitingForSession = false
     pullBackoffUntil = nil
     kick(pull: true)
+  }
+
+  /// Arrêt définitif, avant la purge d'un compte supprimé : ce moteur ne repartira plus.
+  func stop() async {
+    isStopped = true
+    await suspend()
   }
 
   /// Arrête la synchronisation avant une suppression de compte et attend la fin de la passe en cours, interrompue
@@ -338,7 +348,7 @@ actor SyncEngine {
       isWaitingForSession = false
       // Pendant la reprise, une nouvelle erreur attend le délai : pas de boucle serrée.
       if recovering { registerTransientFailure() } else { isRunRequested = true }
-    case .unauthorized: isWaitingForSession = true
+    case .unauthorized, .accountGone: isWaitingForSession = true
     default: registerTransientFailure()
     }
     return .stop
@@ -456,7 +466,7 @@ actor SyncEngine {
     _ error: RemoteError, for work: OutboxWork, singleChecks: inout Set<UUID>
   ) async throws -> Next {
     switch error {
-    case .accountChanged, .unauthorized, .network, .keychainLocked:
+    case .accountChanged, .unauthorized, .network, .keychainLocked, .accountGone, .notSent:
       return stop(on: error)
 
     case .unexpected:
@@ -689,7 +699,7 @@ actor SyncEngine {
       guard !Task.isCancelled else { return }
       Self.logger.notice("Descente reportée : \(String(describing: error), privacy: .private)")
       switch error as? RemoteError {
-      case .accountChanged, .unauthorized:
+      case .accountChanged, .unauthorized, .accountGone:
         _ = stop(on: error)
       default:
         // N'arrête pas l'envoi : seul un nouvel essai de descente attend.

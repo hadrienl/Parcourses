@@ -270,6 +270,13 @@ private actor SwitchableGateway: RemoteGateway {
   func signOutLocally() async throws {
     try await remote.signOutLocally()
   }
+  func localSessionAccountId() async throws -> UUID? {
+    try await remote.localSessionAccountId()
+  }
+  func confirmAccountDeleted() async throws -> Bool {
+    try check()
+    return try await remote.confirmAccountDeleted()
+  }
   func serverDate() async throws -> Date? {
     try check()
     return try await remote.serverDate()
@@ -644,6 +651,7 @@ private final class IntegrationDeletionHost: AccountDeletionHost {
     let engine = engine
     Task { await engine.resume() }
   }
+  func stopSync() async { await engine.stop() }
   func endShopping() {
     // Pas de Live Activity ni de mode courses dans ce test.
   }
@@ -718,7 +726,8 @@ struct AccountDeletionIntegrationTests {
       isOnline: { true })
     let host = IntegrationDeletionHost(engine: engine)
     deletion.host = host
-    await deletion.delete()
+    // `host` est une référence faible de la suppression : il doit vivre jusqu'à la fin.
+    await withExtendedLifetime(host) { await deletion.delete() }
 
     #expect(deletion.status == .deleted)
     #expect(device.flags.load() == nil)
@@ -743,17 +752,19 @@ struct AccountDeletionIntegrationTests {
     try device.keychain.removeAll()
   }
 
-  /// Les deux signaux qui lèvent le doute après une réponse perdue : session refusée et compte introuvable.
-  @Test func afterDeletionTheSessionIsRefused() async throws {
+  /// Les preuves qui lèvent le doute après une réponse perdue : rafraîchissement refusé, compte introuvable.
+  @Test func afterDeletionTheServerProvesIt() async throws {
     let device = try makeDevice()
-    try await device.gateway.ensureSession()
+    let id = try await device.gateway.ensureSession()
+    #expect(try await device.gateway.localSessionAccountId() == id)
+    #expect(try await device.gateway.confirmAccountDeleted() == false)
     try await device.gateway.deleteAccount()
-    // Compte introuvable (`auth.user()` : 403 `user_not_found`).
-    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.verifySession() }
-    // Rejouée, la suppression rafraîchit d'abord : jeton refusé (400 `refresh_token_not_found`).
-    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.deleteAccount() }
-    await #expect(throws: RemoteError.unauthorized) { try await device.gateway.verifySession() }
+    // Rafraîchissement forcé : 400 `refresh_token_not_found`.
+    #expect(try await device.gateway.confirmAccountDeleted() == true)
+    // Rejouée, la suppression échoue (rafraîchissement refusé, ou session déjà oubliée par le SDK) sans créer de compte.
+    await #expect(throws: RemoteError.self) { try await device.gateway.deleteAccount() }
     try await device.gateway.signOutLocally()
+    #expect(try await device.gateway.localSessionAccountId() == nil)
     try device.keychain.removeAll()
   }
 

@@ -69,11 +69,14 @@ final class SyncRuntime {
     Self.scheduleBackgroundRefresh()
   }
 
-  /// Moteur remplacé après une suppression : il reste suspendu et n'écoute plus le réseau.
-  func stop() {
+  /// Avant la purge du compte supprimé : arrêt définitif. Le moteur ne repart plus, même sur un
+  /// `sessionDidChange` tardif, et n'écoute plus le réseau.
+  func stop() async {
     isStopped = true
     networkTask?.cancel()
     networkTask = nil
+    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
+    await engine.stop()
   }
 
   func foreground() {
@@ -121,11 +124,16 @@ final class SyncRuntime {
 }
 
 /// Temps d'exécution demandé au système, rendu une seule fois.
-private final class BackgroundActivity {
+final class BackgroundActivity {
+  private let name: String
   private var identifier = UIBackgroundTaskIdentifier.invalid
 
+  init(name: String = "sync") {
+    self.name = name
+  }
+
   func begin(onExpiration: @escaping () -> Void) {
-    identifier = UIApplication.shared.beginBackgroundTask(withName: "sync") { [self] in
+    identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [self] in
       onExpiration()
       end()
     }
