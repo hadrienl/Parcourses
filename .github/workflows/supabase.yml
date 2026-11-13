@@ -7,6 +7,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/categories/**"
+      - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".sqlfluff"
@@ -18,6 +19,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/categories/**"
+      - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".github/workflows/supabase.yml"
@@ -70,6 +72,9 @@ jobs:
 
       - name: Migration des catégories conforme à shared/categories
         run: deno run --allow-read scripts/check-categories.ts
+
+      - name: Catalogue de départ conforme à shared/catalog et au classifieur
+        run: deno run --allow-read scripts/check-starter-catalog.ts
 
       - name: Démarrage
         run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
