@@ -324,9 +324,9 @@ final class DeletionHarness: AccountDeletionHost {
     #expect(try count(GraphSnapshot.self) == 0, sourceLocation: sourceLocation)
     #expect(try count(Product.self) == 0, sourceLocation: sourceLocation)
     let seeded = try CategorySeed.bundled().categories.count
-    #expect(try count(Category.self) == seeded, sourceLocation: sourceLocation)
+    #expect(try count(SchemaV1.Category.self) == seeded, sourceLocation: sourceLocation)
     #expect(try count(CategorySeedState.self) == 1, sourceLocation: sourceLocation)
-    let categories = try ModelContext(container).fetch(FetchDescriptor<Category>())
+    let categories = try ModelContext(container).fetch(FetchDescriptor<SchemaV1.Category>())
     #expect(categories.allSatisfy { $0.remoteId == nil }, sourceLocation: sourceLocation)
     for key in UserDefaultsSyncCursors.keys {
       #expect(defaults.object(forKey: key) == nil, "\(key)", sourceLocation: sourceLocation)
