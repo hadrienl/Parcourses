@@ -159,8 +159,14 @@ class AccountDeletion(
             return AccountDeletionOutcome.Failed(AccountDeletionError.Unknown, retrySoon = true)
         }
         return when (verify(remote, marker)) {
-            ServerState.Gone -> deleted()
-            ServerState.Exists, ServerState.NoSession -> abandon(AccountDeletionOutcome.Cancelled)
+            ServerState.Gone -> {
+                deleted()
+            }
+
+            ServerState.Exists, ServerState.NoSession -> {
+                abandon(AccountDeletionOutcome.Cancelled)
+            }
+
             ServerState.Refused, ServerState.NotSent, ServerState.Unreachable -> {
                 AccountDeletionOutcome.Failed(AccountDeletionError.Unknown)
             }
@@ -178,14 +184,22 @@ class AccountDeletion(
                 return finish(AccountDeletionOutcome.Deleted)
             }
             return when (deleteOnServer(remote, marker)) {
-                ServerState.Gone -> deleted()
+                ServerState.Gone -> {
+                    deleted()
+                }
 
                 // Pas de session pour atteindre le serveur : l'appareil seul (C3).
-                ServerState.NoSession -> finish(AccountDeletionOutcome.DeletedLocally)
+                ServerState.NoSession -> {
+                    finish(AccountDeletionOutcome.DeletedLocally)
+                }
 
-                ServerState.Refused -> abandon(AccountDeletionOutcome.Failed(AccountDeletionError.Refused))
+                ServerState.Refused -> {
+                    abandon(AccountDeletionOutcome.Failed(AccountDeletionError.Refused))
+                }
 
-                ServerState.NotSent -> abandon(AccountDeletionOutcome.Failed(AccountDeletionError.Offline))
+                ServerState.NotSent -> {
+                    abandon(AccountDeletionOutcome.Failed(AccountDeletionError.Offline))
+                }
 
                 ServerState.Exists, ServerState.Unreachable -> {
                     AccountDeletionOutcome.Failed(AccountDeletionError.Unknown)
@@ -234,7 +248,9 @@ class AccountDeletion(
     ): ServerState {
         when (localSession(remote, marker)) {
             LocalSession.None -> return ServerState.NoSession
+
             LocalSession.Gone -> return ServerState.Gone
+
             // Session présente, ou illisible pour l'instant : la RPC dira le reste.
             LocalSession.Present, LocalSession.Unknown -> Unit
         }

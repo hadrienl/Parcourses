@@ -255,8 +255,8 @@ class AppContainer(
     suspend fun resumableVisit(expiry: Duration = ShoppingTimings().expiry): ResumableVisit? {
         // Suppression interrompue : la visite va être effacée, elle n'est pas rouverte (ni abandonnée vers le serveur).
         // Le drapeau est lu sur le disque : jamais sur le fil principal, d'où vient la reprise au lancement.
-        if (withContext(IO) { deletionFlag.isPending }) return null
-        val visit = visits.openVisit() ?: return null
+        val pending = withContext(IO) { deletionFlag.isPending }
+        val visit = (if (pending) null else visits.openVisit()) ?: return null
         val now = Clock.System.now()
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
         val listExists = lists.list(visit.listId) != null

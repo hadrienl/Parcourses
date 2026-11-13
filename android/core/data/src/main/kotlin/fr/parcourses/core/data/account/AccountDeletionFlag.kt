@@ -70,7 +70,11 @@ class SharedPreferencesAccountDeletionFlag(
     }
 
     override fun write(marker: AccountDeletionMarker) {
-        val attempt = marker.lastAttemptAt?.toEpochMilliseconds()?.toString().orEmpty()
+        val attempt =
+            marker.lastAttemptAt
+                ?.toEpochMilliseconds()
+                ?.toString()
+                .orEmpty()
         val value = listOf(marker.phase.wireName, attempt, marker.accountId.orEmpty()).joinToString(SEPARATOR)
         check(prefs.edit().putString(KEY, value).commit()) { "Drapeau de suppression non écrit" }
     }

@@ -193,7 +193,15 @@ class ShoppingLiveUpdates(
         waiting: MutableList<CompletableDeferred<Unit>>,
     ) {
         request.done?.let(waiting::add)
+        if (isIgnoredWhileEnded(request.command)) return
         guarded(request.command.javaClass.simpleName) { apply(request.command) }
+    }
+
+    /** Arrêtée par [endAll] : seule la reprise compte ; l'écran et l'action de la notification sont ignorés. */
+    private fun isIgnoredWhileEnded(command: Command): Boolean {
+        if (!ended || command == Command.Resume) return false
+        if (command is Command.Publish || command is Command.CheckNext) log.info("Live Update arrêtée : ignoré")
+        return true
     }
 
     @Suppress("TooGenericExceptionCaught") // La boucle ne doit jamais s'arrêter ; l'échec est journalisé.
@@ -215,10 +223,6 @@ class ShoppingLiveUpdates(
     // region Commandes
 
     private suspend fun apply(command: Command) {
-        if (ended && command != Command.Resume) {
-            if (command is Command.Publish || command is Command.CheckNext) log.info("Live Update arrêtée : ignoré")
-            return
-        }
         when (command) {
             is Command.Publish -> {
                 accept(command.state)
@@ -257,11 +261,7 @@ class ShoppingLiveUpdates(
             }
 
             Command.EndAll -> {
-                ended = true
-                current = null
-                posted = null
-                lastPostAt = null
-                notifier.cancel()
+                stop()
             }
 
             Command.Resume -> {
@@ -270,6 +270,15 @@ class ShoppingLiveUpdates(
                 restored()
             }
         }
+    }
+
+    /** Suppression des données : notification retirée, état oublié, plus rien jusqu'à [resume]. */
+    private fun stop() {
+        ended = true
+        current = null
+        posted = null
+        lastPostAt = null
+        notifier.cancel()
     }
 
     /** L'écran d'une autre visite ne remplace la notification que si cette visite est bien ouverte. */

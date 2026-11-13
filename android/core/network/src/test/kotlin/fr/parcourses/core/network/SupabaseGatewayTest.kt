@@ -191,7 +191,10 @@ class SupabaseGatewayTest {
             val refused = expectError<RemoteError.Unauthorized> { gateway.verifySession(refresh = true) }
             assertEquals("refresh_token_not_found", refused.authCode)
             assertEquals(refreshes + 1, server.refreshes)
-            assertEquals("refresh_token_not_found", expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }.authCode)
+            assertEquals(
+                "refresh_token_not_found",
+                expectError<RemoteError.Unauthorized> { gateway.deleteAccount() }.authCode,
+            )
             assertEquals(1, server.signUps)
         }
 
@@ -452,11 +455,17 @@ class SupabaseGatewayTest {
             for (cause in listOf(UnknownHostException("h"), ConnectException("refused"), NoRouteToHostException("r"))) {
                 // supabase-kt ne garde que le message : c'est ce que l'intercepteur produit qui doit suffire.
                 server.failWith = markIfNotSent(cause)
-                assertTrue(cause.javaClass.simpleName, expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent)
+                assertTrue(
+                    cause.javaClass.simpleName,
+                    expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent,
+                )
             }
             for (cause in listOf(SocketTimeoutException("t"), IOException("connection reset"))) {
                 server.failWith = markIfNotSent(cause)
-                assertFalse(cause.javaClass.simpleName, expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent)
+                assertFalse(
+                    cause.javaClass.simpleName,
+                    expectError<RemoteError.Network> { gateway.deleteAccount() }.notSent,
+                )
             }
         }
 

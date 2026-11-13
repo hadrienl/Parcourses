@@ -195,7 +195,13 @@ class AccountDeletionTest : DataTest() {
     private suspend fun assertDeletedAndStartedAfresh(old: Uuid) {
         assertNull(flag.read())
         for (table in personalTables) assertEquals(table, 0L, count(table))
-        assertEquals(CategorySeed.bundled().categories.size.toLong(), count("categories"))
+        assertEquals(
+            CategorySeed
+                .bundled()
+                .categories.size
+                .toLong(),
+            count("categories"),
+        )
         assertEquals(1L, count("category_seed_state"))
         assertNull(cursors.lists)
         assertNull(cursors.items)
@@ -682,8 +688,7 @@ class AccountDeletionTest : DataTest() {
     fun killedOnceTheServerHadDeleted() = killedThenRelaunched { gateway.lostDeleteResponse = Killed() }
 
     @Test
-    fun killedAfterThePurgeBeforeSigningOut() =
-        killedThenRelaunched { gateway.failNext("signOutLocally", Killed()) }
+    fun killedAfterThePurgeBeforeSigningOut() = killedThenRelaunched { gateway.failNext("signOutLocally", Killed()) }
 
     @Test
     fun killedJustBeforeTheFlagWasErased() = killedThenRelaunched { flag.killOnClear = true }

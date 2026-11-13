@@ -1,6 +1,7 @@
 package fr.parcourses.feature.shopping.live
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -102,6 +103,8 @@ class SharedPreferencesLiveUpdatePreferences(
         get() = prefs.getBoolean(KEY_ASKED, false)
         set(value) = prefs.edit { putBoolean(KEY_ASKED, value) }
 
+    // `edit(commit = true) {}` de KTX ne rend pas le résultat : un échec doit lever (la suppression garde son drapeau).
+    @SuppressLint("UseKtx")
     override fun clear() {
         check(prefs.edit().clear().commit()) { "Préférences de la Live Update non effacées" }
     }

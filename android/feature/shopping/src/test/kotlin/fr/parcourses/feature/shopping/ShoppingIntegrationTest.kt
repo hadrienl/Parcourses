@@ -339,6 +339,7 @@ class ShoppingIntegrationTest : ShoppingTest() {
             val flag = InMemoryAccountDeletionFlag()
             val remote = DeletionGuardedGateway(createInMemorySupabaseGateway(config!!), flag)
             val cursors = InMemorySyncCursors()
+
             fun newEngine() =
                 SyncEngine(
                     remote,
