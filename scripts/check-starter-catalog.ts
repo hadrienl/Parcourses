@@ -4,7 +4,9 @@
 // - le classifieur de référence (shared/reference/classify.ts), celui des apps, range chaque libellé dans la
 //   catégorie déclarée : un produit publié a le rayon que l'app lui donnerait elle-même ;
 // - deux libellés n'ont jamais la même forme normalisée par le serveur (public.normalize_label : minuscules, sans
-//   accents, espaces réduits ; pas de singulier).
+//   accents, espaces réduits ; pas de singulier) ;
+// - chaque libellé est publiable tel quel : 200 caractères au plus, sans espace en tête, en fin ni doublé, et il passe
+//   le filtre de catalog.is_publishable (une approximation est vérifiée ici, le test pgTAP 14 vérifie la vraie).
 // Un changement du fichier partagé impose une nouvelle migration : copier la précédente, puis --write.
 // Ne jamais lancer --write sur une migration déjà appliquée (la CI refuse sa modification).
 //
@@ -14,11 +16,11 @@
 
 import { Classifier } from "../shared/reference/classify.ts";
 
-const SOURCE = "shared/catalog/starter.fr.json";
-const CATEGORIES = "shared/categories/categories.json";
+const SOURCE = new URL("../shared/catalog/starter.fr.json", import.meta.url);
+const CATEGORIES = new URL("../shared/categories/categories.json", import.meta.url);
 const MIGRATIONS = new URL("../supabase/migrations/", import.meta.url);
-export const START = "v_starter constant jsonb := $json$[\n";
-export const END = "  ]$json$;";
+export const START = "as $f$\n  select $json$[\n";
+export const END = "  ]$json$::jsonb;";
 
 type Entry = { label: string; category: string };
 
@@ -40,7 +42,13 @@ for (const p of products) {
   }
   const got = classifier.classify(p.label).category_id;
   if (got !== p.category) errors.push(`${p.label} : déclaré ${p.category}, le classifieur des apps dit ${got}`);
+  if (p.label.length > 200 || p.label !== p.label.trim() || /\s{2,}/.test(p.label)) {
+    errors.push(`« ${p.label} » : libellé trop long ou espaces superflus`);
+  }
   const norm = serverNorm(p.label);
+  if (!/[\p{L}\p{N}]/u.test(norm) || /(:\/\/|www\.|@|[0-9]{5,}|\bat\b|\barobase\b)/.test(norm)) {
+    errors.push(`${p.label} : refusé par le filtre de publication`);
+  }
   const other = forms.get(norm);
   if (other) errors.push(`${p.label} et ${other} : même forme normalisée « ${norm} »`);
   forms.set(norm, p.label);
@@ -65,7 +73,7 @@ if (Deno.args.includes("--write")) {
   await Deno.writeTextFile(url, sql.slice(0, from) + expected + sql.slice(to));
   console.log(`${name} régénérée (${products.length} produits).`);
 } else if (sql.slice(from, to) !== expected) {
-  console.error(`${name} ne correspond pas à ${SOURCE}. Écrire une nouvelle migration, puis lancer --write.`);
+  console.error(`${name} ne correspond pas à shared/catalog/starter.fr.json. Écrire une nouvelle migration, puis lancer --write.`);
   Deno.exit(1);
 } else {
   console.log(`Catalogue de départ à jour : ${products.length} produits.`);

@@ -138,13 +138,13 @@ select ok(not catalog.is_publishable('commande sur monsite.fr') and not catalog.
           'domaine et code postal refusés');
 -- Libellé publié nettoyé : tabulation et espaces répétés ramenés à un espace.
 select tests.authenticate_as(:'alice');
-select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\tchiches', 'category_slug', 'savory-grocery')));
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Fèves\tsèches', 'category_slug', 'savory-grocery')));
 select tests.authenticate_as(:'bob');
-select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\tchiches', 'category_slug', 'savory-grocery')));
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Fèves\tsèches', 'category_slug', 'savory-grocery')));
 select tests.authenticate_as(:'dave');
-select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Pois\t chiches', 'category_slug', 'savory-grocery')));
+select * from public.resolve_products(jsonb_build_array(jsonb_build_object('name', E'Fèves\t sèches', 'category_slug', 'savory-grocery')));
 select tests.clear_authentication();
-select is((select name from public.products where normalized_name = 'pois chiches'), 'Pois chiches',
+select is((select name from public.products where normalized_name = 'feves seches'), 'Fèves sèches',
           'libellé publié sans caractère de contrôle');
 
 -- 6. Suppression d'un compte : ses revendications partent, un produit publié reste.

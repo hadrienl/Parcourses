@@ -182,24 +182,38 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
   tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
 - **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
-  180 jours dont le compte n'a plus d'article qui renvoie au produit, puis (depuis le lot S2) **produits privés
-  orphelins** : sans revendication, ni article, ni coche, ni arête, ni entrée, 10 000 au plus par passage. La forme
-  normalisée d'un produit privé ne reste donc pas en base après la suppression du dernier compte qui l'avait saisie
-  (#68). Les candidats sont verrouillés (`for update skip locked` : une revendication en cours garde son produit),
-  puis la suppression revérifie chaque condition. Cette suppression suppose que les apps ne gardent plus en cache
-  l'id d'un produit non publié (lot apps de #69, cache vidé même sur un catalogue vide) : sinon un article envoyé
-  avec un produit disparu serait refusé (`23503`). À appliquer sur l'hébergé après la mise à jour des apps.
+  180 jours dont le compte n'a plus d'article qui renvoie au produit, et revendications laissées sur un produit
+  déjà publié ; puis (depuis le lot S2) **produits privés que plus aucun compte n'a** : sans revendication, ni
+  article, ni coche, 10 000 au plus par passage. Leurs arêtes et entrées du graphe partent avec eux (cascade) :
+  elles ne sortaient jamais du serveur et n'apprennent plus rien à personne. La forme normalisée d'un libellé ne
+  reste donc pas en base une fois que plus aucun compte ne l'a (#68 : suppression du compte ou purge des comptes
+  inactifs, puis la nuit suivante).
+  - Concurrence : les candidats sont verrouillés (`for update skip locked`), puis la suppression revérifie chaque
+    condition avec un instantané neuf. Une écriture dont le contrôle de clé étrangère est passé avant garde son
+    produit. Dans l'autre ordre (la purge verrouille d'abord, 04:17 UTC), l'écriture attend puis échoue en `23503` :
+    `resolve_products` se réessaie et recrée le produit ; un article ou une coche portant ce produit est refusé.
+  - Cette suppression suppose que les apps ne proposent plus l'id d'un produit non publié (lot apps de #69 : cache
+    vidé même sur un catalogue vide). À appliquer sur l'hébergé après la mise à jour des apps.
+  - **Limite connue** : un article garde sur l'appareil le `productId` d'un produit privé qu'il a résolu. Si le
+    compte disparaît côté serveur (purge des comptes anonymes inactifs, #68) puis que l'app revient, `AccountRekey`
+    renvoie l'article avec ce `productId`, déjà purgé : `23503`, l'article est mis de côté après 8 essais. Piste : à
+    la reprise de compte, retirer le `productId` des articles dont le produit n'est pas dans le cache publié, pour
+    qu'ils soient résolus à nouveau.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
   exécution, tous les produits existants deviennent privés.
 - **Catalogue de départ** (lot S2, `…_starter_catalog.sql`) : 150 produits courants publiés d'emblée, la liste de
   `shared/catalog/starter.fr.json`. `scripts/check-starter-catalog.ts` vérifie en CI que la migration la reprend
-  telle quelle, que le classifieur des apps (`shared/reference/classify.ts`) range chaque libellé dans sa
-  catégorie, et qu'aucune forme normalisée n'est en double. Une forme déjà en base et privée est publiée sous ce
+  telle quelle (`catalog.starter_catalog()`), que le classifieur des apps (`shared/reference/classify.ts`) range
+  chaque libellé dans sa catégorie, qu'aucune forme normalisée n'est en double et que chaque libellé est publiable.
+  `catalog.publish_starter(jsonb)` publie la liste (rejouable).
+  Le serveur ne passe pas au singulier : « Tomate » et « Tomates » restent deux produits, l'autocomplétion oriente
+  vers la forme du catalogue. Une forme déjà en base et privée est publiée sous ce
   libellé et cette catégorie ; une forme déjà publiée par vote n'est pas touchée. Un changement de la liste impose
   une nouvelle migration (copier la précédente, puis `--write`).
-- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée. Les helpers de test
+- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée, tous repris par le
+  catalogue de départ (il ne sert plus qu'à une base sans cette migration). Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
 
 ## Types et contrat

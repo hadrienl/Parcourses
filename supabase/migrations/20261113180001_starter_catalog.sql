@@ -4,19 +4,21 @@
 -- 150 produits courants, aux libellés génériques relus, sont publiés d'emblée. La liste vient de
 -- shared/catalog/starter.fr.json ; scripts/check-starter-catalog.ts vérifie en CI qu'elle est reprise ici telle
 -- quelle, que le classifieur des apps range chaque libellé dans sa catégorie, et qu'aucune forme n'est en double.
--- Une forme déjà en base et privée est publiée sous ce libellé et cette catégorie (ses revendications partent) ;
--- une forme déjà publiée, par vote, n'est pas touchée.
--- Les produits privés orphelins sont désormais supprimés par la purge nocturne : les apps vident leur cache des
--- produits non publiés depuis le lot apps de #69.
+-- La purge nocturne supprime désormais les produits privés que plus aucun compte n'a (avec leurs données du graphe).
 
 -- Aucun job du graphe pendant la migration : les instantanés sont recalculés à la fin. Même ordre de verrous que
 -- publish_snapshots (publication, puis apprentissage).
 select pg_advisory_xact_lock(hashtext('graph-snapshot'));
 select pg_advisory_xact_lock(hashtext('graph-process'));
 
-do $$
-declare
-  v_starter constant jsonb := $json$[
+-- Liste du catalogue de départ : [{ "label", "category" }], générée depuis shared/catalog/starter.fr.json.
+create or replace function catalog.starter_catalog()
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $f$
+  select $json$[
 {"label":"Pommes","category":"produce"},
 {"label":"Bananes","category":"produce"},
 {"label":"Oranges","category":"produce"},
@@ -167,39 +169,63 @@ declare
 {"label":"Croquettes","category":"pets"},
 {"label":"Pâtée pour chat","category":"pets"},
 {"label":"Litière","category":"pets"}
-  ]$json$;
+  ]$json$::jsonb;
+$f$;
+
+-- Publie p_items ([{ "label", "category" }]) : une forme absente est créée publiée ; une forme privée est publiée sous
+-- ce libellé et cette catégorie, et ses revendications partent ; une forme déjà publiée (par vote ou par une liste
+-- précédente) n'est pas touchée. Catégorie inconnue : erreur, rien n'est publié. Rejouable. Renvoie le nombre de
+-- produits créés ou publiés.
+create or replace function catalog.publish_starter(p_items jsonb)
+returns integer
+language plpgsql
+volatile
+set search_path = ''
+as $$
+declare
+  v_published integer;
 begin
   if exists (
-    select 1 from jsonb_array_elements(v_starter) as e
+    select 1 from jsonb_array_elements(p_items) as e
     where not exists (select 1 from public.categories as c where c.slug = e ->> 'category')
   ) then
     raise exception 'starter catalog: unknown category';
   end if;
 
   -- Ordre des formes : mêmes verrous que resolve_products, sans interblocage avec un appel concurrent.
-  insert into public.products as p (name, normalized_name, category_id, published_at)
-  select s.label, public.normalize_label(s.label), c.id, now()
-  from jsonb_to_recordset(v_starter) as s (label text, category text)
-  inner join public.categories as c on c.slug = s.category
-  order by public.normalize_label(s.label)
-  on conflict (normalized_name) do update
-    set name = excluded.name, category_id = excluded.category_id, published_at = excluded.published_at
-    where p.published_at is null;
+  with published as (
+    insert into public.products as p (name, normalized_name, category_id, published_at)
+    select s.label, public.normalize_label(s.label), c.id, now()
+    from jsonb_to_recordset(p_items) as s (label text, category text)
+    inner join public.categories as c on c.slug = s.category
+    order by public.normalize_label(s.label)
+    on conflict (normalized_name) do update
+      set name = excluded.name, category_id = excluded.category_id, published_at = excluded.published_at
+      where p.published_at is null
+    returning p.id
+  )
+  select count(*)::integer into v_published from published;
 
-  -- Revendications des produits publiés ici : elles ne servent plus.
+  -- Revendications des produits publiés : elles ne servent plus (la purge rattrape celles d'un appel concurrent).
   delete from catalog.product_claims as c
   using public.products as p
   where p.id = c.product_id and p.published_at is not null;
+  return v_published;
 end;
 $$;
 
 -- Purge quotidienne (job catalog-claims-purge, inchangé) :
--- 1. revendications de plus de 180 jours dont le compte n'a plus aucun article qui renvoie au produit ;
--- 2. produits privés orphelins : sans revendication, ni article, ni coche, ni arête, ni entrée. Leur forme
---    normalisée ne reste donc pas en base après la suppression du dernier compte qui l'avait saisie (#68).
---    Les candidats sont verrouillés (skip locked : une revendication en cours garde son produit), puis la
---    suppression revérifie chaque condition avec un instantané neuf : une revendication ou un article validé entre
---    les deux garde aussi son produit. 10 000 produits au plus par passage.
+-- 1. revendications de plus de 180 jours dont le compte n'a plus aucun article qui renvoie au produit, et
+--    revendications d'un produit déjà publié (laissées par un appel concurrent d'une publication) ;
+-- 2. produits privés que plus aucun compte n'a : sans revendication, ni article, ni coche. Leurs arêtes et entrées
+--    du graphe partent avec eux : elles ne sortaient jamais du serveur (instantanés limités aux produits publiés), et
+--    n'apprennent plus rien à personne. La forme normalisée d'un libellé ne reste donc pas en base après la
+--    suppression du dernier compte qui l'avait saisi (#68).
+--    Les candidats sont verrouillés (skip locked : une revendication, un article ou une coche dont le contrôle de clé
+--    étrangère est déjà passé garde son produit), puis la suppression revérifie chaque condition avec un instantané
+--    neuf. Dans l'autre ordre (la purge verrouille d'abord), l'écriture concurrente attend et échoue en 23503 :
+--    resolve_products se réessaie et recrée le produit ; un article ou une coche est refusé (voir docs/data-model.md).
+--    10 000 produits au plus par passage.
 -- Renvoie le nombre de lignes supprimées (revendications + produits).
 create or replace function catalog.purge_claims(p_now timestamptz default now())
 returns integer
@@ -213,16 +239,19 @@ declare
   v_candidates uuid[];
 begin
   delete from catalog.product_claims as c
-  where c.claimed_at < p_now - interval '180 days'
-    and not exists (
-      select 1
-      from public.list_items as i
-      inner join public.lists as l on l.id = i.list_id
-      where i.product_id = c.product_id and l.owner_id = c.user_id
-    );
+  where (
+      c.claimed_at < p_now - interval '180 days'
+      and not exists (
+        select 1
+        from public.list_items as i
+        inner join public.lists as l on l.id = i.list_id
+        where i.product_id = c.product_id and l.owner_id = c.user_id
+      )
+    )
+    or exists (select 1 from public.products as p where p.id = c.product_id and p.published_at is not null);
   get diagnostics v_claims = row_count;
 
-  select array_agg(o.id) into v_candidates
+  select array_agg(o.id order by o.id) into v_candidates
   from (
     select p.id
     from public.products as p
@@ -230,33 +259,34 @@ begin
       and not exists (select 1 from catalog.product_claims as c where c.product_id = p.id)
       and not exists (select 1 from public.list_items as i where i.product_id = p.id)
       and not exists (select 1 from public.checks as k where k.product_id = p.id)
-      and not exists (select 1 from public.store_edges as e where e.product_a = p.id)
-      and not exists (select 1 from public.store_edges as e where e.product_b = p.id)
-      and not exists (select 1 from public.store_entries as n where n.product_id = p.id)
     order by p.id
     limit 10000
     for update skip locked
   ) as o;
 
-  delete from public.products as p
-  where p.id = any (coalesce(v_candidates, '{}'))
-    and p.published_at is null
-    and not exists (select 1 from catalog.product_claims as c where c.product_id = p.id)
-    and not exists (select 1 from public.list_items as i where i.product_id = p.id)
-    and not exists (select 1 from public.checks as k where k.product_id = p.id)
-    and not exists (select 1 from public.store_edges as e where e.product_a = p.id)
-    and not exists (select 1 from public.store_edges as e where e.product_b = p.id)
-    and not exists (select 1 from public.store_entries as n where n.product_id = p.id);
-  get diagnostics v_products = row_count;
+  -- Les produits sont revérifiés dans une CTE : leurs arêtes et entrées ne partent qu'avec eux.
+  with gone as (
+    delete from public.products as p
+    where p.id = any (coalesce(v_candidates, '{}'))
+      and p.published_at is null
+      and not exists (select 1 from catalog.product_claims as c where c.product_id = p.id)
+      and not exists (select 1 from public.list_items as i where i.product_id = p.id)
+      and not exists (select 1 from public.checks as k where k.product_id = p.id)
+    returning p.id
+  )
+  select count(*)::integer into v_products from gone;
   return v_claims + v_products;
 end;
 $$;
 
+revoke all on function catalog.starter_catalog() from public, anon, authenticated;
+revoke all on function catalog.publish_starter(jsonb) from public, anon, authenticated;
 revoke all on function catalog.purge_claims(timestamptz) from public, anon, authenticated;
 
--- Données existantes, projet hébergé compris : instantanés recalculés à minuit, avec les produits publiés ici.
+-- Données existantes, projet hébergé compris : catalogue publié, puis instantanés recalculés à minuit avec lui.
 do $$
 begin
+  perform catalog.publish_starter(catalog.starter_catalog());
   update public.store_graph_snapshots set checked_at = '-infinity';
   perform graph.publish_daily_snapshots(now());
 end;
