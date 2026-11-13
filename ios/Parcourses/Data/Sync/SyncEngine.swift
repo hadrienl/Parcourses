@@ -86,6 +86,9 @@ actor SyncEngine {
 
   /// Pas de session valide : seule une passe forcée tente d'en retrouver une.
   private(set) var isWaitingForSession = false
+  /// Suppression du compte en cours (#68 §5.3) : aucune passe ne démarre, aucun réveil n'est planifié. Les demandes
+  /// sont retenues et partent à la reprise.
+  private(set) var isSuspended: Bool
   /// Une erreur serveur a retenu la file : le prochain succès prouve la reprise et libère les lignes mises de côté.
   /// En mémoire : après un relancement pendant la panne, une ligne attend au pire la fin de son délai.
   private var isServerOutageSuspected = false
@@ -110,8 +113,9 @@ actor SyncEngine {
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
     classify: @escaping @Sendable (String) -> PulledItemClassification,
-    dependencies: Dependencies = Dependencies()
+    dependencies: Dependencies = Dependencies(), suspended: Bool = false
   ) {
+    isSuspended = suspended
     self.gateway = gateway
     self.container = container
     self.cursors = cursors
@@ -119,11 +123,23 @@ actor SyncEngine {
     self.dependencies = dependencies
   }
 
-  /// Une session valide est peut-être revenue.
+  /// Une session valide est peut-être revenue, ou la suppression du compte est abandonnée : lève la suspension.
   func resume() {
+    isSuspended = false
     isWaitingForSession = false
     pullBackoffUntil = nil
     kick(pull: true)
+  }
+
+  /// Arrête la synchronisation avant une suppression de compte et attend la fin de la passe en cours, interrompue
+  /// comme à la fin du temps d'arrière-plan : la file reste intacte. Rien ne repart avant `resume()`.
+  func suspend() async {
+    isSuspended = true
+    wake?.cancel()
+    wake = nil
+    guard let runner else { return }
+    runner.cancel()
+    await runner.value
   }
 
   /// Vrai si le contexte de synchronisation tourne sur le thread principal.
@@ -138,7 +154,7 @@ actor SyncEngine {
       isPullRequested = true
       backoffUntil = nil
     }
-    guard runner == nil else { return }
+    guard runner == nil, !isSuspended else { return }
     runner = Task { await self.runLoop() }
   }
 
@@ -154,13 +170,15 @@ actor SyncEngine {
   }
 
   private func runLoop() async {
-    while isRunRequested, !Task.isCancelled {
+    while isRunRequested, !Task.isCancelled, !isSuspended {
       isRunRequested = false
       let pull = isPullRequested
       isPullRequested = false
       await pass(pull: pull)
     }
     runner = nil
+    // Suspendu : la demande attend `resume()`, sans réveil.
+    if isSuspended { return }
     // Une demande arrivée pendant une annulation n'est pas perdue : la nouvelle tâche n'est pas annulée.
     if isRunRequested {
       runner = Task { await self.runLoop() }

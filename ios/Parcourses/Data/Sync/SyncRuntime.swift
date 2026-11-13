@@ -13,20 +13,32 @@ final class SyncRuntime {
 
   private let engine: SyncEngine
   private let monitor: NetworkMonitor
+  private let deletionFlags: any AccountDeletionFlagStore
   private var networkTask: Task<Void, Never>?
+  /// Remplacé par un moteur neuf (suppression du compte) : plus rien ne doit le relancer.
+  private var isStopped = false
 
-  init(gateway: any RemoteGateway, container: ModelContainer) throws {
+  /// Le moteur naît suspendu si une suppression de compte est en cours (#68 §5.3) : il ne repart qu'avec `resume()`.
+  init(
+    gateway: any RemoteGateway, container: ModelContainer,
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+  ) throws {
     let monitor = NetworkMonitor()
     self.monitor = monitor
+    self.deletionFlags = deletionFlags
     engine = SyncEngine(
       gateway: gateway, container: container, cursors: UserDefaultsSyncCursors(),
       classify: try PulledItemClassifier.make(),
-      dependencies: SyncEngine.Dependencies(isOnline: { monitor.isOnline }))
+      dependencies: SyncEngine.Dependencies(isOnline: { monitor.isOnline }),
+      suspended: deletionFlags.isDeletionPending)
   }
+
+  /// Dernier état connu du réseau, optimiste avant le premier.
+  var isOnline: Bool { monitor.isOnline }
 
   /// Lancement : la première passe suit le premier état connu du réseau.
   func start() {
-    guard networkTask == nil else { return }
+    guard networkTask == nil, !isStopped else { return }
     let engine = engine
     let returns = monitor.returns()
     networkTask = Task {
@@ -35,10 +47,33 @@ final class SyncRuntime {
     foreground()
   }
 
-  /// À appeler dès qu'une session valide est disponible.
+  /// À appeler dès qu'une session valide est disponible. Sans effet pendant une suppression de compte : la
+  /// connexion lancée avant elle ne doit pas relancer le moteur.
   func sessionDidChange() {
+    guard !isStopped, !deletionFlags.isDeletionPending else { return }
     let engine = engine
     Task { await engine.resume() }
+  }
+
+  /// Suppression du compte : plus aucune passe, celle en cours comprise, ni tâche d'arrière-plan planifiée.
+  func suspend() async {
+    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
+    await engine.suspend()
+  }
+
+  /// Suppression abandonnée ou refusée : la synchronisation reprend où elle en était.
+  func resume() {
+    guard !isStopped else { return }
+    let engine = engine
+    Task { await engine.resume() }
+    Self.scheduleBackgroundRefresh()
+  }
+
+  /// Moteur remplacé après une suppression : il reste suspendu et n'écoute plus le réseau.
+  func stop() {
+    isStopped = true
+    networkTask?.cancel()
+    networkTask = nil
   }
 
   func foreground() {
@@ -69,7 +104,11 @@ final class SyncRuntime {
     }
   }
 
-  static func scheduleBackgroundRefresh() {
+  /// Jamais pendant une suppression de compte : la tâche réveillerait un moteur qui doit rester arrêté.
+  static func scheduleBackgroundRefresh(
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+  ) {
+    guard !deletionFlags.isDeletionPending else { return }
     let request = BGAppRefreshTaskRequest(identifier: backgroundTaskIdentifier)
     request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
     do {

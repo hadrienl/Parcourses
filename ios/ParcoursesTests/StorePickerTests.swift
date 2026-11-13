@@ -43,6 +43,8 @@ private final class FakeLocation: LocationProvider {
 }
 
 private actor FakeGateway: RemoteGateway {
+  func deleteAccount() async throws { throw RemoteError.unauthorized }
+  func signOutLocally() async throws {}
   func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
   func serverDate() async throws -> Date? { throw RemoteError.unauthorized }

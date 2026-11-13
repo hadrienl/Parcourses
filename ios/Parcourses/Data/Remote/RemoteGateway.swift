@@ -120,7 +120,8 @@ nonisolated enum VisitAccess: Sendable, Equatable {
 /// Accès distant de l'app. `SupabaseGateway` en est l'implémentation ; les tests fournissent une doublure.
 /// Toutes les écritures sont idempotentes : la file peut les rejouer. Elles lèvent `RemoteError`.
 nonisolated protocol RemoteGateway: Sendable {
-  /// Renvoie l'utilisateur courant, et crée un compte anonyme s'il n'y a pas de session.
+  /// Renvoie l'utilisateur courant, et crée un compte anonyme s'il n'y a pas de session. Pendant une suppression de
+  /// compte (drapeau `account.deletion`), n'en crée jamais : `unauthorized` sans session.
   @discardableResult
   func ensureSession(captchaToken: String?) async throws -> UUID
 
@@ -135,6 +136,13 @@ nonisolated protocol RemoteGateway: Sendable {
   func acknowledgeAccount(_ id: UUID) async throws
   /// Heure du serveur (en-tête HTTP `Date`), `nil` si la réponse n'en porte pas de lisible.
   func serverDate() async throws -> Date?
+
+  /// Supprime le compte de la session et toutes ses données serveur (RPC `delete_my_account`, #68). Rafraîchit
+  /// d'abord la session : le jeton obtenu permet de rejouer l'appel, idempotent, si la réponse se perd. Ne crée
+  /// jamais de compte. Après succès, la session est refusée : `verifySession` lève `unauthorized`.
+  func deleteAccount() async throws
+  /// Oublie la session dans le SDK, sans appel au serveur : elle n'y existe plus.
+  func signOutLocally() async throws
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws

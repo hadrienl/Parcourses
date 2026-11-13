@@ -22,12 +22,18 @@ actor SupabaseGateway: RemoteGateway {
   private let client: SupabaseClient
   private let rest: PostgrestClient
   private let store: any SecureStore
+  /// Suppression de compte en cours : `ensureSession` ne crée plus de compte (#68 §5.3).
+  private let deletionFlags: any AccountDeletionFlagStore
   /// Connexion en cours : l'acteur est réentrant, deux appels ne doivent pas créer deux comptes.
   private var signIn: Task<UUID, any Error>?
   private var categoryMap: CategoryMap?
 
-  init(configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore()) {
+  init(
+    configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore(),
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+  ) {
     self.store = store
+    self.deletionFlags = deletionFlags
     let client = SupabaseClient(
       supabaseURL: configuration.url,
       supabaseKey: configuration.publishableKey,
@@ -87,6 +93,27 @@ actor SupabaseGateway: RemoteGateway {
     try await mapped { try self.store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey) }
   }
 
+  func deleteAccount() async throws {
+    try await mapped {
+      // Le compte de la session, même s'il diffère du dernier connu : c'est celui que la personne utilise.
+      _ = try await self.existingSessionUser()
+      // Jeton neuf, valable une heure : un nouvel essai après une réponse perdue passe avec le même compte.
+      _ = try await self.client.auth.refreshSession()
+      // Réponse 204 sans corps. Idempotente : rejouée après succès, elle ne trouve plus rien et réussit.
+      _ = try await self.rest.rpc("delete_my_account").execute()
+    }
+  }
+
+  func signOutLocally() async throws {
+    categoryMap = nil
+    try await mapped {
+      // `LocalDataPurge` a déjà vidé le Keychain : sans session lisible, `signOut` ne contacte pas le serveur.
+      // S'il en restait une, le SDK la retire avant d'appeler `logout`, dont l'échec ne change rien.
+      try? await self.client.auth.signOut(scope: .local)
+      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
+    }
+  }
+
   func serverDate() async throws -> Date? {
     try await authorized {
       // Lecture minimale : seul l'en-tête compte, et il prouve que PostgREST répond.
@@ -128,6 +155,8 @@ actor SupabaseGateway: RemoteGateway {
 
   private func currentOrNewUser(captchaToken: String?) async throws -> UUID {
     let auth = client.auth
+    // Suppression en cours : un compte créé maintenant recevrait toutes les données locales (`AccountRekey`).
+    if deletionFlags.isDeletionPending { return try await existingSessionUser() }
     if auth.currentSession != nil {
       do {
         return try await auth.session.user.id

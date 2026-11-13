@@ -105,6 +105,11 @@ nonisolated struct UserDefaultsActivityDismissals: ActivityDismissals {
   func remember(_ visitId: UUID) {
     UserDefaults.standard.set(visitId.uuidString, forKey: Self.key)
   }
+
+  /// Suppression du compte : l'identifiant de la dernière visite écartée disparaît avec elle.
+  static func forget(in defaults: UserDefaults = .standard) {
+    defaults.removeObject(forKey: key)
+  }
 }
 
 /// ActivityKit réel. L'`Activity` n'est pas `Sendable` : on la retrouve par identifiant à chaque appel.

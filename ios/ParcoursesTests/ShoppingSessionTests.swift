@@ -63,6 +63,8 @@ private actor SnapshotGateway: RemoteGateway {
   }
   func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
+  func deleteAccount() async throws { throw RemoteError.unauthorized }
+  func signOutLocally() async throws {}
   func serverDate() async throws -> Date? { throw RemoteError.unauthorized }
   func saveList(_ list: ListUpsert) async throws { throw RemoteError.unauthorized }
   func deleteList(id: UUID) async throws { throw RemoteError.unauthorized }
