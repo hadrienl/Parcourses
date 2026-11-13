@@ -2,7 +2,12 @@ import Domain
 import Foundation
 import SwiftData
 
-/// Dépendances de l'app, construites une fois au lancement.
+extension Notification.Name {
+  /// Suppression du compte : le mode courses et le choix du magasin se ferment, sans clore la visite (#68 §5.3).
+  static let accountDeletionDidBegin = Notification.Name("app.parcourses.accountDeletionDidBegin")
+}
+
+/// Dépendances de l'app, construites au lancement, puis à nouveau après une suppression de compte (#68 §5.5).
 final class AppEnvironment {
   /// Retenu ici : un `ModelContext` ne garde pas son conteneur, et le fetch planterait après sa libération.
   private let container: ModelContainer
@@ -51,6 +56,31 @@ final class AppEnvironment {
     try categories.seedIfNeeded()
     self.categories = categories
     entryAnalyzer = try EntryAnalyzer()
+  }
+
+  /// Environnement neuf sur le même store, après une suppression de compte : modèles d'écran, moteur de
+  /// synchronisation et état en mémoire repartent de zéro. L'ancien moteur, suspendu, n'écoute plus le réseau.
+  func restarted() throws -> AppEnvironment {
+    sync?.stop()
+    return try AppEnvironment(container: container, gateway: gateway, shoppingActivity: shoppingActivity)
+  }
+
+  /// Suppression du compte et de ses données, sur ce store et ce serveur.
+  func makeAccountDeletion() -> AccountDeletion {
+    let sync = sync
+    let visits = visits
+    return AccountDeletion(
+      gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: LocalDataPurge(container: container),
+      isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil })
+  }
+
+  /// Étape 2 de la suppression : rien ne reste affiché hors de l'app (nom de liste, magasin, article suivant), et
+  /// plus rien n'écrit dans le store. La visite ouverte n'est pas close : elle va disparaître.
+  func endShoppingForDeletion() {
+    shoppingActivity.endAll(except: nil)
+    CheckNextItemRouter.handler = nil
+    currentSession = nil
+    NotificationCenter.default.post(name: .accountDeletionDidBegin, object: nil)
   }
 
   static func live(gateway: (any RemoteGateway)?) throws -> AppEnvironment {

@@ -3,51 +3,29 @@ import SwiftUI
 /// Point d'entrée de l'app.
 @main
 struct ParcoursesApp: App {
-  /// Une erreur ici (store illisible, App Group absent) s'affiche : on ne repart jamais sur un store vide en silence.
-  @State private var environment: Result<AppEnvironment, any Error>
+  @State private var app = AppModel()
   @Environment(\.scenePhase) private var scenePhase
-  private let gateway: (any RemoteGateway)?
-
-  init() {
-    let gateway = AuthBootstrap.makeGateway()
-    self.gateway = gateway
-    let environment = Result { try AppEnvironment.live(gateway: gateway) }
-    _environment = State(initialValue: environment)
-    // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
-    CheckNextItemRouter.handler = try? environment.get().activityActions
-  }
-
-  private var sync: SyncRuntime? {
-    try? environment.get().sync
-  }
 
   var body: some Scene {
     WindowGroup {
-      switch environment {
+      switch app.environment {
       case .success(let environment):
-        RootView(environment: environment)
+        content(environment)
           // Teinte de l'app : l'accent du ticket (8:1 sur le papier en clair), avec sa variante Contraste augmenté.
           // Posée à la racine pour que les feuilles et le plein écran en héritent ; l'asset AccentColor (mêmes
           // valeurs, sans la variante Contraste augmenté) sert aux contrôles système hors de cette hiérarchie (alertes).
           .tint(Palette.accent)
           // Tests UI : apparence et réglages d'affichage forcés (Debug seulement).
           .uiTestOverrides()
-          .task {
-            environment.sync?.start()
-            if let gateway {
-              await AuthBootstrap.signIn(gateway)
-              environment.sync?.sessionDidChange()
-            }
-          }
       case .failure(let error):
         StoreFailureView(error: error)
       }
     }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
-      case .active: sync?.foreground()
+      case .active: app.sync?.foreground()
       case .background:
-        guard let sync else { break }
+        guard let sync = app.sync else { break }
         sync.enteredBackground()
         SyncRuntime.scheduleBackgroundRefresh()
       default: break
@@ -57,11 +35,30 @@ struct ParcoursesApp: App {
       await refreshInBackground()
     }
   }
+
+  /// Suppression interrompue par un arrêt de l'app : elle reprend avant tout, sans synchronisation ni connexion.
+  @ViewBuilder private func content(_ environment: AppEnvironment) -> some View {
+    if app.isResumingDeletion, let deletion = app.deletion {
+      AccountDeletionResumeView(deletion: deletion) { app.endDeletionResume() }
+    } else {
+      RootView(environment: environment)
+        .environment(app.deletion)
+        .task {
+          environment.sync?.start()
+          if let gateway = app.gateway {
+            await AuthBootstrap.signIn(gateway)
+            environment.sync?.sessionDidChange()
+          }
+        }
+        // Après une suppression : environnement neuf, écrans et modèles repartent de zéro.
+        .id(app.generation)
+    }
+  }
 }
 
 extension ParcoursesApp {
   private func refreshInBackground() async {
-    guard let sync else { return }
+    guard let sync = app.sync else { return }
     // Une seule tâche planifiée à la fois : la suivante se demande ici.
     SyncRuntime.scheduleBackgroundRefresh()
     await sync.backgroundRefresh()
@@ -149,6 +146,12 @@ struct RootView: View {
         // Les écrans déjà ouverts relisent coches, ajouts et retraits.
         NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
       }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .accountDeletionDidBegin)) { _ in
+      // Suppression du compte : le mode courses se ferme sans « Terminer », donc sans clore la visite.
+      session = nil
+      pickingFor = nil
+      pendingStart = nil
     }
     .onReceive(NotificationCenter.default.publisher(for: .syncDidRekeyData)) { notification in
       guard let remap = IdentifierRemap(notification: notification) else { return }
