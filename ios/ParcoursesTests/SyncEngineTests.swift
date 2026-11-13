@@ -880,6 +880,21 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     #expect(try Self.suggestions("mach", harness).map(\.label) == ["Mâche"])
   }
 
+  /// `replaceProducts` dit si le cache a changé : l'écran Liste ouvert reconstruit alors ses suggestions.
+  @Test func replaceProductsReportsWhetherTheCacheChanged() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first?.id)
+    let store = SyncStore(modelContainer: harness.container)
+    let lait = RemoteProduct(
+      id: UUID(), name: "Lait", normalizedName: "lait", categorySlug: slug, offCode: nil, createdAt: t0)
+    #expect(try await store.replaceProducts([lait], catalogReadable: true))
+    #expect(try await !store.replaceProducts([lait], catalogReadable: true))
+    #expect(try await !store.replaceProducts([], catalogReadable: false))
+    #expect(try await store.replaceProducts([], catalogReadable: true))
+    #expect(try await !store.replaceProducts([], catalogReadable: true))
+  }
+
   /// Suggestions telles que l'écran Liste les construit : historique et cache du catalogue.
   private static func suggestions(_ form: String, _ harness: SyncHarness) throws -> [ItemSuggestion] {
     ItemSuggestionIndex(

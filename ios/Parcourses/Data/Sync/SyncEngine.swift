@@ -654,19 +654,22 @@ actor SyncEngine {
       let itemsMerge = try await store.merge(items: items, classify: classify)
       cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
       cursors.items = Self.later(cursors.items, itemsMerge.cursor)
+      var catalogChanged = false
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
         let categories = try await gateway.fetchCategories()
         try await store.applyCategories(categories)
         // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit publié »
         // (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
-        try await store.replaceProducts(try await gateway.fetchProducts(), catalogReadable: !categories.isEmpty)
+        catalogChanged = try await store.replaceProducts(
+          try await gateway.fetchProducts(), catalogReadable: !categories.isEmpty)
         cursors.catalog = now
       }
       lastPull = now
       pullBackoffUntil = nil
       try await releaseParkedIfRecovered()
       isWaitingForSession = false
-      if listsMerge.changed || itemsMerge.changed {
+      // Catalogue changé : l'écran Liste ouvert reconstruit ses suggestions (un nom retiré n'y reste pas).
+      if listsMerge.changed || itemsMerge.changed || catalogChanged {
         await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
       }
     } catch {

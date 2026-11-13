@@ -349,7 +349,10 @@ actor SyncStore {
   /// Remplacement du cache par le catalogue publié (#69). Une réponse vide ne l'efface que si le catalogue était
   /// lisible (`catalogReadable` : les catégories de la même passe sont arrivées) : plus aucun produit n'est publié, et
   /// les noms téléchargés avant ne doivent pas rester sur l'appareil. Sinon elle n'apprend rien sur le catalogue.
-  func replaceProducts(_ rows: [RemoteProduct], catalogReadable: Bool) throws {
+  /// Renvoie vrai si le cache a changé : les suggestions de l'écran Liste ouvert sont alors reconstruites.
+  @discardableResult
+  func replaceProducts(_ rows: [RemoteProduct], catalogReadable: Bool) throws -> Bool {
+    var changed = false
     let known = Set(try modelContext.fetch(FetchDescriptor<Category>()).map(\.id))
     var existing = Dictionary(
       try modelContext.fetch(FetchDescriptor<Product>()).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -357,16 +360,26 @@ actor SyncStore {
       // Serveur en avance sur le référentiel embarqué : pas de catégorie, le classifieur prendra le relais.
       let categoryId = row.categorySlug.flatMap { known.contains($0) ? $0 : nil }
       if let product = existing.removeValue(forKey: row.id) {
-        product.name = row.name
-        product.normalizedName = row.normalizedName
-        product.categoryId = categoryId
+        if product.name != row.name || product.normalizedName != row.normalizedName
+          || product.categoryId != categoryId
+        {
+          product.name = row.name
+          product.normalizedName = row.normalizedName
+          product.categoryId = categoryId
+          changed = true
+        }
       } else {
         modelContext.insert(
           Product(id: row.id, name: row.name, normalizedName: row.normalizedName, categoryId: categoryId))
+        changed = true
       }
     }
-    if !rows.isEmpty || catalogReadable { existing.values.forEach(modelContext.delete) }
+    if !rows.isEmpty || catalogReadable {
+      changed = changed || !existing.isEmpty
+      existing.values.forEach(modelContext.delete)
+    }
     try modelContext.save()
+    return changed
   }
 
   // MARK: - Outils

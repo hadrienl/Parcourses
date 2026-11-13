@@ -185,7 +185,9 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   installées peuvent encore proposer l'id d'un produit devenu privé depuis leur cache (catalogue téléchargé avant
   #69 ; depuis le lot apps de #69, le cache est vidé même sur une réponse vide, si les catégories de la même passe
   sont arrivées), et un article envoyé avec un produit disparu serait refusé (`23503`).
-  La suppression des produits privés orphelins vient avec le lot apps de #69. D'ici là, la forme normalisée d'un
+  La suppression des produits privés orphelins vient avec le lot S2 de #69, à appliquer sur l'hébergé une fois les
+  apps de ce lot installées (une version plus ancienne garde dans son cache, sur un catalogue vide, l'id d'un produit
+  devenu privé). D'ici là, la forme normalisée d'un
   produit privé (`name`, `normalized_name`) reste en base après la suppression du compte qui l'avait seul saisie,
   illisible par tout client et rattachée à personne.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
