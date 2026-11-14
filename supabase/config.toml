@@ -197,7 +197,9 @@ password_requirements = ""
 
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
-email_sent = 2
+# #87 : 30 en local, pour les tests de bout en bout qui lisent les codes dans Mailpit. Projet hébergé : à régler
+# dans le tableau de bord avec le SMTP Resend (voir docs/data-model.md, « Comptes e-mail »).
+email_sent = 30
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
@@ -219,6 +221,8 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
+# #87 : laissé ouvert, car false coupe aussi la connexion par code (« Email logins are disabled »). La création d'un
+# compte non anonyme est refusée par le hook before_user_created (accounts.before_user_created).
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
@@ -232,17 +236,42 @@ max_frequency = "1s"
 # Number of characters used in the email OTP.
 otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+# #87 : 15 minutes, le code est saisi aussitôt dans l'app.
+otp_expiry = 900
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# SMTP Resend (#87). Désactivé : en local, Mailpit reçoit tous les e-mails (voir [local_smtp]).
+# Pour un envoi réel, passer enabled à true et définir RESEND_API_KEY et SMTP_ADMIN_EMAIL (adresse d'un domaine
+# vérifié chez Resend : aucun domaine n'est encore choisi, #87 Q2). Le projet hébergé se règle dans le tableau de bord.
+[auth.email.smtp]
+enabled = false
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_API_KEY)"
+admin_email = "env(SMTP_ADMIN_EMAIL)"
+sender_name = "Parcourses"
+
+# Connexion par code à 6 chiffres (#87, Q1) : les modèles ne contiennent que {{ .Token }}, aucun lien. Le code n'est pas
+# dans l'objet, qui s'affiche dans les notifications, écran verrouillé compris.
+# magic_link : connexion à un compte existant (signInWithOtp). email_change : liaison d'une adresse à un compte
+# anonyme (updateUser). confirmation : création d'un compte par signInWithOtp (non utilisée par les apps, gardée
+# pour qu'aucun e-mail ne parte avec un lien).
+[auth.email.template.magic_link]
+subject = "Votre code de connexion Parcourses"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.confirmation]
+subject = "Votre code de connexion Parcourses"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.email_change]
+subject = "Votre code de connexion Parcourses"
+content_path = "./supabase/templates/code.html"
+
+# recovery : /recover reste ouvert par GoTrue ; son e-mail ne contient lui aussi qu'un code.
+[auth.email.template.recovery]
+subject = "Votre code de connexion Parcourses"
+content_path = "./supabase/templates/code.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
@@ -277,9 +306,12 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+# #87 : un compte ne naît qu'anonyme ; il lie ensuite son adresse par code (updateUser). Refuser toute autre création
+# empêche un tiers de créer d'avance, avec un mot de passe, le compte d'une adresse qui n'est pas la sienne.
+# Projet hébergé : à activer dans Authentication → Hooks après la migration 20261114100001_accounts_sync.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/accounts/before_user_created"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]

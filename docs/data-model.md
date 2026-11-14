@@ -5,8 +5,9 @@ Conception : issues #4 (modèle) et #8 (socle Supabase). Base Supabase locale (P
 ## Vue d'ensemble
 
 ```
-auth.users ─┬─< lists ─< list_items >─ products >─ categories
-            │                              │
+auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
+            │          └─< list_item_tombstones   (articles supprimés, 30 jours)
+            ├── profiles                (prénom, comptes e-mail)
             └─< visits ─< checks >─────────┘
                   │
                stores ─< store_edges   (graphe de voisinage appris)
@@ -14,7 +15,10 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
                      ─< store_stats   (confiance globale)
 ```
 
-- **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `visits`, `checks`.
+- **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `list_item_tombstones`, `profiles`, `visits`, `checks`.
+  Les politiques de `lists` et `list_items` restent sur `owner_id = auth.uid()` ; seules `list_item_tombstones` et
+  `accessible_list_ids()` passent déjà par `sharing.readable_list_ids()` (#87), qui ne renvoie aujourd'hui que les listes
+  de l'appelant. Le lot 87.2 l'étendra aux membres et y fera passer les politiques des listes et des articles.
 - **Connaissance partagée** (lecture par `authenticated`, écriture par la Secret key seulement) :
   `categories`, `products`, `stores`. Seuls les produits **publiés** (`published_at` non nul) sont lisibles (#69) :
   voir « Catalogue : produit privé, publication à 3 comptes ».
@@ -58,6 +62,7 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
 | `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
+| `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -72,11 +77,15 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 | `store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots` | — (RPC `store_graph_snapshot`) | — | — | — |
 | `lists` | ✅ | `id, name` | `name` | ✅ |
 | `list_items` | ✅ | `id, list_id, label, quantity, product_id, checked_at` | `label, quantity, product_id, checked_at, list_id` | ✅ |
+| `list_item_tombstones` | ✅ listes lisibles (`sharing.readable_list_ids()`) | — (trigger) | — | — (purge) |
+| `profiles` | ✅ sa ligne seulement (87.2 : aussi celles des membres de ses listes) | `display_name`, compte e-mail seulement | `display_name`, compte e-mail seulement | — (cascade) |
 | `visits` | ✅ | `id, store_id, list_id, list_was_sorted, started_at` | `ended_at` | — |
 | `checks` | ✅ | `id, visit_id, product_id, category_id, checked_at` | — | — |
 
 `anon` n'a aucun droit : l'app ouvre une session anonyme (`signInAnonymously`) avant toute requête.
 `owner_id` / `user_id` sont remplis par `default auth.uid()` ; `processed_at` et `ignored` sont réservés au serveur.
+`lists.updated_by` et `list_items.updated_by` (#87) sont remplis à l'insertion (`default auth.uid()`), puis par le trigger
+`set_updated_by` à chaque mise à jour d'un client ; aucun client ne les écrit.
 
 ## Règles métier portées par la base
 
@@ -215,6 +224,81 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
 - Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée, tous repris par le
   catalogue de départ (il ne sert plus qu'à une base sans cette migration). Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
+
+## Comptes e-mail et synchro multi-appareil (#87, lot 87.1)
+
+Conception : #87 (décisions du 13/11 : code à 6 chiffres, prénom affiché, Resend).
+
+**Connexion par code.** Les apps lient une adresse à un compte anonyme par `updateUser({ email })`, puis vérifient le code
+reçu (`verifyOtp`, type `email_change`) : **même `user_id`**, `is_anonymous` passe à `false`, aucune donnée ne bouge.
+Une adresse déjà prise répond `422 email_exists` : l'app se connecte alors au compte existant par
+`signInWithOtp({ email, shouldCreateUser: false })` puis `verifyOtp` (type `email`), et `AccountRekey` y ajoute les
+données du téléphone (règles du lot apps 87.3 / 87.5). Vérifié de bout en bout (`supabase/tests/e2e/accounts.test.ts`).
+`enable_manual_linking` reste à `false` : il n'est pas nécessaire pour l'e-mail.
+
+- Modèle unique `supabase/templates/code.html` pour `magic_link`, `email_change`, `confirmation` et `recovery` : le code
+  seul, **aucun lien**. Objet « Votre code de connexion Parcourses », **sans le code** (l'objet s'affiche dans les
+  notifications, écran verrouillé compris). Code de 6 chiffres valable 15 min (`otp_expiry = 900`).
+- **Un compte ne naît qu'anonyme** : le hook `before_user_created` (`accounts.before_user_created`, exécuté par
+  `supabase_auth_admin`) refuse en 403 toute autre création : inscription par mot de passe, `signInWithOtp` avec création,
+  API d'administration et tableau de bord. Sans lui, un tiers pourrait créer d'avance, avec son mot de passe, le compte
+  d'une adresse que la victime confirmerait ensuite par code. `[auth.email] enable_signup` reste à `true` : à `false`,
+  GoTrue coupe aussi la connexion par code. Un compte de démonstration (#87 Q9) se crée donc comme un vrai : compte
+  anonyme, puis liaison de l'adresse.
+- Local : Mailpit (`[local_smtp]`, http://127.0.0.1:56324) reçoit tous les e-mails ; `email_sent = 30` par heure pour les
+  tests. La CI démarre Mailpit.
+- SMTP Resend : bloc `[auth.email.smtp]` présent mais désactivé (`RESEND_API_KEY`, `SMTP_ADMIN_EMAIL`), en attente d'un
+  domaine vérifié (#87 Q2).
+- **Projet hébergé**, à régler dans le tableau de bord (Authentication) quand le domaine existera : SMTP personnalisé
+  (smtp.resend.com, port 465, utilisateur `resend`, mot de passe = clé d'API Resend, expéditeur sur le domaine vérifié,
+  suivi des clics désactivé chez Resend), les trois modèles ci-dessus, durée du code 900 s, plafond d'envoi relevé
+  (30 par heure par défaut avec un SMTP personnalisé), hook `before_user_created` (Authentication → Hooks, fonction
+  `accounts.before_user_created`), CAPTCHA Turnstile (#8), **obligatoire avant l'ouverture** : le plafond d'envoi vaut
+  pour tout le projet, un seul client pourrait l'épuiser. Le SMTP intégré de Supabase n'envoie qu'aux membres de
+  l'organisation.
+- **Ne jamais lancer `supabase config push`** vers l'hébergé : `config.toml` décrit la pile locale (SMTP désactivé,
+  `max_frequency = "1s"`, `email_sent = 30`) et écraserait les réglages du tableau de bord.
+
+**`profiles`** : `user_id`, `display_name` (1 à 40 caractères, sans espace en tête ni en fin, sans caractère de contrôle
+ni de mise en forme invisible : espaces de largeur nulle, marques et renversements de direction, trait d'union
+conditionnel ; le prénom s'affiche chez les autres membres et ne doit pas en imiter un autre), `created_at`, `updated_at`. Une ligne par compte e-mail : un compte anonyme ne peut pas en écrire (claim `is_anonymous`). Partie avec
+le compte (cascade, #68).
+
+**Pierres tombales** (`list_item_tombstones` : `id` de l'article, `list_id`, `deleted_at`) :
+- écrites par le trigger `list_items_record_tombstone` (`security definer`) à chaque suppression d'article, sauf quand
+  la liste elle-même disparaît (suppression de la liste ou du compte) : la descente l'apprend par `accessible_list_ids()` ;
+- **garde contre la résurrection** (`list_items_skip_buried`, `before insert`) : l'insertion d'un id enterré est ignorée
+  sans erreur, comme un doublon. Le trigger de suppression et la garde prennent le même verrou consultatif sur l'id :
+  une insertion concurrente d'une suppression attend sa fin, puis voit la pierre tombale. Un appareil en retard qui renvoie un article supprimé ailleurs (« mise à jour, puis
+  insertion si 0 ligne », comportement actuel des apps) ne le recrée plus ; il le garde localement jusqu'à ce que sa
+  descente lise les pierres tombales (lots apps 87.3 et 87.5) ;
+- lues par les apps à la descente (`deleted_at >= curseur`), purgées après 30 jours (`sharing.purge_tombstones`, job
+  `sharing-tombstones-purge`, 04:37 UTC). Un appareil dont le curseur est plus ancien refait une réconciliation complète.
+  Après la purge, la garde ne protège plus ces ids.
+- **Listes supprimées** (`sharing.list_tombstones` : `id`, `deleted_at`, illisible par les clients) : écrites à chaque
+  suppression de liste (par son propriétaire ou avec son compte). La garde `lists_skip_buried` ignore la réinsertion d'une
+  liste enterrée : un appareil en retard qui renomme une liste supprimée ailleurs (« mise à jour sans ligne, puis
+  insertion ») ne la recrée plus ; ses articles renvoyés sont refusés par la RLS (`42501`), comme aujourd'hui. En 87.2,
+  un ancien membre ne pourra pas recréer la liste sous le même id pour en devenir propriétaire. Pas de verrou consultatif
+  ici : la purge des comptes inactifs supprime jusqu'à 1 000 comptes par transaction. Même purge à 30 jours.
+- **`updated_by` et suppression d'un compte** : l'action `on delete set null` passe par le trigger `set_updated_by` avec
+  le JWT du compte supprimé ; le trigger garde tout changement de la colonne fait par le serveur, donc la remise à null.
+- **Limite connue (pour 87.2)** : un article **déplacé** vers une autre liste (`update list_id`) ne laisse aucune trace
+  dans l'ancienne. Un membre de la seule ancienne liste ne l'apprendrait pas ; les apps ne déplacent pas d'article
+  aujourd'hui.
+
+**RPC `accessible_list_ids()`** → `table (id uuid)` : les listes lisibles par l'appelant (`security invoker`, par
+`sharing.readable_list_ids()`). Une liste locale déjà synchronisée qui n'y figure plus a été supprimée ailleurs (en 87.2 :
+ou l'accès en a été retiré). Réservée à `authenticated`.
+
+**Schéma interne `sharing`** : non exposé par PostgREST. `authenticated` y a seulement `usage` et l'exécution de
+`readable_list_ids()`, nécessaires aux politiques. `readable_list_ids()` est `security definer` pour que les politiques
+de `lists` et `list_members` (87.2) ne s'appellent pas l'une l'autre.
+
+**Pile locale sous macOS** : si Docker n'a pas accès au dossier `Documents` (Réglages Système → Confidentialité →
+Fichiers et dossiers), les fichiers montés depuis le dépôt sont illisibles dans les conteneurs (« Interrupted system
+call ») : Kong ne sert pas les modèles d'e-mail (GoTrue envoie alors ses modèles anglais par défaut, avec un lien) et
+`supabase test db` ne trouve aucun test.
 
 ## Types et contrat
 
