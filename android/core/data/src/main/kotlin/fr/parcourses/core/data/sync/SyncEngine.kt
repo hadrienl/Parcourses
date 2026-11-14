@@ -34,6 +34,11 @@ class SyncDependencies(
     val now: () -> Instant = { Clock.System.now() },
     val jitter: () -> Double = { Random.nextDouble(JITTER_MIN, JITTER_MAX) },
     val isOnline: () -> Boolean = { true },
+    /**
+     * Une suppression du compte est en cours (drapeau durable `account.deletion`, #68) : aucune passe, et surtout
+     * aucun `ensureSession`, tant qu'elle n'est pas finie. Relu à chaque passe : il survit à la mort du processus.
+     */
+    val isAccountDeletionPending: () -> Boolean = { false },
 ) {
     private companion object {
         const val JITTER_MIN = 0.8
@@ -54,6 +59,9 @@ class SyncDependencies(
  *
  * Un nouveau compte déclenche [AccountRekey] avant tout envoi, puis `acknowledgeAccount`. Un stockage chiffré
  * verrouillé n'est pas une session perdue : [RemoteError.SecureStorageLocked] n'est qu'un délai.
+ *
+ * [suspend] arrête le moteur pendant la suppression du compte (#68) ; [SyncDependencies.isAccountDeletionPending]
+ * le garde arrêté d'un lancement à l'autre tant que le drapeau existe.
  */
 @Suppress("TooManyFunctions", "LargeClass")
 class SyncEngine(
@@ -78,8 +86,17 @@ class SyncEngine(
      */
     val remaps: Flow<IdentifierRemap> = remapHistory.map { IdentifierRemap(it) }
 
-    /** Une passe a été demandée pendant ou après la dernière : l'appelant doit relancer [drain]. */
-    val hasPendingRun: Boolean get() = isRunRequested.get()
+    /**
+     * Une passe a été demandée pendant ou après la dernière : l'appelant doit relancer [drain]. Jamais pendant un
+     * arrêt : le worker ne doit pas se rappeler en boucle ; la demande reste notée pour la reprise.
+     */
+    val hasPendingRun: Boolean get() = isRunRequested.get() && !isStopped
+
+    /** Arrêté par [suspend], ou suppression du compte en cours (drapeau durable). */
+    private val isStopped: Boolean get() = isSuspended || dependencies.isAccountDeletionPending()
+
+    @Volatile
+    private var isSuspended = false
 
     /** Pas de session valide : seule une passe forcée (`pull`) tente d'en retrouver une. */
     @Volatile
@@ -101,8 +118,22 @@ class SyncEngine(
     private var resolutionAttempts = mutableMapOf<String, String>()
     private var resolutionBackoffUntil: Instant? = null
 
-    /** Une session valide est peut-être revenue. */
+    /**
+     * Arrête le moteur (suppression du compte, #68) : plus aucune passe ne démarre, et l'appel ne rend la main qu'une
+     * fois la passe en cours finie. Les demandes reçues entre-temps restent notées pour [resume].
+     */
+    suspend fun suspend() {
+        isSuspended = true
+        // La passe en cours tient le verrou : l'obtenir, c'est attendre sa fin.
+        passLock.withLock {}
+    }
+
+    /**
+     * Reprise après [suspend], ou une session valide est peut-être revenue : la passe suivante descend. Sans effet
+     * tant qu'une suppression du compte est en cours ([SyncDependencies.isAccountDeletionPending]).
+     */
     fun resume() {
+        isSuspended = false
         isWaitingForSession = false
         request(pull = true)
     }
@@ -119,9 +150,11 @@ class SyncEngine(
      */
     suspend fun drain(pull: Boolean = false): Instant? {
         request(pull)
+        if (isStopped) return null
         return passLock.withLock {
             try {
-                while (isRunRequested.getAndSet(false) && currentCoroutineContext().isActive) {
+                // L'arrêt est testé avant de consommer la demande : elle reste due pour la reprise.
+                while (!isStopped && isRunRequested.getAndSet(false) && currentCoroutineContext().isActive) {
                     pass(pull = isPullRequested.getAndSet(false))
                 }
             } catch (e: CancellationException) {
@@ -191,6 +224,8 @@ class SyncEngine(
     @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun restoreSession(): Boolean =
         try {
+            // Suppression du compte commencée pendant la passe : aucun compte ne doit naître maintenant.
+            if (isStopped) return false
             gateway.ensureSession(null)
             isWaitingForSession = false
             true
@@ -699,8 +734,11 @@ class SyncEngine(
             cursors.lists = later(cursors.lists, listsMerge.cursor)
             cursors.items = later(cursors.items, itemsMerge.cursor)
             if (cursors.catalog?.let { now - it >= SyncRetryPolicy.catalogInterval } != false) {
-                store.applyCategories(gateway.fetchCategories())
-                store.replaceProducts(gateway.fetchProducts())
+                val categories = gateway.fetchCategories()
+                store.applyCategories(categories)
+                // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
+                // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+                store.replaceProducts(gateway.fetchProducts(), catalogReadable = categories.isNotEmpty())
                 cursors.catalog = now
             }
             lastPull = now
@@ -734,7 +772,7 @@ class SyncEngine(
     /** Quand rappeler le moteur : prochaine entrée différée, délai d'erreur, descente à refaire. */
     @Suppress("ReturnCount") // port d'iOS : gardes de sortie anticipée
     private suspend fun nextWake(): Instant? {
-        if (!dependencies.isOnline() || isWaitingForSession) return null
+        if (isStopped || !dependencies.isOnline() || isWaitingForSession) return null
         val date = dependencies.now()
         // Demande notée après la dernière lecture de la boucle : un rappel immédiat la couvre.
         if (isRunRequested.get()) return date
