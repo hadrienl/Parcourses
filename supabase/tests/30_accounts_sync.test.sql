@@ -2,7 +2,7 @@
 -- accessible_list_ids, purge.
 begin;
 \ir 00_helpers.psql
-select plan(46);
+select plan(61);
 
 select tests.create_user('alice@test.local') as alice \gset
 select tests.create_user('bob@test.local') as bob \gset
@@ -41,6 +41,11 @@ select throws_ok($$ update public.profiles set display_name = '   ' $$, '23514',
 select throws_ok($$ update public.profiles set display_name = repeat('a', 41) $$, '23514', null, 'prénom de plus de 40 caractères refusé');
 select throws_ok(format($$ update public.profiles set display_name = %L $$, 'A' || chr(10) || 'B'), '23514', null,
   'caractère de contrôle refusé');
+select throws_ok($$ update public.profiles set display_name = ' Alice' $$, '23514', null, 'prénom non rogné refusé');
+select throws_ok(format($$ update public.profiles set display_name = %L $$, 'Al' || chr(8203) || 'ice'), '23514', null,
+  'espace de largeur nulle refusé');
+select throws_ok(format($$ update public.profiles set display_name = %L $$, chr(8238) || 'ecilA'), '23514', null,
+  'renversement de direction refusé');
 select lives_ok($$ update public.profiles set display_name = 'Alice B.' $$, 'Alice change son prénom');
 
 select tests.authenticate_as(:'bob');
@@ -92,6 +97,8 @@ select is_empty($$ select 1 from public.list_items where id = '00000000-0000-000
 select lives_ok($$ insert into public.list_items (id, list_id, label)
   values ('00000000-0000-0000-0000-0000000087a2', '00000000-0000-0000-0000-0000000087a1', 'Lait')
   on conflict (id) do nothing $$, 'même chose avec on conflict do nothing (renvoi idempotent des apps)');
+select is_empty($$ select 1 from public.list_items where id = '00000000-0000-0000-0000-0000000087a2' $$,
+  'toujours pas ressuscité par on conflict do nothing');
 
 select tests.authenticate_as(:'bob');
 select is_empty($$ select 1 from public.list_item_tombstones $$, 'Bob ne voit pas les pierres tombales d''Alice');
@@ -107,24 +114,64 @@ select lives_ok($$ delete from public.lists where id = '00000000-0000-0000-0000-
 select tests.clear_authentication();
 select is((select count(*)::int from public.list_item_tombstones where list_id = '00000000-0000-0000-0000-0000000087a1'), 0,
   'les pierres tombales de la liste partent avec elle');
+select isnt_empty($$ select 1 from sharing.list_tombstones where id = '00000000-0000-0000-0000-0000000087a1' $$,
+  'la liste supprimée laisse sa pierre tombale');
+select ok(not has_table_privilege('authenticated', 'sharing.list_tombstones', 'SELECT,INSERT,UPDATE,DELETE'),
+  'pierres tombales de listes fermées aux clients');
 
--- Suppression du compte (#68) : la cascade passe par les mêmes triggers sans erreur.
+-- Un appareil en retard renvoie la liste supprimée, puis un de ses articles : ni l'une ni l'autre ne revient.
+select tests.authenticate_as(:'alice');
+select lives_ok($$ insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000087a1', 'Alice')
+  on conflict (id) do nothing $$, 'renvoi d''une liste supprimée : sans erreur');
+select is_empty($$ select 1 from public.lists where id = '00000000-0000-0000-0000-0000000087a1' $$,
+  'la liste supprimée n''est pas ressuscitée');
+select throws_ok($$ insert into public.list_items (id, list_id, label)
+  values ('00000000-0000-0000-0000-0000000087a3', '00000000-0000-0000-0000-0000000087a1', 'Pain') $$,
+  '42501', null, 'un article renvoyé dans la liste supprimée est refusé (RLS, comme aujourd''hui)');
+select tests.clear_authentication();
+
+-- Suppression du compte (#68) : la cascade passe par les mêmes triggers sans erreur. Un article d'Alice dont Bob est
+-- le dernier auteur (cas des listes partagées, 87.2) perd son auteur : le trigger ne remet pas le compte supprimé.
+select tests.authenticate_as(:'alice');
+insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000087d1', 'Alice 2');
+insert into public.list_items (id, list_id, label) values ('00000000-0000-0000-0000-0000000087d2', '00000000-0000-0000-0000-0000000087d1', 'Thé');
 select tests.authenticate_as(:'bob');
 insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000087b1', 'Bob');
 insert into public.list_items (id, list_id, label) values ('00000000-0000-0000-0000-0000000087b2', '00000000-0000-0000-0000-0000000087b1', 'Riz');
+select tests.clear_authentication();
+update public.list_items set updated_by = :'bob' where id = '00000000-0000-0000-0000-0000000087d2';
+select tests.authenticate_as(:'bob');
 select lives_ok($$ select public.delete_my_account() $$, 'suppression du compte de Bob');
 select tests.clear_authentication();
 select is((select count(*)::int from public.profiles where user_id = :'bob'), 0, 'le prénom part avec le compte');
+select is((select updated_by from public.list_items where id = '00000000-0000-0000-0000-0000000087d2'), null,
+  'updated_by d''un article d''autrui remis à null (on delete set null), pas au compte supprimé');
+select isnt_empty($$ select 1 from sharing.list_tombstones where id = '00000000-0000-0000-0000-0000000087b1' $$,
+  'les listes du compte supprimé laissent leur pierre tombale');
+
+-- Hook before_user_created : seul un compte anonyme peut être créé.
+select is(accounts.before_user_created('{"user": {"is_anonymous": true, "email": ""}}'), '{}'::jsonb,
+  'hook : création anonyme acceptée');
+select is(accounts.before_user_created('{"user": {"is_anonymous": false, "email": "x@example.com"}}') -> 'error' ->> 'http_code',
+  '403', 'hook : création avec une adresse refusée');
+select ok(has_function_privilege('supabase_auth_admin', 'accounts.before_user_created(jsonb)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'accounts.before_user_created(jsonb)', 'EXECUTE'),
+  'hook exécutable par GoTrue seulement');
 
 -- Purge : 30 jours, bornes et planification.
 insert into public.lists (id, owner_id, name) values ('00000000-0000-0000-0000-0000000087c1', :'alice', 'Purge');
 insert into public.list_item_tombstones (id, list_id, deleted_at) values
   ('00000000-0000-0000-0000-0000000087c2', '00000000-0000-0000-0000-0000000087c1', now() - interval '30 days 1 second'),
   ('00000000-0000-0000-0000-0000000087c3', '00000000-0000-0000-0000-0000000087c1', now() - interval '29 days 23 hours');
+insert into sharing.list_tombstones (id, deleted_at) values
+  ('00000000-0000-0000-0000-0000000087e1', now() - interval '30 days 1 second'),
+  ('00000000-0000-0000-0000-0000000087e2', now() - interval '29 days 23 hours');
 select throws_ok($$ select sharing.purge_tombstones(now(), interval '1 day') $$, '22023', null, 'rétention trop courte refusée');
 select ok(sharing.purge_tombstones() >= 1, 'au moins une pierre tombale purgée');
 select results_eq($$ select id from public.list_item_tombstones where list_id = '00000000-0000-0000-0000-0000000087c1' $$,
   $$ values ('00000000-0000-0000-0000-0000000087c3'::uuid) $$, 'seule la pierre tombale de plus de 30 jours est purgée');
+select results_eq($$ select id from sharing.list_tombstones where id::text like '00000000-0000-0000-0000-0000000087e%' $$,
+  $$ values ('00000000-0000-0000-0000-0000000087e2'::uuid) $$, 'idem pour les pierres tombales de listes');
 select is((select schedule || ' ' || command || ' ' || username from cron.job where jobname = 'sharing-tombstones-purge'),
   '37 4 * * * select sharing.purge_tombstones() postgres', 'purge planifiée chaque nuit, sous postgres');
 

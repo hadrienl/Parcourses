@@ -4,7 +4,8 @@
 --   - updated_by sur lists et list_items : qui a écrit la ligne en dernier (« Modifiée par Léa ») ;
 --   - list_item_tombstones : la trace d'un article supprimé, pour que les autres appareils (et, en 87.2, les autres
 --     membres) l'apprennent à la descente, et pour qu'aucun client ne ressuscite un article supprimé ;
---   - accessible_list_ids() : les listes que l'appelant peut lire, pour retirer de l'appareil celles qui ont disparu.
+--   - accessible_list_ids() : les listes que l'appelant peut lire, pour retirer de l'appareil celles qui ont disparu ;
+--   - sharing.list_tombstones : l'id d'une liste supprimée, pour qu'un appareil en retard ne la recrée pas.
 -- Le schéma interne sharing porte les fonctions d'accès : readable_list_ids() ne renvoie ici que les listes dont
 -- l'appelant est propriétaire ; le lot 87.2 l'étendra aux membres, et tout ce qui s'appuie dessus suivra.
 
@@ -12,6 +13,8 @@
 create schema if not exists sharing;
 revoke all on schema sharing from public, anon, authenticated;
 alter default privileges for role postgres in schema sharing revoke all on tables from public, anon, authenticated;
+-- Sans effet sur l'EXECUTE accordé à PUBLIC, privilège par défaut global (déjà retiré par …_privileges.sql) : ce sont les
+-- revoke explicites de chaque fonction, plus bas, qui ferment les fonctions de ce schéma.
 alter default privileges for role postgres in schema sharing revoke all on functions from public, anon, authenticated;
 -- Les politiques RLS appellent sharing.readable_list_ids() avec les droits de l'appelant : usage du schéma requis.
 grant usage on schema sharing to authenticated;
@@ -38,9 +41,14 @@ create table if not exists public.profiles (
   display_name  text not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
-  -- 1 à 40 caractères visibles, sans caractère de contrôle (le prénom s'affiche chez les autres membres).
-  constraint profiles_display_name_length check (char_length(btrim(display_name)) between 1 and 40),
-  constraint profiles_display_name_printable check (display_name !~ '[[:cntrl:]]')
+  -- 1 à 40 caractères, rognés, sans caractère de contrôle ni de mise en forme invisible (espaces de largeur nulle,
+  -- marques et renversements de direction, trait d'union conditionnel) : le prénom s'affiche chez les autres membres
+  -- (« Modifiée par Léa ») et ne doit pas pouvoir en imiter un autre.
+  constraint profiles_display_name_length check (char_length(display_name) between 1 and 40),
+  constraint profiles_display_name_trimmed check (display_name = btrim(display_name)),
+  constraint profiles_display_name_printable check (
+    display_name !~ '[[:cntrl:]\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]'
+  )
 );
 
 drop trigger if exists profiles_set_updated_at on public.profiles;
@@ -85,13 +93,19 @@ alter table public.list_items
 create index if not exists lists_updated_by_idx on public.lists (updated_by);
 create index if not exists list_items_updated_by_idx on public.list_items (updated_by);
 
+-- Aucun client ne peut écrire updated_by : s'il change dans la mise à jour, c'est le serveur, ou l'action
+-- « on delete set null » de la suppression d'un compte (#68), qui s'exécute avec le JWT du compte supprimé. Ce
+-- changement est gardé tel quel, sinon le compte supprimé serait remis dans la colonne.
 create or replace function public.set_updated_by()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  new.updated_by := coalesce((select auth.uid()), new.updated_by);
+  if new.updated_by is distinct from old.updated_by then
+    return new;
+  end if;
+  new.updated_by := coalesce((select auth.uid()), old.updated_by);
   return new;
 end;
 $$;
@@ -130,6 +144,8 @@ grant select on public.list_item_tombstones to authenticated;
 -- d'écriture sur la table. Rien n'est écrit quand la liste elle-même disparaît (suppression de la liste, du compte) :
 -- la ligne de lists n'est alors plus visible, et la pierre tombale violerait sa clé étrangère.
 -- on conflict : un id déjà enterré (purge pas encore passée) est simplement redaté.
+-- Verrou consultatif sur l'id (le même que la garde ci-dessous) : une insertion concurrente du même id attend la fin de
+-- cette transaction, puis voit la pierre tombale.
 create or replace function public.record_list_item_tombstone()
 returns trigger
 language plpgsql
@@ -138,6 +154,7 @@ set search_path = ''
 as $$
 begin
   if exists (select 1 from public.lists as l where l.id = old.list_id) then
+    perform pg_advisory_xact_lock(hashtextextended(old.id::text, 87));
     insert into public.list_item_tombstones (id, list_id, deleted_at)
     values (old.id, old.list_id, now())
     on conflict (id) do update set list_id = excluded.list_id, deleted_at = excluded.deleted_at;
@@ -163,6 +180,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform pg_advisory_xact_lock(hashtextextended(new.id::text, 87));
   if exists (select 1 from public.list_item_tombstones as t where t.id = new.id) then
     return null;
   end if;
@@ -175,7 +193,67 @@ create trigger list_items_skip_buried
   before insert on public.list_items
   for each row execute function public.skip_buried_list_item();
 
+-- Listes supprimées : leur id seul, dans le schéma interne (aucun client ne les lit : la descente apprend la disparition
+-- d'une liste par accessible_list_ids()). Elles empêchent un appareil en retard de recréer la liste (« mise à jour sans
+-- ligne, puis insertion », comportement actuel des apps), puis ses articles, dont les pierres tombales sont parties avec
+-- elle. En 87.2, un ancien membre ne pourra pas non plus recréer la liste sous le même id pour en devenir propriétaire.
+create table if not exists sharing.list_tombstones (
+  id          uuid primary key,  -- id de la liste supprimée
+  deleted_at  timestamptz not null default now()
+);
+create index if not exists list_tombstones_deleted_at_idx on sharing.list_tombstones (deleted_at);
+revoke all on sharing.list_tombstones from public, anon, authenticated;
+-- Défense en profondeur : sans politique, tout accès d'un client est refusé, même si un droit revenait par erreur.
+alter table sharing.list_tombstones enable row level security;
+
+-- Après la suppression d'une liste (par son propriétaire, ou avec son compte) : sa pierre tombale. SECURITY DEFINER,
+-- justifié : les clients n'ont aucun droit sur sharing.list_tombstones.
+-- Pas de verrou consultatif ici, contrairement aux articles : la purge des comptes inactifs supprime jusqu'à 1 000
+-- comptes et leurs listes dans une transaction, et un verrou par liste remplirait la table des verrous. La course qu'il
+-- fermerait (réinsertion du même id pendant la suppression, par un autre appareil du même compte) est acceptée.
+create or replace function public.record_list_tombstone()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into sharing.list_tombstones (id, deleted_at) values (old.id, now())
+  on conflict (id) do update set deleted_at = excluded.deleted_at;
+  return null;
+end;
+$$;
+
+drop trigger if exists lists_record_tombstone on public.lists;
+create trigger lists_record_tombstone
+  after delete on public.lists
+  for each row execute function public.record_list_tombstone();
+
+-- Avant l'insertion d'une liste : un id enterré est ignoré, sans erreur, comme pour les articles. Les articles renvoyés
+-- ensuite dans cette liste sont refusés par la RLS (42501), comme aujourd'hui pour un article d'une liste supprimée
+-- depuis un autre appareil.
+create or replace function public.skip_buried_list()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (select 1 from sharing.list_tombstones as t where t.id = new.id) then
+    return null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists lists_skip_buried on public.lists;
+create trigger lists_skip_buried
+  before insert on public.lists
+  for each row execute function public.skip_buried_list();
+
 -- Les fonctions trigger n'ont pas besoin d'EXECUTE : fermées à tous.
+revoke all on function public.record_list_tombstone() from public, anon, authenticated;
+revoke all on function public.skip_buried_list() from public, anon, authenticated;
 revoke all on function public.set_updated_by() from public, anon, authenticated;
 revoke all on function public.record_list_item_tombstone() from public, anon, authenticated;
 revoke all on function public.skip_buried_list_item() from public, anon, authenticated;
@@ -195,7 +273,31 @@ $$;
 revoke all on function public.accessible_list_ids() from public, anon, authenticated;
 grant execute on function public.accessible_list_ids() to authenticated;
 
--- Purge des pierres tombales de plus de 30 jours, par lots. Un appareil dont le curseur est plus ancien refait une
+-- Hook Auth before_user_created (#87) : seul un compte anonyme peut être créé. Un compte e-mail naît toujours d'un
+-- anonyme qui lie son adresse (updateUser, puis code) : la ligne existe déjà, le hook n'est pas appelé. Sont refusées
+-- l'inscription par mot de passe (un tiers ne peut plus créer d'avance le compte d'une adresse qui n'est pas la sienne,
+-- que la victime confirmerait ensuite par signInWithOtp), la création par code (signInWithOtp avec création), et la
+-- création depuis l'API d'administration ou le tableau de bord. Appelée par GoTrue sous le rôle supabase_auth_admin.
+create or replace function accounts.before_user_created(event jsonb)
+returns jsonb
+language sql
+stable
+set search_path = ''
+as $$
+  select case
+    when coalesce((event -> 'user' ->> 'is_anonymous')::boolean, false) then '{}'::jsonb
+    else jsonb_build_object('error', jsonb_build_object(
+      'http_code', 403,
+      'message', 'Account creation is only possible from the app: sign in anonymously, then link an email address.'))
+  end;
+$$;
+
+revoke all on function accounts.before_user_created(jsonb) from public, anon, authenticated;
+grant usage on schema accounts to supabase_auth_admin;
+grant execute on function accounts.before_user_created(jsonb) to supabase_auth_admin;
+
+-- Purge des pierres tombales (articles et listes) de plus de 30 jours, par lots. Après la purge, les gardes ne
+-- protègent plus ces ids. Un appareil dont le curseur est plus ancien refait une
 -- réconciliation complète de ses articles (lots apps 87.3 et 87.5). Appelée par pg_cron sous le rôle postgres.
 create or replace function sharing.purge_tombstones(
   p_now timestamptz default now(),
@@ -219,6 +321,19 @@ begin
     delete from public.list_item_tombstones as t
     where t.id in (
       select o.id from public.list_item_tombstones as o
+      where o.deleted_at < p_now - p_retention
+      order by o.deleted_at
+      limit 10000
+    );
+    get diagnostics v_batch = row_count;
+    v_deleted := v_deleted + v_batch;
+    exit when v_batch < 10000;
+  end loop;
+
+  for i in 1..p_max_batches loop
+    delete from sharing.list_tombstones as t
+    where t.id in (
+      select o.id from sharing.list_tombstones as o
       where o.deleted_at < p_now - p_retention
       order by o.deleted_at
       limit 10000

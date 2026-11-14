@@ -53,12 +53,16 @@ const address = (tag: string) => `e2e-87-${tag}-${crypto.randomUUID().slice(0, 8
 
 type MailSummary = { ID: string; Created: string; Subject: string };
 
-// Dernier message reçu par `to` après `since`, avec son code. Attend au plus 10 s.
-async function codeSentTo(mailpit: string, to: string, since: Date): Promise<{ code: string; html: string; text: string }> {
+type Mail = { id: string; code: string; subject: string; html: string; text: string };
+
+// Dernier message reçu par `to` après `since`, hors messages déjà lus (`seen`), avec le code lu dans le corps.
+// Attend au plus 10 s.
+async function codeSentTo(mailpit: string, to: string, since: Date, seen: Set<string> = new Set()): Promise<Mail> {
   for (let i = 0; i < 50; i++) {
     const search = await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`);
     const { messages } = (await search.json()) as { messages: MailSummary[] | null };
-    const fresh = (messages ?? []).filter((m) => new Date(m.Created).getTime() >= since.getTime() - 1000)
+    const fresh = (messages ?? [])
+      .filter((m) => !seen.has(m.ID) && new Date(m.Created).getTime() >= since.getTime() - 1000)
       .sort((a, b) => b.Created.localeCompare(a.Created));
     if (fresh.length > 0) {
       const message = (await (await fetch(`${mailpit}/api/v1/message/${fresh[0].ID}`)).json()) as {
@@ -66,9 +70,10 @@ async function codeSentTo(mailpit: string, to: string, since: Date): Promise<{ c
         HTML: string;
         Text: string;
       };
-      const code = message.Subject.match(/\b(\d{6})\b/)?.[1];
-      assert(code, `aucun code dans l'objet : ${message.Subject}`);
-      return { code, html: message.HTML, text: message.Text };
+      const code = message.Text.match(/\b(\d{6})\b/)?.[1];
+      assert(code, `aucun code dans le corps : ${message.Text}`);
+      seen.add(fresh[0].ID);
+      return { id: fresh[0].ID, code, subject: message.Subject, html: message.HTML, text: message.Text };
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
@@ -103,9 +108,11 @@ Deno.test("compte anonyme → adresse e-mail par code : même compte, mêmes lis
   const link = await call("/auth/v1/user", { method: "PUT", token: first.access_token, body: JSON.stringify({ email }) });
   const linkBody = await link.text();
   assert(link.ok, `liaison : ${link.status} ${linkBody}`);
-  const linkMail = await codeSentTo(stack.mailpit, email, linkAt);
+  const seen = new Set<string>();
+  const linkMail = await codeSentTo(stack.mailpit, email, linkAt, seen);
   assert(!/https?:\/\//.test(linkMail.html + linkMail.text), "l'e-mail de liaison contient un lien");
-  assert(linkMail.text.includes(linkMail.code) || linkMail.html.includes(linkMail.code), "le corps ne contient pas le code");
+  assert(linkMail.html.includes(linkMail.code), "le corps HTML ne contient pas le code");
+  assert(!linkMail.subject.includes(linkMail.code), "le code est dans l'objet (visible sur l'écran verrouillé)");
 
   const verified = await call("/auth/v1/verify", {
     method: "POST",
@@ -135,7 +142,7 @@ Deno.test("compte anonyme → adresse e-mail par code : même compte, mêmes lis
   const otp = await call("/auth/v1/otp", { method: "POST", body: JSON.stringify({ email, create_user: false }) });
   const otpBody = await otp.text();
   assert(otp.ok, `demande de code : ${otp.status} ${otpBody}`);
-  const signInMail = await codeSentTo(stack.mailpit, email, otpAt);
+  const signInMail = await codeSentTo(stack.mailpit, email, otpAt, seen);
   assert(!/https?:\/\//.test(signInMail.html + signInMail.text), "l'e-mail de connexion contient un lien");
   const signedIn = await call("/auth/v1/verify", { method: "POST", body: JSON.stringify({ type: "email", email, token: signInMail.code }) });
   const signedInBody = await signedIn.text();
@@ -150,6 +157,22 @@ Deno.test("compte anonyme → adresse e-mail par code : même compte, mêmes lis
 
   await forget(call, second.access_token);
   await forget(call, session.access_token);
+});
+
+Deno.test("pas d'inscription par mot de passe : un compte ne naît qu'anonyme", async () => {
+  const stack = await localStack();
+  const call = client(stack);
+  const signUp = await call("/auth/v1/signup", {
+    method: "POST",
+    body: JSON.stringify({ email: address("password"), password: "un-mot-de-passe-solide-87" }),
+  });
+  const body = await signUp.text();
+  // Refusée par le hook before_user_created (403).
+  assert(signUp.status === 403, `inscription par mot de passe : ${signUp.status} ${body}`);
+  // Ni la connexion par code d'une adresse inconnue.
+  const otp = await call("/auth/v1/otp", { method: "POST", body: JSON.stringify({ email: address("otp"), create_user: true }) });
+  const otpBody = await otp.text();
+  assert(!otp.ok, `création de compte par code : ${otp.status} ${otpBody}`);
 });
 
 Deno.test("une suppression laisse une pierre tombale ; renvoyer l'article supprimé ne le ressuscite pas", async () => {
