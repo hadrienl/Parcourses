@@ -97,6 +97,11 @@ actor SupabaseGateway: RemoteGateway {
     do {
       // Le compte de la session, même s'il diffère du dernier connu : c'est celui que la personne utilise.
       _ = try await existingSessionUser()
+      // Nouvel essai après une réponse perdue : le compte a peut-être déjà disparu. Le jeton d'accès en cours le
+      // prouve (403 `user_not_found`) ; le rafraîchir d'abord effacerait la session sans livrer cette preuve.
+      if await deletionProofWithCurrentToken() == true {
+        throw RemoteError.accountGone(code: ErrorCode.userNotFound.rawValue)
+      }
       // Jeton neuf, valable une heure : un nouvel essai après une réponse perdue passe avec le même compte.
       // Refusé (`refresh_token_not_found`) : le compte a déjà été supprimé.
       _ = try await client.auth.refreshSession()
@@ -137,7 +142,10 @@ actor SupabaseGateway: RemoteGateway {
         // Pas de session sur l'appareil : le serveur ne peut rien prouver.
         throw RemoteError.unauthorized
       }
-      // Toujours un rafraîchissement, puis le compte : seuls trois codes GoTrue concluent à la suppression.
+      // D'abord le jeton d'accès en cours, sans rafraîchir : 403 `user_not_found` prouve la suppression, une
+      // réponse positive prouve que le compte existe. Le SDK change `refresh_token_not_found` en `sessionMissing`
+      // et efface la session : le rafraîchissement ne vient qu'ensuite, pour un jeton expiré ou refusé.
+      if let proof = await deletionProofWithCurrentToken() { return proof }
       _ = try await client.auth.refreshSession()
       _ = try await client.auth.user()
       return false
@@ -145,6 +153,20 @@ actor SupabaseGateway: RemoteGateway {
       return true
     } catch {
       throw Self.classifyForDeletion(error)
+    }
+  }
+
+  /// Interroge `/user` avec le jeton d'accès en cours, sans le rafraîchir ni toucher à la session.
+  /// `true` : suppression prouvée ; `false` : le compte existe ; `nil` : rien de sûr (jeton expiré, réseau…).
+  private func deletionProofWithCurrentToken() async -> Bool? {
+    guard let token = client.auth.currentSession?.accessToken else { return nil }
+    do {
+      _ = try await client.auth.user(jwt: token)
+      return false
+    } catch let error as AuthError where Self.deletionProofCode(error) != nil {
+      return true
+    } catch {
+      return nil
     }
   }
 

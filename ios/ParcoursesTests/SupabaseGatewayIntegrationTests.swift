@@ -761,10 +761,11 @@ struct AccountDeletionIntegrationTests {
     #expect(try await device.gateway.localSessionAccountId() == id)
     #expect(try await device.gateway.confirmAccountDeleted() == false)
     try await device.gateway.deleteAccount()
-    // Rafraîchissement forcé : 400 `refresh_token_not_found`.
+    // Jeton d'accès encore valable : 403 `user_not_found`, sans rafraîchir ni effacer la session.
     #expect(try await device.gateway.confirmAccountDeleted() == true)
-    // Rejouée, la suppression échoue (rafraîchissement refusé, ou session déjà oubliée par le SDK) sans créer de compte.
-    await #expect(throws: RemoteError.self) { try await device.gateway.deleteAccount() }
+    #expect(try await device.gateway.localSessionAccountId() == id)
+    // Rejouée après une réponse perdue, la suppression livre la même preuve, sans créer de compte.
+    await #expect(throws: RemoteError.accountGone(code: "user_not_found")) { try await device.gateway.deleteAccount() }
     try await device.gateway.signOutLocally()
     #expect(try await device.gateway.localSessionAccountId() == nil)
     try device.keychain.removeAll()
