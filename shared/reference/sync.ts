@@ -1,7 +1,12 @@
 // Référence des décisions de synchro (#87, lots 87.3 et 87.5) : fonctions pures que les deux apps
 // reprennent sous le nom SyncDecisions, vérifiées par les vecteurs de test-vectors/sync/.
 
-const uniqueSorted = (values: Iterable<string>): string[] => [...new Set(values)].sort();
+// Ordre des unités de code, comme `sorted()` en Swift et en Kotlin : jamais l'ordre de la locale.
+function byCodeUnit(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+const uniqueSorted = (values: Iterable<string>): string[] => [...new Set(values)].sort(byCodeUnit);
 
 export type ItemSaveRequest = { kind: "insert" } | { kind: "patch"; fields: string[] } | {
   kind: "none";

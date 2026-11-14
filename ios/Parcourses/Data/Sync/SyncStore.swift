@@ -273,6 +273,9 @@ actor SyncStore {
         guard local.deletedAt == nil else { continue }
         merge.changed = merge.changed || local.name != row.name
         local.name = row.name
+        // Dates du serveur, toutes les deux : une liste jamais modifiée y garde `updated_at` égal à `created_at`, ce
+        // que `AccountRekey` lit (vecteur `008`). L'heure de l'appareil ne s'y compare pas.
+        local.createdAt = row.createdAt
         local.updatedAt = row.updatedAt
         local.syncState = .synced
         local.ownerId = row.ownerId

@@ -967,7 +967,7 @@ struct AccountsIntegrationTests {
     linkA.email = email
     linkA.displayName = "Léa"
     await linkA.requestCode()
-    #expect(linkA.phase == .enterCode && linkA.purpose == .link)
+    #expect(linkA.phase == .enterCode && linkA.purpose == .link, "\(String(describing: linkA.error))")
     let codeA = try await Mailpit.code(to: email, seen: &seen)
     await linkA.verify(code: codeA == "000000" ? "111111" : "000000")
     #expect(linkA.error == .invalidCode)
@@ -990,7 +990,7 @@ struct AccountsIntegrationTests {
     let linkB = b.link()
     linkB.email = email
     await linkB.requestCode()
-    #expect(linkB.purpose == .signIn)
+    #expect(linkB.purpose == .signIn, "\(String(describing: linkB.error))")
     let codeB = try await Mailpit.code(to: email, seen: &seen)
     await linkB.verify(code: codeB)
     // « Bon retour, Léa ! » : la liste vide jamais modifiée n'est pas ajoutée (vecteur 008).
@@ -1033,7 +1033,10 @@ struct AccountsIntegrationTests {
     let relink = a.link()
     #expect(!relink.canLink)
     relink.email = email
+    // `max_frequency` (1 s en local) : un second code pour le même compte, trop tôt, serait refusé en 429.
+    try await Task.sleep(for: .seconds(2))
     await relink.requestCode()
+    #expect(relink.phase == .enterCode, "\(String(describing: relink.error))")
     await relink.verify(code: try await Mailpit.code(to: email, seen: &seen))
     #expect(relink.outcome == .signedIn(displayName: "Léa", addedLists: 0))
     #expect(try await a.remote.currentAccountId() == account)
@@ -1080,7 +1083,9 @@ struct AccountsIntegrationTests {
     let back = try await makeDevice()
     let again = back.link()
     again.email = email
+    try await Task.sleep(for: .seconds(2))
     await again.requestCode()
+    #expect(again.purpose == .signIn, "\(String(describing: again.error))")
     await again.verify(code: try await Mailpit.code(to: email, seen: &seen))
     #expect(try await back.remote.currentAccountId() == account)
     #expect(try back.listNames() == ["IT-87 déconnexion"])

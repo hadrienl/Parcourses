@@ -187,6 +187,24 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(harness.cursors.tombstones == (await harness.gateway.serverNow))
   }
 
+  /// La descente pose les deux dates du serveur : la liste « Courses » jamais modifiée, accusée puis descendue, n'est
+  /// pas renvoyée au compte suivant (vecteur `008`, règle `skip`).
+  @Test func aPulledUntouchedListKeepsServerDatesAndIsNotResent() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    await harness.engine.drain()
+    let owner = await harness.gateway.account
+    let serverTime = t0.addingTimeInterval(500)
+    await harness.gateway.setPull(lists: [serverList(list.id, owner: owner, name: "Courses", at: serverTime)])
+    await harness.engine.drain(pull: true)
+    let pulled = try #require(try harness.fresh(ShoppingList.self).first)
+    #expect(pulled.createdAt == serverTime && pulled.updatedAt == serverTime)
+    await harness.gateway.setPull()
+    await harness.gateway.loseAccount()
+    await harness.engine.drain(pull: true)
+    #expect(try harness.fresh(ShoppingList.self).isEmpty)
+  }
+
   @Test func deletingAnItemNeverReceivedIsNotARefusal() async throws {
     let harness = try SyncHarness()
     harness.online.isOn = false

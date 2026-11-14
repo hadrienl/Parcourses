@@ -29,14 +29,18 @@ private struct AccountPromptsPresentation: ViewModifier {
       .alert("Se déconnecter ?", isPresented: $prompts.confirmsSignOut) {
         Button("Se déconnecter", role: .destructive) { Task { await account?.signOut() } }
           .accessibilityIdentifier("confirmSignOut")
-        Button("Annuler", role: .cancel) {}
+        Button("Annuler", role: .cancel) {
+          // La confirmation se referme, rien d'autre.
+        }
       } message: {
         Text(signOutMessage)
       }
       .alert("Prénom", isPresented: $prompts.editsName) {
         TextField("Prénom", text: $prompts.nameInput)
           .textContentType(.givenName)
-        Button("Annuler", role: .cancel) {}
+        Button("Annuler", role: .cancel) {
+          // La confirmation se referme, rien d'autre.
+        }
         Button("Enregistrer") {
           let input = prompts.nameInput
           Task {
@@ -49,7 +53,9 @@ private struct AccountPromptsPresentation: ViewModifier {
         Text("Les personnes avec qui vous partagez une liste verront ce prénom.")
       }
       .alert("Le prénom n'a pas été enregistré.", isPresented: $prompts.nameFailed) {
-        Button("OK", role: .cancel) {}
+        Button("OK", role: .cancel) {
+          // Message lu : le prénom reste modifiable.
+        }
       } message: {
         Text("Vérifiez votre connexion, puis réessayez. Entre 1 et 40 caractères, sans adresse ni lien.")
       }
@@ -181,7 +187,9 @@ struct SessionLostBanner: View {
     .alert("Continuer sans compte ?", isPresented: $confirmsAnonymous) {
       Button("Continuer sans compte", role: .destructive) { account.continueWithoutAccount() }
         .accessibilityIdentifier("confirmContinueWithoutAccount")
-      Button("Annuler", role: .cancel) {}
+      Button("Annuler", role: .cancel) {
+        // Le compte reste en attente de reconnexion.
+      }
     } message: {
       Text(
         "Les listes partagées avec vous seront retirées de cet appareil. Les vôtres restent ici, sans adresse ni synchronisation entre appareils."

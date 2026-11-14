@@ -550,14 +550,10 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  /// Même chemin que `signOutLocally` : le SDK retire la session de l'appareil, puis appelle `logout` (révocation du
+  /// jeton de rafraîchissement de cette session). Un échec réseau n'y change rien, le jeton expirera de lui-même.
   func signOut() async throws {
-    categoryMap = nil
-    try await mapped {
-      // Le SDK retire la session de l'appareil avant d'appeler `logout` : un échec réseau n'y change rien, le jeton de
-      // rafraîchissement expirera de lui-même.
-      try? await self.client.auth.signOut(scope: .local)
-      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
-    }
+    try await signOutLocally()
   }
 
   func deleteAccount(accessToken: String) async throws {
