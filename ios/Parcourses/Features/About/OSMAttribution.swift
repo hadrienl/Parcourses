@@ -54,6 +54,9 @@ struct AboutView: View {
             "Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. Ces données sont rattachées à un identifiant anonyme, sans nom ni e-mail."
           )
           Text(
+            "Les noms d'articles que vous saisissez restent privés. Un nom ne rejoint le catalogue commun, sans lien avec vous, qu'une fois saisi par au moins trois personnes."
+          )
+          Text(
             "Seule votre position GPS n'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée."
           )
         } header: {

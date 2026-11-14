@@ -167,7 +167,8 @@ class SyncIntegrationTest {
             val stored = checkNotNull(device.db.items().get(item.id))
             assertEquals(SyncState.SYNCED, stored.syncState)
             if (stored.productId != null) {
-                assertNotNull(device.db.products().get(stored.productId!!))
+                // Produit privé (#69) : l'article garde son produit, mais le cache ne reprend que le catalogue publié.
+                // Ce test revendique le libellé depuis un compte neuf à chaque passage : il finit publié, présent ou non.
                 val remote = gateway.fetchItems(null).single { it.id.toString() == item.id }
                 assertEquals(stored.productId, remote.productId.toString())
             }

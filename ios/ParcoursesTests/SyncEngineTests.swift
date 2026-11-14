@@ -836,7 +836,7 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     #expect(cached.first { $0.id == product.id }?.categoryId == slug)
     #expect(cached.first { $0.id == unknown.id }?.categoryId == nil)
 
-    // Réponse vide : cache intact. Pas de nouvel appel dans la journée.
+    // Réponse vide sans catégories (catalogue illisible) : cache intact. Pas de nouvel appel dans la journée.
     await harness.gateway.setCatalog(categories: [], products: [])
     await harness.engine.drain(pull: true)
     #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 1)
@@ -851,6 +851,56 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     harness.clock.advance(SyncRetryPolicy.catalogInterval)
     await harness.engine.drain(pull: true)
     #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 1)
+  }
+
+  /// #69 : un catalogue vide mais lisible (catégories reçues) vide le cache. Les noms d'autres comptes téléchargés
+  /// avant ne sont plus proposés ; l'historique de l'utilisateur, lui, reste proposé.
+  @Test func aReadableEmptyCatalogClearsTheCacheAndItsSuggestions() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first?.id)
+    let category = CategoryRow(id: 7, slug: slug, name: "n", defaultRank: 1)
+    let foreign = RemoteProduct(
+      id: UUID(), name: "Médicament de Paul", normalizedName: "medicament de paul", categorySlug: slug, offCode: nil,
+      createdAt: t0)
+    await harness.gateway.setCatalog(categories: [category], products: [foreign])
+    await harness.engine.drain(pull: true)
+    #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 1)
+    #expect(try Self.suggestions("medic", harness).map(\.label) == ["Médicament de Paul"])
+
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    try harness.lists.addItem(
+      listId: list.id, label: "Mâche", normalizedName: "mache", quantity: nil, productId: nil, categoryId: slug, at: t0)
+    // Plus aucun produit publié : le cache est vidé, l'historique reste proposé.
+    await harness.gateway.setCatalog(categories: [category], products: [])
+    harness.clock.advance(SyncRetryPolicy.catalogInterval)
+    await harness.engine.drain(pull: true)
+    #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 0)
+    #expect(try Self.suggestions("medic", harness).isEmpty)
+    #expect(try Self.suggestions("mach", harness).map(\.label) == ["Mâche"])
+  }
+
+  /// `replaceProducts` dit si le cache a changé : l'écran Liste ouvert reconstruit alors ses suggestions.
+  @Test func replaceProductsReportsWhetherTheCacheChanged() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first?.id)
+    let store = SyncStore(modelContainer: harness.container)
+    let lait = RemoteProduct(
+      id: UUID(), name: "Lait", normalizedName: "lait", categorySlug: slug, offCode: nil, createdAt: t0)
+    #expect(try await store.replaceProducts([lait], catalogReadable: true))
+    #expect(try await !store.replaceProducts([lait], catalogReadable: true))
+    #expect(try await !store.replaceProducts([], catalogReadable: false))
+    #expect(try await store.replaceProducts([], catalogReadable: true))
+    #expect(try await !store.replaceProducts([], catalogReadable: true))
+  }
+
+  /// Suggestions telles que l'écran Liste les construit : historique et cache du catalogue.
+  private static func suggestions(_ form: String, _ harness: SyncHarness) throws -> [ItemSuggestion] {
+    ItemSuggestionIndex(
+      history: try harness.lists.itemHistory(), products: try harness.context.fetch(FetchDescriptor<Product>()),
+      normalizeFallback: { $0 }
+    ).suggestions(forms: [form], excluding: [])
   }
 
   @Test func aFailedPullKeepsTheCursorAndRetriesOncePerMinute() async throws {

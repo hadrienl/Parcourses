@@ -734,8 +734,11 @@ class SyncEngine(
             cursors.lists = later(cursors.lists, listsMerge.cursor)
             cursors.items = later(cursors.items, itemsMerge.cursor)
             if (cursors.catalog?.let { now - it >= SyncRetryPolicy.catalogInterval } != false) {
-                store.applyCategories(gateway.fetchCategories())
-                store.replaceProducts(gateway.fetchProducts())
+                val categories = gateway.fetchCategories()
+                store.applyCategories(categories)
+                // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
+                // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+                store.replaceProducts(gateway.fetchProducts(), catalogReadable = categories.isNotEmpty())
                 cursors.catalog = now
             }
             lastPull = now
