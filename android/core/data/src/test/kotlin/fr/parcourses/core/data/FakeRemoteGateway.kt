@@ -1,5 +1,6 @@
 package fr.parcourses.core.data
 
+import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
@@ -63,13 +64,57 @@ class FakeRemoteGateway : RemoteGateway {
         queue?.removeFirstOrNull()?.let { throw it }
     }
 
-    override suspend fun ensureSession(captchaToken: String?): Uuid = account.also { enter("ensureSession") }
+    /** Session de l'appareil : [signOutLocally] l'oublie, et le [ensureSession] suivant crée un nouveau compte. */
+    var hasSession = true
 
-    override suspend fun currentAccountId(): Uuid = account.also { enter("currentAccountId") }
+    /** Comptes supprimés par [deleteAccount] (#68). */
+    val deletedAccounts = mutableListOf<Uuid>()
 
-    override suspend fun verifySession() = enter("verifySession")
+    /** Réponse perdue : le serveur supprime le compte, puis l'app reçoit cette erreur. */
+    var lostDeleteResponse: Throwable? = null
 
-    override suspend fun sessionAccountId(): Uuid = account.also { enter("sessionAccountId") }
+    override suspend fun ensureSession(captchaToken: String?): Uuid {
+        enter("ensureSession")
+        if (!hasSession) {
+            account = Uuid.random()
+            hasSession = true
+        }
+        return account
+    }
+
+    override suspend fun deleteAccount() {
+        enter("deleteAccount")
+        requireSession()
+        // Rejouée après une réponse perdue : le rafraîchissement est refusé, la session ne vaut plus rien.
+        if (account in deletedAccounts) throw RemoteError.Unauthorized(authCode = "refresh_token_not_found")
+        deletedAccounts += account
+        lostDeleteResponse?.let {
+            lostDeleteResponse = null
+            throw it
+        }
+    }
+
+    override suspend fun signOutLocally() {
+        enter("signOutLocally")
+        hasSession = false
+    }
+
+    override suspend fun currentAccountId(): Uuid = account.also { enter("currentAccountId") }.also { requireSession() }
+
+    /** Après [deleteAccount], le serveur répond « introuvable », avec le code de GoTrue (contrat 68.1). */
+    override suspend fun verifySession(refresh: Boolean) {
+        enter("verifySession")
+        requireSession()
+        if (account in deletedAccounts) {
+            throw RemoteError.Unauthorized(authCode = if (refresh) "refresh_token_not_found" else "user_not_found")
+        }
+    }
+
+    override suspend fun sessionAccountId(): Uuid = account.also { enter("sessionAccountId") }.also { requireSession() }
+
+    private fun requireSession() {
+        if (!hasSession) throw RemoteError.Unauthorized(noLocalSession = true)
+    }
 
     override suspend fun acknowledgeAccount(id: Uuid) {
         enter("acknowledgeAccount")

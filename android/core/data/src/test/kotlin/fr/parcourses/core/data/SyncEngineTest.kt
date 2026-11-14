@@ -8,8 +8,10 @@ import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.network.RemoteError
+import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListRow
+import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -345,6 +347,31 @@ class SyncEngineTest : DataTest() {
             advance(25.hours)
             engine.drain(pull = true)
             assertEquals(2, gateway.callsOf("fetchCategories").size)
+        }
+
+    /** #69 : un catalogue vide mais lisible (catégories reçues) vide le cache ; illisible, il le laisse intact. */
+    @Test
+    fun aReadableEmptyCatalogClearsTheCache() =
+        runBlocking {
+            val category = CategoryRow(7, "dairy", "Crèmerie", 1)
+            gateway.remoteCategories = listOf(category)
+            gateway.remoteProducts =
+                listOf(RemoteProduct(Uuid.random(), "Médicament de Paul", "medicament de paul", "dairy", null, now))
+            engine.drain(pull = true)
+            assertEquals(1, db.products().getAll().size)
+
+            // Réponse vide sans catégories (catalogue illisible) : cache intact.
+            gateway.remoteCategories = emptyList()
+            gateway.remoteProducts = emptyList()
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(1, db.products().getAll().size)
+
+            // Catégories reçues, aucun produit publié : cache vidé.
+            gateway.remoteCategories = listOf(category)
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertTrue(db.products().getAll().isEmpty())
         }
 
     @Test

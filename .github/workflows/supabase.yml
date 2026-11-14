@@ -7,6 +7,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/categories/**"
+      - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".sqlfluff"
@@ -18,6 +19,7 @@ on:
       - "supabase/**"
       - "scripts/**"
       - "shared/categories/**"
+      - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
       - ".github/workflows/supabase.yml"
@@ -71,8 +73,18 @@ jobs:
       - name: Migration des catégories conforme à shared/categories
         run: deno run --allow-read scripts/check-categories.ts
 
+      - name: Catalogue de départ conforme à shared/catalog et au classifieur
+        run: deno run --allow-read scripts/check-starter-catalog.ts
+
+      - name: Edge Functions (typage et lint)
+        run: |
+          deno check supabase/functions/*/index.ts
+          deno lint supabase/functions/ supabase/tests/e2e/
+
       - name: Démarrage
-        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
+        # Mailpit et Realtime restent démarrés : les tests de bout en bout de #87 y lisent les codes de connexion et y
+        # reçoivent les signaux du partage. L'Edge Function send-invitation est lancée par le test avec Deno.
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,storage-api,supavisor
 
       - name: Migrations et seeds depuis zéro
         run: supabase db reset
@@ -86,7 +98,7 @@ jobs:
           done
 
       - name: Lint de la base
-        run: supabase db lint -s public,graph --level warning --fail-on warning
+        run: supabase db lint -s public,graph,accounts,catalog,sharing --level warning --fail-on warning
 
       - name: Advisors
         run: supabase db advisors --local --level warn --fail-on warn
@@ -94,8 +106,8 @@ jobs:
       - name: Tests pgTAP
         run: supabase test db
 
-      - name: Bout en bout (visites → instantané → tri de référence)
-        run: deno test --allow-run --allow-read --allow-env supabase/tests/e2e/
+      - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage)
+        run: deno test --allow-run --allow-read --allow-env --allow-net=127.0.0.1 supabase/tests/e2e/
 
       - name: Types et contrat à jour
         run: |

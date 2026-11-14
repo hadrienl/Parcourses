@@ -63,6 +63,10 @@ private actor SnapshotGateway: RemoteGateway {
   }
   func sessionAccountId() async throws -> UUID { throw RemoteError.unauthorized }
   func acknowledgeAccount(_ id: UUID) async throws { throw RemoteError.unauthorized }
+  func deleteAccount() async throws { throw RemoteError.unauthorized }
+  func signOutLocally() async throws {}
+  func localSessionAccountId() async throws -> UUID? { nil }
+  func confirmAccountDeleted() async throws -> Bool { throw RemoteError.unauthorized }
   func serverDate() async throws -> Date? { throw RemoteError.unauthorized }
   func saveList(_ list: ListUpsert) async throws { throw RemoteError.unauthorized }
   func deleteList(id: UUID) async throws { throw RemoteError.unauthorized }
@@ -2493,5 +2497,60 @@ private final class Counter {
     #expect(try harness.outbox(.insertChecks).isEmpty)
     #expect(try harness.outbox(.createVisit).isEmpty)
     #expect(try harness.lists.items(listId: remap[harness.listId]).allSatisfy { $0.checkedAt == nil })
+  }
+}
+
+/// Suppression du compte (#68) : la Live Activity disparaît en entier, et plus rien n'est publié avant la reprise.
+@Suite @MainActor struct ActivityDeletionTests {
+  private let visitA = UUID()
+  private let state = ActivityState(remaining: 2, total: 3)
+
+  private func attributes(_ visit: UUID?) -> ShoppingActivityAttributes {
+    ShoppingActivityAttributes(visitId: visit, listName: "Semaine", storeName: "Leclerc Auch")
+  }
+
+  /// `endAll` laisse « Courses terminées » jusqu'à son retrait prévu ; `endEverything` le retire tout de suite : le nom
+  /// de la liste et du magasin ne reste pas sur l'écran verrouillé.
+  @Test func endEverythingEndsFinishedActivitiesImmediately() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    controller.end(state: ActivityState(remaining: 0, total: 3, isFinished: true))
+    await controller.waitUntilIdle()
+    controller.endAll(except: nil)
+    await controller.waitUntilIdle()
+    #expect(await backend.current().map(\.isActive) == [false])
+
+    controller.endEverything()
+    await controller.waitUntilIdle()
+
+    #expect(await backend.current().isEmpty)
+    #expect(await backend.calls.last == .end("new", immediate: true))
+  }
+
+  @Test func nothingIsPublishedDuringTheDeletionThenPublishingResumes() async {
+    let backend = FakeBackend()
+    let controller = ActivityKitShoppingActivity(backend: backend, dismissals: MemoryDismissals())
+    controller.start(attributes: attributes(visitA), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    controller.endEverything()
+    await controller.waitUntilIdle()
+    let callsAfterEnd = await backend.calls
+
+    // État en mémoire oublié : ni mise à jour, ni nouvel essai, ni reprise, ni démarrage.
+    controller.update(state: ActivityState(remaining: 1, total: 3), lastActivity: t0)
+    controller.retryIfNeeded()
+    controller.start(attributes: attributes(UUID()), state: state, lastActivity: t0)
+    #expect(await controller.restore(visitId: visitA) == nil)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls == callsAfterEnd)
+    #expect(controller.isHalted)
+
+    controller.resumePublishing()
+    let visitB = UUID()
+    controller.start(attributes: attributes(visitB), state: state, lastActivity: t0)
+    await controller.waitUntilIdle()
+    #expect(await backend.calls.last == .request(visitB))
   }
 }

@@ -86,6 +86,11 @@ actor SyncEngine {
 
   /// Pas de session valide : seule une passe forcée tente d'en retrouver une.
   private(set) var isWaitingForSession = false
+  /// Suppression du compte en cours (#68 §5.3) : aucune passe ne démarre, aucun réveil n'est planifié. Les demandes
+  /// sont retenues et partent à la reprise.
+  private(set) var isSuspended: Bool
+  /// Arrêté pour de bon : le moteur d'un compte supprimé, remplacé par un neuf.
+  private(set) var isStopped = false
   /// Une erreur serveur a retenu la file : le prochain succès prouve la reprise et libère les lignes mises de côté.
   /// En mémoire : après un relancement pendant la panne, une ligne attend au pire la fin de son délai.
   private var isServerOutageSuspected = false
@@ -110,8 +115,9 @@ actor SyncEngine {
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
     classify: @escaping @Sendable (String) -> PulledItemClassification,
-    dependencies: Dependencies = Dependencies()
+    dependencies: Dependencies = Dependencies(), suspended: Bool = false
   ) {
+    isSuspended = suspended
     self.gateway = gateway
     self.container = container
     self.cursors = cursors
@@ -119,11 +125,31 @@ actor SyncEngine {
     self.dependencies = dependencies
   }
 
-  /// Une session valide est peut-être revenue.
+  /// Une session valide est peut-être revenue, ou la suppression du compte est abandonnée : lève la suspension.
+  /// Sans effet après `stop()`.
   func resume() {
+    guard !isStopped else { return }
+    isSuspended = false
     isWaitingForSession = false
     pullBackoffUntil = nil
     kick(pull: true)
+  }
+
+  /// Arrêt définitif, avant la purge d'un compte supprimé : ce moteur ne repartira plus.
+  func stop() async {
+    isStopped = true
+    await suspend()
+  }
+
+  /// Arrête la synchronisation avant une suppression de compte et attend la fin de la passe en cours, interrompue
+  /// comme à la fin du temps d'arrière-plan : la file reste intacte. Rien ne repart avant `resume()`.
+  func suspend() async {
+    isSuspended = true
+    wake?.cancel()
+    wake = nil
+    guard let runner else { return }
+    runner.cancel()
+    await runner.value
   }
 
   /// Vrai si le contexte de synchronisation tourne sur le thread principal.
@@ -138,7 +164,7 @@ actor SyncEngine {
       isPullRequested = true
       backoffUntil = nil
     }
-    guard runner == nil else { return }
+    guard runner == nil, !isSuspended else { return }
     runner = Task { await self.runLoop() }
   }
 
@@ -154,13 +180,15 @@ actor SyncEngine {
   }
 
   private func runLoop() async {
-    while isRunRequested, !Task.isCancelled {
+    while isRunRequested, !Task.isCancelled, !isSuspended {
       isRunRequested = false
       let pull = isPullRequested
       isPullRequested = false
       await pass(pull: pull)
     }
     runner = nil
+    // Suspendu : la demande attend `resume()`, sans réveil.
+    if isSuspended { return }
     // Une demande arrivée pendant une annulation n'est pas perdue : la nouvelle tâche n'est pas annulée.
     if isRunRequested {
       runner = Task { await self.runLoop() }
@@ -320,7 +348,7 @@ actor SyncEngine {
       isWaitingForSession = false
       // Pendant la reprise, une nouvelle erreur attend le délai : pas de boucle serrée.
       if recovering { registerTransientFailure() } else { isRunRequested = true }
-    case .unauthorized: isWaitingForSession = true
+    case .unauthorized, .accountGone: isWaitingForSession = true
     default: registerTransientFailure()
     }
     return .stop
@@ -438,7 +466,7 @@ actor SyncEngine {
     _ error: RemoteError, for work: OutboxWork, singleChecks: inout Set<UUID>
   ) async throws -> Next {
     switch error {
-    case .accountChanged, .unauthorized, .network, .keychainLocked:
+    case .accountChanged, .unauthorized, .network, .keychainLocked, .accountGone, .notSent:
       return stop(on: error)
 
     case .unexpected:
@@ -654,16 +682,22 @@ actor SyncEngine {
       let itemsMerge = try await store.merge(items: items, classify: classify)
       cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
       cursors.items = Self.later(cursors.items, itemsMerge.cursor)
+      var catalogChanged = false
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
-        try await store.applyCategories(try await gateway.fetchCategories())
-        try await store.replaceProducts(try await gateway.fetchProducts())
+        let categories = try await gateway.fetchCategories()
+        try await store.applyCategories(categories)
+        // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit publié »
+        // (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+        catalogChanged = try await store.replaceProducts(
+          try await gateway.fetchProducts(), catalogReadable: !categories.isEmpty)
         cursors.catalog = now
       }
       lastPull = now
       pullBackoffUntil = nil
       try await releaseParkedIfRecovered()
       isWaitingForSession = false
-      if listsMerge.changed || itemsMerge.changed {
+      // Catalogue changé : l'écran Liste ouvert reconstruit ses suggestions (un nom retiré n'y reste pas).
+      if listsMerge.changed || itemsMerge.changed || catalogChanged {
         await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
       }
     } catch {
@@ -671,7 +705,7 @@ actor SyncEngine {
       guard !Task.isCancelled else { return }
       Self.logger.notice("Descente reportée : \(String(describing: error), privacy: .private)")
       switch error as? RemoteError {
-      case .accountChanged, .unauthorized:
+      case .accountChanged, .unauthorized, .accountGone:
         _ = stop(on: error)
       default:
         // N'arrête pas l'envoi : seul un nouvel essai de descente attend.

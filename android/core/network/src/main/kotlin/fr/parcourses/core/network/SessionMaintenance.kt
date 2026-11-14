@@ -4,7 +4,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Entretien de la session de l'appareil, à la demande de la personne (écran À propos), à côté de la
- * synchronisation. Les actions sur le compte lui-même (suppression, #68) viendront ici.
+ * synchronisation. La suppression du compte (#68) passe par `RemoteGateway.deleteAccount`, portée par
+ * `AccountDeletion` (`:core:data`).
  */
 interface SessionMaintenance {
     /** Le stockage chiffré de la session reste illisible : la synchronisation est arrêtée sans issue automatique. */

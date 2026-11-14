@@ -26,6 +26,11 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   case unknownCategory(String)
   /// Keychain verrouillé (arrière-plan avant le premier déverrouillage) : la session existe peut-être encore.
   case keychainLocked
+  /// Suppression du compte seulement : GoTrue répond que le compte ou sa session n'existent plus
+  /// (`user_not_found`, `refresh_token_not_found`, `session_not_found`). Seule preuve d'une suppression faite.
+  case accountGone(code: String)
+  /// Suppression du compte seulement : la requête n'a pas quitté l'appareil (pas de réseau, hôte introuvable).
+  case notSent
 
   /// PostgREST ne trouve pas la fonction appelée : serveur en retard d'une migration. Reste `rejected`, la file
   /// n'en dépend pas ; seule la résolution des produits la réessaie plus tôt (`SyncRetryPolicy.resolutionDelay`).
@@ -35,7 +40,7 @@ nonisolated enum RemoteError: Error, Sendable, Equatable {
   var isRetryable: Bool {
     switch self {
     case .network, .unauthorized, .dependencyMissing, .server, .unexpected, .accountChanged, .unknownCategory,
-      .keychainLocked:
+      .keychainLocked, .accountGone, .notSent:
       true
     case .forbidden, .constraint, .rejected:
       false
@@ -120,7 +125,8 @@ nonisolated enum VisitAccess: Sendable, Equatable {
 /// Accès distant de l'app. `SupabaseGateway` en est l'implémentation ; les tests fournissent une doublure.
 /// Toutes les écritures sont idempotentes : la file peut les rejouer. Elles lèvent `RemoteError`.
 nonisolated protocol RemoteGateway: Sendable {
-  /// Renvoie l'utilisateur courant, et crée un compte anonyme s'il n'y a pas de session.
+  /// Renvoie l'utilisateur courant, et crée un compte anonyme s'il n'y a pas de session. Pendant une suppression de
+  /// compte (drapeau `account.deletion`), n'en crée jamais : `unauthorized` sans session.
   @discardableResult
   func ensureSession(captchaToken: String?) async throws -> UUID
 
@@ -135,6 +141,20 @@ nonisolated protocol RemoteGateway: Sendable {
   func acknowledgeAccount(_ id: UUID) async throws
   /// Heure du serveur (en-tête HTTP `Date`), `nil` si la réponse n'en porte pas de lisible.
   func serverDate() async throws -> Date?
+
+  /// Supprime le compte de la session et toutes ses données serveur (RPC `delete_my_account`, #68). Rafraîchit
+  /// d'abord la session : le jeton obtenu permet de rejouer l'appel, idempotent, si la réponse se perd. Ne crée
+  /// jamais de compte. Après succès, la session est refusée : `verifySession` lève `unauthorized`.
+  func deleteAccount() async throws
+  /// Oublie la session dans le SDK, sans appel au serveur : elle n'y existe plus.
+  func signOutLocally() async throws
+  /// Compte de la session enregistrée sur l'appareil, sans appel au serveur : `nil` s'il n'y en a pas.
+  /// `keychainLocked` si le Keychain ne peut pas le dire.
+  func localSessionAccountId() async throws -> UUID?
+  /// Suppression du compte : le serveur prouve-t-il que le compte de la session n'existe plus ? `true` sur
+  /// `user_not_found`, `refresh_token_not_found` ou `session_not_found` ; `false` si le compte répond. Tout le reste
+  /// lève : le doute demeure. Sans comparaison au dernier compte connu.
+  func confirmAccountDeleted() async throws -> Bool
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws

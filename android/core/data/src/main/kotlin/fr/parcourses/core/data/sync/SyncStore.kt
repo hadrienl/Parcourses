@@ -452,9 +452,16 @@ class SyncStore(
         }
     }
 
-    /** Remplacement du cache. Une réponse vide ne l'efface pas : elle n'apprend rien sur le catalogue. */
-    suspend fun replaceProducts(rows: List<RemoteProduct>) {
-        if (rows.isEmpty()) return
+    /**
+     * Remplacement du cache par le catalogue publié (#69). Une réponse vide ne l'efface que si le catalogue était
+     * lisible ([catalogReadable] : les catégories de la même passe sont arrivées) : plus aucun produit n'est publié, et
+     * les noms téléchargés avant ne doivent pas rester sur l'appareil. Sinon elle n'apprend rien sur le catalogue.
+     */
+    suspend fun replaceProducts(
+        rows: List<RemoteProduct>,
+        catalogReadable: Boolean,
+    ) {
+        if (rows.isEmpty() && !catalogReadable) return
         db.withWriteTransaction {
             val known =
                 db

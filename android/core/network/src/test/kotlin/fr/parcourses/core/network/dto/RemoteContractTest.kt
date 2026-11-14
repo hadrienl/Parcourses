@@ -40,13 +40,32 @@ class RemoteContractTest {
     private val readSpecs: List<TableSpec<*>> =
         listOf(ListRow.spec, ListItemRow.spec, VisitRow.spec, CheckRow.spec, CategoryRow.spec, ProductRow.spec)
 
-    /** Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. */
+    /**
+     * Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. `profiles` et
+     * `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot Android 87.5. `list_members` (87.2) : lue en 87.6.
+     */
     private val tablesWithoutDto =
-        setOf("stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots")
+        setOf(
+            "stores",
+            "store_edges",
+            "store_entries",
+            "store_stats",
+            "store_graph_snapshots",
+            "profiles",
+            "list_item_tombstones",
+            "list_members",
+        )
 
-    /** Colonnes internes au calcul du graphe (#11), que l'app ne lit pas. Toute autre colonne doit avoir son DTO. */
+    /**
+     * Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
+     * avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
+     * `updated_by` (#87, lot 87.1) : lue à partir du lot Android 87.5.
+     */
     private val serverOnlyColumns =
         mapOf(
+            "lists" to setOf("updated_by"),
+            "list_items" to setOf("updated_by"),
+            "products" to setOf("published_at"),
             "visits" to
                 setOf(
                     "auto_closed",

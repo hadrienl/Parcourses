@@ -15,7 +15,9 @@ fi
 
 # --rerun : les variables d'environnement ne sont pas des entrées de la tâche de test.
 # Passerelle (A5), synchronisation complète des listes (A6), puis visite complète du mode courses (A8) : coches,
-# fin, envoi, calcul du graphe (docker exec sur la base du Supabase local) et lecture de l'instantané.
+# fin, envoi, calcul du graphe (docker exec sur la base du Supabase local) et lecture de l'instantané, puis
+# « Supprimer mes données » (#68) : compte et lignes effacés en base, rien pour le nouveau compte.
+# Prérequis : la migration 68.1 (`select to_regprocedure('public.delete_my_account()')` non nul).
 # Contre le Supabase local uniquement.
 PARCOURSES_IT_URL="$url" PARCOURSES_IT_KEY="$key" \
   ./gradlew :core:network:testDebugUnitTest --tests '*SupabaseGatewayIntegrationTest' \

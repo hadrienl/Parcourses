@@ -4,6 +4,8 @@ import OSLog
 /// Prépare l'accès distant au lancement. Sans configuration, l'app reste entièrement locale.
 enum AuthBootstrap {
   static let installedFlag = "auth.installed"
+  /// Argument de lancement des tests UI (Debug seulement) : l'app reste entièrement locale.
+  static let localOnlyArgument = "PARCOURSES_TEST_LOCAL_ONLY"
   private static let logger = Logger(subsystem: "app.parcourses", category: "auth")
 
   static func makeGateway(
@@ -12,6 +14,10 @@ enum AuthBootstrap {
     keychain: KeychainStore = KeychainStore()
   ) -> (any RemoteGateway)? {
     resetAfterReinstall(defaults: defaults, keychain: keychain)
+    #if DEBUG
+      // Tests UI : build sans passerelle, quel que soit `Local.xcconfig`.
+      if ProcessInfo.processInfo.arguments.contains(localOnlyArgument) { return nil }
+    #endif
     guard let configuration = SupabaseConfiguration(bundle: bundle) else { return nil }
     return SupabaseGateway(configuration: configuration, store: keychain)
   }

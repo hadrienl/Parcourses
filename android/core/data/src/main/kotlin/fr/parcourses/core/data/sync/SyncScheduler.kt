@@ -14,6 +14,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import androidx.work.await
 import kotlinx.coroutines.CancellationException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -38,6 +39,12 @@ interface SyncScheduler {
 
     /** Le travail de synchronisation [workId] commence : appelé par le worker avant sa passe. */
     fun runStarted(workId: UUID) = Unit
+
+    /**
+     * Annule tous les travaux de synchronisation (suppression du compte, #68) : rend la main quand l'annulation est
+     * enregistrée. Une passe en cours est interrompue ; `SyncEngine.suspend` attend sa fin.
+     */
+    suspend fun cancelAll()
 }
 
 /** WorkManager : travail unique `lists-sync`, rappel différé `lists-sync-wake`, périodique 6 h. */
@@ -116,6 +123,13 @@ class WorkManagerSyncScheduler(
         workManager.enqueueUniqueWork(WAKE_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
+    override suspend fun cancelAll() {
+        synchronized(lock) { waiting = null }
+        for (name in WORK_NAMES) workManager.cancelUniqueWork(name).await()
+        // Une demande arrivée pendant l'annulation a été annulée avec les autres : elle n'attend plus rien.
+        synchronized(lock) { waiting = null }
+    }
+
     override fun schedulePeriodic() {
         val request =
             PeriodicWorkRequestBuilder<ListSyncWorker>(PERIOD.inWholeHours, TimeUnit.HOURS)
@@ -134,6 +148,9 @@ class WorkManagerSyncScheduler(
         const val UNIQUE_NAME = "lists-sync"
         const val WAKE_NAME = "lists-sync-wake"
         const val PERIODIC_NAME = "lists-sync-periodic"
+
+        /** Tous les travaux de synchronisation : il n'y a pas d'autre nom ni d'étiquette. */
+        val WORK_NAMES = listOf(UNIQUE_NAME, WAKE_NAME, PERIODIC_NAME)
         private const val BACKOFF_SECONDS = 30L
         private val MIN_WAKE_DELAY: Duration = 1.seconds
         private val PERIOD: Duration = 6.hours
@@ -225,4 +242,10 @@ class SyncCoordinator(
     }
 
     fun start() = scheduler.schedulePeriodic()
+
+    /** Suppression du compte (#68) : travaux annulés, puis le moteur s'arrête après la passe en cours. */
+    suspend fun suspend() {
+        scheduler.cancelAll()
+        engine.suspend()
+    }
 }

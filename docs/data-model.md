@@ -5,8 +5,10 @@ Conception : issues #4 (modèle) et #8 (socle Supabase). Base Supabase locale (P
 ## Vue d'ensemble
 
 ```
-auth.users ─┬─< lists ─< list_items >─ products >─ categories
-            │                              │
+auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
+            │          ├─< list_item_tombstones   (articles supprimés, 30 jours)
+            │          └─< list_members >─ auth.users   (éditeurs et lecteurs, #87)
+            ├── profiles                (prénom, comptes e-mail)
             └─< visits ─< checks >─────────┘
                   │
                stores ─< store_edges   (graphe de voisinage appris)
@@ -14,9 +16,13 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
                      ─< store_stats   (confiance globale)
 ```
 
-- **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `visits`, `checks`.
+- **Données privées** (RLS par utilisateur et par rôle) : `lists`, `list_items`, `list_item_tombstones`, `list_members`,
+  `profiles`, `visits`, `checks`. Une liste est lisible par son propriétaire et ses membres, ses articles sont écrits par
+  son propriétaire et ses éditeurs (`sharing.readable_list_ids()`, `sharing.writable_list_ids()`, #87, lot 87.2) : voir
+  « Partage d'une liste ». Visites et coches restent celles d'un seul compte.
 - **Connaissance partagée** (lecture par `authenticated`, écriture par la Secret key seulement) :
-  `categories`, `products`, `stores`.
+  `categories`, `products`, `stores`. Seuls les produits **publiés** (`published_at` non nul) sont lisibles (#69) :
+  voir « Catalogue : produit privé, publication à 3 comptes ».
 - **Graphe** (écrit par le serveur seulement, **illisible par les clients**, #70) : `store_edges`, `store_entries`,
   `store_stats`, `store_graph_snapshots`. Les apps reçoivent l'instantané par la RPC `store_graph_snapshot`
   (`security definer`), seule porte d'entrée. Pour un magasin à un seul contributeur, ces tables révéleraient
@@ -55,6 +61,10 @@ auth.users ─┬─< lists ─< list_items >─ products >─ categories
 | `…_graph_read_closed.sql` | Lecture directe du graphe et des instantanés retirée aux clients ; `store_graph_snapshot` en `security definer` (#70) |
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
+| `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
+| `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
+| `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
+| `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -64,15 +74,21 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 
 | Table | SELECT | INSERT (colonnes) | UPDATE (colonnes) | DELETE |
 | --- | --- | --- | --- | --- |
-| `categories`, `products`, `stores` | ✅ | — | — | — |
+| `categories`, `stores` | ✅ | — | — | — |
+| `products` | ✅ produits publiés seulement (RLS `published_at is not null`) | — | — | — |
 | `store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots` | — (RPC `store_graph_snapshot`) | — | — | — |
-| `lists` | ✅ | `id, name` | `name` | ✅ |
-| `list_items` | ✅ | `id, list_id, label, quantity, product_id, checked_at` | `label, quantity, product_id, checked_at, list_id` | ✅ |
+| `lists` | ✅ propriétaire et membres | `id, name` | `name`, propriétaire seulement | ✅ propriétaire seulement |
+| `list_items` | ✅ propriétaire et membres | `id, list_id, label, quantity, product_id, checked_at` : propriétaire et éditeurs | `label, quantity, product_id, checked_at, list_id` : propriétaire et éditeurs | ✅ propriétaire et éditeurs |
+| `list_members` | ✅ membres de la liste et son propriétaire | — (RPC) | — (RPC) | — (RPC) |
+| `list_item_tombstones` | ✅ listes lisibles (`sharing.readable_list_ids()`) | — (trigger) | — | — (purge) |
+| `profiles` | ✅ sa ligne, et celles des comptes avec qui l'on partage une liste | `display_name`, compte e-mail seulement | `display_name`, compte e-mail seulement | — (cascade) |
 | `visits` | ✅ | `id, store_id, list_id, list_was_sorted, started_at` | `ended_at` | — |
 | `checks` | ✅ | `id, visit_id, product_id, category_id, checked_at` | — | — |
 
 `anon` n'a aucun droit : l'app ouvre une session anonyme (`signInAnonymously`) avant toute requête.
 `owner_id` / `user_id` sont remplis par `default auth.uid()` ; `processed_at` et `ignored` sont réservés au serveur.
+`lists.updated_by` et `list_items.updated_by` (#87) sont remplis à l'insertion (`default auth.uid()`), puis par le trigger
+`set_updated_by` à chaque mise à jour d'un client ; aucun client ne les écrit.
 
 ## Règles métier portées par la base
 
@@ -114,34 +130,277 @@ Repli sans position : renvoie `id, name, chain, address, organic_aisle` des maga
 
 ## RPC `resolve_products(p_items)`
 
-Apprentissage sans catalogue : donne un produit partagé aux articles saisis librement, pour que leurs coches
-nourrissent le graphe. `p_items` est un tableau d'au plus 100 objets `{ "name", "category_slug" }` (libellé
-sans quantité, catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entrée, dans l'ordre :
-`normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`.
+Apprentissage sans catalogue : donne un produit aux articles saisis librement, pour que leurs coches nourrissent le
+graphe. `p_items` est un tableau d'au plus 100 objets `{ "name", "category_slug" }` (libellé sans quantité,
+catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entrée, dans l'ordre :
+`normalized_name` (`normalize_label(name)`), `id`, `name`, `category_slug`. Signature et colonnes inchangées
+depuis #46 : les versions installées des apps n'y voient aucune différence.
 
-- Forme normalisée déjà connue : le produit existant est renvoyé, sa catégorie n'est pas modifiée.
-- Sinon le produit est créé avec le libellé et la catégorie reçus, sauf si le libellé est vide, si la catégorie
-  est absente, inconnue ou `bio` (le rayon bio dépend du magasin, #28), ou si un plafond du jour est atteint
-  (voir ci-dessous). Dans ces cas `id` est nul.
+- **Produit publié** de même forme : renvoyé avec son libellé et sa catégorie, sans rien consommer.
+- Sinon, une entrée **valide** (libellé de 200 caractères bruts au plus, non vide ; catégorie connue autre que
+  `bio`, le rayon bio dépend du magasin, #28) **revendique** la forme pour le compte : le produit est créé, privé,
+  s'il n'existe pas. Il est renvoyé avec **le libellé et la catégorie de l'appelant** (ceux de sa première
+  revendication), jamais ceux d'un autre compte.
+- Un produit privé que l'appelant n'a pas revendiqué (entrée sans catégorie, plafond atteint) donne `id` nul,
+  **comme un produit absent** : la réponse ne dit jamais si un autre compte a saisi ce libellé.
 - Un libellé de plus de 200 caractères (longueur brute, espaces compris) est écarté avant toute normalisation :
   `normalized_name` et `id` sont nuls.
-- Deux entrées de même forme donnent le même produit ; une création concurrente reprend la ligne existante.
-  Les produits sont insérés dans l'ordre de leur forme normalisée, pas des entrées : deux appels qui créent
-  les mêmes formes ne s'interbloquent pas.
+- Deux entrées de même forme donnent le même produit (la première donne le libellé et la catégorie) ; une
+  création concurrente reprend la ligne existante. Produits et revendications sont insérés dans l'ordre des
+  formes, pas des entrées : deux appels ne s'interbloquent pas.
 
-Plafonds de créations par jour (Europe/Paris), constantes de `public.resolve_products` (une migration qui
-recrée la fonction les change) :
+Plafonds de revendications nouvelles par jour (Europe/Paris), constantes de `public.resolve_products` (une
+migration qui recrée la fonction les change). La première revendication d'une forme coûte une unité, que le
+produit existe déjà ou non : sinon la consommation, ou l'épuisement du plafond global par un tiers, trahirait
+l'existence. Depuis #69, le plafond global compte donc des revendications, plus seulement des créations : une
+forme courante encore privée coûte une unité à chaque nouveau compte, tant qu'elle n'est pas publiée.
 
 | Constante | Valeur | Compteur | Portée |
 | --- | --- | --- | --- |
 | `c_daily_quota` | 300 | `catalog.product_creations` | par compte |
 | `c_daily_global_quota` | 2 000 | `catalog.daily_product_creations` | tous comptes, anonymes compris |
 
-Un plafond atteint n'empêche que les créations : les produits existants restent renvoyés, et les premières
-entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés (`for update`), toujours dans
-le même ordre : compte, puis global. Le compteur global n'est verrouillé que si l'appel peut créer quelque chose,
-et il sérialise les créations du jour.
-- `SECURITY DEFINER` (les clients ne peuvent pas écrire `products`), réservée à `authenticated`.
+Un plafond atteint n'empêche que les revendications : les produits publiés et ceux déjà revendiqués restent
+renvoyés, et les premières entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés
+(`for update`), toujours dans le même ordre : compte, puis global. Le compteur global n'est verrouillé que si
+l'appel peut revendiquer quelque chose, et il sérialise les revendications (donc les publications) du jour.
+- `SECURITY DEFINER` (les clients ne peuvent écrire ni `products` ni `catalog`), réservée à `authenticated`.
+
+## Catalogue : produit privé, publication à 3 comptes (#69)
+
+Un libellé saisi librement peut contenir une donnée personnelle (« médicament de Paul »). Un produit naît donc
+**privé** et n'est publié qu'une fois saisi par plusieurs comptes indépendants.
+
+- `products.published_at` : nul tant que le produit est privé. Un produit privé n'est lisible par **aucun** client,
+  pas même son créateur (il connaît son libellé) : RLS `products_select … using (published_at is not null)`. Son
+  `name` ne garde que la forme normalisée : le libellé saisi par chaque compte n'est que dans sa revendication.
+- `catalog.product_claims (product_id, user_id, label, category_id, claimed_at)` : une revendication par compte et
+  par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
+  suppression d'un compte (#68) emporte ses revendications.
+- **Publication** (`catalog.publish_claimed`, constante `c_min_accounts` = **3**) : à 3 comptes distincts, dans la
+  transaction de la revendication qui atteint le seuil, après verrouillage des revendications du produit (une
+  suppression de compte en cours est attendue et ne compte pas). Libellé : le plus fréquent parmi les
+  revendications (même forme normalisée : seules la casse, les accents et les espaces diffèrent), débarrassé des
+  caractères de contrôle et des espaces répétés ; à égalité en tête, la forme normalisée. Catégorie : la plus
+  votée ; à égalité, le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Aucun départage par
+  l'ancienneté : deux comptes qui saisissent deux graphies ne font pas publier celle du premier créateur. Les
+  revendications sont alors supprimées.
+- **Filtre** (`catalog.is_publishable`) : une forme sans lettre ni chiffre, ou contenant `://`, `www.`, un domaine
+  (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
+  consécutifs, 8 chiffres séparés au plus par un espace, un point ou un tiret (téléphone) ou un caractère de
+  contrôle n'est jamais publiée ; elle reste privée.
+- **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
+  `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
+  fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
+  tous recalculés chaque nuit). Avant, l'article est placé par sa catégorie.
+- **Purge** (`catalog.purge_claims`, job pg_cron `catalog-claims-purge`, 04:17 UTC) : revendications de plus de
+  180 jours dont le compte n'a plus d'article qui renvoie au produit, et revendications laissées sur un produit
+  déjà publié ; puis (depuis le lot S2) **produits privés que plus aucun compte n'a** : sans revendication, ni
+  article, ni coche, 10 000 au plus par passage. Leurs arêtes et entrées du graphe partent avec eux (cascade) :
+  elles ne sortaient jamais du serveur et n'apprennent plus rien à personne. La forme normalisée d'un libellé ne
+  reste donc pas en base une fois que plus aucun compte ne l'a (#68 : suppression du compte ou purge des comptes
+  inactifs, puis la nuit suivante).
+  - Concurrence : les candidats sont verrouillés (`for update skip locked`), puis la suppression revérifie chaque
+    condition avec un instantané neuf. Une écriture dont le contrôle de clé étrangère est passé avant garde son
+    produit. Dans l'autre ordre (la purge verrouille d'abord, 04:17 UTC), l'écriture attend puis échoue en `23503` :
+    `resolve_products` se réessaie et recrée le produit ; un article ou une coche portant ce produit est refusé.
+  - Cette suppression suppose que les apps ne proposent plus l'id d'un produit non publié (lot apps de #69 : cache
+    vidé même sur un catalogue vide). À appliquer sur l'hébergé après la mise à jour des apps.
+  - **Limite connue** : un article garde sur l'appareil le `productId` d'un produit privé qu'il a résolu. Si le
+    compte disparaît côté serveur (purge des comptes anonymes inactifs, #68) puis que l'app revient, `AccountRekey`
+    renvoie l'article avec ce `productId`, déjà purgé : `23503`, l'article est mis de côté après 8 essais. Piste : à
+    la reprise de compte, retirer le `productId` des articles dont le produit n'est pas dans le cache publié, pour
+    qu'ils soient résolus à nouveau.
+- **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
+  depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
+  produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première
+  exécution, tous les produits existants deviennent privés.
+- **Catalogue de départ** (lot S2, `…_starter_catalog.sql`) : 150 produits courants publiés d'emblée, la liste de
+  `shared/catalog/starter.fr.json`. `scripts/check-starter-catalog.ts` vérifie en CI que la migration la reprend
+  telle quelle (`catalog.starter_catalog()`), que le classifieur des apps (`shared/reference/classify.ts`) range
+  chaque libellé dans sa catégorie, qu'aucune forme normalisée n'est en double et que chaque libellé est publiable.
+  `catalog.publish_starter(jsonb)` publie la liste (rejouable).
+  Le serveur ne passe pas au singulier : « Tomate » et « Tomates » restent deux produits, l'autocomplétion oriente
+  vers la forme du catalogue. Une forme déjà en base et privée est publiée sous ce
+  libellé et cette catégorie ; une forme déjà publiée par vote n'est pas touchée. Un changement de la liste impose
+  une nouvelle migration (copier la précédente, puis `--write`).
+- Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée, tous repris par le
+  catalogue de départ (il ne sert plus qu'à une base sans cette migration). Les helpers de test
+  `tests.product(n)` créent aussi des produits publiés.
+
+## Comptes e-mail et synchro multi-appareil (#87, lot 87.1)
+
+Conception : #87 (décisions du 13/11 : code à 6 chiffres, prénom affiché, Resend).
+
+**Connexion par code.** Les apps lient une adresse à un compte anonyme par `updateUser({ email })`, puis vérifient le code
+reçu (`verifyOtp`, type `email_change`) : **même `user_id`**, `is_anonymous` passe à `false`, aucune donnée ne bouge.
+Une adresse déjà prise répond `422 email_exists` : l'app se connecte alors au compte existant par
+`signInWithOtp({ email, shouldCreateUser: false })` puis `verifyOtp` (type `email`), et `AccountRekey` y ajoute les
+données du téléphone (règles du lot apps 87.3 / 87.5). Vérifié de bout en bout (`supabase/tests/e2e/accounts.test.ts`).
+`enable_manual_linking` reste à `false` : il n'est pas nécessaire pour l'e-mail.
+
+- Modèle unique `supabase/templates/code.html` pour `magic_link`, `email_change`, `confirmation` et `recovery` : le code
+  seul, **aucun lien**. Objet « Votre code de connexion Parcourses », **sans le code** (l'objet s'affiche dans les
+  notifications, écran verrouillé compris). Code de 6 chiffres valable 15 min (`otp_expiry = 900`).
+- **Un compte ne naît qu'anonyme** : le hook `before_user_created` (`accounts.before_user_created`, exécuté par
+  `supabase_auth_admin`) refuse en 403 toute autre création : inscription par mot de passe, `signInWithOtp` avec création,
+  API d'administration et tableau de bord. Sans lui, un tiers pourrait créer d'avance, avec son mot de passe, le compte
+  d'une adresse que la victime confirmerait ensuite par code. `[auth.email] enable_signup` reste à `true` : à `false`,
+  GoTrue coupe aussi la connexion par code. Un compte de démonstration (#87 Q9) se crée donc comme un vrai : compte
+  anonyme, puis liaison de l'adresse.
+- Local : Mailpit (`[local_smtp]`, http://127.0.0.1:56324) reçoit tous les e-mails ; `email_sent = 30` par heure pour les
+  tests. La CI démarre Mailpit.
+- SMTP Resend : bloc `[auth.email.smtp]` présent mais désactivé (`RESEND_API_KEY`, `SMTP_ADMIN_EMAIL`), en attente d'un
+  domaine vérifié (#87 Q2).
+- **Projet hébergé**, à régler dans le tableau de bord (Authentication) quand le domaine existera : SMTP personnalisé
+  (smtp.resend.com, port 465, utilisateur `resend`, mot de passe = clé d'API Resend, expéditeur sur le domaine vérifié,
+  suivi des clics désactivé chez Resend), les trois modèles ci-dessus, durée du code 900 s, plafond d'envoi relevé
+  (30 par heure par défaut avec un SMTP personnalisé), hook `before_user_created` (Authentication → Hooks, fonction
+  `accounts.before_user_created`), CAPTCHA Turnstile (#8), **obligatoire avant l'ouverture** : le plafond d'envoi vaut
+  pour tout le projet, un seul client pourrait l'épuiser. Le SMTP intégré de Supabase n'envoie qu'aux membres de
+  l'organisation.
+- **Ne jamais lancer `supabase config push`** vers l'hébergé : `config.toml` décrit la pile locale (SMTP désactivé,
+  `max_frequency = "1s"`, `email_sent = 30`) et écraserait les réglages du tableau de bord.
+
+**`profiles`** : `user_id`, `display_name` (1 à 40 caractères, sans espace en tête ni en fin, sans caractère de contrôle
+ni de mise en forme invisible : espaces de largeur nulle, marques et renversements de direction, trait d'union
+conditionnel ; le prénom s'affiche chez les autres membres et ne doit pas en imiter un autre), `created_at`, `updated_at`. Une ligne par compte e-mail : un compte anonyme ne peut pas en écrire (claim `is_anonymous`). Partie avec
+le compte (cascade, #68).
+
+**Pierres tombales** (`list_item_tombstones` : `id` de l'article, `list_id`, `deleted_at`) :
+- écrites par le trigger `list_items_record_tombstone` (`security definer`) à chaque suppression d'article, sauf quand
+  la liste elle-même disparaît (suppression de la liste ou du compte) : la descente l'apprend par `accessible_list_ids()` ;
+- **garde contre la résurrection** (`list_items_skip_buried`, `before insert`) : l'insertion d'un id enterré est ignorée
+  sans erreur, comme un doublon. Le trigger de suppression et la garde prennent le même verrou consultatif sur l'id :
+  une insertion concurrente d'une suppression attend sa fin, puis voit la pierre tombale. Un appareil en retard qui renvoie un article supprimé ailleurs (« mise à jour, puis
+  insertion si 0 ligne », comportement actuel des apps) ne le recrée plus ; il le garde localement jusqu'à ce que sa
+  descente lise les pierres tombales (lots apps 87.3 et 87.5) ;
+- lues par les apps à la descente (`deleted_at >= curseur`), purgées après 30 jours (`sharing.purge_tombstones`, job
+  `sharing-tombstones-purge`, 04:37 UTC). Un appareil dont le curseur est plus ancien refait une réconciliation complète.
+  Après la purge, la garde ne protège plus ces ids.
+- **Listes supprimées** (`sharing.list_tombstones` : `id`, `deleted_at`, illisible par les clients) : écrites à chaque
+  suppression de liste (par son propriétaire ou avec son compte). La garde `lists_skip_buried` ignore la réinsertion d'une
+  liste enterrée : un appareil en retard qui renomme une liste supprimée ailleurs (« mise à jour sans ligne, puis
+  insertion ») ne la recrée plus ; ses articles renvoyés sont refusés par la RLS (`42501`), comme aujourd'hui. En 87.2,
+  un ancien membre ne pourra pas recréer la liste sous le même id pour en devenir propriétaire. Pas de verrou consultatif
+  ici : la purge des comptes inactifs supprime jusqu'à 1 000 comptes par transaction. Même purge à 30 jours.
+- **`updated_by` et suppression d'un compte** : l'action `on delete set null` passe par le trigger `set_updated_by` avec
+  le JWT du compte supprimé ; le trigger garde tout changement de la colonne fait par le serveur, donc la remise à null.
+- **Limite connue (pour 87.2)** : un article **déplacé** vers une autre liste (`update list_id`) ne laisse aucune trace
+  dans l'ancienne. Un membre de la seule ancienne liste ne l'apprendrait pas ; les apps ne déplacent pas d'article
+  aujourd'hui.
+
+**RPC `accessible_list_ids()`** → `table (id uuid)` : les listes lisibles par l'appelant (`security invoker`, par
+`sharing.readable_list_ids()`). Une liste locale déjà synchronisée qui n'y figure plus a été supprimée ailleurs (en 87.2 :
+ou l'accès en a été retiré). Réservée à `authenticated`.
+
+**Schéma interne `sharing`** : non exposé par PostgREST. `authenticated` y a seulement `usage` et l'exécution de
+`readable_list_ids()`, nécessaires aux politiques. `readable_list_ids()` est `security definer` pour que les politiques
+de `lists` et `list_members` (87.2) ne s'appellent pas l'une l'autre.
+
+**Pile locale sous macOS** : si Docker n'a pas accès au dossier `Documents` (Réglages Système → Confidentialité →
+Fichiers et dossiers), les fichiers montés depuis le dépôt sont illisibles dans les conteneurs (« Interrupted system
+call ») : Kong ne sert pas les modèles d'e-mail (GoTrue envoie alors ses modèles anglais par défaut, avec un lien) et
+`supabase test db` ne trouve aucun test.
+
+## Partage d'une liste (#87, lot 87.2)
+
+Conception : #87 §3 et §6 ; décisions du 14/11 (prénom affiché, invitation acceptée avec une autre adresse après un
+avertissement, pas de mode courses pour un lecteur, liste confiée à l'éditeur le plus ancien, « Copier le lien » crée
+un nouveau jeton, `preview_invitation` ne nomme la liste qu'à l'adresse invitée).
+
+**Rôles.** Le propriétaire reste `lists.owner_id`. `list_members (list_id, user_id, role, added_by, created_at,
+updated_at)` porte les éditeurs (`editor`) et les lecteurs (`viewer`) ; aucun client ne l'écrit, seules les RPC. La RLS
+applique les rôles : un lecteur qui modifie ou supprime un article touche **0 ligne, sans erreur** (la RLS filtre), et
+reçoit `42501` s'il en ajoute un. Les apps doivent donc traiter « 0 ligne » comme un refus possible et lever le doute par
+la pierre tombale (conception §6.4). Seul le propriétaire renomme, supprime, invite et gère les membres. Une visite peut
+porter une liste dont on est propriétaire ou éditeur (`visits_insert`) ; un lecteur ne fait pas les courses (Q5) : sa
+visite est refusée en `42501`, et les apps la renvoient sans liste. La visite et ses coches restent celles du compte.
+`lists_select` teste `owner_id` directement pour le propriétaire : une insertion « on conflict (id) do nothing » (renvoi
+idempotent des apps) exige que la nouvelle ligne passe aussi la politique SELECT, ce que `readable_list_ids()` ne
+permet pas pour une liste en cours de création.
+
+**Invitations** (`sharing.list_invitations`, jamais lue par un client) : adresse invitée (minuscules), rôle, haché sha256
+du jeton (le jeton clair, 32 octets aléatoires en base64url, n'est renvoyé qu'une fois), échéance à 7 jours, `sent_count`,
+`accepted_at`/`accepted_by`, `declined_at`, `revoked_at`. Une seule invitation vivante par liste et par adresse :
+« Renvoyer » et « Copier le lien » lui donnent un **nouveau jeton** (l'ancien lien cesse de marcher) et une nouvelle
+échéance. Les invitations closes ou expirées depuis plus de 30 jours sont purgées (`sharing.purge_invitations`, job
+`sharing-invitations-purge`, 04:41 UTC), avec les compteurs de plus de 2 jours.
+
+**RPC** (toutes `security definer`, réservées à `authenticated`). Un « compte e-mail » est un compte non anonyme dont
+l'adresse est confirmée (`auth.users.email_confirmed_at`, lu en base, pas dans le JWT) ; les autres reçoivent `42501`.
+
+| RPC | Qui | Réponse |
+| --- | --- | --- |
+| `create_invitation(p_list_id, p_email, p_role = 'editor', p_send_email = false)` | propriétaire, compte e-mail | `(invitation_id, invitee_email, token, expires_at, sender_name)` ; `invitee_email` = l'adresse enregistrée (ASCII, minuscules), à laquelle l'e-mail part ; `sender_name` = prénom s'il ne contient que des lettres, espaces, apostrophes et traits d'union (ni point, ni barre oblique, ni chiffre : rien qu'une messagerie transformerait en lien), sinon nul |
+| `revoke_invitation(p_invitation_id)` | propriétaire | — |
+| `list_sharing(p_list_id)` | propriétaire et membres (anonymes compris) | JSON : `role`, `owner` et `members` (prénom, rôle, `is_me`, `joined_at`, **jamais d'adresse**), `invitations` (propriétaire seulement : adresse, rôle, échéance, `expired`) |
+| `my_invitations()` | compte e-mail | invitations vivantes adressées à son adresse, hors listes dont il est déjà membre |
+| `preview_invitation(p_token)` | compte e-mail | `status` (`pending`, `expired`, `used`, `member`, `invalid`, `rate_limited`), nom de la liste **seulement si l'adresse correspond** (`email_matches`) ou si l'appelant est déjà membre, prénom du propriétaire, rôle, adresse invitée masquée (`c•••@exemple.fr`) |
+| `accept_invitation(p_token \| p_invitation_id)` | compte e-mail ; par id : adresse égale | `(status, list_id, role)` : `accepted`, `member` (idempotent), `invalid`, `expired`, `used`, `rate_limited`. Deux invitations : le rôle le plus élevé est gardé |
+| `decline_invitation(p_invitation_id)` | l'invité (adresse égale) | — |
+| `set_member_role(p_list_id, p_user_id, p_role)` | propriétaire | — (`P0001 not_member`) |
+| `remove_member(p_list_id, p_user_id)` | propriétaire, ou le membre lui-même (quitter) | — (idempotente) |
+
+Erreurs de `create_invitation` (`P0001`, message stable, HTTP 400) : `invalid_email`, `invalid_role`, `self_invitation`,
+`already_member`, `list_full`, `daily_limit`, `pending_limit`, `recipient_limit` ; `42501` (HTTP 403) si l'appelant n'est
+pas propriétaire, sans dire si la liste existe. Aucune réponse ne dit si une adresse a un compte, sauf `already_member`
+pour la liste de l'appelant : **fuite acceptée** (conception §1.5), le propriétaire peut apprendre qu'une adresse qu'il
+saisit est celle d'un membre, même si ce membre avait accepté avec une autre adresse. Adresse acceptée : ASCII imprimable
+seulement (`^[a-z0-9._%+-]+@…`), après `lower(btrim())` ; aucune variante Unicode (U+00A0, U+FEFF…) ne passe. Les
+variantes Gmail (points, `+étiquette`) restent des adresses distinctes pour les plafonds. `preview_invitation` et `accept_invitation` répondent par un statut plutôt que par une
+erreur, pour que les essais comptent dans le plafond.
+
+**Plafonds** (constantes des RPC, `sharing.rate_counters`, fenêtres Europe/Paris ; une adresse n'y figure que
+**pseudonymisée** par un sha256 sans sel, qu'un dictionnaire d'adresses connues permettrait de retrouver ; les compteurs
+sont purgés après 2 jours). Renouveler une invitation expirée compte comme en créer une (participants, invitations
+vivantes). Un envoi raté (`sent = false`) compte quand même dans le plafond du destinataire et dans `sent_count` :
+
+| Plafond | Valeur |
+| --- | --- |
+| Participants par liste (propriétaire, membres, invitations vivantes) | 10 |
+| Créations et renouvellements de jeton par compte et par jour | 20 |
+| Invitations vivantes par compte, toutes listes | 50 |
+| Envois par adresse destinataire et par jour, tous expéditeurs (`p_send_email`) | 3 |
+| Aperçus et acceptations par compte et par heure | 30 |
+
+**Edge Function `send-invitation`** (`supabase/functions/send-invitation/`, sans dépendance) : `POST { list_id, email,
+role? }` avec le JWT de l'utilisateur. Elle appelle `create_invitation(…, p_send_email => true)` **avec ce JWT** (aucun
+droit de plus que l'utilisateur), puis envoie l'e-mail à `invitee_email` et répond `{ invitation_id, link, sent,
+expires_at }`. Erreurs de la RPC relayées avec leur statut HTTP (`{ error, code }`) : seuls les messages connus
+(`invalid_email`, `already_member`, `list_full`…) passent tels quels, les autres deviennent `rpc_failed`.
+`verify_jwt = false` : PostgREST vérifie le JWT que la fonction lui transmet, quel que soit le mode de signature du projet. `sent = false` si l'envoi a échoué : l'invitation existe, l'app
+propose « Copier le lien ». E-mail : prénom de l'expéditeur (ou « Quelqu'un »), rôle, lien, échéance, **pas le nom de la
+liste**. Lien : `INVITATION_BASE_URL#<jeton>`, par défaut `parcourses://invitation#<jeton>` tant qu'il n'y a pas de
+domaine (#87 Q2, lot 87.7). Envoi : API Resend si `RESEND_API_KEY` et `INVITATION_FROM` sont définis, sinon API de Mailpit
+si `MAILPIT_API_URL` l'est (pile locale, `[edge_runtime.secrets]`), sinon rien. Le test de bout en bout la lance avec Deno
+contre la pile locale (`SEND_INVITATION_PORT`), sans le conteneur Edge Runtime.
+
+**Temps réel** (Broadcast depuis la base). Chaque compte écoute son canal privé `user:<uid>` ; la politique
+`parcourses_user_topic_select` sur `realtime.messages` n'autorise que le sien, et aucune politique d'insertion n'existe :
+un client n'émet rien. Messages : événement `changed`, charge `{ id, list_id, kind }` sans aucun libellé, `kind` ∈
+`items`, `list`, `members`, `invitations`. Émis par des triggers par instruction (un ajout de 20 articles = un message par
+membre) sur `list_items`, `lists` (la suppression d'une liste part d'un trigger `before delete`, avant que la cascade
+n'efface les membres) et `list_members` (le membre retiré est prévenu), et par les RPC d'invitation (propriétaire ; invité
+qui a déjà un compte : `invitations`). `realtime.send` ne fait jamais échouer une écriture (il journalise un WARNING). Les
+messages sont écrits dans la transaction : une écriture annulée n'émet rien. Realtime met environ 5 s à refuser un canal
+non autorisé. La politique compare aussi le topic de chaque ligne au canal rejoint. À la suppression d'une liste, chaque
+membre reçoit `list`, puis `members` (la cascade sur `list_members`) : sans effet, les apps font une seule descente.
+La migration échoue si `realtime.send` ou `realtime.messages` manquent.
+
+**Suppression du compte** (`delete_my_account`, #68) : chaque liste partagée du compte est d'abord confiée à son éditeur
+le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
+le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :
+un héritier qui quitte la liste au même moment est attendu.
+
+**Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
+(`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`
+et `INVITATION_BASE_URL` (`supabase secrets set`). Sans ces secrets, la fonction crée l'invitation et répond
+`sent = false`.
+
+**Limites connues** : un article **déplacé** d'une liste à une autre ne laisse aucune trace dans l'ancienne (les apps
+ne déplacent pas d'article). Les revendications de produits privés (#69) et les contributeurs d'un instantané (#70)
+comptent chaque membre d'un foyer comme un compte indépendant (conception §3.4) : à traiter dans ces tickets.
 
 ## Types et contrat
 

@@ -8,15 +8,25 @@ sealed class RemoteError(
     message: String,
     cause: Throwable? = null,
 ) : Exception(message, cause) {
-    /** Pas de réseau ou requête interrompue. */
+    /**
+     * Pas de réseau ou requête interrompue. [notSent] : la requête n'a jamais quitté l'appareil (hôte introuvable,
+     * connexion refusée, pas de route) ; sinon elle a pu arriver au serveur (délai, connexion coupée en cours).
+     */
     class Network(
         cause: Throwable? = null,
-    ) : RemoteError("network", cause)
+        val notSent: Boolean = false,
+    ) : RemoteError(if (notSent) "network not sent" else "network", cause)
 
-    /** Session absente ou expirée. */
+    /**
+     * Session absente ou expirée. [authCode] : le code GoTrue (`error_code`) quand le serveur l'a donné, par exemple
+     * `user_not_found` ou `refresh_token_not_found` après une suppression du compte (#68). [noLocalSession] :
+     * l'appareil n'a aucune session, rien n'a été demandé au serveur.
+     */
     class Unauthorized(
         cause: Throwable? = null,
-    ) : RemoteError("unauthorized", cause)
+        val authCode: String? = null,
+        val noLocalSession: Boolean = false,
+    ) : RemoteError(authCode?.let { "unauthorized $it" } ?: "unauthorized", cause)
 
     /** Code `42501` uniquement : refus RLS ou privilège. Un 403 sans code n'en est pas un ([Server]). */
     class Forbidden(

@@ -1,5 +1,6 @@
 package fr.parcourses.app
 
+import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.session.SessionStorageFiles
 import org.junit.Assert.assertEquals
@@ -11,6 +12,9 @@ import java.io.File
 class BackupRulesTest {
     private val datastore = "datastore/${SessionStorageFiles.DATASTORE_FILE}"
     private val keyset = "${SessionStorageFiles.KEYSET_PREFS}.xml"
+
+    // Drapeau de suppression du compte (#68) : jamais restauré sur un autre appareil.
+    private val deletionFlag = "${SharedPreferencesAccountDeletionFlag.FILE}.xml"
 
     private fun excludes(
         file: String,
@@ -25,7 +29,7 @@ class BackupRulesTest {
     }
 
     // Dossier entier : fichiers `.tmp` du DataStore compris.
-    private val expected = setOf("file:datastore/", "sharedpref:$keyset")
+    private val expected = setOf("file:datastore/", "sharedpref:$keyset", "sharedpref:$deletionFlag")
 
     @Test
     fun theSessionFilesLiveInTheExcludedDirectory() {

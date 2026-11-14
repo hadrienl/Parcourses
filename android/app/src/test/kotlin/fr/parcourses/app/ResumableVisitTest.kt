@@ -1,5 +1,6 @@
 package fr.parcourses.app
 
+import android.app.Application
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.repository.CheckSubject
@@ -13,6 +14,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -22,6 +24,9 @@ import kotlin.time.Duration.Companion.minutes
  * **abandonnée** (close à sa dernière coche, introuvables remis à acheter), pas simplement close.
  */
 @RunWith(AndroidJUnit4::class)
+// Sans `ParcoursesApp` : son lancement ouvrirait la base native (absente de la JVM) et l'échec, non rattrapé,
+// tomberait sur le test suivant qui utilise `runTest`.
+@Config(application = Application::class)
 class ResumableVisitTest {
     // Sans configuration Supabase : tout reste local. Base en mémoire, sur le pilote du système (pas le natif).
     private val container =

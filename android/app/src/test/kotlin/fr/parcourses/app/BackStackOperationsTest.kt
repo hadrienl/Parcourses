@@ -318,4 +318,29 @@ class ShoppingNavigationTest {
     }
 
     // endregion
+
+    // region Suppression des données (#68)
+
+    @Test
+    fun afterADeletionTheStackRestartsOnTheListsAlone() {
+        val stack = stack(Route.Lists, Route.ListDetail("a"), Route.Shopping("a", "s1"))
+        stack.resetToLists()
+        assertEquals(listOf<NavKey>(Route.Lists), stack)
+        stack.resetToLists()
+        assertEquals(listOf<NavKey>(Route.Lists), stack)
+    }
+
+    @Test
+    fun aDeletionClosesTheShoppingModeAndLeavesTheRest() {
+        val stack =
+            stack(Route.Lists, Route.ListDetail("a"), Route.StorePicker("a"), Route.Shopping("a", "s1"), Route.About)
+        stack.closeShopping()
+        assertEquals(listOf("Lists", "ListDetail", "About"), stack.map { it::class.simpleName })
+
+        val linked = stack(Route.Shopping("a", "s1"))
+        linked.closeShopping()
+        assertEquals(listOf<NavKey>(Route.Lists), linked)
+    }
+
+    // endregion
 }

@@ -1,0 +1,606 @@
+{
+  "version": 1,
+  "locale": "fr",
+  "products": [
+    {
+      "label": "Pommes",
+      "category": "produce"
+    },
+    {
+      "label": "Bananes",
+      "category": "produce"
+    },
+    {
+      "label": "Oranges",
+      "category": "produce"
+    },
+    {
+      "label": "Citrons",
+      "category": "produce"
+    },
+    {
+      "label": "Clémentines",
+      "category": "produce"
+    },
+    {
+      "label": "Poires",
+      "category": "produce"
+    },
+    {
+      "label": "Raisin",
+      "category": "produce"
+    },
+    {
+      "label": "Fraises",
+      "category": "produce"
+    },
+    {
+      "label": "Kiwis",
+      "category": "produce"
+    },
+    {
+      "label": "Avocats",
+      "category": "produce"
+    },
+    {
+      "label": "Melon",
+      "category": "produce"
+    },
+    {
+      "label": "Tomates",
+      "category": "produce"
+    },
+    {
+      "label": "Carottes",
+      "category": "produce"
+    },
+    {
+      "label": "Pommes de terre",
+      "category": "produce"
+    },
+    {
+      "label": "Oignons",
+      "category": "produce"
+    },
+    {
+      "label": "Ail",
+      "category": "produce"
+    },
+    {
+      "label": "Échalotes",
+      "category": "produce"
+    },
+    {
+      "label": "Salade",
+      "category": "produce"
+    },
+    {
+      "label": "Concombre",
+      "category": "produce"
+    },
+    {
+      "label": "Courgettes",
+      "category": "produce"
+    },
+    {
+      "label": "Poivrons",
+      "category": "produce"
+    },
+    {
+      "label": "Aubergines",
+      "category": "produce"
+    },
+    {
+      "label": "Champignons",
+      "category": "produce"
+    },
+    {
+      "label": "Brocoli",
+      "category": "produce"
+    },
+    {
+      "label": "Haricots verts",
+      "category": "produce"
+    },
+    {
+      "label": "Poireaux",
+      "category": "produce"
+    },
+    {
+      "label": "Épinards",
+      "category": "produce"
+    },
+    {
+      "label": "Persil",
+      "category": "produce"
+    },
+    {
+      "label": "Baguette",
+      "category": "bakery"
+    },
+    {
+      "label": "Pain",
+      "category": "bakery"
+    },
+    {
+      "label": "Pain de mie",
+      "category": "bakery"
+    },
+    {
+      "label": "Croissants",
+      "category": "bakery"
+    },
+    {
+      "label": "Pains au chocolat",
+      "category": "bakery"
+    },
+    {
+      "label": "Brioche",
+      "category": "bakery"
+    },
+    {
+      "label": "Poulet",
+      "category": "butcher"
+    },
+    {
+      "label": "Blancs de poulet",
+      "category": "butcher"
+    },
+    {
+      "label": "Steak haché",
+      "category": "butcher"
+    },
+    {
+      "label": "Viande hachée",
+      "category": "butcher"
+    },
+    {
+      "label": "Côtes de porc",
+      "category": "butcher"
+    },
+    {
+      "label": "Rôti de porc",
+      "category": "butcher"
+    },
+    {
+      "label": "Escalopes de dinde",
+      "category": "butcher"
+    },
+    {
+      "label": "Saucisses",
+      "category": "butcher"
+    },
+    {
+      "label": "Merguez",
+      "category": "butcher"
+    },
+    {
+      "label": "Jambon blanc",
+      "category": "deli"
+    },
+    {
+      "label": "Jambon cru",
+      "category": "deli"
+    },
+    {
+      "label": "Saucisson",
+      "category": "deli"
+    },
+    {
+      "label": "Lardons",
+      "category": "deli"
+    },
+    {
+      "label": "Chorizo",
+      "category": "deli"
+    },
+    {
+      "label": "Pâte feuilletée",
+      "category": "deli"
+    },
+    {
+      "label": "Pâte brisée",
+      "category": "deli"
+    },
+    {
+      "label": "Taboulé",
+      "category": "deli"
+    },
+    {
+      "label": "Saumon",
+      "category": "seafood"
+    },
+    {
+      "label": "Saumon fumé",
+      "category": "seafood"
+    },
+    {
+      "label": "Cabillaud",
+      "category": "seafood"
+    },
+    {
+      "label": "Crevettes",
+      "category": "seafood"
+    },
+    {
+      "label": "Moules",
+      "category": "seafood"
+    },
+    {
+      "label": "Emmental râpé",
+      "category": "cheese"
+    },
+    {
+      "label": "Fromage râpé",
+      "category": "cheese"
+    },
+    {
+      "label": "Camembert",
+      "category": "cheese"
+    },
+    {
+      "label": "Comté",
+      "category": "cheese"
+    },
+    {
+      "label": "Mozzarella",
+      "category": "cheese"
+    },
+    {
+      "label": "Parmesan",
+      "category": "cheese"
+    },
+    {
+      "label": "Chèvre",
+      "category": "cheese"
+    },
+    {
+      "label": "Raclette",
+      "category": "cheese"
+    },
+    {
+      "label": "Lait",
+      "category": "dairy"
+    },
+    {
+      "label": "Beurre",
+      "category": "dairy"
+    },
+    {
+      "label": "Yaourts",
+      "category": "dairy"
+    },
+    {
+      "label": "Œufs",
+      "category": "dairy"
+    },
+    {
+      "label": "Crème fraîche",
+      "category": "dairy"
+    },
+    {
+      "label": "Crème liquide",
+      "category": "dairy"
+    },
+    {
+      "label": "Fromage blanc",
+      "category": "dairy"
+    },
+    {
+      "label": "Pâtes",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Spaghettis",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Riz",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Huile d'olive",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Huile de tournesol",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Vinaigre",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Sel",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Poivre",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Moutarde",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Mayonnaise",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Ketchup",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Sauce tomate",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Concentré de tomate",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Thon en boîte",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Lentilles",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Pois chiches",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Semoule",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Bouillon",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Maïs",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Cornichons",
+      "category": "savory-grocery"
+    },
+    {
+      "label": "Sauce soja",
+      "category": "world-food"
+    },
+    {
+      "label": "Tortillas",
+      "category": "world-food"
+    },
+    {
+      "label": "Lait de coco",
+      "category": "world-food"
+    },
+    {
+      "label": "Café",
+      "category": "breakfast"
+    },
+    {
+      "label": "Thé",
+      "category": "breakfast"
+    },
+    {
+      "label": "Confiture",
+      "category": "breakfast"
+    },
+    {
+      "label": "Céréales",
+      "category": "breakfast"
+    },
+    {
+      "label": "Miel",
+      "category": "breakfast"
+    },
+    {
+      "label": "Chocolat en poudre",
+      "category": "breakfast"
+    },
+    {
+      "label": "Pâte à tartiner",
+      "category": "breakfast"
+    },
+    {
+      "label": "Biscottes",
+      "category": "breakfast"
+    },
+    {
+      "label": "Farine",
+      "category": "sweet-grocery"
+    },
+    {
+      "label": "Sucre",
+      "category": "sweet-grocery"
+    },
+    {
+      "label": "Chocolat",
+      "category": "sweet-grocery"
+    },
+    {
+      "label": "Biscuits",
+      "category": "sweet-grocery"
+    },
+    {
+      "label": "Levure",
+      "category": "sweet-grocery"
+    },
+    {
+      "label": "Compote",
+      "category": "dairy"
+    },
+    {
+      "label": "Chips",
+      "category": "snacks"
+    },
+    {
+      "label": "Cacahuètes",
+      "category": "snacks"
+    },
+    {
+      "label": "Bonbons",
+      "category": "snacks"
+    },
+    {
+      "label": "Eau minérale",
+      "category": "beverages"
+    },
+    {
+      "label": "Eau gazeuse",
+      "category": "beverages"
+    },
+    {
+      "label": "Jus d'orange",
+      "category": "beverages"
+    },
+    {
+      "label": "Sirop",
+      "category": "beverages"
+    },
+    {
+      "label": "Limonade",
+      "category": "beverages"
+    },
+    {
+      "label": "Vin rouge",
+      "category": "alcohol"
+    },
+    {
+      "label": "Vin blanc",
+      "category": "alcohol"
+    },
+    {
+      "label": "Rosé",
+      "category": "alcohol"
+    },
+    {
+      "label": "Bière",
+      "category": "alcohol"
+    },
+    {
+      "label": "Champagne",
+      "category": "alcohol"
+    },
+    {
+      "label": "Petits pois surgelés",
+      "category": "frozen"
+    },
+    {
+      "label": "Glace vanille",
+      "category": "frozen"
+    },
+    {
+      "label": "Pizza surgelée",
+      "category": "frozen"
+    },
+    {
+      "label": "Frites surgelées",
+      "category": "frozen"
+    },
+    {
+      "label": "Poisson pané",
+      "category": "frozen"
+    },
+    {
+      "label": "Couches",
+      "category": "baby"
+    },
+    {
+      "label": "Lait infantile",
+      "category": "baby"
+    },
+    {
+      "label": "Petits pots",
+      "category": "baby"
+    },
+    {
+      "label": "Dentifrice",
+      "category": "hygiene"
+    },
+    {
+      "label": "Brosse à dents",
+      "category": "hygiene"
+    },
+    {
+      "label": "Shampoing",
+      "category": "hygiene"
+    },
+    {
+      "label": "Gel douche",
+      "category": "hygiene"
+    },
+    {
+      "label": "Savon",
+      "category": "hygiene"
+    },
+    {
+      "label": "Déodorant",
+      "category": "hygiene"
+    },
+    {
+      "label": "Papier toilette",
+      "category": "hygiene"
+    },
+    {
+      "label": "Mouchoirs",
+      "category": "hygiene"
+    },
+    {
+      "label": "Coton",
+      "category": "hygiene"
+    },
+    {
+      "label": "Liquide vaisselle",
+      "category": "household"
+    },
+    {
+      "label": "Pastilles lave-vaisselle",
+      "category": "household"
+    },
+    {
+      "label": "Lessive",
+      "category": "household"
+    },
+    {
+      "label": "Éponges",
+      "category": "household"
+    },
+    {
+      "label": "Sacs poubelle",
+      "category": "household"
+    },
+    {
+      "label": "Essuie-tout",
+      "category": "household"
+    },
+    {
+      "label": "Papier aluminium",
+      "category": "household"
+    },
+    {
+      "label": "Film alimentaire",
+      "category": "household"
+    },
+    {
+      "label": "Javel",
+      "category": "household"
+    },
+    {
+      "label": "Croquettes",
+      "category": "pets"
+    },
+    {
+      "label": "Pâtée pour chat",
+      "category": "pets"
+    },
+    {
+      "label": "Litière",
+      "category": "pets"
+    }
+  ]
+}

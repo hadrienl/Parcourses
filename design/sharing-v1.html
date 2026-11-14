@@ -1,0 +1,1168 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partage v1</title>
+<!-- Maquettes de conception, lot 87.0 (issue #87, §9). Direction B3 « Ticket filé », sans le ton de B1. Pas de code applicatif. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ===== Page ===== */
+:root{--bg:#EDEAE4;--fg:#1B1B1B;--muted:#5A5650;--card:#FFFFFF;--line:#D9D4CA;--hl:#2340C8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31;--hl:#8FA6FF}}
+:root[data-theme="dark"]{--bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31;--hl:#8FA6FF}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:1320px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:clamp(28px,5vw,44px);margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:28px;margin:64px 0 6px;scroll-margin-top:64px}
+h3{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:28px 0 10px}
+h4{font-size:15px;margin:0 0 8px}
+.lead{color:var(--muted);max-width:820px}
+code{font-size:.9em}
+a{color:var(--hl)}
+.toolbar{position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0;display:flex;gap:16px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line)}
+.toolbar .grp{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.toolbar .grp>span{font-size:13px;color:var(--muted)}
+.toolbar button{min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;cursor:pointer}
+.toolbar button[aria-pressed="true"]{border-color:var(--hl);box-shadow:inset 0 0 0 1px var(--hl)}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;margin:18px 0 0;font-size:14px}
+.states{display:grid;grid-template-columns:repeat(auto-fill,minmax(640px,1fr));gap:28px 24px;margin-top:12px}
+@media (max-width:700px){.states{grid-template-columns:1fr}}
+.state h4 small{font-weight:400;color:var(--muted)}
+.pair{display:flex;gap:16px;flex-wrap:wrap}
+.state .cap{font-size:13px;color:var(--muted);margin:8px 0 0;max-width:620px}
+figure{margin:0}
+figcaption{font-size:12px;color:var(--muted);margin-top:6px;max-width:300px}
+.only-ios .f-and,.only-and .f-ios{display:none}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{font-weight:600}
+.tablewrap{overflow-x:auto;margin:6px 0 14px}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:4px 32px;font-size:14px}
+.spec ul,.spec ol{padding-left:20px;margin:6px 0}
+.spec li{margin:3px 0}
+.box-note{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin:16px 0}
+.swatches{display:flex;flex-wrap:wrap;gap:10px}
+.sw{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.sw i{width:22px;height:22px;border-radius:6px;border:1px solid var(--line);display:inline-block}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font-size:12.5px;line-height:1.5;white-space:pre-wrap}
+details summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600}
+.mail-row{display:flex;gap:20px;flex-wrap:wrap}
+.mail{width:380px;max-width:100%;height:700px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card);display:flex;flex-direction:column}
+.mail .mh{padding:10px 14px;font-size:13px;border-bottom:1px solid var(--line)}
+.mail .mh b{display:block;font-size:15px}
+.mail iframe{border:0;flex:1;width:100%}
+/* Mode capture (?shot=...) */
+body.shot{background:#D8D2C6}
+body.shot main{max-width:none;padding:16px}
+body.shot .shots{display:flex;gap:16px;align-items:flex-start}
+
+/* ===== Téléphone ===== */
+.phone{width:300px;height:640px;border-radius:46px;padding:10px;background:#0b0b0b;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.18);flex:none}
+.phone.and{border-radius:36px}
+.screen{width:100%;height:100%;border-radius:37px;overflow:hidden;position:relative;color:var(--ink);background:var(--paper);--k:1;
+  --mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,"Roboto Mono",monospace;--sys:-apple-system,"SF Pro Text",system-ui,sans-serif}
+.screen.and{border-radius:27px;background:var(--desk);--sys:Roboto,"Roboto Flex",system-ui,sans-serif}
+.screen.light{--desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--muted:#545866;--accent:#2340C8;--on:#FFFFFF;--idle:#D5CEC0;--danger:#D70015;--onDanger:#FFFFFF;
+  --caution:#8A4B00;--cautionFill:#FCEBC9;--accentFill:#E3E7FA;--invAccent:#8FA6FF;--a1:#1F7A44;--a2:#2A6FB0;--a3:#A3520A;--a4:#8A3FA0;--a5:#4F6F12;
+  --glass:rgba(251,247,240,.74);--glassLine:rgba(255,255,255,.6);--scrim:rgba(26,28,34,.34);--shadow:0 8px 24px rgba(0,0,0,.16)}
+.screen.dark{--desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--muted:#A6ABBA;--accent:#8FA6FF;--on:#0B1550;--idle:#353A48;--danger:#FF6961;--onDanger:#12141A;
+  --caution:#F5BF62;--cautionFill:#2E2615;--accentFill:#1E2540;--invAccent:#2340C8;--a1:#6FD39A;--a2:#86BEF2;--a3:#F2B06A;--a4:#E0A3F0;--a5:#C3DC6A;
+  --glass:rgba(35,38,49,.72);--glassLine:rgba(255,255,255,.12);--scrim:rgba(0,0,0,.55);--shadow:0 8px 24px rgba(0,0,0,.5)}
+/* Couleur dynamique Android simulée (fond d'écran vert) : seuls l'accent et son conteneur suivent le schéma */
+.screen.and.dyn.light{--accent:#2F6A3F;--on:#FFFFFF;--accentFill:#DCEBDF;--invAccent:#94D6A4}
+.screen.and.dyn.dark{--accent:#94D6A4;--on:#003916;--accentFill:#1B2E21;--invAccent:#2F6A3F}
+.sb{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font:600 13px var(--sys);color:var(--ink);position:relative;z-index:11}
+.sb .isl{width:92px;height:27px;background:#000;border-radius:16px}
+.sb .cam{width:12px;height:12px;background:#000;border-radius:50%}
+.and .sb{padding:0 20px}
+.ic{flex:none;vertical-align:middle}
+
+/* Barres du haut */
+.tb{display:flex;align-items:center;gap:8px;padding:2px 12px 6px;min-height:52px;position:relative;z-index:4}
+.tb .tbt{flex:1;text-align:center;font:600 calc(var(--k)*15px) var(--sys);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb .tbr{display:flex;gap:8px}
+.gb{min-width:44px;height:44px;border-radius:22px;border:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;color:var(--ink);background:var(--glass);
+  backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);box-shadow:inset 0 1px 0 var(--glassLine),0 4px 14px rgba(0,0,0,.10);font:600 15px var(--sys);padding:0 10px}
+.gb.acc{color:var(--accent)}
+.gb.txt{padding:0 16px}
+.m18 .gb{background:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;color:var(--accent)}
+.m18 .tb{border-bottom:.5px solid var(--idle);background:var(--paper)}
+.m18 .toast,.m18 .menu{background:var(--paper);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 0 0 .5px var(--muted),var(--shadow)}
+.m18 .sh{left:0;right:0;bottom:0;border-radius:12px 12px 0 0}
+.and .tb{min-height:64px;padding:0 4px 0 4px;gap:2px}
+.and .tb .tbt{text-align:left;font:700 calc(var(--k)*18px) var(--mono);padding-left:4px;white-space:normal;line-height:1.2}
+.ib{width:48px;height:48px;border-radius:24px;border:0;background:none;color:var(--ink);display:inline-grid;place-items:center;flex:none;font:inherit}
+.ib.wide{width:auto;padding:0 6px}
+.tb .tbtxt{min-height:48px;padding:0 12px;border:0;background:none;color:var(--accent);font:500 14px var(--sys);display:flex;align-items:center}
+
+/* Contenu : papier plein écran sur iOS, carte de papier sur le bureau sous Android (comme les apps) */
+.pg{padding:0 16px;position:relative}
+.card{background:var(--paper);margin:0 10px;border-radius:16px 16px 0 0;padding:6px 14px 0;position:relative;min-height:540px}
+.cnt{display:flex;justify-content:space-between;align-items:flex-end;margin:2px 0 2px}
+.cnt span{font:700 calc(var(--k)*10.5px) var(--mono);letter-spacing:.12em;color:var(--muted);text-transform:uppercase;padding-bottom:6px}
+.cnt b{font:800 calc(var(--k)*44px)/1 var(--mono);letter-spacing:-.03em}
+.meta{font:500 calc(var(--k)*11.5px)/1.4 var(--mono);color:var(--muted);margin:0 0 6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hd{text-align:center;border-bottom:2px dashed var(--muted);padding:2px 0 10px;margin-bottom:6px}
+.hd .store{font:800 calc(var(--k)*16px) var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.hd .meta{justify-content:center;margin:2px 0 0}
+.big{font:700 calc(var(--k)*28px)/1.15 var(--sys);margin:4px 0 10px;letter-spacing:-.01em}
+.and .big{font:800 calc(var(--k)*24px)/1.2 var(--mono);letter-spacing:0}
+.p{font:400 calc(var(--k)*14px)/1.45 var(--sys);margin:0 0 12px;color:var(--ink)}
+.p.mu{color:var(--muted)}
+.lbl{font:700 calc(var(--k)*10.5px) var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
+
+/* Fil et articles (structure B3) */
+.trail{position:relative;padding-left:36px;margin-top:4px}
+.trail::before{content:"";position:absolute;left:13px;top:14px;bottom:10px;width:3px;border-radius:2px;background:var(--idle)}
+.trail .prog{position:absolute;left:13px;top:14px;width:3px;border-radius:2px;background:var(--accent);z-index:1}
+.ag{font:700 calc(var(--k)*10.5px) var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);min-height:30px;display:flex;align-items:center;position:relative;margin-top:6px;gap:8px}
+.ag .node{position:absolute;left:-35.5px;width:28px;height:28px;border-radius:50%;background:var(--paper);border:1.5px solid var(--c);color:var(--c);display:grid;place-items:center;z-index:2}
+.ag .node svg{width:18px;height:18px}
+.it{min-height:44px;display:flex;align-items:center;gap:9px;position:relative;font:500 calc(var(--k)*14px) var(--mono)}
+.and .it{min-height:48px}
+.it::before{content:"";position:absolute;left:-28.5px;width:14px;height:14px;border-radius:50%;border:3px solid var(--idle);background:var(--paper);box-sizing:border-box;z-index:2}
+.it.done::before{background:var(--accent);border-color:var(--accent)}
+.it.next::before{border-color:var(--accent);width:18px;height:18px;left:-30.5px}
+.it.next{font-size:calc(var(--k)*17px);font-weight:700}
+.it .nm{flex:1;display:flex;align-items:baseline;gap:4px;min-width:0}
+.it .nm::after{content:"";flex:1;border-bottom:1px dotted var(--muted);transform:translateY(-4px);min-width:8px}
+.it .q{color:var(--muted);font-size:calc(var(--k)*12px)}
+.box{width:24px;height:24px;border:2px solid var(--ink);border-radius:4px;flex:none;display:grid;place-items:center;color:transparent}
+.done .box{background:var(--ink);color:var(--paper)}
+.done .nm{text-decoration:line-through;color:var(--muted)}
+.ro{width:18px;flex:none;display:grid;place-items:center;color:var(--muted)}
+.trash{color:var(--muted);width:32px;height:48px;display:grid;place-items:center}
+.osm{font-size:calc(var(--k)*10px)!important;text-decoration:underline}
+.addr{font-weight:600;overflow-wrap:anywhere}
+.itag{font:500 calc(var(--k)*10px) var(--sys);color:var(--accent);white-space:nowrap}
+.basket{display:flex;justify-content:space-between;align-items:center;min-height:48px;font:500 calc(var(--k)*14px) var(--mono);margin-top:8px;border-top:1px dashed var(--idle)}
+
+/* Avatars (initiales) */
+.av{width:28px;height:28px;border-radius:50%;background:var(--edge);color:var(--ink);display:inline-grid;place-items:center;font:700 12px var(--mono);flex:none;box-shadow:0 0 0 2px var(--paper)}
+.av.l{width:36px;height:36px;font-size:14px}
+.av.s{width:20px;height:20px;font-size:10px;box-shadow:none;background:none;border:1px solid var(--muted);color:var(--muted)}
+.av.xs{width:22px;height:22px;font-size:10px}
+.stk .av.xs+.av.xs{margin-left:-6px}
+.stk{display:inline-flex}.stk .av+.av{margin-left:-8px}
+.gb .stk .av{box-shadow:0 0 0 2px var(--glass)}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;gap:4px;font:700 calc(var(--k)*10px)/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;border-radius:4px;border:1px solid currentColor;white-space:nowrap}
+.badge.b-sh{color:var(--accent)}
+.badge.b-ro{color:var(--ink);background:var(--edge);border-color:var(--edge)}
+
+/* Boutons */
+.btn{min-height:50px;border-radius:25px;border:0;display:flex;align-items:center;justify-content:center;gap:8px;font:600 calc(var(--k)*16px) var(--sys);padding:0 20px;width:100%;text-align:center;line-height:1.2}
+.btn.pri{background:var(--accent);color:var(--on)}
+.btn.sec{background:var(--edge);color:var(--ink)}
+.btn.txt{background:none;color:var(--accent);min-height:44px}
+.btn.dan{background:var(--danger);color:var(--onDanger)}
+.btn.dtxt{background:none;color:var(--danger);min-height:44px}
+.btn.dis{opacity:1;background:var(--edge);color:var(--muted)}
+.and .btn{min-height:56px;border-radius:28px;font-weight:500}
+.and .btn.sec{background:var(--accentFill);color:var(--ink)}
+.and .btn.txt,.and .btn.dtxt{min-height:48px}
+.btns{display:flex;gap:10px}
+.btns .btn{flex:1}
+.btns.v{flex-direction:column;gap:6px}
+
+/* Champs */
+.fld{margin:6px 0 4px}
+.fld label{display:block;font:500 calc(var(--k)*12.5px) var(--sys);color:var(--muted);margin:0 0 5px}
+.fld .in{min-height:48px;border:1px solid var(--muted);border-radius:12px;display:flex;align-items:center;padding:0 12px;font:400 calc(var(--k)*16px) var(--sys);background:var(--paper);gap:8px;overflow:hidden;word-break:break-all}
+.fld .in .ph{color:var(--muted)}
+.fld.focus .in{border:2px solid var(--accent);padding:0 11px}
+.fld.err .in{border:2px solid var(--danger);padding:0 11px}
+.caret{display:inline-block;width:2px;height:20px;background:var(--accent);margin-left:-6px}
+.and .fld{position:relative;margin-top:14px}
+.and .fld label{position:absolute;top:-8px;left:10px;background:var(--paper);padding:0 4px;font-size:calc(var(--k)*12px);z-index:1}
+.and .fld .in{border-radius:4px;min-height:56px}
+.and .fld.focus label{color:var(--accent)}
+.and .fld.err label{color:var(--danger)}
+.msg{display:flex;gap:6px;align-items:flex-start;font:400 calc(var(--k)*12.5px)/1.4 var(--sys);margin:6px 0 8px;color:var(--muted)}
+.msg.err{color:var(--danger)}
+.msg .ic{margin-top:1px}
+
+/* Sélecteur de rôle */
+.seg{display:flex;background:var(--edge);border-radius:22px;padding:3px;min-height:44px;gap:2px}
+.seg span{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:19px;font:600 calc(var(--k)*13.5px) var(--sys);color:var(--ink);text-align:center;padding:4px 6px}
+.seg span.on{background:var(--paper);box-shadow:0 1px 4px rgba(0,0,0,.14)}
+.and .seg{background:none;padding:0;gap:3px;min-height:48px}
+.and .seg span{border-radius:8px;background:var(--accentFill);font-weight:500}
+.and .seg span:first-child{border-radius:24px 8px 8px 24px}
+.and .seg span:last-child{border-radius:8px 24px 24px 8px}
+.and .seg span.on{background:var(--accent);color:var(--on);box-shadow:none;border-radius:24px}
+
+/* Lignes (membres, invitations, réglages) */
+.rw{display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 0;border-bottom:1px dashed var(--idle)}
+.rw:last-child{border-bottom:0}
+.rw .tx{flex:1;min-width:0}
+.rw .tx b{display:block;font:700 calc(var(--k)*14px)/1.3 var(--mono);overflow-wrap:anywhere}
+.rw .tx small{display:block;font:400 calc(var(--k)*12px)/1.35 var(--sys);color:var(--muted)}
+.rw .tx small.ex{color:var(--caution)}
+.rw .tr{color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px;font:400 calc(var(--k)*13px) var(--sys);min-width:44px;min-height:44px}
+.and .rw .tr{min-width:48px;min-height:48px}
+.rw .mi{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;border:1px dashed var(--muted);color:var(--muted);flex:none}
+.pill{min-height:36px;padding:0 12px;border-radius:18px;background:var(--accentFill);color:var(--ink);font:600 calc(var(--k)*13px) var(--sys);margin:4px 0;outline:4px solid transparent;display:inline-flex;align-items:center}
+
+/* Bandeaux et cartes */
+.ban{display:flex;gap:10px;align-items:flex-start;background:var(--edge);border-radius:12px;padding:10px 12px;font:400 calc(var(--k)*13px)/1.4 var(--sys);margin:6px 0 8px;min-height:44px}
+.ban .ic{margin-top:1px;color:var(--muted)}
+.ban .act{margin-left:auto;color:var(--accent);font-weight:600;white-space:nowrap;align-self:center;min-height:44px;display:flex;align-items:center}
+.and .ban .act{min-height:48px}
+.ban.cau{background:var(--cautionFill);border:1px solid var(--caution)}
+.ban.long{flex-wrap:wrap}
+.ban.long>span:not(.act){flex:1;min-width:calc(100% - 30px)}
+.ban.long .act{width:100%;justify-content:flex-end;margin:0}
+.ban.cau .ic{color:var(--caution)}
+.pres{display:flex;align-items:center;gap:8px;background:var(--edge);border-radius:20px;padding:4px 12px 4px 4px;font:500 calc(var(--k)*12.5px) var(--sys);margin:2px auto 6px;width:max-content;max-width:100%}
+.pres .av{box-shadow:none;background:var(--paper)}
+.inv{border:1.5px solid var(--accent);border-radius:14px;padding:12px;margin:6px 0 12px;background:var(--paper)}
+.inv .ih{display:flex;gap:10px;align-items:flex-start}
+.inv .ih b{font:700 calc(var(--k)*14.5px)/1.35 var(--mono)}
+.inv .meta{margin:4px 0 10px}
+.state-pg{position:absolute;inset:92px 16px auto 16px;text-align:center}
+.and .state-pg{inset:110px 26px auto 26px}
+.state-pg .glyph{width:72px;height:72px;border-radius:50%;border:2px dashed var(--muted);display:grid;place-items:center;margin:0 auto 18px;color:var(--muted)}
+.state-pg .big{font-size:calc(var(--k)*22px)}
+
+/* Docks et barres basses */
+.dock{position:absolute;left:12px;right:12px;bottom:20px;min-height:60px;border-radius:30px;display:flex;align-items:center;gap:8px;padding:6px;z-index:5;background:var(--glass);backdrop-filter:blur(16px) saturate(1.6);-webkit-backdrop-filter:blur(16px) saturate(1.6);box-shadow:inset 0 1px 0 var(--glassLine),var(--shadow)}
+.dock .df{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;min-height:46px;border-radius:23px;border:1px solid var(--idle);display:flex;align-items:center;padding:0 14px;font:400 calc(var(--k)*15px) var(--sys);color:var(--muted);background:var(--paper)}
+.dock .dp{width:48px;height:48px;border-radius:24px;background:var(--edge);display:grid;place-items:center;color:var(--ink)}
+.dock .dgo{min-height:48px;border-radius:24px;background:var(--accent);color:var(--on);font:700 calc(var(--k)*15px) var(--sys);padding:0 18px;display:flex;align-items:center}
+.m18 .dock{left:0;right:0;bottom:0;border-radius:0;padding:8px 12px 26px;background:color-mix(in srgb,var(--paper) 90%,transparent);border-top:.5px solid var(--muted);box-shadow:none}
+.adock{position:absolute;left:10px;right:10px;bottom:14px;display:flex;gap:8px;z-index:5}
+.adock .ap{flex:1;min-width:0;min-height:56px;border-radius:28px;background:var(--edge);display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px;font:400 calc(var(--k)*13.5px) var(--sys);color:var(--muted);white-space:nowrap;gap:4px;overflow:hidden}
+.adock .ag2{min-height:56px;border-radius:16px;background:var(--accent);color:var(--on);display:flex;align-items:center;gap:6px;padding:0 14px;font:500 calc(var(--k)*14.5px) var(--sys);flex:none}
+.lt{font:800 calc(var(--k)*19px)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}
+.notice{position:absolute;left:12px;right:12px;bottom:20px;z-index:5;border-radius:22px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font:400 calc(var(--k)*13px)/1.4 var(--sys);background:var(--edge);color:var(--ink);min-height:56px}
+.notice .ic{color:var(--muted);margin-top:1px}
+.and .notice{left:10px;right:10px;bottom:14px;border-radius:16px}
+.efab{position:absolute;right:16px;bottom:16px;min-height:56px;min-width:56px;justify-content:center;border-radius:16px;background:var(--accent);color:var(--on);display:flex;align-items:center;gap:10px;padding:0 18px;font:500 calc(var(--k)*15px) var(--sys);z-index:5}
+.ax .efl{display:none}
+.ax .efab{padding:0}
+.ax .card{padding-bottom:84px}
+.ibar{position:absolute;left:16px;right:16px;bottom:22px;z-index:5}
+
+/* Toasts */
+.toast{position:absolute;left:50%;transform:translateX(-50%);bottom:94px;min-height:44px;max-width:256px;border-radius:22px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;font:500 calc(var(--k)*13px)/1.3 var(--sys);z-index:12;
+  background:var(--glass);backdrop-filter:blur(16px) saturate(1.6);-webkit-backdrop-filter:blur(16px) saturate(1.6);box-shadow:inset 0 1px 0 var(--glassLine),var(--shadow);width:max-content}
+.toast b{min-height:44px;padding:0 12px;border-radius:18px;background:var(--accent);color:var(--on);display:grid;place-items:center;white-space:nowrap}
+.toast.solo{padding-right:16px}
+.snack{position:absolute;left:12px;right:12px;bottom:84px;min-height:48px;border-radius:8px;background:var(--ink);color:var(--paper);display:flex;align-items:center;gap:8px;padding:6px 4px 6px 16px;font:400 calc(var(--k)*13.5px)/1.35 var(--sys);z-index:12;box-shadow:var(--shadow)}
+.snack span{flex:1}
+.snack b{color:var(--invAccent);min-height:48px;padding:0 12px;display:grid;place-items:center;font-weight:500;white-space:nowrap}
+
+/* Feuilles, dialogues, menus */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:8}
+.sh{position:absolute;left:6px;right:6px;bottom:6px;top:54px;border-radius:34px;background:var(--paper);z-index:9;padding:0 16px;overflow:hidden;box-shadow:0 -4px 30px rgba(0,0,0,.2)}
+.sh.med{top:auto;min-height:300px}
+.sh .grab{width:36px;height:5px;border-radius:3px;background:var(--idle);margin:6px auto 2px}
+.sh .shh{display:flex;align-items:center;gap:8px;min-height:52px}
+.sh .shh .tbt{flex:1;text-align:center;font:600 calc(var(--k)*15px) var(--sys)}
+.sh .gb{background:var(--edge);box-shadow:none;backdrop-filter:none}
+.fs{position:absolute;inset:0;background:var(--paper);z-index:9;padding:40px 0 0}
+.fs .tb{padding-left:4px}
+.fs .bd{padding:0 18px}
+.bs{position:absolute;left:0;right:0;bottom:0;border-radius:28px 28px 0 0;background:var(--paper);z-index:9;padding:8px 18px 22px;box-shadow:0 -4px 24px rgba(0,0,0,.2)}
+.bs .grab{width:32px;height:4px;border-radius:2px;background:var(--muted);margin:6px auto 14px;opacity:.6}
+.al{position:absolute;left:22px;right:22px;top:50%;transform:translateY(-50%);z-index:10;background:var(--paper);border-radius:28px;padding:20px 18px 14px;text-align:center;box-shadow:var(--shadow)}
+.al h5{margin:0 0 6px;font:700 calc(var(--k)*16px)/1.3 var(--sys)}
+.al p{margin:0 0 14px;font:400 calc(var(--k)*13.5px)/1.4 var(--sys);color:var(--ink)}
+.al .btns .btn{min-height:44px;font-size:calc(var(--k)*15px);padding:0 10px;min-width:0}
+.dl{position:absolute;left:20px;right:20px;top:50%;transform:translateY(-50%);z-index:10;background:var(--paper);border-radius:28px;padding:22px 22px 12px;box-shadow:var(--shadow);border:1px solid var(--idle)}
+.dl h5{margin:0 0 12px;font:400 calc(var(--k)*21px)/1.25 var(--sys)}
+.dl p{margin:0 0 14px;font:400 calc(var(--k)*14px)/1.45 var(--sys);color:var(--muted)}
+.dl .da{display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}
+.dl .da span{min-height:48px;padding:0 12px;display:grid;place-items:center;color:var(--accent);font:500 calc(var(--k)*14px) var(--sys);border-radius:24px}
+.dl .da span.d{color:var(--danger)}
+.menu{position:absolute;z-index:10;width:236px;border-radius:22px;background:var(--glass);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);box-shadow:inset 0 1px 0 var(--glassLine),var(--shadow);padding:6px 0;font:400 calc(var(--k)*15px) var(--sys)}
+.menu div{min-height:44px;display:flex;align-items:center;gap:10px;padding:0 16px}
+.menu div.d{color:var(--danger)}
+.menu hr{border:0;border-top:.5px solid var(--idle);margin:4px 0}
+.menu .h{font-size:12px;color:var(--muted);min-height:32px}
+.opt{display:flex;align-items:center;gap:14px;min-height:56px;font:400 calc(var(--k)*15px)/1.3 var(--sys)}
+.opt small{display:block;color:var(--muted);font-size:calc(var(--k)*12.5px)}
+.opt .rad{width:20px;height:20px;border-radius:50%;border:2px solid var(--muted);flex:none;display:grid;place-items:center}
+.opt .rad.on{border-color:var(--accent)}
+.opt .rad.on::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.opt.d{color:var(--danger)}
+
+/* Code à 6 chiffres */
+.code{display:flex;gap:6px;justify-content:center;margin:16px 0 8px}
+.code span{width:38px;height:52px;border:1.5px solid var(--muted);border-radius:10px;display:grid;place-items:center;font:800 calc(var(--k)*24px) var(--mono)}
+.and .code span{border-radius:6px}
+.code span.f{border:2px solid var(--accent)}
+.code.err span{border:2px solid var(--danger)}
+.code span.sep,.code.err span.sep{width:8px;border:0}
+
+/* Chargement */
+.sk{height:12px;border-radius:4px;background:var(--edge);margin:14px 0}
+.sk.w60{width:60%}.sk.w40{width:40%}.sk.w80{width:80%}
+.skl{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.55}}
+.spin{width:22px;height:22px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:rot .9s linear infinite;flex:none;display:inline-block}
+.and .spin.ex{border:0;border-radius:30%;background:var(--accent);animation:morph 1.2s ease-in-out infinite;width:28px;height:28px}
+@keyframes rot{to{transform:rotate(360deg)}}
+@keyframes morph{0%{border-radius:30%;transform:rotate(0)}50%{border-radius:50% 20% 50% 20%;transform:rotate(180deg) scale(.85)}100%{border-radius:30%;transform:rotate(360deg)}}
+
+/* Animations : coche d'un autre membre qui rejoint le panier */
+@keyframes otherCheck{0%,30%{transform:none;opacity:1}38%{transform:none}55%,85%{transform:translateY(118px);opacity:0}100%{transform:none;opacity:1}}
+@keyframes otherBox{0%,22%{background:transparent;color:transparent}30%,85%{background:var(--ink);color:var(--paper)}100%{background:transparent;color:transparent}}
+@keyframes otherStrike{0%,22%{text-decoration-color:transparent}30%,85%{text-decoration-color:currentColor}100%{text-decoration-color:transparent}}
+@keyframes otherWho{0%,22%{opacity:0}30%,85%{opacity:1}100%{opacity:0}}
+.it.oth{animation:otherCheck 5s infinite}
+.it.oth .box{animation:otherBox 5s infinite}
+.it.oth .nm{text-decoration:line-through;animation:otherStrike 5s infinite}
+.it.oth .av{animation:otherWho 5s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* Navigateur (page /i/) */
+.url{position:absolute;left:12px;right:12px;bottom:18px;min-height:48px;border-radius:24px;z-index:5;display:flex;align-items:center;justify-content:center;gap:6px;font:500 13px var(--sys);color:var(--ink);background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 var(--glassLine),var(--shadow)}
+.aurl{margin:4px 10px 8px;min-height:44px;border-radius:22px;background:var(--edge);display:flex;align-items:center;gap:8px;padding:0 14px;font:400 13px var(--sys);color:var(--ink)}
+.smart{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--edge);font:400 12px var(--sys);margin:0 0 8px}
+.smart .appi{width:36px;height:36px;border-radius:9px;background:#1A1C22;display:grid;place-items:center;color:#FBF7F0;font:800 14px var(--mono)}
+.smart b{display:block;font-size:13px}
+.smart .open{margin-left:auto;min-height:32px;padding:0 14px;border-radius:16px;background:var(--accent);color:var(--on);display:grid;place-items:center;font-weight:600}
+.stb{min-height:48px;border-radius:12px;background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:center;gap:8px;font:600 14px var(--sys);flex:1}
+.step{display:flex;gap:12px;align-items:flex-start;margin:12px 0;font:400 calc(var(--k)*14px)/1.45 var(--sys)}
+.step i{font:800 13px var(--mono);width:26px;height:26px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent);display:grid;place-items:center;font-style:normal;flex:none}
+
+/* ===== Texte agrandi : AX5 (iOS) et police à 200 % (Android) ===== */
+.ios.ax{--k:2.2}
+.and.ax{--k:1.85}
+.ax .it{flex-wrap:wrap;min-height:64px;padding:6px 0;align-items:flex-start}
+.ax .it .nm::after{display:none}
+.ax .it .nm{flex-basis:calc(100% - 40px)}
+.ax .it .q{padding-left:34px}
+.ax .it::before{top:18px}
+.ax .box{margin-top:6px}
+.ax .cnt b{font-size:56px}
+.ax .btns{flex-direction:column-reverse}
+.ax .btn{white-space:normal;padding:10px 18px}
+.ax .rw{flex-wrap:wrap}
+.ax .rw .tr{width:100%;padding-left:48px}
+.ax .box{width:30px;height:30px}
+.ax .stk.all{display:none}
+.stk.n{display:none}
+.ax .stk.n{display:inline-flex}
+.ax .dock{flex-direction:column;align-items:stretch;border-radius:26px}
+.ax .dock .dgo,.ax .dock .dp{justify-content:center;width:auto;display:flex;align-items:center}
+.ax .adock{flex-direction:column}
+.ax .adock .ag2{justify-content:center}
+.ax .code span{width:30px;height:60px;font-size:30px}
+.ax .code{gap:4px}
+.ax .code .sep{width:2px}
+.ax .seg{flex-direction:column;border-radius:16px}
+.ax .seg span{min-height:52px}
+.ax.and .seg span,.ax.and .seg span:first-child,.ax.and .seg span:last-child{border-radius:12px}
+.ax .sh,.ax .fs{overflow:hidden}
+.ax .p,.ax .msg{overflow-wrap:anywhere}
+.ax.and .fld label{position:static;background:none;padding:0;margin-bottom:4px}
+.ax.and .fld{margin-top:6px}
+</style>
+</head>
+<body>
+<main id="top">
+<div class="toolbar" role="group" aria-label="Réglages d'affichage des maquettes">
+  <div class="grp"><span>Page</span><button data-page="light">Claire</button><button data-page="dark">Sombre</button><button data-page="">Système</button></div>
+  <div class="grp"><span>Maquettes</span><button data-mode="mix" aria-pressed="true">Mixte</button><button data-mode="light">Tout clair</button><button data-mode="dark">Tout sombre</button></div>
+  <div class="grp"><span>Plateformes</span><button data-plat="" aria-pressed="true">Les deux</button><button data-plat="ios">iOS</button><button data-plat="and">Android</button></div>
+</div>
+
+<h1>Partage de liste : maquettes v1</h1>
+<p class="lead">Lot 87.0 de l'issue #87 : les huit écrans du §9, sur iOS (Liquid Glass, iOS 26) et sur Android (Material 3 Expressive, Android 16), dans la direction retenue B3 « Ticket filé », sans le ton de B1. Chaque état est montré sur les deux plateformes. En mode <b>Mixte</b>, l'iPhone et l'Android sont dans deux thèmes opposés ; les boutons <b>Tout clair</b> et <b>Tout sombre</b> montrent chaque état dans l'autre thème. Les nouveaux tokens sont dans <code>design/tokens-ticket-v2.json</code> (<code>shared.sharing</code> et <code>variants.ticketFile.color.*.sharing</code>).</p>
+<p class="lead">Décisions déjà prises dans l'issue : connexion par code à 6 chiffres, les membres voient le prénom et jamais l'e-mail, invitation acceptée avec une autre adresse après un avertissement, pas de mode courses pour un lecteur. Personnages : Hadrien (propriétaire), Léa et Tom (membres), c.martin@exemple.fr (invitation en attente).</p>
+<nav class="toc" id="toc" aria-label="Sommaire"></nav>
+
+<section id="communs">
+<h2>0. Principes communs</h2>
+<div class="spec">
+<div>
+<h3>Rôles et ton</h3>
+<ul>
+<li><b>Les rôles disent ce qu'ils permettent</b> : « Propriétaire », « Peut modifier », « Lecture seule ». Aucun accord au féminin ou au masculin n'est déduit d'un prénom : pas de « éditrice », pas de « connecté ».</li>
+<li><b>Pas de « de + prénom »</b> dans les textes, parce qu'on ne peut pas garantir l'élision (« d'Anne », « de Léa ») : on écrit « Modifiée par Léa », « Demandez à Hadrien », « Léa passe en lecture seule ».</li>
+<li>Le prénom de l'autre est en <b>gras mono</b> quand il est un repère (pastille, membre), et en texte courant ailleurs.</li>
+<li>Le partage, les invitations et les accès <b>demandent le réseau</b> (rien en file). L'édition de la liste reste hors ligne d'abord.</li>
+</ul>
+<h3>Avatars et marques</h3>
+<ul>
+<li><b>Avatar</b> : l'initiale du prénom en mono 700 sur <code>paperEdge</code>, cercle de 28 pt (36 pt dans les listes de membres), anneau de 2 pt couleur papier pour séparer les pastilles empilées. Pas de couleur par membre : la couleur porte déjà les rayons.</li>
+<li>Les pastilles montrent <b>les autres membres, jamais moi</b> (barre de la liste comme Mes listes) ; « vous » est dans le libellé lu. Deux membres avec la même initiale : deux lettres (« Lé », « La »). Au-delà de trois pastilles : « +N ».</li>
+<li><b>Marque d'auteur</b> sur un article : avatar de 20 pt au trait (<code>inkMuted</code>), après la quantité. C'est la personne qui a modifié l'article en dernier (<code>updated_by</code>), seulement si ce n'est pas moi. Décoratif, sa valeur passe dans le libellé de la ligne.</li>
+<li><b>Badge</b> mono 10 pt, majuscules, rayon 4 : « PARTAGÉE » (<code>accent</code>, trait) et « LECTURE SEULE » (<code>ink</code> sur <code>paperEdge</code>).</li>
+</ul>
+</div>
+<div>
+<h3>Composants par plateforme</h3>
+<div class="tablewrap"><table>
+<tr><th></th><th>iOS 26 (repli iOS 18)</th><th>Android 16</th></tr>
+<tr><td>Partager la liste</td><td>Feuille, détente <code>.large</code>, fermeture par ✕ en verre</td><td>Dialogue plein écran (barre ✕ + titre), retour prédictif</td></tr>
+<tr><td>Gérer un membre</td><td>Menu contextuel en verre</td><td>Bottom sheet modale, boutons radio</td></tr>
+<tr><td>Confirmations</td><td>Alerte (bouton destructif plein)</td><td>AlertDialog M3, bouton texte <code>destructive</code></td></tr>
+<tr><td>Accès du rôle</td><td>Contrôle segmenté de 44 pt</td><td>Groupe de boutons connectés (Expressive), 48 dp</td></tr>
+<tr><td>Message bref</td><td>Capsule en verre au-dessus du dock</td><td>Snackbar</td></tr>
+<tr><td>Chargement</td><td>Indicateur d'activité</td><td>Indicateur de chargement expressif</td></tr>
+</table></div>
+<h3>Mouvement</h3>
+<ul>
+<li>Arrivée d'un changement d'un autre membre : la ligne apparaît en fondu (150 ms) à sa place, sans déplacer la ligne sous le doigt.</li>
+<li>Coche d'un autre membre en mode courses : même animation qu'une coche locale (ressort 250 ms, glissement vers le panier 600 ms après), <b>sans haptique</b>.</li>
+<li>Squelettes de chargement : pulsation d'opacité de 1,4 s ; avec Réduire les animations, squelette fixe.</li>
+</ul>
+</div>
+</div>
+<h3>Nouveaux tokens et contrastes vérifiés (WCAG 2.2)</h3>
+<div id="tokens"></div>
+</section>
+
+<div id="sections"></div>
+
+<section id="choix">
+<h2>Choix faits quand le §9 ne disait rien</h2>
+<div id="choices"></div>
+</section>
+</main>
+
+<script>
+// Gabarits HTML statiques de maquette (aucune logique applicative).
+// Une seule source pour les textes : T. Les tableaux « Textes exacts » sont générés depuis T.
+const T={
+'role.owner':'Propriétaire','role.editor':'Peut modifier','role.viewer':'Lecture seule',
+'role.editor.help':'Ajoute, modifie et coche les articles.',
+'role.viewer.help':'Voit la liste, sans la modifier ni faire les courses.',
+'you':'vous',
+// 1. Liste partagée
+'list.title':'Courses de la semaine',
+'list.share':'Partager la liste',
+'list.members.a11y':'Membres : Léa, Tom et vous. Partager la liste',
+'list.members.view.a11y':'Membres : Hadrien, Tom et vous. Voir les membres',
+'shop.start.a11y':'Commencer les courses',
+'list.count':'Articles',
+'list.updated':'Modifiée par Léa · il y a 2 min',
+'item.by.a11y':'dernière modification par Léa',
+'offline':'Hors ligne. Vos modifications partiront au retour du réseau.',
+'offline.meta':'Synchronisée il y a 12 min',
+'loading':'Ouverture de la liste partagée…',
+'load.error':"La liste n'a pas pu être téléchargée.",
+'retry':'Réessayer',
+'empty.title':'Liste vide',
+'empty.body':'Léa et Tom verront ici ce que vous ajoutez.',
+'conflict.deleted':'Un autre membre a supprimé « Comté » : votre modification n\'a pas été enregistrée.',
+'conflict.readd':'Rajouter',
+'downgrade':"Hadrien a passé votre accès en lecture seule. Vos 2 dernières modifications n'ont pas été enregistrées.",
+'downgrade.plain':'Hadrien a passé votre accès en lecture seule.',
+'ok':'Compris',
+'removed.title':"« Courses de la semaine » n'est plus partagée avec vous",
+'removed.body':'Elle a été retirée de cet appareil.',
+'removed.back':'Retour à mes listes',
+'lists.title':'Mes listes',
+'lists.badge':'Partagée',
+'lists.row.sub':'7 articles restants',
+'lists.row.a11y':'Courses de la semaine, partagée avec Léa et Tom, 7 articles restants',
+'lists.new':'Nouvelle liste',
+'lists.allChecked':'Tout est coché',
+'lists.noItem':'Aucun article',
+'add':'Ajouter un article',
+'shop':'Courses',
+// 2. Partager la liste
+'share.title':'Partager la liste',
+'share.email':'Adresse e-mail',
+'share.email.ph':'prenom@exemple.fr',
+'share.role':'Accès',
+'share.send':"Envoyer l'invitation",
+'share.sending':'Envoi…',
+'share.note':'La personne invitée verra votre prénom. Les adresses e-mail restent privées.',
+'share.members':'Membres (3)',
+'share.members1':'Membres (1)',
+'share.other.ios':'Partager…',
+'share.pending':'Invitations en attente (2)',
+'share.empty':"Pour l'instant, cette liste n'est qu'à vous.",
+'pending.in7':'expire dans 7 j',
+'pending.expired':'Expirée',
+'pending.resend':'Renvoyer',
+'pending.copy':'Copier le lien',
+'pending.revoke':"Annuler l'invitation",
+'pending.more.a11y':'Actions pour l’invitation de c.martin@exemple.fr',
+'err.invalid':'Cette adresse ne semble pas valide.',
+'err.self':"C'est votre propre adresse.",
+'err.member':'Léa fait déjà partie de la liste.',
+'err.capList':'Une liste compte au plus 10 participants, invitations en attente comprises.',
+'err.capDay':"Vous avez envoyé 20 invitations aujourd'hui. Réessayez demain.",
+'err.capTo':"Impossible d'inviter cette adresse pour le moment. Réessayez demain.",
+'err.capLive':"Vous avez 50 invitations en attente. Annulez-en avant d'en envoyer d'autres.",
+'share.offline':'Le partage demande une connexion.',
+'share.error':"Le partage n'a pas pu s'ouvrir. Réessayez dans un instant.",
+'sent.ok':'Invitation envoyée à c.martin@exemple.fr',
+'sent.resent':'Invitation renvoyée. Le nouveau lien est valable 7 jours.',
+'mailfail.title':"L'invitation est prête, mais l'e-mail n'est pas parti.",
+'mailfail.body':'Envoyez le lien vous-même : il est valable 7 jours.',
+'mailfail.share':'Partager le lien…',
+'copied':'Lien copié. Il est valable 7 jours.',
+'copied.new':'Nouveau lien copié, valable 7 jours. Celui de l\'e-mail ne fonctionne plus.',
+'revoke.title':"Annuler l'invitation ?",
+'revoke.body':'Le lien envoyé à c.martin@exemple.fr ne fonctionnera plus.',
+'revoke.keep':'Garder',
+// 3. Membres
+'member.since':'Membre depuis le 12 novembre',
+'member.remove':'Retirer de la liste',
+'member.a11y':'Léa, peut modifier. Gérer',
+'remove.title':'Retirer Léa de la liste ?',
+'remove.body':"Léa ne verra plus « Courses de la semaine ». Vous pourrez l'inviter à nouveau.",
+'remove.btn':'Retirer',
+'cancel':'Annuler',
+'role.changed':'Léa passe en lecture seule.',
+'members.title':'Membres',
+'members.note':'Les invitations et les accès sont gérés par Hadrien.',
+'leave':'Quitter la liste',
+'leave.title':'Quitter « Courses de la semaine » ?',
+'leave.body':'La liste disparaîtra de vos appareils. Hadrien pourra vous inviter à nouveau.',
+'leave.btn':'Quitter',
+'delete.title':'Supprimer « Courses de la semaine » ?',
+'delete.body':"Léa et Tom la perdront aussi. C'est définitif.",
+'delete.btn':'Supprimer',
+'member.offline':'Changer les accès demande une connexion.',
+// 4. Compte
+'link.title':'Pour partager, liez une adresse e-mail',
+'link.body':'Vos listes restent les vôtres. Les membres verront votre prénom, jamais votre adresse.',
+'link.cta':'Recevoir un code',
+'signin.title':'Se connecter',
+'signin.body':"Retrouvez vos listes et celles qu'on partage avec vous.",
+'signin.invite':"Vous avez ouvert une invitation. Connectez-vous avec l'adresse qui l'a reçue.",
+'code.title':'Entrez le code',
+'code.sentTo':'Envoyé à',
+'code.expiry':'Il expire dans 15 minutes.',
+'code.ready':'Vous pouvez renvoyer le code',
+'code.a11y':'Code à 6 chiffres',
+'code.resendIn':'Renvoyer le code dans 60 s',
+'code.resend':'Renvoyer le code',
+'code.change':"Changer d'adresse",
+'code.wrong':'Ce code ne correspond pas. Vérifiez le dernier e-mail reçu.',
+'code.expired':'Ce code a expiré. Demandez-en un nouveau.',
+'code.tooMany':'Trop d’essais. Patientez une minute avant de réessayer.',
+'code.verifying':'Vérification…',
+'code.rate':'Trop de codes demandés. Réessayez dans 1 min.',
+'code.offline':'Il faut du réseau pour recevoir un code.',
+'name.title':'Votre prénom',
+'name.body':'Les personnes avec qui vous partagez une liste verront ce prénom.',
+'name.label':'Prénom',
+'name.err':'Entre 1 et 40 caractères, sans adresse ni lien.',
+'continue':'Continuer',
+'merge':'Rapprochement de vos listes…',
+'welcome.title':'Bon retour, Léa !',
+'welcome.body':'Les 2 listes de ce téléphone ont été ajoutées à votre compte.',
+'welcome.cta':'Voir mes listes',
+'linked':'Adresse liée. Vous pouvez partager vos listes.',
+'account.title':'Compte',
+'account.email':'Adresse e-mail',
+'account.name':'Prénom',
+'account.note':'Votre adresse ne sert qu’à vous connecter. Les membres de vos listes voient votre prénom.',
+'signout':'Se déconnecter',
+'signout.title':'Se déconnecter ?',
+'signout.body':'Vos listes restent dans votre compte. Elles seront retirées de cet appareil.',
+'deleteData':'Supprimer mes données',
+'session.lost':'Reconnectez-vous pour synchroniser.',
+'session.cta':'Se reconnecter',
+'session.anon':'Continuer sans compte',
+'anon.title':'Continuer sans compte ?',
+'anon.body':'Les listes partagées avec vous seront retirées de cet appareil. Les vôtres restent ici, sans adresse ni synchronisation entre appareils.',
+'anon.btn':'Continuer sans compte',
+'switch.title':'Changer de compte ?',
+'switch.body':'Vos listes restent dans le compte tom@exemple.fr. Elles seront retirées de cet appareil.',
+'switch.btn':'Changer de compte',
+'delete.data.title':'Supprimer toutes vos données ?',
+'delete.data.shared':'« Courses de la semaine » sera confiée à Léa, qui en deviendra propriétaire. Le reste sera supprimé : vos autres listes, votre adresse et votre prénom.',
+'delete.data.alone':"Vos listes, votre adresse et votre prénom seront supprimés. C'est définitif.",
+'delete.data.btn':'Supprimer',
+// 5. Invitations
+'inv.entry':'Invitations (1)',
+'inv.entry2':'Invitations (2)',
+'inv.card':'Hadrien vous invite à « Courses de la semaine »',
+'inv.card.other':'Hadrien vous invite à une liste de courses',
+'inv.sheet':'Invitation',
+'inv.invalid':"Cette invitation n'est plus valable. Demandez-en une nouvelle à la personne qui vous l'a envoyée.",
+'inv.meta':'Peut modifier · expire le 21 nov.',
+'inv.accept':'Accepter',
+'inv.decline':'Refuser',
+'inv.accepting':'Ouverture de la liste…',
+'inv.expired':'Cette invitation a expiré. Demandez à Hadrien de vous la renvoyer.',
+'inv.used':'Cette invitation a déjà été utilisée.',
+'inv.other.title':'Cette invitation était pour une autre adresse',
+'inv.other.body':'Elle a été envoyée à c•••@exemple.fr. Votre compte : tom@exemple.fr. Si vous acceptez, Hadrien verra votre prénom parmi les membres.',
+'inv.other.accept':'Accepter avec ce compte',
+'inv.other.switch':'Changer de compte',
+'inv.member':'Vous faites déjà partie de cette liste.',
+'inv.offline':"Il faut du réseau pour accepter. L'invitation vous attend dans vos listes.",
+'inv.decline.title':"Refuser l'invitation ?",
+'inv.decline.body':'Elle disparaîtra. Hadrien pourra vous en envoyer une autre.',
+'inv.none':"Aucune invitation n'attend lea@exemple.fr.",
+'inv.none.body':"Celle que vous avez reçue vise peut-être une autre adresse : ouvrez le lien de l'e-mail.",
+'inv.close':'Fermer',
+'inv.anonEmpty':"Vous avez reçu une invitation ? Connectez-vous avec l'adresse qui l'a reçue.",
+'inv.error':"L'invitation n'a pas pu être acceptée. Réessayez dans un instant.",
+// 6. Mode courses à deux
+'shop.presence':'Léa fait aussi les courses',
+'shop.left':'Reste',
+'shop.basket':'Dans le panier (3)',
+'shop.by.a11y':'dans le panier, par Léa',
+'shop.join.announce':'Léa a rejoint les courses.',
+'shop.announce.many':'Léa a pris 3 articles. 2 restants.',
+'shop.osm':'© contributeurs OpenStreetMap',
+'shop.announce':'Léa a pris Lait entier. 5 restants.',
+'shop.updated':'Modifiée par Léa · il y a 30 s',
+'shop.unchecked':'retour, par Léa',
+'shop.unchecked.announce':'Léa a remis Pâtes dans la liste.',
+'shop.offline':'Hors ligne. Les coches des autres membres arriveront au retour du réseau.',
+'shop.removed.title':"Vous n'avez plus accès à cette liste",
+'shop.removed.body':'Les courses s’arrêtent ici. Vos coches comptent quand même pour le trajet du magasin.',
+'shop.finish':'Terminer',
+// 7. Lecteur
+'ro.badge':'Lecture seule',
+'ro.notice':"Lecture seule. Demandez à Hadrien l'accès en modification.",
+'ro.tap':'Lecture seule : cette liste ne se modifie pas ici.',
+'ro.upgrade':"Hadrien vous a donné l'accès en modification.",
+'ro.title.a11y':'Courses de la semaine, lecture seule, partagée par Hadrien',
+// 8. Web
+'web.title':'Une invitation vous attend',
+'web.s1':'Installez Parcourses.',
+'web.s2':"Connectez-vous avec l'adresse qui a reçu l'e-mail d'invitation.",
+'web.s3':"L'invitation apparaît dans vos listes : acceptez-la.",
+'web.open':"Déjà installée ? Ouvrir dans l'app",
+'web.broken':"Ce lien est incomplet. Ouvrez-le depuis l'e-mail d'invitation, ou copiez-le en entier.",
+'web.foot':'Confidentialité · Supprimer mes données',
+};
+// Typographie française : espaces insécables avant « : ? ! » et dans « 60 s », « 7 j »…
+const typo=x=>x.replace(/'/g,'’').replace(/ ;/g,'\u202f;').replace(/« /g,'«\u00a0').replace(/ »/g,'\u00a0»').replace(/ :/g,'\u00a0:').replace(/ ([?!])/g,'\u202f$1').replace(/(\d) (s|min|minutes|j|jours|g|restants|articles|listes|invitations|participants)\b/g,'$1\u00a0$2');
+const t=k=>{if(!(k in T))throw new Error('texte manquant '+k);return typo(T[k])};
+
+// ---------- Icônes (trait 1,7, grille 24) ----------
+const I={
+back:'<path d="M15 5l-7 7 7 7"/>',backA:'<path d="M20 12H5M11 6l-6 6 6 6"/>',close:'<path d="M6 6l12 12M18 6L6 18"/>',
+addPerson:'<circle cx="10" cy="8" r="3.5"/><path d="M3.5 19.5c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M19 8v6M16 11h6"/>',
+people:'<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="16.5" cy="9" r="2.5"/><path d="M15.5 14.4c2.6-.3 4.6 1.3 5.2 4.1"/>',
+more:'<circle cx="5.5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="18.5" cy="12" r="1.2" fill="currentColor"/>',
+moreV:'<circle cx="12" cy="5.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="18.5" r="1.2" fill="currentColor"/>',
+mail:'<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/>',
+copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>',
+resend:'<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
+trash:'<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
+eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>',
+offline:'<path d="M3 3l18 18"/><path d="M8.6 8.7A10 10 0 0 0 3.5 11.5M12 6.5a11 11 0 0 1 8.5 5M7 15a6 6 0 0 1 4-1.8M15.6 13.7c.6.4 1.1.8 1.5 1.3"/><circle cx="12" cy="19" r="1" fill="currentColor"/>',
+warn:'<path d="M12 3.5 2.5 20h19Z"/><path d="M12 10v4.5"/><circle cx="12" cy="17.2" r=".9" fill="currentColor"/>',
+check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+cart:'<path d="M3 4h2.5l2.2 10.5h10.6L20.5 7H7"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
+info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.8" r=".9" fill="currentColor"/>',
+person:'<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20c.9-3.8 3.9-6 7.5-6s6.6 2.2 7.5 6"/>',
+chev:'<path d="M9 5l7 7-7 7"/>',
+share:'<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M7 10.5H5.5a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-8.5a1 1 0 0 0-1-1H17"/>',
+shareA:'<circle cx="17.5" cy="5.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="18.5" r="2.5"/><path d="M8.7 10.8l6.6-4M8.7 13.2l6.6 4"/>',
+logout:'<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 8l-4 4 4 4M6 12h10"/>',
+lock:'<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+clock:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+leave:'<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+key:'<circle cx="8" cy="15" r="3.5"/><path d="M10.5 12.5 19 4M15.5 7.5l2.5 2.5"/>',
+edit:'<path d="M4 20h4L19 9l-4-4L4 16Z"/>',
+globe:'<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.3 3.5 5.2 3.5 8.5s-1 6.2-3.5 8.5c-2.5-2.3-3.5-5.2-3.5-8.5s1-6.2 3.5-8.5Z"/>',
+};
+const ic=(n,s=20,sw=1.7)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const CAT={
+produce:'<path d="M12 8c-4-1-7 1.5-7 6s3 7 7 7 7-2.5 7-7-3-7-7-6Z"/><path d="M12 8V4.5"/><path d="M12 6c1-2 3-3 5-2.5-.5 2-2.5 3-5 2.5Z"/>',
+dairy:'<path d="M8 3.5h8"/><path d="M9 3.5v3L7 9.5v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-10l-2-3v-3"/><path d="M7 13h10"/>',
+'savory-grocery':'<rect x="5" y="7" width="14" height="13.5" rx="2"/><path d="M7 7V4.5h10V7"/><path d="M5 11h14M5 16.5h14"/>',
+other:'<path d="M3.5 6.5 6 4h12l2.5 2.5"/><path d="M4 6.5h16l-1.5 13a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M9 10.5a3 3 0 0 0 6 0"/>'};
+const cat=id=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CAT[id]}</svg>`;
+
+// ---------- Briques ----------
+const isI=p=>p==='ios';
+const av=(l,c='')=>`<span class="av ${c}" aria-hidden="true">${l}</span>`;
+const stack=(ls,c='')=>`<span class="stk">${ls.map(l=>av(l,c)).join('')}</span>`;
+const gb=(html,label,c='')=>`<span class="gb ${c}" role="button" aria-label="${label}">${html}</span>`;
+const ib=(n,label)=>`<span class="ib" role="button" aria-label="${label}">${ic(n,22)}</span>`;
+function tb(p,{back=true,title='',right=[],left=null}={}){
+  const l = left!==null?left:(back?(isI(p)?gb(ic('back',22),'Retour'):ib('backA','Retour')):(isI(p)?'<span style="width:44px"></span>':''));
+  return `<div class="tb">${l}<div class="tbt">${title}</div><div class="tbr">${right.join('')}</div></div>`;
+}
+const wrap=(p,html)=>isI(p)?`<div class="pg">${html}</div>`:`<div class="card">${html}</div>`;
+const btn=(k,label,extra='')=>`<span class="btn ${k}" role="button">${extra}${label}</span>`;
+const fld=(p,label,val,{ph=false,focus=false,err=false}={})=>`<div class="fld ${focus?'focus':''} ${err?'err':''}"><label>${label}</label><div class="in">${ph?`<span class="ph">${val}</span>`:val}${focus&&!ph?'<span class="caret"></span>':''}</div></div>`;
+const msg=(text,err=false,icon=null)=>`<div class="msg ${err?'err':''}">${icon||err?ic(icon||'warn',16):''}<span>${text}</span></div>`;
+const seg=(p,sel=0)=>`<div class="seg" role="radiogroup" aria-label="${t('share.role')}"><span class="${sel===0?'on':''}">${!isI(p)&&sel===0?ic('check',16):''}${t('role.editor')}</span><span class="${sel===1?'on':''}">${!isI(p)&&sel===1?ic('check',16):''}${t('role.viewer')}</span></div>`;
+const ban=(icon,text,act='',c='')=>`<div class="ban ${c} ${act&&text.length>60?'long':''}">${ic(icon,18)}<span>${text}</span>${act?`<span class="act">${act}</span>`:''}</div>`;
+const toast=(p,text,act='')=>isI(p)?`<div class="toast ${act?'':'solo'}" role="status">${text}${act?`<b>${act}</b>`:''}</div>`:`<div class="snack" role="status"><span>${text}</span>${act?`<b>${act}</b>`:''}</div>`;
+const spin=(p,c='')=>`<span class="spin ${isI(p)?'':'ex'} ${c}" aria-hidden="true"></span>`;
+const scrim='<div class="scrim"></div>';
+function alertBox(p,title,body,btns){ // btns: [[label, kind]] kind: cancel|pri|dan
+  if(isI(p)) return scrim+`<div class="al" role="alertdialog"><h5>${title}</h5><p>${body}</p><div class="btns">${btns.map(([l,k])=>btn(k==='cancel'?'sec':k,l)).join('')}</div></div>`;
+  return scrim+`<div class="dl" role="alertdialog"><h5>${title}</h5><p>${body}</p><div class="da">${btns.map(([l,k])=>`<span class="${k==='dan'?'d':''}">${l}</span>`).join('')}</div></div>`;
+}
+// Feuille iOS / plein écran Android
+function sheet(p,title,body,{bg='',right='',med=false}={}){
+  if(isI(p)) return bg+scrim+`<div class="sh ${med?'med':''}"><div class="grab"></div><div class="shh">${gb(ic('close',18),'Fermer')}<div class="tbt">${title}</div>${right||'<span style="width:44px"></span>'}</div>${body}</div>`;
+  return `<div class="fs">${tb(p,{left:ib('close','Fermer'),title,right:right?[right]:[]})}<div class="bd">${body}</div></div>`;
+}
+function bsheet(p,body,bg=''){
+  if(isI(p)) return bg+scrim+`<div class="sh med" style="padding-bottom:22px"><div class="grab" style="margin-bottom:14px"></div>${body}</div>`;
+  return bg+scrim+`<div class="bs"><div class="grab"></div>${body}</div>`;
+}
+// Docks
+const dockList=(p)=>isI(p)?`<div class="dock"><div class="df">${t('add')}</div><span class="dp">${ic('plus',22)}</span></div>`:`<div class="adock"><div class="ap">${t('add')}${ic('plus',20)}</div><div class="ag2">${ic('cart',20)}${t('shop')}</div></div>`;
+const dockShop=(p)=>isI(p)?`<div class="dock"><div class="df">${t('add')}</div><span class="dgo">${t('shop.finish')}</span></div>`:`<div class="adock"><div class="ap">${t('add')}${ic('plus',20)}</div><div class="ag2">${ic('check',20)}${t('shop.finish')}</div></div>`;
+
+// ---------- Données de la liste ----------
+const G=()=>[
+ {n:'Fruits et légumes',cat:'produce',c:'--a1',it:[['Tomates','6'],['Basilic','1']]},
+ {n:'Crèmerie, œufs',cat:'dairy',c:'--a2',it:[['Lait entier','2'],['Beurre doux','1',{who:'L'}],['Comté','200 g',{done:1}]]},
+ {n:'Épicerie salée',cat:'savory-grocery',c:'--a3',it:[['Pâtes','1']]}];
+function item(p,[n,q,o={}],mode){
+  const cls=['it',o.done?'done':'',o.next?'next':'',o.cls||''].join(' ');
+  let lead;
+  if(mode==='read') lead=`<span class="ro">${o.done?ic('check',16,2.2):''}</span>`;
+  else lead=`<span class="box">${ic('check',16,2.4)}</span>`;
+  const who=o.who?av(o.who,'s'):'';
+  const tag=o.tag?`<span class="itag">${o.tag}</span>`:'';
+  const tr=(!isI(p)&&mode==='list'&&!o.noTrash)?`<span class="trash">${ic('trash',18)}</span>`:'';
+  return `<div class="${cls}">${lead}<span class="nm">${n}</span><span class="q">${q}</span>${who}${tag}${tr}</div>`;
+}
+function trail(p,groups,mode='list',prog=null){
+  return `<div class="trail">${prog?`<i class="prog" style="height:${prog}px"></i>`:''}${groups.map(g=>`<div class="ag" style="--c:var(${g.c})"><span class="node">${cat(g.cat)}</span>${g.n}${g.tag||''}</div>`+g.it.map(x=>item(p,x,mode)).join('')).join('')}</div>`;
+}
+function membersBtn(p,ls=['L','T'],view=false){
+  const h=stack(ls).replace('class="stk"','class="stk all"')+`<span class="stk n">${av(ls.length)}</span>`;
+  const lab=t(view?'list.members.view.a11y':'list.members.a11y');
+  return isI(p)?gb(h,lab):`<span class="ib wide" role="button" aria-label="${lab}">${h}</span>`;
+}
+// Écran Liste (propriétaire par défaut)
+function listScreen(p,o={}){
+  const role=o.role||'owner';
+  const right=[];
+  if(o.shared!==false) right.push(membersBtn(p,o.members||(role==='owner'?['L','T']:['H','T']),role!=='owner'));
+  else right.push(isI(p)?gb(ic('addPerson',22),t('list.share')):ib('addPerson',t('list.share')));
+  if(isI(p)&&role!=='viewer') right.push(gb(ic('cart',22),t('shop.start.a11y'),'acc'));
+  let head=`<div class="cnt"><span>${t('list.count')}</span><b>${o.count||'06'}</b></div>`;
+  if(role==='viewer') head=`<div style="margin:2px 0 4px"><span class="badge b-ro">${ic('eye',12,2)}${t('ro.badge')}</span></div>`+head;
+  let meta=o.meta===undefined?t('list.updated'):o.meta;
+  head+= meta?`<div class="meta">${meta}</div>`:'';
+  const body=o.body!==undefined?o.body:trail(p,o.groups||G(),role==='viewer'?'read':'list');
+  let bottom = o.bottom!==undefined?o.bottom:(role==='viewer'?`<div class="notice">${ic('lock',18)}<span>${t('ro.notice')}</span></div>`:dockList(p));
+  const lt=isI(p)?`<div class="lt">${t('list.title')}</div>`:'';
+  return tb(p,{title:isI(p)?'':t('list.title'),right})+wrap(p,lt+(o.pre||'')+head+body)+bottom+(o.over||'');
+}
+// Écran Mes listes
+function listsScreen(p,o={}){
+  const rows=o.rows||[
+    {n:'Courses de la semaine',s:t('lists.row.sub'),b:'sh',m:['L','T']},
+    {n:'Apéro samedi',s:t('lists.allChecked')},
+    {n:'Bricolage',s:t('lists.noItem')}];
+  const rowsH=rows.map(r=>`<div class="rw" ${r.b?`aria-label="${t('lists.row.a11y')}"`:''}><div class="tx"><b>${r.n}</b><small>${r.s}</small>${r.b?`<div style="margin-top:5px;display:flex;gap:8px;align-items:center">${r.b==='sh'?`<span class="badge b-sh">${ic('people',12,2)}${t('lists.badge')}</span>`:`<span class="badge b-ro">${ic('eye',12,2)}${t('ro.badge')}</span>`}${r.m?stack(r.m,'xs'):''}</div>`:''}</div>${isI(p)?ic('chev',18):ib('moreV','Actions pour '+r.n)}</div>`).join('');
+  const top=o.top||'';
+  if(isI(p)){
+    const l = o.anon?gb(ic('person',20)+t('signin.title'),t('signin.title'),'txt acc'):'<span></span>';
+    return `<div class="tb" style="justify-content:space-between">${l}${gb(ic('info',22),'À propos','acc')}</div><div class="pg"><div class="big">${t('lists.title')}</div>${top}${rowsH}${o.after||''}</div><div class="ibar">${btn('pri',ic('plus',20)+t('lists.new'))}</div>${o.over||''}`;
+  }
+  const act = o.anon?`<span class="tbtxt" role="button">${t('signin.title')}</span>`:ib('info','À propos');
+  return `<div class="tb"><div class="tbt" style="font-size:22px;padding-left:14px">${t('lists.title')}</div><div class="tbr">${act}</div></div><div class="card" style="padding-top:4px">${top}${rowsH}${o.after||''}</div><div class="efab" aria-label="${t('lists.new')}">${ic('plus',22)}<span class="efl">${t('lists.new')}</span></div>${o.over||''}`;
+}
+// Écran Mode courses
+function shopScreen(p,o={}){
+  const groups=o.groups||[
+   {n:'Crèmerie, œufs',cat:'dairy',c:'--a2',it:[['Lait entier','2',{cls:'oth',who:'L'}],['Beurre doux','1',{next:1}],['Yaourts','4']]},
+   {n:'Épicerie salée',cat:'savory-grocery',c:'--a3',it:[['Pâtes','1']]}];
+  const head=`<div class="hd"><div class="store">Super U · Cleunay</div><div class="meta">Samedi · trajet connu à 82&nbsp;%</div><div class="meta osm">${t('shop.osm')}</div></div>${o.pres===false?'':(o.pres||`<div class="pres">${av('L')}<span>${t('shop.presence')}</span></div>`)}<div class="cnt"><span>${t('shop.left')}</span><b>${o.left||'05'}</b></div>${o.meta?`<div class="meta">${o.meta}</div>`:''}`;
+  const basket=`<div class="basket"><span>${t('shop.basket')}</span><span style="display:flex;gap:8px;align-items:center">${o.who?stack(o.who,'xs'):''}${ic('chev',18)}</span></div>`;
+  return `<div style="height:8px"></div>`+wrap(p,(o.pre||'')+head+trail(p,groups,'shop',o.prog||0)+basket)+(o.bottom!==undefined?o.bottom:dockShop(p))+(o.over||'');
+}
+
+// ---------- Corps des feuilles ----------
+function shareBody(p,o={}){
+  const st=o.state||'full';
+  let form=`<div class="p mu" style="margin:0 0 4px;font-family:var(--mono);font-size:12px">« ${t('list.title')} »</div>`;
+  if(o.mailfail) form+=`<div class="ban cau" style="flex-wrap:wrap">${ic('warn',18)}<span style="flex:1"><b>${t('mailfail.title')}</b><br>${t('mailfail.body')}</span><div class="btns v" style="width:100%">${btn('sec',ic('copy',18)+t('pending.copy'))}${btn('sec',ic(isI(p)?'share':'shareA',18)+(isI(p)?t('share.other.ios'):t('mailfail.share')))}</div></div>`;
+  form+=fld(p,t('share.email'),o.email||t('share.email.ph'),{ph:!o.email,focus:o.focus,err:!!o.err});
+  if(o.err) form+=msg(o.err,true);
+  form+=`<div class="lbl" style="margin-top:12px">${t('share.role')}</div>`+seg(p,o.role||0)+msg(o.role===1?t('role.viewer.help'):t('role.editor.help'));
+  form+= o.sending?btn('pri',t('share.sending'),spin(p,'')): (o.dis?btn('dis',t('share.send')):btn('pri',t('share.send')));
+  form+=`<div class="msg">${ic('lock',14)}<span>${t('share.note')}</span></div>`;
+  let lists='';
+  if(st==='empty') lists=`<div class="lbl">${t('share.members1')}</div>${memberRow(p,'H','Hadrien ('+t('you')+')',t('role.owner'),false)}<div class="p mu" style="text-align:center;margin-top:14px;font-family:var(--mono);font-size:12.5px">${t('share.empty')}</div>`;
+  if(st==='full') lists=membersList(p,true)+pendingList(p);
+  if(st==='loading') lists=`<div class="lbl">${t('members.title')}</div><div class="skl"><div class="sk w60"></div><div class="sk w40"></div><div class="sk w60"></div><div class="sk w80"></div></div>`;
+  return form+lists;
+}
+function memberRow(p,l,name,role,act=true,extra=''){
+  return `<div class="rw">${av(l,'l')}<div class="tx"><b>${name}</b><small>${role}</small></div>${extra||(act?`<span class="tr">${isI(p)?ic('more',22):ic('moreV',22)}</span>`:'')}</div>`;
+}
+const membersList=(p,owner)=>`<div class="lbl">${t('share.members')}</div>`+
+  memberRow(p,'H','Hadrien'+(owner?' ('+t('you')+')':''),t('role.owner'),false)+
+  memberRow(p,'L','Léa'+(owner?'':' ('+t('you')+')'),t('role.editor'),owner)+
+  memberRow(p,'T','Tom',t('role.viewer'),owner);
+const pendingList=(p)=>`<div class="lbl">${t('share.pending')}</div>`+
+  `<div class="rw"><span class="mi">${ic('mail',18)}</span><div class="tx"><b>c.martin@exemple.fr</b><small>${t('role.editor')} · ${t('pending.in7')}</small></div><span class="tr" role="button" aria-label="${t('pending.more.a11y')}">${isI(p)?ic('more',22):ic('moreV',22)}</span></div>`+
+  `<div class="rw"><span class="mi">${ic('clock',18)}</span><div class="tx"><b>sam@exemple.fr</b><small class="ex">${t('role.viewer')} · ${t('pending.expired')}</small></div><span class="pill">${t('pending.resend')}</span></div>`;
+
+function signForm(p,o={}){
+  const title=o.title||t('link.title'), body=o.body||t('link.body');
+  return `<div class="big" style="font-size:calc(var(--k)*22px)">${title}</div><div class="p">${body}</div>${o.ctx?ban('mail',o.ctx):''}`+
+   fld(p,t('share.email'),o.email||t('share.email.ph'),{ph:!o.email,focus:!!o.email&&!o.err,err:!!o.err})+(o.err?msg(o.err,true,o.errIcon):'')+
+   `<div style="height:10px"></div>`+(o.loading?btn('pri',t('share.sending'),spin(p)):btn(o.email&&!o.err?'pri':'dis',t('link.cta')));
+}
+function codeForm(p,o={}){
+  const d=o.digits||['4','8','1','','',''];
+  const cells=d.map((x,i)=>`<span class="${!o.err&&i===d.findIndex(v=>v==='')?'f':''}">${x}</span>${i===2?'<span class="sep"></span>':''}`).join('');
+  return `<div class="big" style="font-size:calc(var(--k)*22px)">${t('code.title')}</div><div class="p">${t('code.sentTo')}<br><b class="addr">hadrien@exemple.fr</b><br>${t('code.expiry')}</div>`+
+   `<div class="code ${o.err?'err':''}" role="textbox" aria-label="${t('code.a11y')}">${cells}</div>`+(o.err?msg(o.err,true):'')+(o.verifying?`<div class="msg" style="justify-content:center;align-items:center">${spin(p)}<span>${t('code.verifying')}</span></div>`:'')+
+   `<div style="height:8px"></div>`+btn(o.resendOn?'sec':'dis',o.resendOn?ic('resend',18)+t('code.resend'):t('code.resendIn'))+btn('txt',t('code.change'));
+}
+
+// ---------- États par section ----------
+const SECTIONS=[];const STATES={};
+function sec(id,title,spec){SECTIONS.push({id,title,spec});STATES[id]=[]}
+function st(s,id,title,tm,fn,o={}){STATES[s].push({id,title,t:tm,fn,...o})}
+const L='light',D='dark';
+
+const smallLists=()=>[{n:'Apéro samedi',s:t('lists.allChecked')},{n:'Bricolage',s:t('lists.noItem')}];
+/* 1. Liste partagée */
+sec('s1','1. Liste partagée',{
+ flow:['Mes listes : la liste partagée porte le badge « PARTAGÉE » et les initiales des autres membres.','On ouvre la liste : les pastilles des membres sont dans la barre du haut (c’est le bouton « Partager »), « Modifiée par Léa · il y a 2 min » sous le compteur.','Un article modifié en dernier par un autre membre porte son initiale après la quantité. Un article ajouté ailleurs arrive en bas de son rayon, en fondu, sans déplacer la ligne touchée.','Un signal temps réel déclenche la descente ; rien ne s’affiche en plus, sauf la ligne « Modifiée par… » mise à jour.'],
+ keys:['list.share','list.members.a11y','list.members.view.a11y','shop.start.a11y','lists.allChecked','lists.noItem','list.count','list.updated','item.by.a11y','lists.badge','lists.row.a11y','offline','offline.meta','loading','load.error','retry','empty.title','empty.body','conflict.deleted','conflict.readd','downgrade','downgrade.plain','ok','removed.title','removed.body','removed.back'],
+ targets:['Bouton des pastilles : 44 pt de haut, largeur du groupe + 20 pt (iOS) ; 48 dp (Android). La liste non partagée montre l’icône « ajouter une personne » de 44 pt / 48 dp.','Initiale d’auteur : 20 pt, non tactile ; la ligne entière (≥ 44 pt / 48 dp) reste la cible de la coche.','« Rajouter », « Compris » : 44 pt / 48 dp. « Réessayer », « Retour à mes listes » : 50 pt / 56 dp.','Bandeau hors ligne : non interactif, 44 pt de haut au moins, n’empiète pas sur le dock.'],
+ sr:[['Bouton des membres','Propriétaire : « Membres : Léa, Tom et vous. Partager la liste, bouton » ; membre : « Membres : Hadrien, Tom et vous. Voir les membres, bouton »','idem, « Bouton » en fin'],['Ligne « Modifiée par… »','« Modifiée par Léa, il y a 2 minutes »','idem'],['Article d’un autre membre','« Beurre doux, 1, dernière modification par Léa, case à cocher, non cochée »','« Non cochée, Beurre doux, 1, dernière modification par Léa, Case à cocher »'],['Changement venu d’un autre membre','Aucune annonce hors mode courses (trop bavard).','idem'],['Conflit (suppression gagnante)','Annonce polie du texte de la capsule ; « Rajouter » reste accessible 6 s puis dans le rotor « Actions ».','Snackbar, région live polie, durée longue (10 s) quand TalkBack est actif.'],['Accès abaissé','Annonce de la bannière, puis focus sur le badge « Lecture seule ».','idem, <code>LiveRegion.Assertive</code>'],['Liste retirée','Focus sur le titre de l’état plein écran.','idem']],
+ ax:['Le bouton des membres passe à une seule pastille « 3 » à partir de AX3 / 160 % ; son libellé ne change pas. Sur iOS, le titre de la liste est dans le ticket et passe sur plusieurs lignes ; sur Android, la barre du haut devient une grande barre repliable.','Pointillés masqués ; la quantité, l’initiale et la corbeille passent sous le libellé ; la case grandit (plafonnée à 44 pt) ; le nœud de rayon garde sa taille (décoratif), comme en 9.11 et A11.','« Modifiée par Léa · il y a 2 min » sur deux lignes ; le bandeau hors ligne passe sous le compteur, texte complet sans troncature.','Le dock garde sa place ; la liste défile dessous.']
+});
+st('s1','main','Liste partagée, propriétaire',L,p=>listScreen(p),{cap:'Pastilles des membres dans la barre du haut, « Modifiée par Léa », initiale « L » sur l’article qu’elle a modifié.'});
+st('s1','lists','Mes listes, badge « Partagée »',D,p=>listsScreen(p),{cap:'Badge et initiales des autres membres (pas les miennes).'});
+st('s1','empty','Vide',L,p=>listScreen(p,{count:'00',meta:'',body:`<div class="state-pg" style="position:static;margin-top:60px"><div class="glyph">${ic('people',30)}</div><div class="big">${t('empty.title')}</div><div class="p mu">${t('empty.body')}</div></div>`}),{cap:'Une liste partagée sans article rappelle qui la voit.'});
+st('s1','loading','Chargement après acceptation',D,p=>listScreen(p,{count:'··',meta:`<span style="display:inline-flex;gap:8px;align-items:center">${spin(p)}${t('loading')}</span>`,body:`<div class="skl" style="padding-left:36px"><div class="sk w40"></div><div class="sk w80"></div><div class="sk w60"></div><div class="sk w40"></div><div class="sk w80"></div><div class="sk w60"></div></div>`}),{cap:'Descente complète de la liste acceptée. Le dock est déjà utilisable : un article saisi part en file.'});
+st('s1','error','Erreur de téléchargement',L,p=>listScreen(p,{count:'··',meta:'',body:`<div class="state-pg" style="position:static;margin-top:50px"><div class="glyph">${ic('warn',30)}</div><div class="p">${t('load.error')}</div>${btn('pri',ic('resend',18)+t('retry'))}</div>`,bottom:''}),{cap:'Rien en local à montrer : on propose de réessayer.'});
+st('s1','offline','Hors ligne',D,p=>listScreen(p,{meta:t('offline.meta'),pre:ban('offline',t('offline'))}),{cap:'L’édition continue hors ligne. « Synchronisée il y a 12 min » remplace « Modifiée par… ».'});
+st('s1','conflict','Conflit : suppression gagnante',L,p=>listScreen(p,{over:toast(p,t('conflict.deleted'),t('conflict.readd'))}),{cap:'Un autre membre a supprimé « Comté » pendant que je changeais sa quantité : la suppression gagne, « Rajouter » recrée l’article (nouvel id). Les pierres tombales n’ont pas d’auteur (§3.1), d’où « un autre membre ».'});
+st('s1','downgrade','Accès abaissé pendant une modification',D,p=>listScreen(p,{role:'viewer',pre:ban('warn',t('downgrade'),t('ok'),'cau')}),{cap:'Les écritures refusées sont jetées, la liste est rechargée en lecture seule (§1.5). Sans écriture refusée : « Hadrien a passé votre accès en lecture seule. » seul.'});
+st('s1','removed','Membre retiré ou liste supprimée',L,p=>tb(p,{title:''})+`<div class="state-pg"><div class="glyph">${ic('leave',30)}</div><div class="big">${t('removed.title')}</div><div class="p mu">${t('removed.body')}</div>${btn('pri',t('removed.back'))}</div>`,{cap:'Écran affiché si la liste était ouverte. Sinon, message bref dans Mes listes.'});
+st('s1','removedlists','Retrait vu depuis Mes listes',D,p=>listsScreen(p,{rows:smallLists(),over:toast(p,t('removed.title'))}),{cap:'La ligne disparaît, le message reste 4 s.'});
+st('s1','ax','AX5 / police 200 %',L,p=>listScreen(p),{ax:true,cap:'Le titre se replie, la quantité et l’initiale passent sous le libellé.'});
+st('s1','ios18','Repli iOS 18 et couleur dynamique Android',D,p=>listScreen(p),{mat18:true,dyn:true,cap:'iOS 18 : barre et dock en <code>.regularMaterial</code> ; Android : seul l’accent suit le fond d’écran.'});
+
+/* 2. Partager la liste */
+sec('s2','2. Feuille « Partager la liste »',{
+ flow:['Liste → bouton des pastilles (ou « ajouter une personne » si la liste n’est pas encore partagée). Compte anonyme : écran 4 d’abord, retour ici ensuite.','La feuille s’ouvre sur le champ e-mail, clavier <code>emailAddress</code>, sans majuscule automatique. Accès « Peut modifier » sélectionné par défaut.','« Envoyer l’invitation » : appel à <code>send-invitation</code> (réseau exigé). En cas de succès, la feuille reste ouverte, le champ se vide et l’invitation apparaît en tête de « Invitations en attente » avec une capsule « Invitation envoyée à… ».','Si l’e-mail n’est pas parti (<code>sent = false</code>) : carte d’avertissement avec « Copier le lien » et « Partager… » (feuille de partage système).','Une invitation en attente : bouton ⋯ → Renvoyer, Copier le lien, Annuler l’invitation. Une invitation expirée montre « Renvoyer » directement. Le jeton est stocké haché (§3.3) : « Copier le lien » crée un nouveau jeton sans envoyer d’e-mail (« Nouveau lien copié… ») ; seule la carte d’e-mail non parti copie le lien qui vient d’être créé (« Lien copié… »). Point à trancher.','Un membre : toucher la ligne → écran 3.'],
+ keys:['share.title','share.email','share.email.ph','share.role','role.editor','role.editor.help','role.viewer','role.viewer.help','share.send','share.sending','share.note','share.members','share.pending','share.empty','pending.in7','pending.expired','pending.resend','pending.copy','pending.revoke','pending.more.a11y','err.invalid','err.self','err.member','err.capList','err.capDay','err.capTo','err.capLive','share.offline','share.error','sent.ok','sent.resent','mailfail.title','mailfail.body','mailfail.share','share.other.ios','share.members1','copied','copied.new','revoke.title','revoke.body','revoke.keep'],
+ targets:['Champ e-mail : 48 pt (iOS), 56 dp (Android).','Accès : segments de 44 pt de haut (iOS), boutons connectés de 48 dp (Android), chacun ≥ 120 pt de large.','« Envoyer l’invitation » : 50 pt / 56 dp, pleine largeur, dans la zone du pouce quand le clavier est fermé.','Lignes de membre et d’invitation : 56 pt / dp ; bouton ⋯ : 44 × 44 pt / 48 × 48 dp ; « Renvoyer » (pastille) : 36 pt de haut dans une zone tactile de 44 pt / 48 dp.','Fermer (✕) : 44 pt / 48 dp.'],
+ sr:[['Titre','« Partager la liste, Courses de la semaine, en-tête »','idem'],['Champ','« Adresse e-mail, champ de texte, prenom@exemple.fr »','« Adresse e-mail, Zone d’édition »'],['Accès','« Accès, Peut modifier, sélectionné, 1 sur 2. Ajoute, modifie et coche les articles. »','« Peut modifier, sélectionné, Accès, 1 sur 2 »'],['Erreur','Annoncée dès la validation, le focus revient sur le champ ; l’erreur est liée au champ (<code>accessibilityHint</code>).','<code>error()</code> sur le champ : « Erreur : … »'],['Membre','« Léa, peut modifier. Gérer, bouton » (propriétaire) ; « Léa, peut modifier » (membre)','idem'],['Invitation','« c.martin@exemple.fr, peut modifier, expire dans 7 jours » + actions personnalisées Renvoyer, Copier le lien, Annuler l’invitation','idem, actions dans le menu TalkBack'],['Envoi','« Envoi… » puis « Invitation envoyée à c.martin@exemple.fr »','région live polie']],
+ ax:['Le contrôle segmenté passe en deux lignes empilées (iOS AX1+, Android 160 % +).','Le texte d’aide de l’accès et la note de confidentialité passent sous le bouton.','Les lignes de membre empilent nom, rôle, puis le bouton ⋯ à gauche sous le nom.','La feuille iOS passe en détente <code>.large</code> d’office ; tout défile, le bouton « Envoyer » suit le contenu (il n’est pas ancré).']
+});
+const listBg=p=>listScreen(p);
+st('s2','empty','Vide : personne d’autre',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'empty'}),{bg:listBg(p)}),{cap:'Première ouverture : seulement le propriétaire.'});
+st('s2','full','Membres et invitations en attente',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)}),{cap:'Une invitation vivante (⋯) et une expirée (« Renvoyer »).'});
+st('s2','loading','Chargement des membres',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'loading'}),{bg:listBg(p)}),{cap:'<code>list_sharing</code> en cours ; le formulaire est déjà utilisable.'});
+st('s2','sending','Envoi en cours',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full',email:'c.martin@exemple.fr',sending:true}),{bg:listBg(p)}),{cap:'Bouton occupé, champ et accès verrouillés pendant l’appel.'});
+st('s2','sent','Invitation envoyée',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+toast(p,t('sent.ok')),{cap:'La feuille reste ouverte pour inviter quelqu’un d’autre.'});
+st('s2','invalid','Erreur : adresse invalide',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full',email:'lea@exemple',err:t('err.invalid'),dis:true}),{bg:listBg(p)}),{cap:'Contrôle local avant tout appel. Même présentation pour « C’est votre propre adresse. »'});
+st('s2','member','Erreur : déjà membre',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full',email:'lea@exemple.fr',err:t('err.member')}),{bg:listBg(p)}),{cap:'Réponse du serveur ; le champ garde l’adresse.'});
+st('s2','cap','Erreur : plafonds',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full',email:'zoe@exemple.fr',err:t('err.capList')}),{bg:listBg(p)}),{cap:'Les quatre plafonds (10 participants, 20 par jour, 3 par destinataire, 50 vivantes) ont chacun leur texte, sans rien envoyer.'});
+st('s2','mailfail','Invitation créée, e-mail non parti',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full',mailfail:true}),{bg:listBg(p)}),{cap:'<code>sent = false</code> : l’invitation existe, on donne le lien.'});
+st('s2','menu','Actions d’une invitation en attente',D,p=>{
+  const items=[[ic('resend',20),t('pending.resend')],[ic('copy',20),t('pending.copy')]];
+  if(isI(p)) return sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+`<div class="menu" style="right:20px;top:330px"><div class="h">c.martin@exemple.fr</div>${items.map(([i,l])=>`<div>${i}${l}</div>`).join('')}<hr><div class="d">${ic('close',20)}${t('pending.revoke')}</div></div>`;
+  return sheet(p,t('share.title'),shareBody(p,{state:'full'}),{})+bsheet(p,`<div class="p mu" style="margin:0 0 6px">c.martin@exemple.fr · ${t('role.editor')}</div>${items.map(([i,l])=>`<div class="opt">${i}${l}</div>`).join('')}<div class="opt d">${ic('close',20)}${t('pending.revoke')}</div>`);
+},{cap:'iOS : menu en verre ancré sur ⋯. Android : bottom sheet. « Annuler l’invitation » demande confirmation.'});
+st('s2','revoke','Confirmation : annuler l’invitation',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+alertBox(p,t('revoke.title'),t('revoke.body'),[[t('revoke.keep'),'cancel'],[t('pending.revoke'),'dan']]),{cap:'Bouton par défaut : « Garder ».'});
+st('s2','offline','Hors ligne',D,p=>sheet(p,t('share.title'),`<div class="state-pg" style="position:static;margin-top:70px"><div class="glyph">${ic('offline',30)}</div><div class="big">${t('share.offline')}</div><div class="p mu">${t('offline.meta')}</div>${btn('pri',t('retry'))}</div>`,{bg:listBg(p)}),{cap:'Rien n’est mis en file. La feuille se remplit seule au retour du réseau.'});
+st('s2','error','Erreur serveur',L,p=>sheet(p,t('share.title'),`<div class="state-pg" style="position:static;margin-top:70px"><div class="glyph">${ic('warn',30)}</div><div class="p">${t('share.error')}</div>${btn('pri',t('retry'))}</div>`,{bg:listBg(p)}),{cap:'<code>list_sharing</code> ou la fonction a échoué (5xx, délai).'});
+st('s2','ios18','Repli iOS 18 et couleur dynamique Android',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+toast(p,t('copied.new')),{mat18:true,dyn:true,cap:'iOS 18 : feuille et capsule sans verre (papier opaque, filet). Android : accent dynamique.'});
+st('s2','ax','AX5 / police 200 %',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)}),{ax:true,cap:'Accès empilé, tout défile, bouton non ancré.'});
+
+/* 3. Membres */
+sec('s3','3. Gérer un membre, quitter la liste',{
+ flow:['Propriétaire : feuille Partager → toucher « Léa » → menu (iOS) ou bottom sheet (Android) : Peut modifier, Lecture seule, Retirer de la liste.','Changer l’accès : effet immédiat, la ligne affiche un indicateur pendant l’appel, puis la capsule « Léa passe en lecture seule. ». Chez Léa : bannière de l’écran 1 (accès abaissé) ou capsule « Hadrien vous a donné l’accès en modification. ».','Retirer : confirmation destructive, puis la ligne disparaît. Chez Léa : écran « n’est plus partagée avec vous ».','Membre : le même bouton ouvre la feuille « Membres » (lecture), avec « Quitter la liste » en bas. Aussi dans le menu ⋮ / appui long de la ligne dans Mes listes.','Propriétaire qui supprime une liste partagée (Mes listes, ⋮ / appui long → Supprimer) : la confirmation nomme les membres.'],
+ keys:['member.since','role.editor','role.viewer','member.remove','member.a11y','remove.title','remove.body','remove.btn','cancel','role.changed','members.title','members.note','leave','leave.title','leave.body','leave.btn','delete.title','delete.body','delete.btn','member.offline','ro.upgrade'],
+ targets:['Options du menu : 44 pt (iOS) ; options de la bottom sheet : 56 dp avec radio (Android).','« Quitter la liste » : bouton texte destructif 44 pt / 48 dp, en bas, séparé des membres par 24 pt.','Boutons des alertes : 44 pt / 48 dp ; « Annuler » est le bouton par défaut (Échap, double tape sur le fond).'],
+ sr:[['Menu d’un membre','En-tête « Léa, membre depuis le 12 novembre » ; « Peut modifier, sélectionné » ; « Retirer de la liste, bouton »','Bottom sheet : « Léa » ; radio « Peut modifier, cochée » ; « Retirer de la liste, Bouton »'],['Accès changé','Annonce « Léa passe en lecture seule. »','région live polie'],['Feuille Membres (membre)','Ordre : titre, Hadrien propriétaire, Léa (vous), Tom, note, « Quitter la liste »','idem'],['Confirmation','Focus sur le titre de l’alerte, puis le texte, puis « Annuler »','idem']],
+ ax:['Menu iOS : options sur deux lignes, sans icône à AX3+ (comportement système).','Bottom sheet Android : passe en plein écran au-delà de 160 %.','Alertes : boutons empilés, le texte défile.']
+});
+st('s3','menu','Menu d’un membre (propriétaire)',L,p=>{
+  if(isI(p)) return sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+`<div class="menu" style="right:20px;top:420px"><div class="h">Léa · ${t('member.since')}</div><div>${ic('check',20)}${t('role.editor')}</div><div><span style="width:20px"></span>${t('role.viewer')}</div><hr><div class="d">${ic('leave',20)}${t('member.remove')}</div></div>`;
+  return sheet(p,t('share.title'),shareBody(p,{state:'full'}),{})+bsheet(p,`<div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">${av('L','l')}<div><b style="font:700 15px var(--mono)">Léa</b><div class="p mu" style="margin:0;font-size:12.5px">${t('member.since')}</div></div></div><div class="opt"><span class="rad on"></span><span>${t('role.editor')}<small>${t('role.editor.help')}</small></span></div><div class="opt"><span class="rad"></span><span>${t('role.viewer')}<small>${t('role.viewer.help')}</small></span></div><div class="opt d">${ic('leave',20)}${t('member.remove')}</div>`);
+},{cap:'L’accès actuel est coché ; « Retirer » est séparé et rouge.'});
+st('s3','pending','Accès en cours de changement, puis confirmé',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}).replace(`<small>${t('role.editor')}</small></div><span class="tr">`,`<small>${t('role.viewer')}</small></div><span class="tr">${spin(p)}</span><span class="tr" style="display:none">`),{bg:listBg(p)})+toast(p,t('role.changed')),{cap:'Indicateur sur la ligne pendant <code>set_member_role</code>, puis capsule.'});
+st('s3','remove','Confirmation : retirer un membre',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+alertBox(p,t('remove.title'),t('remove.body'),[[t('cancel'),'cancel'],[t('remove.btn'),'dan']]),{cap:'Le texte dit ce que Léa perd et que c’est réversible.'});
+st('s3','members','Feuille « Membres » (membre)',D,p=>sheet(p,t('members.title'),`<div class="p mu" style="font-family:var(--mono);font-size:12px">« ${t('list.title')} »</div>`+membersList(p,false)+`<div class="msg" style="margin-top:10px">${ic('info',14)}<span>${t('members.note')}</span></div><div style="height:24px"></div>`+btn('dtxt',ic('leave',20)+t('leave')),{bg:listBg(p)}),{cap:'Lecture seule pour un membre, quel que soit son accès.'});
+st('s3','leave','Confirmation : quitter la liste',L,p=>sheet(p,t('members.title'),membersList(p,false),{bg:listBg(p)})+alertBox(p,t('leave.title'),t('leave.body'),[[t('cancel'),'cancel'],[t('leave.btn'),'dan']]),{cap:'Puis purge locale et retour à Mes listes.'});
+st('s3','delete','Confirmation : supprimer une liste partagée',D,p=>listsScreen(p)+alertBox(p,t('delete.title'),t('delete.body'),[[t('cancel'),'cancel'],[t('delete.btn'),'dan']]),{cap:'Le nombre et les prénoms des membres sont dans le texte (« Léa et Tom », « Léa, Tom et 2 autres »).'});
+st('s3','upgrade','Côté membre : accès remonté',L,p=>listScreen(p,{over:toast(p,t('ro.upgrade'))}),{cap:'Le dock et les cases réapparaissent en fondu.'});
+st('s3','offline','Hors ligne',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+toast(p,t('member.offline')),{cap:'Le menu s’ouvre, mais l’action échoue tout de suite avec ce message ; rien n’est mis en file.'});
+st('s3','ios18','Repli iOS 18',D,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+`<div class="menu" style="right:20px;top:420px"><div class="h">Léa · ${t('member.since')}</div><div>${ic('check',20)}${t('role.editor')}</div><div><span style="width:20px"></span>${t('role.viewer')}</div><hr><div class="d">${ic('leave',20)}${t('member.remove')}</div></div>`,{mat18:true,cap:'Menu système iOS 18 (matériau classique). Android : inchangé.'});
+st('s3','ax','AX5 / police 200 %',L,p=>sheet(p,t('share.title'),shareBody(p,{state:'full'}),{bg:listBg(p)})+alertBox(p,t('remove.title'),t('remove.body'),[[t('cancel'),'cancel'],[t('remove.btn'),'dan']]),{ax:true,cap:'Boutons empilés.'});
+
+/* 4. Compte */
+sec('s4','4. Lier une adresse, se connecter',{
+ flow:['Trois entrées : « Partager » sur un compte anonyme (titre « Pour partager, liez une adresse e-mail ») ; « Se connecter » dans Mes listes ; un lien d’invitation ouvert sur un compte anonyme (bandeau « Vous avez ouvert une invitation… » : avant la connexion, l’app ne sait rien de l’invitation).','Adresse → « Recevoir un code ». Anonyme : <code>updateUser({ email })</code> ; adresse déjà prise : bascule silencieuse sur <code>signInWithOtp</code>, même écran.','Code à 6 chiffres : un seul champ <code>oneTimeCode</code> (iOS propose le code de Mail) affiché en 6 cases, collage accepté, validation automatique au 6ᵉ chiffre. « Renvoyer le code » s’active après 60 s.','Nouveau compte sans prénom : écran « Votre prénom ». Compte existant : « Rapprochement de vos listes… » puis « Bon retour, Léa ! ».','Fin : retour à l’écran d’origine (feuille Partager, carte d’invitation ou Mes listes) avec la capsule « Adresse liée… » pour le premier cas.','À propos → Compte : adresse, prénom (modifiable), Se déconnecter, Supprimer mes données. Pour un propriétaire de listes partagées, l’alerte de #68 dit à qui chaque liste est confiée (Q6). Session perdue : bandeau « Reconnectez-vous pour synchroniser » ; « Continuer sans compte » et « Changer de compte » passent par une confirmation.'],
+ keys:['link.title','link.body','link.cta','signin.title','signin.body','signin.invite','share.email','code.title','code.sentTo','code.expiry','code.a11y','code.resendIn','code.resend','code.ready','code.change','code.wrong','code.expired','code.tooMany','code.verifying','code.rate','code.offline','name.title','name.body','name.label','name.err','continue','merge','welcome.title','welcome.body','welcome.cta','linked','account.title','account.email','account.name','account.note','signout','signout.title','signout.body','deleteData','delete.data.title','delete.data.shared','delete.data.alone','delete.data.btn','session.lost','session.cta','session.anon','anon.title','anon.body','anon.btn','switch.title','switch.body','switch.btn'],
+ targets:['Champs : 48 pt / 56 dp. Cases du code : 38 × 52 pt, mais le champ entier (≥ 52 pt de haut, pleine largeur) est une seule cible.','« Recevoir un code », « Continuer » : 50 pt / 56 dp. « Renvoyer le code », « Changer d’adresse » : 44 pt / 48 dp.','Écran Compte : lignes de 56 pt / dp.'],
+ sr:[['Code','Un seul élément : « Code à 6 chiffres, champ de texte, 3 chiffres saisis sur 6 » (les cases sont décoratives)','« Code à 6 chiffres, Zone d’édition, 481 »'],['Compte à rebours','« Renvoyer le code dans 60 secondes, estompé » ; annonce « Vous pouvez renvoyer le code » à 0','idem'],['Adresse','« Envoyé à hadrien@exemple.fr. Il expire dans 15 minutes. » (un seul élément)','idem'],['Erreur de code','Annonce immédiate ; le champ se vide et garde le focus','<code>error()</code> + région live'],['Vérification','« Vérification… » (annonce)','idem'],['Bon retour','Focus sur le titre, puis le texte, puis « Voir mes listes »','idem']],
+ ax:['Le code passe en cases plus étroites et plus hautes (30 × 60 pt) sur une ligne ; à AX5 les chiffres tiennent, sans séparateur.','Les titres passent sur trois lignes ; le bouton principal suit le contenu.','Écran Compte : l’adresse passe sous son libellé, coupée n’importe où (<code>overflow-wrap: anywhere</code>).']
+});
+const backTb=p=>tb(p,{left:isI(p)?gb(ic('close',18),'Fermer'):ib('close','Fermer')});
+st('s4','gate','Partager sur un compte anonyme',L,p=>backTb(p)+wrap(p,signForm(p,{email:'hadrien@exemple.fr'})),{cap:'L’adresse est saisie ; le bouton s’active quand elle a une forme valide.'});
+st('s4','gateerr','Erreur : trop de codes demandés',D,p=>backTb(p)+wrap(p,signForm(p,{email:'hadrien@exemple.fr',err:t('code.rate'),errIcon:'clock'})),{cap:'Même place pour « Il faut du réseau pour recevoir un code. » et « Cette adresse ne semble pas valide. ».'});
+st('s4','signin','Se connecter, depuis un lien d’invitation',L,p=>backTb(p)+wrap(p,signForm(p,{title:t('signin.title'),body:t('signin.body'),ctx:t('signin.invite')})),{cap:'Le jeton reste en mémoire pendant la connexion. Aucune donnée de l’invitation n’est lisible avant (les RPC refusent les anonymes).'});
+st('s4','code','Code',D,p=>tb(p,{})+wrap(p,codeForm(p)),{cap:'« Renvoyer le code » est estompé pendant 60 s.'});
+st('s4','codeerr','Code faux',L,p=>tb(p,{})+wrap(p,codeForm(p,{digits:['','','','','',''],err:t('code.wrong'),resendOn:true})),{cap:'Le champ se vide. Après 5 essais : « Trop d’essais… ».'});
+st('s4','expired','Code expiré',D,p=>tb(p,{})+wrap(p,codeForm(p,{digits:['','','','','',''],err:t('code.expired'),resendOn:true})),{cap:'15 min dépassées : « Renvoyer le code » est mis en avant.'});
+st('s4','verify','Vérification',L,p=>tb(p,{})+wrap(p,codeForm(p,{digits:['4','8','1','2','7','3'],verifying:true})),{cap:'Validation automatique au 6ᵉ chiffre.'});
+st('s4','name','Prénom (nouveau compte)',D,p=>tb(p,{back:false})+wrap(p,`<div class="big" style="font-size:calc(var(--k)*22px)">${t('name.title')}</div><div class="p">${t('name.body')}</div>${fld(p,t('name.label'),'Hadrien',{focus:true})}<div style="height:12px"></div>${btn('pri',t('continue'))}`),{cap:'Seulement si le compte n’a pas de profil. Prérempli s’il a été saisi ailleurs.'});
+st('s4','merge','Rapprochement des listes',L,p=>tb(p,{back:false})+`<div class="state-pg">${spin(p)}<div class="big" style="margin-top:16px">${t('merge')}</div></div>`,{cap:'<code>AccountRekey</code> : quelques secondes au plus.'});
+st('s4','welcome','Bon retour',D,p=>tb(p,{back:false})+`<div class="state-pg"><div class="glyph" style="border-style:solid;border-color:var(--accent);color:var(--accent)">${ic('check',30,2)}</div><div class="big">${t('welcome.title')}</div><div class="p mu">${t('welcome.body')}</div>${btn('pri',t('welcome.cta'))}</div>`,{cap:'Sans liste à rapprocher : « Bon retour, Léa ! » seul.'});
+st('s4','listsanon','Mes listes, compte anonyme',L,p=>listsScreen(p,{anon:true,rows:[{n:'Courses',s:t('lists.noItem')}],after:`<div class="state-pg" style="position:static;margin-top:40px"><div class="glyph">${ic('mail',30)}</div><div class="p">${t('inv.anonEmpty')}</div>${btn('sec',t('signin.title'))}</div>`}),{cap:'Premier lancement après l’installation via une invitation : la liste « Courses » créée d’office est là, l’invitation se propose dessous tant que le compte est anonyme.'});
+st('s4','account','Compte',D,p=>tb(p,{title:t('account.title')})+wrap(p,`<div class="rw"><div class="tx"><small>${t('account.email')}</small><b>hadrien@exemple.fr</b></div></div><div class="rw"><div class="tx"><small>${t('account.name')}</small><b>Hadrien</b></div><span class="tr">${ic('edit',18)}</span></div><div class="msg">${ic('lock',14)}<span>${t('account.note')}</span></div><div style="height:20px"></div>${btn('sec',ic('logout',18)+t('signout'))}${btn('dtxt',t('deleteData'))}`),{cap:'Dans À propos.'});
+st('s4','signout','Confirmation : se déconnecter',L,p=>tb(p,{title:t('account.title')})+wrap(p,`<div class="rw"><div class="tx"><small>${t('account.email')}</small><b>hadrien@exemple.fr</b></div></div>`)+alertBox(p,t('signout.title'),t('signout.body'),[[t('cancel'),'cancel'],[t('signout'),'dan']]),{cap:'Puis purge locale et nouveau compte anonyme vide.'});
+st('s4','deletedata','Supprimer mes données, propriétaire de listes partagées (Q6)',L,p=>tb(p,{title:t('account.title')})+wrap(p,`<div class="rw"><div class="tx"><small>${t('account.email')}</small><b>hadrien@exemple.fr</b></div></div>`)+alertBox(p,t('delete.data.title'),t('delete.data.shared'),[[t('cancel'),'cancel'],[t('delete.data.btn'),'dan']]),{cap:'Alerte existante de #68, texte adapté : une phrase par liste partagée (« … confiée à Léa », « … à Tom »). Liste sans autre membre : supprimée, texte « delete.data.alone ».'});
+st('s4','anon','Confirmation : continuer sans compte',D,p=>listsScreen(p)+alertBox(p,t('anon.title'),t('anon.body'),[[t('cancel'),'cancel'],[t('anon.btn'),'dan']]),{cap:'Règle 1 du §2.3 : les listes d’autrui quittent l’appareil. « Changer de compte » (écran 5) a sa propre alerte, même forme.'});
+st('s4','session','Session perdue',D,p=>listsScreen(p,{top:`<div class="ban cau" style="flex-wrap:wrap">${ic('key',18)}<span style="flex:1">${t('session.lost')}</span><div class="btns" style="width:100%">${btn('pri',t('session.cta'))}</div><span class="act" style="margin:0 auto">${t('session.anon')}</span></div>`}),{cap:'Compte e-mail dont la session a disparu : plus de compte anonyme recréé en silence.'});
+st('s4','ax','AX5 / police 200 %',L,p=>tb(p,{})+wrap(p,codeForm(p)),{ax:true,cap:'Cases étroites et hautes, sur une ligne.'});
+
+/* 5. Invitation reçue */
+sec('s5','5. Invitation reçue',{
+ flow:['Après la connexion (ou à chaque ouverture de Mes listes), <code>my_invitations()</code>. Une invitation : carte en tête de Mes listes. Plusieurs : ligne « Invitations (2) » qui ouvre leur liste.','Lien ouvert dans l’app : feuille avec la même carte. Compte anonyme : écran 4 d’abord.','Accepter → « Ouverture de la liste… » → la liste s’ouvre (écran 1, état chargement).','Refuser → confirmation → la carte disparaît.','Lien seulement : invitation expirée, révoquée, déjà utilisée ou pour une autre adresse. Ces états, et la carte ouverte par un lien, supposent une RPC d’aperçu par jeton (<code>preview_invitation(p_token)</code>, absente du §3.3) ; sans elle, l’app ne montre que « Cette invitation n’est plus valable… » ou passe directement par <code>accept_invitation</code>. Point à trancher.'],
+ keys:['inv.sheet','inv.entry','inv.entry2','inv.card','inv.card.other','inv.invalid','inv.meta','inv.accept','inv.decline','inv.accepting','inv.expired','inv.used','inv.other.title','inv.other.body','inv.other.accept','inv.other.switch','inv.member','inv.offline','inv.decline.title','inv.decline.body','inv.none','inv.none.body','inv.close','inv.anonEmpty','inv.error'],
+ targets:['« Accepter » et « Refuser » : 50 pt / 56 dp, côte à côte, « Accepter » à droite (pouce).','Ligne « Invitations (2) » : 56 pt / dp.','Fermer : 44 pt / 48 dp.'],
+ sr:[['Carte','Un seul élément de lecture : « Invitation. Hadrien vous invite à Courses de la semaine. Peut modifier, expire le 21 novembre. » puis les deux boutons','idem, la carte est un groupe (<code>semantics(mergeDescendants)</code>) sauf les boutons'],['Acceptation','Annonce « Ouverture de la liste… » puis focus sur le titre de la liste','idem'],['Autre adresse','Titre lu comme en-tête ; l’adresse masquée est lue « c, points, arobase exemple point fr »','idem'],['Expirée','Focus sur le texte, puis « Fermer »','idem']],
+ ax:['La carte empile ses boutons, « Accepter » en premier. Le bouton « Nouvelle liste » se réduit à son icône (libellé conservé pour TalkBack) et la liste garde une marge basse de 88 dp pour qu’il ne couvre jamais le dernier bouton.','« expire le 21 nov. » passe sur sa propre ligne ; la date s’écrit en entier (« 21 novembre ») à partir de AX1 / 130 %.']
+});
+// Feuille d'invitation : moyenne sur iOS, bottom sheet sur Android
+const invSheet=(p,body,o={})=>isI(p)?sheet(p,t('inv.sheet'),body,{bg:o.bg,med:o.med}):bsheet(p,body,o.bg);
+const invCard=(p,o={})=>`<div class="inv" role="group"><div class="lbl" style="margin:0 0 8px">${o.label||t('inv.entry')}</div><div class="ih">${av('H','l')}<div><b>${t('inv.card')}</b><div class="meta">${t('inv.meta')}</div></div></div>${o.loading?btn('pri',t('inv.accepting'),spin(p)):`<div class="btns">${btn('sec',t('inv.decline'))}${btn('pri',t('inv.accept'))}</div>`}</div>`;
+st('s5','entry','Carte dans Mes listes',L,p=>listsScreen(p,{top:invCard(p),rows:smallLists()}),{cap:'Tant que l’invitation est valide.'});
+st('s5','many','Plusieurs invitations',D,p=>listsScreen(p,{top:`<div class="rw" style="border:1.5px solid var(--accent);border-radius:14px;padding:6px 12px;margin:6px 0 12px">${ic('mail',22)}<div class="tx"><b>${t('inv.entry2')}</b><small>Hadrien, Camille</small></div>${ic('chev',18)}</div>`,rows:smallLists()}),{cap:'La ligne ouvre un écran avec une carte par invitation.'});
+st('s5','link','Lien ouvert dans l’app',L,p=>invSheet(p,`<div style="height:20px"></div>${invCard(p,{label:t('inv.sheet')})}`,{bg:listsScreen(p,{rows:smallLists()}),med:true}),{cap:'Feuille à détente moyenne (iOS), bottom sheet (Android). Données lues par la RPC d’aperçu (point à trancher).'});
+st('s5','accepting','Acceptation en cours',D,p=>bsheet(p,invCard(p,{label:t('inv.sheet'),loading:true}),listsScreen(p,{rows:smallLists()})),{cap:'Les deux boutons laissent place à l’indicateur.'});
+st('s5','expired','Invitation expirée ou révoquée',L,p=>invSheet(p,`<div class="state-pg" style="position:static;margin-top:30px"><div class="glyph">${ic('clock',30)}</div><div class="p">${t('inv.expired')}</div>${btn('sec',t('inv.close'))}</div>`,{bg:listsScreen(p,{rows:smallLists()}),med:true}),{cap:'Même texte pour une invitation révoquée (on ne dit pas qu’elle a été annulée). Sans RPC d’aperçu (pas de prénom connu) : « inv.invalid ».'});
+st('s5','used','Déjà utilisée par un autre compte',D,p=>invSheet(p,`<div class="state-pg" style="position:static;margin-top:30px"><div class="glyph">${ic('lock',30)}</div><div class="p">${t('inv.used')}</div>${btn('sec',t('inv.close'))}</div>`,{bg:listsScreen(p,{rows:smallLists()}),med:true}),{cap:'Déjà acceptée par moi : pas d’écran, la liste s’ouvre.'});
+st('s5','other','Autre adresse : avertissement',L,p=>invSheet(p,`<div style="height:6px"></div><div class="ban cau" style="display:block"><div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">${ic('warn',18)}<b>${t('inv.other.title')}</b></div>${t('inv.other.body')}</div><div class="inv" style="border-color:var(--idle)"><div class="ih">${av('H','l')}<div><b>${t('inv.card.other')}</b><div class="meta">${t('inv.meta')}</div></div></div></div><div class="btns v">${btn('pri',t('inv.other.accept'))}${btn('txt',t('inv.other.switch'))}</div>`,{bg:listsScreen(p,{rows:smallLists()})}),{cap:'Lien transféré ou adresse pro / perso (Q4). Le nom de la liste n’est pas montré tant que l’adresse diffère (comme dans l’e-mail, §3.5). « Changer de compte » demande confirmation (texte « switch.* »).'});
+st('s5','member','Déjà membre',D,p=>listScreen(p,{over:toast(p,t('inv.member'))}),{cap:'Acceptation idempotente : la liste s’ouvre.'});
+st('s5','offline','Hors ligne',L,p=>bsheet(p,invCard(p,{label:t('inv.sheet')})+ban('offline',t('inv.offline')),listsScreen(p,{rows:smallLists()})),{cap:'L’invitation reste dans Mes listes.'});
+st('s5','decline','Confirmation : refuser',D,p=>listsScreen(p,{top:invCard(p),rows:smallLists()})+alertBox(p,t('inv.decline.title'),t('inv.decline.body'),[[t('cancel'),'cancel'],[t('inv.decline'),'dan']]),{cap:'Le refus est définitif côté serveur.'});
+st('s5','none','Aucune invitation pour cette adresse',L,p=>listsScreen(p,{top:ban('info',`<b>${t('inv.none')}</b><br>${t('inv.none.body')}`),rows:smallLists()}),{cap:'Après une connexion lancée depuis l’écran vide « Vous avez reçu une invitation ? ».'});
+st('s5','error','Erreur à l’acceptation',D,p=>bsheet(p,invCard(p,{label:t('inv.sheet')})+ban('warn',t('inv.error')),listsScreen(p,{rows:smallLists()})),{cap:'Erreur réseau ou serveur ; les boutons restent actifs.'});
+st('s5','ax','AX5 / police 200 %',L,p=>listsScreen(p,{top:invCard(p),rows:smallLists()}),{ax:true,cap:'Boutons empilés, « Accepter » en premier.'});
+
+/* 6. Mode courses à deux */
+sec('s6','6. Mode courses à deux',{
+ flow:['Hadrien et Léa lancent chacun le mode courses sur la même liste. Chacun a sa visite et ses coches ; les coches de la liste sont partagées.','Bandeau « Léa fait aussi les courses » sous le magasin (option Presence, canal <code>list:&lt;id&gt;</code>). Sans Presence : « Modifiée par Léa · il y a 30 s » sous « RESTE ».','Léa coche « Lait entier » : chez Hadrien, la case se remplit, l’initiale « L » apparaît, puis la ligne glisse vers « Dans le panier » 600 ms après, sans haptique. « RESTE » passe à 05. Le fil n’avance pas : il suit la visite d’Hadrien.','« Annuler » n’annule que ma dernière coche. Dans le panier, les articles pris par un autre membre portent son initiale.','Léa décoche un article : il revient à sa place avec « retour, par Léa » pendant 3 s.'],
+ keys:['shop.presence','shop.osm','shop.left','shop.basket','shop.by.a11y','shop.join.announce','shop.announce','shop.announce.many','shop.updated','shop.unchecked','shop.unchecked.announce','shop.offline','shop.removed.title','shop.removed.body','shop.finish'],
+ targets:['Inchangées : lignes de 44 pt / 48 dp, « Terminer » 48 pt / 56 dp, « Dans le panier » 48 pt.','Le bandeau de présence n’est pas tactile.'],
+ sr:[['Présence','Annonce « Léa a rejoint les courses. » à l’arrivée ; le bandeau est lu après le magasin','idem'],['Coche d’un autre membre','Annonce polie « Léa a pris Lait entier. 5 restants. », regroupée si plusieurs en 2 s (« Léa a pris 3 articles. 2 restants. »)','idem'],['Ligne du panier','« Lait entier, 2, dans le panier, par Léa »','idem'],['Décoche d’un autre membre','« Léa a remis Pâtes dans la liste. »','idem'],['Accès retiré','Focus sur le titre de la feuille','idem']],
+ ax:['Le bandeau de présence passe sous le compteur, sur deux lignes.','Mêmes règles que le mode courses actuel : pointillés masqués, quantité et initiale sous le libellé.']
+});
+st('s6','main','Coche de Léa, en boucle',L,p=>shopScreen(p,{prog:62}),{cap:'La case se remplit, « L » apparaît, la ligne rejoint le panier. Mouvement réduit : fondu de 150 ms, pas de glissement.'});
+st('s6','basket','Après la coche de Léa',D,p=>shopScreen(p,{groups:[{n:'Crèmerie, œufs',cat:'dairy',c:'--a2',it:[['Beurre doux','1',{next:1}],['Yaourts','4']]},{n:'Épicerie salée',cat:'savory-grocery',c:'--a3',it:[['Pâtes','1']]}],prog:62,who:['L','H']}),{cap:'Le panier compte toutes les coches de la liste ; les initiales disent qui a pris quoi.'});
+st('s6','nopres','Sans Presence',L,p=>shopScreen(p,{pres:false,meta:t('shop.updated'),prog:62}),{cap:'Repli si l’option Presence n’est pas livrée.'});
+st('s6','uncheck','Article remis par Léa',D,p=>shopScreen(p,{groups:[{n:'Crèmerie, œufs',cat:'dairy',c:'--a2',it:[['Beurre doux','1',{next:1}],['Yaourts','4']]},{n:'Épicerie salée',cat:'savory-grocery',c:'--a3',it:[['Pâtes','1',{who:'L',tag:t('shop.unchecked')}]]}],prog:62,left:'06'}),{cap:'Coche contre décoche : le dernier arrivé gagne, et on le montre.'});
+st('s6','offline','Hors ligne',L,p=>shopScreen(p,{pres:false,pre:ban('offline',t('shop.offline')),prog:62}),{cap:'Mes coches restent locales et partent au retour du réseau.'});
+st('s6','removed','Accès retiré pendant les courses',D,p=>shopScreen(p,{prog:62})+(isI(p)?scrim+`<div class="sh med" style="padding-bottom:20px"><div class="grab"></div><div style="text-align:center;padding:16px 4px 0"><div class="glyph" style="width:56px;height:56px;border-radius:50%;border:2px dashed var(--muted);display:grid;place-items:center;margin:0 auto 12px;color:var(--muted)">${ic('leave',26)}</div><div class="big" style="font-size:20px">${t('shop.removed.title')}</div><div class="p mu">${t('shop.removed.body')}</div>${btn('pri',t('shop.finish'))}</div></div>`:bsheet(p,`<div style="text-align:center"><div class="big" style="font-size:20px">${t('shop.removed.title')}</div><div class="p mu">${t('shop.removed.body')}</div>${btn('pri',t('shop.finish'))}</div>`)),{cap:'Feuille non fermable par glissement ; « Terminer » clôt la visite avec ses coches et mène au résumé.'});
+st('s6','ax','AX5 / police 200 %',L,p=>shopScreen(p,{prog:0}),{ax:true,cap:'Bandeau sur deux lignes, quantité et initiale sous le libellé.'});
+
+/* 7. Lecteur */
+sec('s7','7. Lecteur',{
+ flow:['Mes listes : badge « LECTURE SEULE » à la place de « PARTAGÉE ».','La liste s’ouvre sans dock de saisie, sans bouton Courses ni corbeille : à la place, une note « Lecture seule. Demandez à Hadrien l’accès en modification. ».','Pas de cases : un article coché est barré, avec une coche ✓ ; un article à prendre n’a pas de marque. Le fil est tracé, jamais parcouru.','Toucher un article : capsule « Lecture seule : cette liste ne se modifie pas ici. » (une fois par ouverture).','Le bouton des membres ouvre la feuille « Membres » (écran 3) avec « Quitter la liste ».'],
+ keys:['ro.badge','ro.notice','ro.tap','ro.upgrade','ro.title.a11y'],
+ targets:['La note du bas n’est pas un bouton (pas de bouton désactivé) ; 56 pt de haut.','Bouton des membres : 44 pt / 48 dp.'],
+ sr:[['Titre','« Courses de la semaine, lecture seule, partagée par Hadrien »','idem'],['Article','« Lait entier, 2 » ; coché : « Comté, 200 g, dans le panier » (pas de « case à cocher »)','idem, sans rôle <code>Checkbox</code>'],['Note du bas','Texte statique, lu en dernier','idem']],
+ ax:['La note du bas passe sur trois ou quatre lignes, la liste défile au-dessus.','Badge « LECTURE SEULE » sur sa propre ligne.']
+});
+const roGroups=()=>[{n:'Fruits et légumes',cat:'produce',c:'--a1',it:[['Tomates','6'],['Basilic','1']]},{n:'Crèmerie, œufs',cat:'dairy',c:'--a2',it:[['Lait entier','2'],['Beurre doux','1',{who:'L'}],['Comté','200 g',{done:1}]]},{n:'Épicerie salée',cat:'savory-grocery',c:'--a3',it:[['Pâtes','1']]}];
+st('s7','main','Liste en lecture seule',L,p=>listScreen(p,{role:'viewer',groups:roGroups()}),{cap:'Pas de dock, pas de mode courses.'});
+st('s7','lists','Mes listes, badge « Lecture seule »',D,p=>listsScreen(p,{rows:[{n:'Courses de la semaine',s:t('lists.row.sub'),b:'ro',m:['H','T']},{n:'Apéro samedi',s:t('lists.allChecked')}]}),{cap:'Les initiales sont celles des autres membres.'});
+st('s7','tap','Toucher un article',L,p=>listScreen(p,{role:'viewer',groups:roGroups(),over:toast(p,t('ro.tap')).replace('bottom:94px','bottom:100px')}),{cap:'Retour discret, pas d’erreur.'});
+st('s7','ax','AX5 / police 200 %',D,p=>listScreen(p,{role:'viewer',groups:roGroups()}),{ax:true,cap:'La note du bas grandit, la liste défile dessous.'});
+
+/* 8. E-mail et page /i/ */
+sec('s8','8. E-mail d’invitation et page web /i/',{
+ flow:['L’e-mail part de <code>send-invitation</code> (Resend), expéditeur <code>Parcourses &lt;invitations@mail.&lt;domaine&gt;&gt;</code>. Pas de nom de liste, pas de suivi de clic, pas d’image distante.','« Ouvrir l’invitation » : lien universel <code>https://&lt;domaine&gt;/i/#&lt;jeton&gt;</code>. App installée : l’app s’ouvre (écran 5). Sinon : la page /i/.','Page /i/ statique, sans appel réseau : trois étapes, boutons des stores, « Déjà installée ? Ouvrir dans l’app » (schéma <code>parcourses://invitation#&lt;jeton&gt;</code>).','Jeton absent du fragment : message « Ce lien est incomplet… ».'],
+ keys:['web.title','web.s1','web.s2','web.s3','web.open','web.broken','web.foot'],
+ targets:['E-mail : bouton de 48 px de haut, lien écrit en clair dessous.','Page : boutons des stores et « Ouvrir dans l’app » de 48 px, pleine largeur.'],
+ sr:[['E-mail','Titre de niveau 1 « Hadrien vous invite à partager une liste de courses », bouton-lien explicite, tables de mise en page en <code>role="presentation"</code>','idem'],['Page','<code>lang="fr"</code>, titres h1/h2, étapes en liste ordonnée, les boutons des stores ont un libellé texte','idem']],
+ ax:['E-mail : largeur fluide (max 480 px), texte en px relatifs au zoom du client, aucun texte dans une image.','Page : tient à 200 % de zoom et à 320 px de large sans défilement horizontal.']
+});
+function webPage(p,o={}){
+  const bar=isI(p)||o.inapp?'':`<div class="aurl">${ic('lock',14)}‹domaine›/i/</div>`;
+  const smart=isI(p)&&!o.inapp?`<div class="smart"><span class="appi">P</span><span><b>Parcourses</b>Liste de courses</span><span class="open">Ouvrir</span></div>`:'';
+  const inapp=o.inapp?`<div class="smart" style="justify-content:space-between"><span>${ic('close',16)}</span><span><b>‹domaine›</b></span><span>${ic('more',18)}</span></div>`:'';
+  const body=o.broken?`<div style="padding:30px 18px;text-align:center"><div class="glyph" style="width:64px;height:64px;border-radius:50%;border:2px dashed var(--muted);display:grid;place-items:center;margin:0 auto 14px;color:var(--muted)">${ic('warn',28)}</div><div class="p">${t('web.broken')}</div></div>`:
+   `<div style="padding:8px 18px 0"><div class="lbl" style="margin:6px 0 4px">Parcourses</div><div class="big" style="font-size:calc(var(--k)*24px)">${t('web.title')}</div>${o.inapp?btn('pri',t('web.open'))+'<div style="height:8px"></div>':''}<div class="step"><i>1</i><span>${t('web.s1')}</span></div><div class="btns" style="margin:0 0 4px 38px"><span class="stb">App Store</span><span class="stb">Google Play</span></div><div class="step"><i>2</i><span>${t('web.s2')}</span></div><div class="step"><i>3</i><span>${t('web.s3')}</span></div>${o.inapp?'':btn('txt',t('web.open'))}<div class="p mu" style="text-align:center;font-size:12px;margin-top:10px">${t('web.foot')}</div></div>`;
+  return bar+inapp+smart+`<div class="${isI(p)?'':'card'}" style="${isI(p)?'':'min-height:500px;padding:0'}">${body}</div>`+(isI(p)&&!o.inapp?`<div class="url">${ic('lock',14)}‹domaine›/i/</div>`:'');
+}
+st('s8','web','Page /i/, app non installée',L,p=>webPage(p),{cap:'Safari affiche la bannière intelligente ; les badges officiels des stores remplaceront les boutons neutres (87.7).'});
+st('s8','inapp','Ouverte dans le navigateur d’un client mail',D,p=>webPage(p,{inapp:true}),{cap:'Gmail iOS, Outlook : « Ouvrir dans l’app » passe en tête.'});
+st('s8','broken','Lien incomplet',L,p=>webPage(p,{broken:true}),{cap:'Le fragment ne contient pas de jeton de 43 caractères base64url.'});
+st('s8','ax','Zoom 200 %',D,p=>webPage(p),{ax:true,cap:'Le texte suit le réglage du navigateur.'});
+
+// ---------- E-mails ----------
+const MAIL_VARS={inviter:'Hadrien',expires:'21 novembre',link:'https://‹domaine›/i/#q7Hc…Zt0',role_sentence:'Vous pourrez ajouter, modifier et cocher des articles.',app_store_url:'#',play_url:'#'};
+const MAIL_PH={inviter:'{{inviter}}',expires:'{{expires}}',link:'{{link}}',role_sentence:'{{role_sentence}}',app_store_url:'{{app_store_url}}',play_url:'{{play_url}}'};
+function mailHTML(v,force=''){ // force : '' (suit le client), 'light' ou 'dark' (aperçus)
+  const dark=`.bg{background:#08090C!important}.card{background:#12141A!important;color:#ECEEF4!important}.mu{color:#A6ABBA!important}.btn{background:#8FA6FF!important;color:#0B1550!important}.lnk{color:#8FA6FF!important}.rule{border-color:#353A48!important}`;
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>${v.inviter} vous invite sur Parcourses</title>
+<style>
+${force==='light'?'':force==='dark'?dark:'@media (prefers-color-scheme: dark){'+dark+'}'}
+</style>
+</head>
+<body style="margin:0;padding:0;background:#E3DCCF">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">Une liste de courses à partager. L’invitation expire le ${v.expires}.</div>
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" style="background:#E3DCCF">
+<tr><td align="center" style="padding:24px 12px">
+<!--[if mso]><table role="presentation" width="480" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+<table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#FBF7F0;color:#1A1C22;border-radius:8px">
+<tr><td class="mu" style="padding:28px 24px 8px;font-family:'SF Mono',Menlo,Consolas,'Roboto Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#545866">Parcourses</td></tr>
+<tr><td style="padding:0 24px"><h1 style="margin:0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:22px;line-height:1.3;font-weight:700">${v.inviter} vous invite à partager une liste de courses</h1></td></tr>
+<tr><td style="padding:12px 24px 0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;line-height:1.5">${v.role_sentence}</td></tr>
+<tr><td style="padding:24px 24px 16px"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td class="btn" bgcolor="#2340C8" style="background:#2340C8;border-radius:24px"><a class="btn" href="${v.link}" style="display:inline-block;background:#2340C8;color:#FFFFFF;text-decoration:none;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:16px;line-height:20px;padding:14px 24px;border-radius:24px;mso-padding-alt:0">Ouvrir l’invitation</a></td></tr></table></td></tr>
+<tr><td class="mu" style="padding:0 24px;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:1.5;color:#545866">Le bouton ne fonctionne pas ? Copiez ce lien :<br><a class="lnk" href="${v.link}" style="color:#2340C8;word-break:break-all">${v.link}</a></td></tr>
+<tr><td style="padding:20px 24px 0"><div class="rule" style="border-top:1px dashed #545866"></div></td></tr>
+<tr><td style="padding:16px 24px 0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;line-height:1.5">Pas encore l’app ? Installez Parcourses depuis l’<a class="lnk" href="${v.app_store_url}" style="color:#2340C8">App Store</a> ou <a class="lnk" href="${v.play_url}" style="color:#2340C8">Google Play</a>, puis connectez-vous avec l’adresse qui a reçu cet e-mail : l’invitation vous attendra. Elle expire le ${v.expires}.</td></tr>
+<tr><td class="mu" style="padding:16px 24px 28px;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;line-height:1.5;color:#545866">Si vous n’attendiez pas cette invitation, ignorez ce message : rien ne se passera sans vous.</td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+<p class="mu" style="max-width:480px;margin:16px auto 0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.5;color:#545866">Parcourses, la liste de courses qui suit les rayons. Vous recevez cet e-mail parce que votre adresse a été saisie dans Parcourses pour une invitation.</p>
+</td></tr>
+</table>
+</body>
+</html>`;}
+const mailSubject=v=>`${v.inviter} vous invite sur Parcourses`;
+const mailText=v=>`${v.inviter} vous invite à partager une liste de courses dans Parcourses.
+${v.role_sentence}
+
+Ouvrir l’invitation :
+${v.link}
+
+Pas encore l’app ? Installez Parcourses :
+- App Store : ${v.app_store_url}
+- Google Play : ${v.play_url}
+Puis connectez-vous avec l’adresse qui a reçu cet e-mail : l’invitation vous attendra. Elle expire le ${v.expires}.
+
+Si vous n’attendiez pas cette invitation, ignorez ce message : rien ne se passera sans vous.
+
+--
+Parcourses, la liste de courses qui suit les rayons.
+Vous recevez cet e-mail parce que votre adresse a été saisie dans Parcourses pour une invitation.`;
+const codeText=`Votre code de connexion : 123456
+Il expire dans 15 minutes.
+
+Si vous n’avez rien demandé, ignorez ce message.
+
+--
+Parcourses`;
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ---------- Tokens ajoutés ----------
+const TOK=[
+ ['caution','#8A4B00','#F5BF62','nouveau : avertissement (autre adresse, e-mail non parti, session perdue)','6,4:1 / 11,0:1 sur paper ; 5,8:1 / 8,9:1 sur cautionFill'],
+ ['cautionFill','#FCEBC9','#2E2615','nouveau : fond des cartes d’avertissement','ink dessus 14,5:1 / 12,9:1'],
+ ['accentFill','#E3E7FA','#1E2540','nouveau : bouton tonal Android, pastille « Renvoyer »','ink 13,9:1 / 13,0:1 ; accent 6,5:1 / 6,5:1'],
+ ['inverseAccent','#8FA6FF','#2340C8','nouveau : action de Snackbar sur fond ink','7,4:1 / 6,9:1 sur ink'],
+ ['onDestructive','#FFFFFF','#12141A','nouveau : texte d’un bouton destructif plein','5,4:1 / 6,5:1 sur destructive'],
+ ['sharing.avatar.fill / ink','#EAE2D3','#232631','alias de paperEdge / ink (pas de nouvelle couleur)','13,2:1 / 13,0:1'],
+ ['sharing.authorMark','#545866','#A6ABBA','alias de inkMuted','6,6:1 / 8,0:1 sur paper'],
+ ['sharing.badge.shared','#2340C8','#8FA6FF','alias de accent (texte et trait)','7,5:1 / 8,0:1 sur paper'],
+ ['sharing.badge.readOnly','#EAE2D3','#232631','alias de paperEdge (fond), texte ink','13,2:1 / 13,0:1'],
+ ['sharing.field.borderColor','#545866','#A6ABBA','alias de inkMuted (bord de champ, 1 pt)','6,6:1 / 8,0:1 (≥ 3:1 exigé)'],
+];
+
+// ---------- Choix ----------
+const CHOICES=[
+ ['Copier le lien d’une invitation (à trancher)','Le jeton est stocké haché et rendu une seule fois (§3.3) : le serveur ne peut pas redonner un lien. Proposé : « Copier le lien » crée un <b>nouveau jeton sans e-mail</b> (« Nouveau lien copié, valable 7 jours. Celui de l’e-mail ne fonctionne plus. »). Seule la carte « e-mail non parti » copie le lien qui vient d’être créé.','Garder : aucun secret sur l’appareil, cohérent avec « jeton jamais écrit sur disque » (§1.3). Alternative : garder le jeton dans le trousseau de l’appareil qui a envoyé, et ne proposer « Copier » que là.'],
+ ['Aperçu d’une invitation par lien (à trancher)','La carte ouverte par un lien et les états expirée, déjà utilisée, autre adresse montrent le prénom, l’accès, l’échéance, le statut. Aucune RPC du §3.3 ne les donne avant l’acceptation. Proposé : <code>preview_invitation(p_token)</code> en 87.2, réservée aux comptes e-mail, qui renvoie prénom, accès, échéance, statut, adresse masquée, et le nom de la liste <b>seulement si l’adresse correspond</b>.','Ajouter la RPC en 87.2. Sans elle : « Cette invitation n’est plus valable… » générique, et l’autre adresse ne se détecte qu’au retour d’<code>accept_invitation</code>.'],
+ ['Avant la connexion','Un lien ouvert sur un compte anonyme n’affiche aucun prénom : « Vous avez ouvert une invitation. Connectez-vous avec l’adresse qui l’a reçue. » (les RPC refusent les anonymes).','Garder.'],
+ ['Auteur d’une suppression','« Un autre membre a supprimé « Comté »… » : <code>list_item_tombstones</code> n’a pas d’auteur.','Garder. Pour nommer la personne, ajouter <code>deleted_by</code> en 87.1.'],
+ ['Titre de la liste sur iOS','Le titre quitte la barre de navigation pour le ticket (mono, majuscules), comme le magasin en mode courses depuis 9.11 : la barre porte les pastilles et le chariot, un titre centré y serait tronqué. Écart avec l’écran Liste actuel.','Garder ; à appliquer en 87.4 sur l’écran Liste, partagé ou non.'],
+ ['Pastilles','Les autres membres seulement, partout ; « vous » dans le libellé.','Garder.'],
+ ['Noms des rôles','« Peut modifier » / « Lecture seule » / « Propriétaire », et des textes épicènes, sans « de + prénom ». Le §1.2 écrivait « Éditrice » pour Léa, ce qui suppose un genre d’après le prénom.','Garder. Si l’on tient aux noms, « Éditeur » / « Lecteur » au masculin générique seulement dans le sélecteur, jamais accordés à une personne.'],
+ ['Moment du prénom','Le prénom est demandé <b>après</b> le code, seulement si le compte n’a pas de profil (le §9.4 le mettait avec l’e-mail). On ne le demande pas à quelqu’un qui a déjà un compte, et l’écran d’adresse ne change pas selon que l’adresse existe ou non.','Garder : un écran de plus pour un nouveau compte, un champ de moins pour les autres.'],
+ ['Marque d’auteur','L’initiale sur un article est celle de la <b>dernière personne qui l’a modifié</b> (<code>updated_by</code>), pas forcément de celle qui l’a ajouté : le modèle (§3.1) n’a pas de <code>created_by</code>.','Garder <code>updated_by</code> (aucun changement de schéma). Sinon, ajouter <code>created_by</code> en 87.1.'],
+ ['Partager sur Android','Dialogue plein écran plutôt que bottom sheet : formulaire avec clavier, deux listes, erreurs. Retour prédictif vers la liste.','Garder. Sur iOS : feuille à détente <code>.large</code>.'],
+ ['Avatars','Initiale neutre sur <code>paperEdge</code>, pas de couleur par membre (la couleur est réservée aux rayons). Initiales en double : deux lettres. Plus de 3 : « +N ».','Garder.'],
+ ['« Modifiée par… »','Masquée quand c’est moi qui ai modifié en dernier ; hors ligne, remplacée par « Synchronisée il y a… ».','Garder.'],
+ ['Entrée des invitations','Une invitation : carte en tête de Mes listes, avec Accepter / Refuser. Plusieurs : une ligne « Invitations (n) » vers un écran.','Garder.'],
+ ['Actions d’une invitation en attente','Regroupées derrière ⋯ (Renvoyer, Copier le lien, Annuler) ; une invitation expirée montre « Renvoyer » directement. Annuler demande confirmation.','Garder.'],
+ ['Après l’envoi','La feuille reste ouverte, champ vidé, capsule « Invitation envoyée à… » : on invite souvent deux personnes à la suite.','Garder.'],
+ ['Refuser une invitation','Avec confirmation : le refus est définitif côté serveur.','Garder.'],
+ ['Lecteur','Pas de cases : coché = barré + ✓, à prendre = sans marque. Toucher un article affiche une capsule, une fois par ouverture. La note du bas n’est pas un bouton désactivé.','Garder.'],
+ ['Conflits signalés','Seule la suppression gagnante est signalée (capsule + « Rajouter », qui recrée l’article avec un nouvel id). Les écrasements par champ restent silencieux ; l’initiale de l’auteur suffit. L’accès abaissé a deux textes : avec ou sans écritures refusées.','Garder.'],
+ ['Coche d’un autre membre','Même animation qu’une coche locale, sans haptique ; annonce VoiceOver / TalkBack polie, regroupée sur 2 s. Le fil n’avance pas (il suit ma visite).','Garder.'],
+ ['Retrait pendant les courses','Feuille non fermable par glissement, « Terminer » clôt la visite et mène au résumé.','Garder.'],
+ ['Point d’entrée d’un membre','Le même bouton (pastilles) ouvre « Membres » en lecture, avec « Quitter la liste ». Aussi dans le menu de la ligne de Mes listes.','Garder.'],
+ ['Saisie du code','Un seul champ <code>oneTimeCode</code> affiché en 6 cases, collage accepté, validation au 6ᵉ chiffre. 5 essais faux → attente d’une minute.','Garder ; le plafond d’essais est à confirmer avec la config Auth (87.1).'],
+ ['E-mail','Ni nom de liste (§3.5) ni adresse du destinataire dans le corps ; rappel « l’adresse qui a reçu cet e-mail ». Pied de page sans prénom pour éviter l’élision. Bouton en cellule colorée et largeur fixe sous Outlook (conditions MSO).','Garder.'],
+ ['Suppression des données (Q6)','L’alerte de #68 (« Supprimer toutes vos données ? ») ajoute une phrase par liste partagée : « « Courses de la semaine » sera confiée à Léa, qui en deviendra propriétaire. »','Garder ; texte à reprendre dans 87.4 / 87.6 et sur la page /supprimer-mes-donnees.'],
+ ['Lecteurs d’écran sans accord','« dernière modification par Léa », « dans le panier, par Léa », « retour, par Léa » : le participe ne s’accorde pas avec un libellé variable.','Garder.'],
+ ['Page /i/','Boutons de store neutres dans la maquette : les badges officiels (marques déposées) seront intégrés en 87.7. La page ne montre pas le prénom de l’expéditeur (statique, jeton non lu).','Garder.'],
+];
+
+const mailPanels=()=>`<div class="mail-row"><div class="mail"><div class="mh"><b>Hadrien vous invite sur Parcourses</b>Parcourses &lt;invitations@mail.‹domaine›&gt; · clair</div><iframe title="E-mail, thème clair" srcdoc="${esc(mailHTML(MAIL_VARS,'light'))}"></iframe></div><div class="mail"><div class="mh"><b>Hadrien vous invite sur Parcourses</b>Parcourses &lt;invitations@mail.‹domaine›&gt; · sombre</div><iframe title="E-mail, thème sombre" srcdoc="${esc(mailHTML(MAIL_VARS,'dark'))}"></iframe></div></div>`;
+// ---------- Rendu ----------
+const qs=new URLSearchParams(location.search);
+let MODE=qs.get('theme')||'mix';
+const flip=x=>x===L?D:L;
+function fig(s,p,secId){
+  const th=MODE==='mix'?(p==='ios'?s.t:flip(s.t)):MODE;
+  const cls=['screen',th,p,s.ax?'ax':'',s.dyn&&p==='and'?'dyn':'',s.mat18&&p==='ios'?'m18':''].join(' ');
+  const pl=p==='ios'?(s.mat18?'iOS 18':'iOS 26'):'Android 16';
+  let html; try{html=s.fn(p)}catch(e){html='<p style="padding:20px">'+e.message+'</p>';console.error(e)}
+  const sb=`<div class="sb"><span>18:42</span><i class="${p==='ios'?'isl':'cam'}"></i><span>5G ▮</span></div>`;
+  return `<figure id="${secId}-${s.id}-${p}" class="f-${p}"><div class="phone ${p}"><div class="${cls}">${sb}${html}</div></div><figcaption><b>${pl} · ${th===L?'clair':'sombre'}${s.ax?(p==='ios'?' · AX5':' · police 200 %'):''}${s.dyn&&p==='and'?' · couleur dynamique':''}</b></figcaption></figure>`;
+}
+function renderSections(){
+  let h='';
+  SECTIONS.forEach(S=>{
+    const sp=S.spec;
+    h+=`<section id="${S.id}"><h2>${S.title}</h2>`;
+    h+=typo(`<div class="spec"><div><h3>Parcours</h3><ol>${sp.flow.map(x=>`<li>${x}</li>`).join('')}</ol></div><div><h3>Cibles tactiles</h3><ul>${sp.targets.map(x=>`<li>${x}</li>`).join('')}</ul><h3>AX5 et police à 200 %</h3><ul>${sp.ax.map(x=>`<li>${x}</li>`).join('')}</ul></div></div>`);
+    h+=`<h3>États</h3><div class="states">${STATES[S.id].map(s=>`<div class="state"><h4>${s.title}</h4><div class="pair">${fig(s,'ios',S.id)}${fig(s,'and',S.id)}</div><p class="cap">${typo(s.cap||'')}</p></div>`).join('')}</div>`;
+    h+=`<h3>VoiceOver et TalkBack</h3><div class="tablewrap"><table><tr><th>Élément</th><th>VoiceOver</th><th>TalkBack</th></tr>${sp.sr.map(r=>`<tr><td>${typo(r[0])}</td><td>${typo(r[1])}</td><td>${typo(r[2])}</td></tr>`).join('')}</table></div>`;
+    h+=`<details><summary>Textes exacts (${sp.keys.length})</summary><div class="tablewrap"><table><tr><th>Clé</th><th>Texte</th></tr>${sp.keys.map(k=>`<tr><td><code>${k}</code></td><td>${t(k)}</td></tr>`).join('')}</table></div></details>`;
+    if(S.id==='s8'){
+      h+=`<h3>E-mail d’invitation</h3><p class="lead"><b>Objet</b> : « Hadrien vous invite sur Parcourses » (« Quelqu’un vous invite sur Parcourses » si le prénom ne passe pas le filtre de #69). <b>Aperçu</b> : « Une liste de courses à partager. L’invitation expire le 21 novembre. » <b>Phrase d’accès</b> : « Vous pourrez ajouter, modifier et cocher des articles. » (peut modifier) ou « Vous pourrez consulter la liste, sans la modifier. » (lecture seule).</p>`;
+      h+=mailPanels();
+      h+=`<details><summary>Version HTML (modèle, variables entre accolades)</summary><pre>${esc(mailHTML(MAIL_PH))}</pre></details><details open><summary>Version texte (corps seul ; l’objet est un champ à part)</summary><pre>${esc(mailText(MAIL_VARS))}</pre></details>`;
+      h+=`<h3>E-mail du code (Supabase Auth, modèles <code>magic_link</code> et <code>email_change</code>)</h3><p class="lead"><b>Objet</b> : « Votre code Parcourses : 123456 »</p><pre>${esc(codeText)}</pre><p class="lead">Même gabarit HTML que l’invitation : titre « Votre code de connexion », le code en mono 32 px avec <code>letter-spacing</code>, sans bouton ni lien (<code>{{ .Token }}</code> seul, sans <code>{{ .ConfirmationURL }}</code>).</p>`;
+    }
+    h+=`</section>`;
+  });
+  document.getElementById('sections').innerHTML=h;
+}
+function renderStatic(){
+  document.getElementById('toc').innerHTML=[['communs','0. Principes'],...SECTIONS.map(s=>[s.id,s.title]),['choix','Choix faits']].map(([i,l])=>`<a href="#${i}">${l}</a>`).join('');
+  document.getElementById('tokens').innerHTML=`<div class="tablewrap"><table><tr><th>Token</th><th>Clair</th><th>Sombre</th><th>Origine</th><th>Contraste</th></tr>${TOK.map(r=>`<tr><td><code>${r[0]}</code></td><td><span class="sw"><i style="background:${r[1]}"></i>${r[1]}</span></td><td><span class="sw"><i style="background:${r[2]}"></i>${r[2]}</span></td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join('')}</table></div><p class="lead">Règle ajoutée : <code>destructive</code> n’est jamais posé en texte sur <code>paperEdge</code> en clair (4,2:1). Les dialogues Android sont donc sur <code>paper</code> avec un filet <code>threadIdle</code>.</p>`;
+  document.getElementById('choices').innerHTML=`<div class="tablewrap"><table><tr><th>Sujet</th><th>Choix fait</th><th>Recommandation</th></tr>${CHOICES.map(r=>`<tr><td><b>${r[0]}</b></td><td>${typo(r[1])}</td><td>${typo(r[2])}</td></tr>`).join('')}</table></div>`;
+}
+// Mode capture : ?shot=s1-main-ios,s1-main-and&theme=light
+const SHOT=qs.get('shot');
+if(SHOT==='mail'){document.body.classList.add('shot');document.getElementById('top').innerHTML=mailPanels();}
+else if(SHOT){
+  document.body.classList.add('shot');
+  const ids=SHOT.split(',');
+  const all={};SECTIONS.forEach(S=>STATES[S.id].forEach(s=>{all[S.id+'-'+s.id]=[S.id,s]}));
+  document.getElementById('top').innerHTML=`<div class="shots">${ids.map(x=>{const p=x.endsWith('-ios')?'ios':'and';const k=x.replace(/-(ios|and)$/,'');const [sid,s]=all[k]||[];return s?fig(s,p,sid):'<p>'+x+' ?</p>'}).join('')}</div>`;
+}else{
+  renderStatic();renderSections();
+  // Typographie des textes statiques
+  document.querySelectorAll('#communs, .lead').forEach(el=>{const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode()))n.nodeValue=typo(n.nodeValue)});
+  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{const v=b.dataset.page;v?document.documentElement.dataset.theme=v:delete document.documentElement.dataset.theme});
+  document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{MODE=b.dataset.mode;document.querySelectorAll('[data-mode]').forEach(x=>x.setAttribute('aria-pressed',x===b));renderSections()});
+  document.querySelectorAll('[data-plat]').forEach(b=>b.onclick=()=>{document.body.classList.remove('only-ios','only-and');if(b.dataset.plat)document.body.classList.add('only-'+b.dataset.plat);document.querySelectorAll('[data-plat]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+}
+</script>
+</body>
+</html>

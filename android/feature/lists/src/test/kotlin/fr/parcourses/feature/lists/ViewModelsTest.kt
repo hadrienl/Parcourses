@@ -5,6 +5,7 @@ import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RoomCategoryRepository
 import fr.parcourses.core.data.repository.RoomProductRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.core.data.sync.SyncStore
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.ProductEntity
@@ -237,6 +238,36 @@ class ViewModelsTest : ListsTest() {
             val state = model.uiState.await { it.errorDetail != null }
             assertEquals("Cette liste a été supprimée.", state.errorDetail)
             assertEquals("lait", model.input.text.toString())
+        }
+
+    /** #69 : un produit qui n'est plus publié quitte le cache, et donc les suggestions ; l'historique reste. */
+    @Test
+    fun suggestionsDropAProductNoLongerPublished() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val other = lists.createList("Autre", clock).id
+            lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
+            val tofu = ProductEntity("11111111-1111-4111-8111-111111111111", "Tofu fumé", "tofu fume", "world-food")
+            db.products().upsertAll(listOf(tofu))
+            val model = detailModel(id)
+            model.uiState.await { it.isLoaded }
+
+            model.type("to")
+            assertEquals(
+                listOf("tomate", "tofu fume"),
+                model.uiState
+                    .await { it.suggestions.size == 2 }
+                    .suggestions
+                    .map { it.normalizedName },
+            )
+            SyncStore(db).replaceProducts(emptyList(), catalogReadable = true)
+            assertEquals(
+                listOf("tomate"),
+                model.uiState
+                    .await { it.suggestions.size == 1 }
+                    .suggestions
+                    .map { it.normalizedName },
+            )
         }
 
     @Test
