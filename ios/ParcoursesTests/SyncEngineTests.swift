@@ -156,6 +156,13 @@ actor ScriptedSyncGateway: RemoteGateway {
     try record("acknowledgeAccount")
     knownAccount = id
   }
+  func deleteAccount() async throws { try record("deleteAccount") }
+  func signOutLocally() async throws { try record("signOutLocally") }
+  func localSessionAccountId() async throws -> UUID? { account }
+  func confirmAccountDeleted() async throws -> Bool {
+    try record("confirmAccountDeleted")
+    return false
+  }
   func serverDate() async throws -> Date? {
     try record("serverDate")
     return serverNow

@@ -55,10 +55,12 @@ cross join lateral (select jsonb_build_object(
 insert into graph.snapshot_audience (store_id, contributors) values ('$store', 2);
 SQL
 
+# Suppression du compte (#68) : le test y écrit l'ancien compte, le nouveau et la visite, vérifiés en base à la fin.
+deletion_out=$(mktemp -d)/accounts
 udid=${SIMULATOR_UDID:-$(scripts/simulator.sh latest)}
 xcodegen generate --quiet
 TEST_RUNNER_PARCOURSES_IT_URL="$url" TEST_RUNNER_PARCOURSES_IT_KEY="$key" \
-  TEST_RUNNER_PARCOURSES_IT_SNAPSHOT_STORE="$store" \
+  TEST_RUNNER_PARCOURSES_IT_SNAPSHOT_STORE="$store" TEST_RUNNER_PARCOURSES_IT_DELETION_OUT="$deletion_out" \
   xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses -destination "id=$udid" \
   -derivedDataPath DerivedData -only-testing:ParcoursesTests
 
@@ -78,3 +80,21 @@ SQL
 )
 echo "Visite reçue : $result"
 [[ "$result" == "t|t|1|dairy|t" ]] || { echo "Attendu : t|t|1|dairy|t" >&2; exit 1; }
+
+# Suppression du compte : l'ancien compte n'existe plus, ni ses listes, visites et coches ; le nouveau existe et
+# n'a aucune ligne. Les identifiants sont des UUID écrits par le test, jamais une saisie.
+[[ -s "$deletion_out" ]] || { echo "Identifiants de la suppression absents ($deletion_out)" >&2; exit 1; }
+read -r old_account new_account deleted_visit <"$deletion_out"
+for id in "$old_account" "$new_account" "$deleted_visit"; do
+  [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Identifiant illisible : $id" >&2; exit 1; }
+done
+deletion=$(sql <<SQL
+select (select count(*) from auth.users where id = '$old_account'),
+       (select count(*) from auth.users where id = '$new_account'),
+       (select count(*) from public.lists where owner_id in ('$old_account', '$new_account')),
+       (select count(*) from public.visits where user_id in ('$old_account', '$new_account')),
+       (select count(*) from public.checks where visit_id = '$deleted_visit');
+SQL
+)
+echo "Suppression du compte : $deletion"
+[[ "$deletion" == "0|1|0|0|0" ]] || { echo "Attendu : 0|1|0|0|0" >&2; exit 1; }

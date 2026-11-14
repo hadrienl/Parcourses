@@ -12,8 +12,16 @@ nonisolated protocol SyncCursors: Sendable {
 nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   private let defaults: UserDefaults
 
+  /// Toutes les clés des curseurs : la suppression du compte les efface (`LocalDataPurge`).
+  static let keys = ["sync.cursor.account", "sync.cursor.lists", "sync.cursor.items", "sync.cursor.catalog"]
+
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+  }
+
+  /// Oublie tous les curseurs : la prochaine descente repart de zéro, et aucun compte n'est plus attendu.
+  func removeAll() {
+    for key in Self.keys { defaults.removeObject(forKey: key) }
   }
 
   var accountId: UUID? {

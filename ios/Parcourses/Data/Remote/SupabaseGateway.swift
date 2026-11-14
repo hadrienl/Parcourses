@@ -22,12 +22,18 @@ actor SupabaseGateway: RemoteGateway {
   private let client: SupabaseClient
   private let rest: PostgrestClient
   private let store: any SecureStore
+  /// Suppression de compte en cours : `ensureSession` ne crée plus de compte (#68 §5.3).
+  private let deletionFlags: any AccountDeletionFlagStore
   /// Connexion en cours : l'acteur est réentrant, deux appels ne doivent pas créer deux comptes.
   private var signIn: Task<UUID, any Error>?
   private var categoryMap: CategoryMap?
 
-  init(configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore()) {
+  init(
+    configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore(),
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+  ) {
     self.store = store
+    self.deletionFlags = deletionFlags
     let client = SupabaseClient(
       supabaseURL: configuration.url,
       supabaseKey: configuration.publishableKey,
@@ -87,6 +93,83 @@ actor SupabaseGateway: RemoteGateway {
     try await mapped { try self.store.set(Data(id.uuidString.utf8), forKey: Self.lastAccountKey) }
   }
 
+  func deleteAccount() async throws {
+    do {
+      // Le compte de la session, même s'il diffère du dernier connu : c'est celui que la personne utilise.
+      _ = try await existingSessionUser()
+      // Nouvel essai après une réponse perdue : le compte a peut-être déjà disparu. Le jeton d'accès en cours le
+      // prouve (403 `user_not_found`) ; le rafraîchir d'abord effacerait la session sans livrer cette preuve.
+      if await deletionProofWithCurrentToken() == true {
+        throw RemoteError.accountGone(code: ErrorCode.userNotFound.rawValue)
+      }
+      // Jeton neuf, valable une heure : un nouvel essai après une réponse perdue passe avec le même compte.
+      // Refusé (`refresh_token_not_found`) : le compte a déjà été supprimé.
+      _ = try await client.auth.refreshSession()
+      // Réponse 204 sans corps. Idempotente : rejouée après succès, elle ne trouve plus rien et réussit.
+      _ = try await rest.rpc("delete_my_account").execute()
+    } catch {
+      throw Self.classifyForDeletion(error)
+    }
+  }
+
+  func signOutLocally() async throws {
+    categoryMap = nil
+    try await mapped {
+      // `LocalDataPurge` a déjà vidé le Keychain : sans session lisible, `signOut` ne contacte pas le serveur.
+      // S'il en restait une, le SDK la retire avant d'appeler `logout`, dont l'échec ne change rien.
+      try? await self.client.auth.signOut(scope: .local)
+      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
+    }
+  }
+
+  func localSessionAccountId() async throws -> UUID? {
+    do {
+      guard let session = client.auth.currentSession else {
+        // Keychain verrouillé : `currentSession` est nil alors que la session existe peut-être.
+        try store.verifyAvailable()
+        return nil
+      }
+      return session.user.id
+    } catch {
+      throw Self.classify(error)
+    }
+  }
+
+  func confirmAccountDeleted() async throws -> Bool {
+    do {
+      guard client.auth.currentSession != nil else {
+        try store.verifyAvailable()
+        // Pas de session sur l'appareil : le serveur ne peut rien prouver.
+        throw RemoteError.unauthorized
+      }
+      // D'abord le jeton d'accès en cours, sans rafraîchir : 403 `user_not_found` prouve la suppression, une
+      // réponse positive prouve que le compte existe. Le SDK change `refresh_token_not_found` en `sessionMissing`
+      // et efface la session : le rafraîchissement ne vient qu'ensuite, pour un jeton expiré ou refusé.
+      if let proof = await deletionProofWithCurrentToken() { return proof }
+      _ = try await client.auth.refreshSession()
+      _ = try await client.auth.user()
+      return false
+    } catch let error as AuthError where Self.deletionProofCode(error) != nil {
+      return true
+    } catch {
+      throw Self.classifyForDeletion(error)
+    }
+  }
+
+  /// Interroge `/user` avec le jeton d'accès en cours, sans le rafraîchir ni toucher à la session.
+  /// `true` : suppression prouvée ; `false` : le compte existe ; `nil` : rien de sûr (jeton expiré, réseau…).
+  private func deletionProofWithCurrentToken() async -> Bool? {
+    guard let token = client.auth.currentSession?.accessToken else { return nil }
+    do {
+      _ = try await client.auth.user(jwt: token)
+      return false
+    } catch let error as AuthError where Self.deletionProofCode(error) != nil {
+      return true
+    } catch {
+      return nil
+    }
+  }
+
   func serverDate() async throws -> Date? {
     try await authorized {
       // Lecture minimale : seul l'en-tête compte, et il prouve que PostgREST répond.
@@ -128,6 +211,8 @@ actor SupabaseGateway: RemoteGateway {
 
   private func currentOrNewUser(captchaToken: String?) async throws -> UUID {
     let auth = client.auth
+    // Suppression en cours : un compte créé maintenant recevrait toutes les données locales (`AccountRekey`).
+    if deletionFlags.isDeletionPending { return try await existingSessionUser() }
     if auth.currentSession != nil {
       do {
         return try await auth.session.user.id
@@ -418,6 +503,36 @@ actor SupabaseGateway: RemoteGateway {
     let status = response.statusCode
     if status == 401 || status == 403 || code == .userNotFound { return .unauthorized }
     return .server(code: String(status))
+  }
+
+  /// Codes GoTrue qui prouvent qu'un compte ou sa session n'existent plus (#68) : rien d'autre ne le prouve.
+  static let deletionProofCodes: [ErrorCode] = [.userNotFound, .refreshTokenNotFound, .sessionNotFound]
+
+  /// Code GoTrue d'une preuve de suppression, `nil` sinon.
+  static func deletionProofCode(_ error: AuthError) -> String? {
+    guard case .api(_, let code, _, _) = error, deletionProofCodes.contains(code) else { return nil }
+    return code.rawValue
+  }
+
+  /// Erreurs d'URLSession où la requête n'a pas quitté l'appareil. Un délai dépassé ou une connexion perdue
+  /// laissent un doute : la requête a pu arriver.
+  static let notSentURLErrors: Set<URLError.Code> = [
+    .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed,
+    .internationalRoamingOff,
+  ]
+
+  /// Classement propre à la suppression du compte : garde le code GoTrue d'une preuve (`accountGone`) et distingue
+  /// une requête jamais partie (`notSent`). Le reste suit `classify`.
+  static func classifyForDeletion(_ error: any Error) -> RemoteError {
+    switch error {
+    case let error as AuthError:
+      if let code = deletionProofCode(error) { return .accountGone(code: code) }
+      return classify(error)
+    case let error as URLError where notSentURLErrors.contains(error.code):
+      return .notSent
+    default:
+      return classify(error)
+    }
   }
 
   /// La session ne reviendra pas : seul un nouveau compte anonyme permet de continuer.
