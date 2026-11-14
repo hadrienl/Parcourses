@@ -1,0 +1,292 @@
+import Foundation
+import OSLog
+import Observation
+
+/// Étape de la liaison d'une adresse ou de la connexion (#87 §2.2). Mêmes valeurs sur Android.
+nonisolated enum AccountLinkPhase: String, Sendable {
+  case enterEmail
+  case enterCode
+  /// Connexion à un compte existant : `AccountRekey` y ajoute les listes du téléphone, puis la descente.
+  case merging
+  case done
+}
+
+/// Échec annoncé par l'écran de connexion. Mêmes cas sur Android.
+nonisolated enum AccountLinkError: Error, Sendable, Equatable {
+  /// Adresse mal formée, refusée, ou sans compte quand on ne peut que se connecter.
+  case invalidEmail
+  case invalidCode
+  /// Code plus vieux que sa durée de validité (15 min).
+  case expiredCode
+  /// Trop de codes demandés, ou trop d'essais.
+  case rateLimited
+  case offline
+  case unknown
+}
+
+/// Issue d'une liaison réussie.
+nonisolated enum AccountLinkOutcome: Sendable, Equatable {
+  /// Adresse liée au compte de l'appareil : même compte, aucune donnée ne bouge.
+  case linked
+  /// Connexion à un compte existant (« Bon retour ») : `addedLists` listes du téléphone y ont été ajoutées.
+  case signedIn(displayName: String?, addedLists: Int)
+}
+
+/// Déroulé de la liaison d'une adresse e-mail, ou de la connexion à un compte existant (#87 §2.2, vecteur `010`).
+///
+/// Compte anonyme : `linkEmail`, puis le code (`email_change`, même compte). Adresse déjà prise : `signInWithEmail`
+/// (sans création), puis le code (`email`), `AccountRekey` par la passe de synchronisation qui suit, et suppression de
+/// l'ancien compte anonyme avec son jeton gardé (un échec est sans conséquence, #68). Compte e-mail sans session :
+/// connexion directe, jamais de liaison.
+@Observable
+final class AccountLink {
+  /// Ce que la liaison demande au reste de l'app.
+  struct Dependencies {
+    var isOnline: () -> Bool = { true }
+    var now: () -> Date = { .now }
+    /// Listes du téléphone qui seront renvoyées si la session passe à ce compte.
+    var resendableLists: (UUID) -> Int = { _ in 0 }
+    /// Passe complète de synchronisation : reprise des données sur le nouveau compte, puis descente.
+    var synchronize: () async -> Void = {
+      // Sans moteur : rien à synchroniser.
+    }
+    /// Session e-mail établie : le moteur reprend, les écrans relisent le compte.
+    var sessionDidChange: () -> Void = {
+      // Sans moteur ni écran à prévenir.
+    }
+  }
+
+  /// Délai avant « Renvoyer le code ».
+  static let resendDelay: TimeInterval = 60
+  /// Durée de validité d'un code (`otp_expiry`).
+  static let codeLifetime: TimeInterval = 900
+  /// Limite de chaque appel au serveur.
+  static let timeout = Duration.seconds(15)
+  static let codeLength = 6
+  private static let logger = Logger(subsystem: "app.parcourses", category: "account")
+
+  private(set) var phase = AccountLinkPhase.enterEmail
+  private(set) var error: AccountLinkError?
+  /// Change à chaque erreur publiée, même identique : l'écran l'annonce et vide le champ du code.
+  private(set) var errorRevision = 0
+  private(set) var isWorking = false
+  private(set) var outcome: AccountLinkOutcome?
+  /// Adresse à laquelle le dernier code est parti.
+  private(set) var sentTo: String?
+  private(set) var codeSentAt: Date?
+  private(set) var purpose: EmailCodePurpose?
+  var email = ""
+  var displayName = ""
+
+  /// Compte anonyme : le prénom est proposé, et l'adresse se lie au compte de l'appareil.
+  let canLink: Bool
+  private let gateway: any RemoteGateway
+  private let kinds: any AccountKindStore
+  private let dependencies: Dependencies
+
+  init(gateway: any RemoteGateway, kinds: any AccountKindStore, dependencies: Dependencies = Dependencies()) {
+    self.gateway = gateway
+    self.kinds = kinds
+    self.dependencies = dependencies
+    canLink = kinds.kind == .anonymous
+  }
+
+  // MARK: - Validation
+
+  /// Adresse telle que le serveur l'enregistre : sans espace, en minuscules.
+  var normalizedEmail: String { Self.normalize(email: email) }
+
+  var canRequestCode: Bool {
+    Self.isValid(email: normalizedEmail) && isNameAcceptable && !isWorking
+  }
+
+  /// Prénom facultatif ; s'il est saisi, il doit être valable.
+  var isNameAcceptable: Bool {
+    displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Self.validDisplayName(displayName) != nil
+  }
+
+  static func normalize(email: String) -> String {
+    email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  /// Même forme que les invitations (`invalid_email` côté serveur) : ASCII imprimable, un `@`, un domaine à point.
+  static func isValid(email: String) -> Bool {
+    email.wholeMatch(of: /[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)*\.[a-z]{2,}/) != nil
+  }
+
+  /// Prénom accepté par `profiles` : 1 à 40 caractères sans espace en tête ni en fin, sans caractère de contrôle ni
+  /// de mise en forme invisible. `nil` s'il ne passe pas.
+  static func validDisplayName(_ raw: String) -> String? {
+    let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard (1...40).contains(name.unicodeScalars.count) else { return nil }
+    let refused: Set<Unicode.GeneralCategory> = [.control, .format, .lineSeparator, .paragraphSeparator]
+    guard !name.unicodeScalars.contains(where: { refused.contains($0.properties.generalCategory) }) else { return nil }
+    return name
+  }
+
+  /// Secondes avant « Renvoyer le code », 0 s'il est disponible.
+  func secondsUntilResend(now: Date) -> Int {
+    guard let codeSentAt else { return 0 }
+    return max(0, Int((Self.resendDelay - now.timeIntervalSince(codeSentAt)).rounded(.up)))
+  }
+
+  // MARK: - Étapes
+
+  /// « Recevoir un code ».
+  func requestCode() async {
+    guard canRequestCode else {
+      if !Self.isValid(email: normalizedEmail) { publish(.invalidEmail) }
+      return
+    }
+    await sendCode(to: normalizedEmail)
+  }
+
+  /// « Renvoyer le code », à la même adresse et pour le même usage.
+  func resendCode() async {
+    guard let sentTo, !isWorking, secondsUntilResend(now: dependencies.now()) == 0 else { return }
+    await sendCode(to: sentTo)
+  }
+
+  /// « Changer d'adresse ».
+  func changeEmail() {
+    guard phase == .enterCode, !isWorking else { return }
+    phase = .enterEmail
+    error = nil
+    purpose = nil
+    codeSentAt = nil
+    sentTo = nil
+  }
+
+  /// Validation au 6ᵉ chiffre.
+  func verify(code raw: String) async {
+    let code = raw.filter(\.isASCII).filter(\.isNumber)
+    guard phase == .enterCode, !isWorking, code.count == Self.codeLength, let purpose, let sentTo else { return }
+    guard dependencies.isOnline() else { return publish(.offline) }
+    isWorking = true
+    error = nil
+    defer { isWorking = false }
+    let gateway = gateway
+    let verified: VerifiedCode
+    do {
+      verified = try await withTimeout(Self.timeout) {
+        try await gateway.verifyCode(email: sentTo, code: code, purpose: purpose)
+      }
+    } catch {
+      return publish(classifyVerification(error))
+    }
+    kinds.save(.email)
+    let name = Self.validDisplayName(displayName)
+    if purpose == .link {
+      dependencies.sessionDidChange()
+      if let name { await writeDisplayName(name) }
+      outcome = .linked
+      phase = .done
+      return
+    }
+    // Compte existant : les listes du téléphone y sont ajoutées par la passe qui suit (`AccountRekey`).
+    let added = dependencies.resendableLists(verified.accountId)
+    phase = .merging
+    dependencies.sessionDidChange()
+    await dependencies.synchronize()
+    if let token = verified.previousAnonymousToken {
+      do {
+        try await withTimeout(Self.timeout) { try await gateway.deleteAccount(accessToken: token) }
+      } catch {
+        // Sans conséquence : la purge des comptes anonymes inactifs le supprimera (#68, 365 jours).
+        Self.logger.notice("Ancien compte anonyme gardé : \(AuthBootstrap.publicCode(of: error), privacy: .public)")
+      }
+    }
+    var known = try? await withTimeout(Self.timeout) { try await gateway.displayName() }
+    if known == nil, let name {
+      await writeDisplayName(name)
+      known = name
+    }
+    outcome = .signedIn(displayName: known, addedLists: added)
+    phase = .done
+  }
+
+  // MARK: - Outils
+
+  private func sendCode(to address: String) async {
+    guard dependencies.isOnline() else { return publish(.offline) }
+    isWorking = true
+    error = nil
+    defer { isWorking = false }
+    do {
+      // Compte anonyme : liaison, sauf si le code en cours est déjà un code de connexion (renvoi).
+      let next = canLink && purpose != .signIn ? try await linkOrSignIn(address) : try await signIn(address)
+      purpose = next
+      sentTo = address
+      codeSentAt = dependencies.now()
+      phase = .enterCode
+    } catch {
+      publish(classifyRequest(error))
+    }
+  }
+
+  /// Liaison au compte de l'appareil ; adresse déjà prise : connexion au compte existant (vecteur `010`).
+  private func linkOrSignIn(_ address: String) async throws -> EmailCodePurpose {
+    let gateway = gateway
+    do {
+      try await withTimeout(Self.timeout) { try await gateway.linkEmail(address) }
+      return .link
+    } catch let failure as AuthRequestError {
+      switch SyncDecisions.linkEmailNextStep(status: failure.status, errorCode: failure.code) {
+      case .signInExisting: return try await signIn(address)
+      case .rateLimited: throw AccountLinkError.rateLimited
+      case .enterLinkCode, .retry: throw failure
+      }
+    }
+  }
+
+  private func signIn(_ address: String) async throws -> EmailCodePurpose {
+    let gateway = gateway
+    try await withTimeout(Self.timeout) { try await gateway.signInWithEmail(address) }
+    return .signIn
+  }
+
+  private func writeDisplayName(_ name: String) async {
+    let gateway = gateway
+    do {
+      try await withTimeout(Self.timeout) { try await gateway.setDisplayName(name) }
+    } catch {
+      // Le prénom se corrige dans À propos → Compte.
+      Self.logger.notice("Prénom non enregistré : \(AuthBootstrap.publicCode(of: error), privacy: .public)")
+    }
+  }
+
+  private func publish(_ error: AccountLinkError) {
+    self.error = error
+    errorRevision += 1
+  }
+
+  /// Codes GoTrue d'une adresse refusée. `otp_disabled` : pas de compte pour cette adresse, et on ne peut que s'y
+  /// connecter.
+  private static let invalidEmailCodes: Set<String> = [
+    "email_address_invalid", "validation_failed", "otp_disabled", "email_address_not_authorized", "signup_disabled",
+  ]
+
+  private func classifyRequest(_ error: any Error) -> AccountLinkError {
+    switch error {
+    case let error as AccountLinkError: return error
+    case let error as AuthRequestError:
+      if error.status == 429 { return .rateLimited }
+      return error.code.map(Self.invalidEmailCodes.contains) == true ? .invalidEmail : .unknown
+    case let error as RemoteError: return error == .network || error == .notSent ? .offline : .unknown
+    default: return .unknown
+    }
+  }
+
+  /// GoTrue répond `otp_expired` à un code faux comme à un code expiré : l'âge du code les distingue.
+  private func classifyVerification(_ error: any Error) -> AccountLinkError {
+    switch error {
+    case let error as AuthRequestError:
+      if error.status == 429 { return .rateLimited }
+      guard (400..<500).contains(error.status) else { return .unknown }
+      let age = codeSentAt.map { dependencies.now().timeIntervalSince($0) } ?? 0
+      return age >= Self.codeLifetime ? .expiredCode : .invalidCode
+    case let error as RemoteError: return error == .network || error == .notSent ? .offline : .unknown
+    default: return .unknown
+    }
+  }
+}

@@ -9,6 +9,8 @@ final class AppModel {
   /// Change à chaque reconstruction : `RootView` repart de zéro, modèles d'écran compris.
   private(set) var generation = 0
   private(set) var deletion: AccountDeletion?
+  /// Compte de l'appareil (#87), reconstruit avec l'environnement.
+  private(set) var account: AccountSession?
   /// Drapeau `account.deletion` trouvé au lancement : la reprise de la suppression remplace l'app jusqu'à son issue,
   /// sans synchronisation ni `ensureSession`.
   private(set) var isResumingDeletion: Bool
@@ -22,6 +24,8 @@ final class AppModel {
     let current = try? environment.get()
     deletion = current?.makeAccountDeletion()
     deletion?.host = self
+    account = current?.makeAccountSession()
+    account?.host = self
     // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
     // Jamais pendant une suppression : la coche irait dans des données sur le point d'être effacées.
     if !isResumingDeletion { CheckNextItemRouter.handler = current?.activityActions }
@@ -65,6 +69,8 @@ extension AppModel: AccountDeletionHost {
     let next = try? environment.get()
     deletion = next?.makeAccountDeletion()
     deletion?.host = self
+    account = next?.makeAccountSession()
+    account?.host = self
     CheckNextItemRouter.handler = next?.activityActions
     // Aucune visite ne survit à la purge : toute activité encore affichée est orpheline.
     next?.endOrphanActivities(keeping: nil)

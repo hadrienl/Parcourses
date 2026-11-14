@@ -8,6 +8,9 @@ status=$(cd .. && supabase status -o env 2>/dev/null)
 value() { sed -n "s/^$1=\"\(.*\)\"$/\1/p" <<<"$status"; }
 url=$(value API_URL)
 key=$(value PUBLISHABLE_KEY)
+# Mailpit reçoit les codes de connexion (#87) ; le test les y lit.
+mailpit=$(value MAILPIT_URL)
+mailpit=${mailpit:-http://127.0.0.1:56324}
 
 if [[ "$url" != "http://127.0.0.1:56321" || -z "$key" ]]; then
   echo "Supabase local introuvable (attendu sur 127.0.0.1:56321) : lancer supabase start." >&2
@@ -57,10 +60,13 @@ SQL
 
 # Suppression du compte (#68) : le test y écrit l'ancien compte, le nouveau et la visite, vérifiés en base à la fin.
 deletion_out=$(mktemp -d)/accounts
+# Comptes e-mail (#87) : l'ancien compte anonyme du second téléphone, supprimé après la reprise.
+accounts_out=$(mktemp -d)/email-accounts
 udid=${SIMULATOR_UDID:-$(scripts/simulator.sh latest)}
 xcodegen generate --quiet
 TEST_RUNNER_PARCOURSES_IT_URL="$url" TEST_RUNNER_PARCOURSES_IT_KEY="$key" \
   TEST_RUNNER_PARCOURSES_IT_SNAPSHOT_STORE="$store" TEST_RUNNER_PARCOURSES_IT_DELETION_OUT="$deletion_out" \
+  TEST_RUNNER_PARCOURSES_IT_MAILPIT="$mailpit" TEST_RUNNER_PARCOURSES_IT_ACCOUNTS_OUT="$accounts_out" \
   xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses -destination "id=$udid" \
   -derivedDataPath DerivedData -only-testing:ParcoursesTests
 
@@ -98,3 +104,18 @@ SQL
 )
 echo "Suppression du compte : $deletion"
 [[ "$deletion" == "0|1|0|0|0" ]] || { echo "Attendu : 0|1|0|0|0" >&2; exit 1; }
+
+# Comptes e-mail : l'ancien compte anonyme rattrapé par la connexion a été supprimé avec son jeton, et le compte e-mail
+# du test aussi (nettoyage).
+[[ -s "$accounts_out" ]] || { echo "Identifiants des comptes e-mail absents ($accounts_out)" >&2; exit 1; }
+read -r left_anonymous email_account <"$accounts_out"
+for id in "$left_anonymous" "$email_account"; do
+  [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || { echo "Identifiant illisible : $id" >&2; exit 1; }
+done
+accounts=$(sql <<SQL
+select (select count(*) from auth.users where id = '$left_anonymous'),
+       (select count(*) from auth.users where id = '$email_account');
+SQL
+)
+echo "Comptes e-mail : $accounts"
+[[ "$accounts" == "0|0" ]] || { echo "Attendu : 0|0" >&2; exit 1; }

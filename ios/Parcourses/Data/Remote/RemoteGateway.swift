@@ -122,6 +122,28 @@ nonisolated enum VisitAccess: Sendable, Equatable {
   case notVisible
 }
 
+/// Code reçu par e-mail : liaison d'une adresse au compte anonyme (`verifyOtp` de type `email_change`, même compte) ou
+/// connexion à un compte existant (type `email`). Mêmes noms sur Android.
+nonisolated enum EmailCodePurpose: String, Sendable {
+  case link
+  case signIn
+}
+
+/// Code vérifié : le compte de la session, et le jeton d'accès du compte anonyme quitté s'il y en a un.
+nonisolated struct VerifiedCode: Sendable, Equatable {
+  let accountId: UUID
+  /// Connexion vers un autre compte depuis un compte anonyme : son jeton d'accès (valable une heure), gardé pour le
+  /// supprimer après la reprise (`deleteAccount(accessToken:)`). `nil` sinon.
+  let previousAnonymousToken: String?
+}
+
+/// Refus de GoTrue sur une demande de code ou sa vérification : statut HTTP et `error_code`, tels que les vecteurs
+/// `010` les décrivent. Le réseau reste `RemoteError.network`.
+nonisolated struct AuthRequestError: Error, Sendable, Equatable {
+  let status: Int
+  let code: String?
+}
+
 /// Accès distant de l'app. `SupabaseGateway` en est l'implémentation ; les tests fournissent une doublure.
 /// Toutes les écritures sont idempotentes : la file peut les rejouer. Elles lèvent `RemoteError`.
 nonisolated protocol RemoteGateway: Sendable {
@@ -158,8 +180,16 @@ nonisolated protocol RemoteGateway: Sendable {
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws
-  func saveItem(_ item: ListItemUpsert) async throws
-  func deleteItem(id: UUID) async throws
+  /// Insertion complète, idempotente (`on conflict do nothing`) : un article jamais arrivé au serveur. Ignorée en
+  /// silence si l'article a été supprimé ailleurs (pierre tombale, 87.1).
+  func insertItem(_ item: ListItemUpsert) async throws
+  /// Mise à jour des seules colonnes de `fields`, sans repli sur l'insertion. Vrai si une ligne a été touchée : 0 ligne
+  /// veut dire supprimé ailleurs ou accès perdu, la RLS filtre sans erreur (vecteur `003`).
+  @discardableResult
+  func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool
+  /// Vrai si une ligne a été supprimée.
+  @discardableResult
+  func deleteItem(id: UUID) async throws -> Bool
 
   func createVisit(_ visit: VisitInsert) async throws
   func insertChecks(_ checks: [CheckUpload]) async throws
@@ -170,6 +200,16 @@ nonisolated protocol RemoteGateway: Sendable {
   /// `updatedAfter` a un recouvrement de quelques secondes : l'appelant doit fusionner de façon idempotente.
   func fetchLists(updatedAfter: Date?) async throws -> [ListRow]
   func fetchItems(updatedAfter: Date?) async throws -> [ListItemRow]
+  /// Articles d'une liste, sans curseur : liste nouvellement accessible ou rechargée (`refreshAccess`).
+  func fetchItems(listId: UUID) async throws -> [ListItemRow]
+  /// Identifiants des articles d'une liste : réconciliation complète des suppressions (vecteur `007`).
+  func fetchItemIds(listId: UUID) async throws -> [UUID]
+  /// Listes lisibles par le compte (RPC `accessible_list_ids`, vecteur `005`).
+  func accessibleListIds() async throws -> [UUID]
+  /// Pierres tombales depuis `after` (avec le recouvrement du curseur), toutes si `nil`.
+  func fetchTombstones(after: Date?) async throws -> [TombstoneRow]
+  /// Pierres tombales de ces articles : lève le doute après une mise à jour sans ligne.
+  func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow]
   func fetchCategories() async throws -> [CategoryRow]
   func fetchProducts() async throws -> [RemoteProduct]
 
@@ -188,4 +228,25 @@ nonisolated protocol RemoteGateway: Sendable {
 
   /// Instantané du graphe d'un magasin, s'il diffère de `knownVersion`. Exige une session, jamais créée ici.
   func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse
+
+  // MARK: Comptes e-mail (#87)
+
+  /// Adresse du compte de la session, sans appel au serveur. `nil` pour un compte anonyme ou sans session.
+  func accountEmail() async throws -> String?
+  /// Lie `email` au compte anonyme de la session (créé s'il manque) : un code de type `email_change` part. Lève
+  /// `AuthRequestError` (`422 email_exists` : adresse déjà prise, vecteur `010`).
+  func linkEmail(_ email: String) async throws
+  /// Demande un code de connexion à un compte existant, sans jamais en créer (`shouldCreateUser: false`).
+  func signInWithEmail(_ email: String) async throws
+  /// Vérifie le code. La session devient celle du compte de l'adresse. Lève `AuthRequestError` (code faux ou expiré).
+  func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode
+  /// Prénom du compte (`profiles`), `nil` s'il n'en a pas.
+  func displayName() async throws -> String?
+  /// Écrit le prénom du compte e-mail de la session.
+  func setDisplayName(_ name: String) async throws
+  /// Déconnexion : la session est oubliée sur l'appareil, puis révoquée sur le serveur si le réseau le permet.
+  func signOut() async throws
+  /// Supprime l'ancien compte anonyme avec son jeton gardé en mémoire, après une reprise vers un compte existant.
+  /// Jamais le compte de la session.
+  func deleteAccount(accessToken: String) async throws
 }

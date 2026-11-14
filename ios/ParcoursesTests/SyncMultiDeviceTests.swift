@@ -1,0 +1,300 @@
+import Foundation
+import SwiftData
+import Testing
+
+@testable import Parcourses
+
+private nonisolated let t0 = syncEpoch
+
+private func serverList(_ id: UUID, owner: UUID, name: String, at date: Date) -> ListRow {
+  ListRow(id: id, ownerId: owner, name: name, createdAt: date, updatedAt: date)
+}
+
+private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date? = nil, at date: Date) -> ListItemRow {
+  ListItemRow(
+    id: id, listId: listId, productId: nil, label: label, quantity: nil, checkedAt: checkedAt, createdAt: date,
+    updatedAt: date)
+}
+
+/// Synchro multi-appareil et partage côté moteur (#87, lot 87.3) : envoi par champ, 0 ligne, refus, réconciliation des
+/// listes, pierres tombales.
+@MainActor
+@Suite(.serialized) struct SyncMultiDeviceTests {
+  /// Liste et article envoyés une première fois, descente comprise.
+  private func syncedItem(_ harness: SyncHarness) async throws -> (list: ShoppingList, item: ListItem) {
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: t0)
+    await harness.engine.drain(pull: true)
+    #expect(try harness.entries().isEmpty)
+    await harness.gateway.clearCalls()
+    return (list, item)
+  }
+
+  private func freshItem(_ harness: SyncHarness, _ id: UUID) throws -> ListItem? {
+    try harness.fresh(ListItem.self).first { $0.id == id }
+  }
+
+  @Test func anItemOnTheServerSendsOnlyItsChangedFields() async throws {
+    let harness = try SyncHarness()
+    let (_, item) = try await syncedItem(harness)
+    #expect(try freshItem(harness, item.id)?.isOnServer == true)
+
+    try harness.lists.setChecked(itemId: item.id, checkedAt: t0.addingTimeInterval(10), at: t0.addingTimeInterval(10))
+    #expect(try harness.entries().first?.changedFields == [ListItemFields.checkedAt])
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    #expect(calls.contains("updateItem") && !calls.contains("insertItem"))
+    #expect(await harness.gateway.patches.last?.columns == [ListItemFields.checkedAt])
+  }
+
+  /// Vecteur `002` : une entrée remplacée avant l'envoi garde sa place et l'union des champs.
+  @Test func aReplacedEntryKeepsItsSequenceAndTheUnionOfFields() async throws {
+    let harness = try SyncHarness()
+    let (_, item) = try await syncedItem(harness)
+    harness.online.isOn = false
+    try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0)
+    let sequence = try #require(try harness.entries().first?.sequence)
+    item.quantity = "2"
+    try harness.context.enqueueUpsert(of: item, at: t0, changedFields: [ListItemFields.quantity])
+    try harness.context.save()
+    let entries = try harness.entries()
+    #expect(entries.count == 1)
+    #expect(entries.first?.sequence == sequence)
+    #expect(entries.first?.changedFields == [ListItemFields.checkedAt, ListItemFields.quantity])
+  }
+
+  /// Vecteur `003`, pierre tombale : supprimé ailleurs, l'article et son entrée partent sans réessai ni réinsertion.
+  @Test func anUntouchedUpdateWithATombstoneDropsTheItem() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    await harness.gateway.deleteElsewhere(item.id, listId: list.id, at: t0)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0)
+    await harness.engine.drain()
+    #expect(try freshItem(harness, item.id) == nil)
+    #expect(try harness.entries().isEmpty)
+    let calls = await harness.gateway.calls
+    #expect(calls.contains("fetchTombstones(ids:)"))
+    #expect(!calls.contains("insertItem"))
+  }
+
+  /// Vecteur `003`, sans pierre tombale : rôle abaissé. La liste est rechargée, la valeur du serveur revient.
+  @Test func anUntouchedUpdateWithoutTombstoneReloadsTheList() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    await harness.gateway.setReadOnlyItems([item.id])
+    await harness.gateway.setPull(
+      lists: [serverList(list.id, owner: UUID(), name: "Courses", at: t0)],
+      items: [serverItem(item.id, listId: list.id, label: "Lait demi-écrémé", at: t0)])
+    try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0)
+    await harness.engine.drain()
+    let local = try #require(try freshItem(harness, item.id))
+    #expect(local.checkedAt == nil)
+    #expect(local.label == "Lait demi-écrémé")
+    #expect(try harness.entries().isEmpty)
+    let calls = await harness.gateway.calls
+    #expect(calls.contains("accessibleListIds") && calls.contains("fetchItems(listId:)"))
+  }
+
+  /// Vecteur `004` : un ajout refusé dans la liste d'un autre (rôle abaissé) recharge la liste, sans abandon en file.
+  @Test func aRefusedInsertIntoSomeoneElsesListReloadsIt() async throws {
+    let harness = try SyncHarness()
+    let listId = UUID()
+    let kept = UUID()
+    await harness.gateway.setPull(
+      lists: [serverList(listId, owner: UUID(), name: "Partagée", at: t0)],
+      items: [serverItem(kept, listId: listId, label: "Pain", at: t0)])
+    await harness.engine.drain(pull: true)
+    #expect(try harness.fresh(ShoppingList.self).first?.ownerId != nil)
+    await harness.gateway.setRefusedLists([listId])
+    let added = try harness.lists.addItem(
+      listId: listId, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0)
+    await harness.engine.drain()
+    #expect(try freshItem(harness, added.id) == nil)
+    #expect(try freshItem(harness, kept) != nil)
+    #expect(try harness.entries().isEmpty)
+  }
+
+  /// Vecteur `005` : une liste synchronisée qui n'est plus accessible quitte l'appareil avec ses articles.
+  @Test func aListGoneFromTheServerLeavesTheDevice() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    let other = try harness.lists.createList(name: "Autre", at: t0)
+    await harness.gateway.setHiddenLists([list.id])
+    await harness.engine.drain(pull: true)
+    let lists = try harness.fresh(ShoppingList.self)
+    #expect(lists.map(\.id) == [other.id])
+    #expect(try freshItem(harness, item.id) == nil)
+    #expect(try harness.entries().isEmpty)
+  }
+
+  /// Vecteur `005` : une liste nouvellement accessible descend entièrement, curseurs ignorés.
+  @Test func aNewlyAccessibleListIsFetchedFully() async throws {
+    let harness = try SyncHarness()
+    let first = UUID()
+    let me = await harness.gateway.account
+    await harness.gateway.setPull(lists: [serverList(first, owner: me, name: "Mienne", at: t0.addingTimeInterval(100))])
+    await harness.engine.drain(pull: true)
+    let shared = UUID()
+    let sharedItem = UUID()
+    await harness.gateway.setPull(
+      lists: [
+        serverList(first, owner: me, name: "Mienne", at: t0.addingTimeInterval(100)),
+        serverList(shared, owner: UUID(), name: "Partagée", at: t0),
+      ],
+      items: [serverItem(sharedItem, listId: shared, label: "Café", at: t0)])
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.listCursors.last == .some(nil))
+    #expect(await harness.gateway.calls.contains("fetchItems(listId:)"))
+    #expect(try harness.fresh(ShoppingList.self).contains { $0.id == shared })
+    let item = try #require(try freshItem(harness, sharedItem))
+    #expect(item.isOnServer)
+  }
+
+  /// Vecteurs `006` et `007` : pierres tombales depuis le curseur, qui avance.
+  @Test func tombstonesFromTheCursorDeleteLocalItems() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    let cursor = try #require(harness.cursors.tombstones)
+    let deletedAt = cursor.addingTimeInterval(10)
+    await harness.gateway.deleteElsewhere(item.id, listId: list.id, at: deletedAt)
+    harness.clock.advance(120)
+    await harness.engine.drain(pull: true)
+    #expect(try freshItem(harness, item.id) == nil)
+    #expect(await harness.gateway.tombstoneCursors.last == .some(cursor))
+    #expect(harness.cursors.tombstones == deletedAt)
+  }
+
+  /// Vecteur `007` : curseur de plus de 29 jours, réconciliation complète ; un article jamais envoyé reste.
+  @Test func anOldCursorReconcilesItemsFully() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    await harness.gateway.purgeElsewhere(item.id)
+    harness.cursors.tombstones = harness.clock.now.addingTimeInterval(-30 * 86_400)
+    await harness.gateway.fail("insertItem", with: [.network])
+    let unsent = try harness.lists.addItem(
+      listId: list.id, label: "Pain", normalizedName: "pain", quantity: nil, productId: nil, categoryId: "bakery",
+      at: t0)
+    // Premier passage : l'envoi échoue, la descente attend. Le délai passé, l'article part puis la descente réconcilie.
+    await harness.engine.drain(pull: true)
+    #expect(try freshItem(harness, unsent.id)?.isOnServer == false)
+    await harness.skipBackoff()
+    await harness.engine.drain(pull: true)
+    #expect(try freshItem(harness, item.id) == nil)
+    #expect(try freshItem(harness, unsent.id) != nil)
+    #expect(await harness.gateway.calls.contains("fetchItemIds"))
+    #expect(harness.cursors.tombstones == (await harness.gateway.serverNow))
+  }
+
+  @Test func deletingAnItemNeverReceivedIsNotARefusal() async throws {
+    let harness = try SyncHarness()
+    harness.online.isOn = false
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    try harness.lists.deleteItem(id: item.id)
+    harness.online.isOn = true
+    await harness.engine.drain()
+    #expect(try harness.entries().isEmpty)
+    let calls = await harness.gateway.calls
+    #expect(calls.contains("deleteItem") && !calls.contains("fetchTombstones(ids:)"))
+  }
+
+  /// Entrée écrite avant 87.3 (sans champs) : toute la ligne part, puis l'insertion si 0 ligne.
+  @Test func aLegacyEntrySendsTheWholeRowThenInserts() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    await harness.engine.drain()
+    let item = ListItem(listId: list.id, label: "Lait", normalizedName: "lait", categoryId: "dairy", position: 0)
+    harness.context.insert(item)
+    let row = ListItemUpsert(
+      id: item.id, listId: list.id, productId: nil, label: "Lait", quantity: nil, checkedAt: nil)
+    try harness.context.enqueueOutboxEntry(
+      kind: .upsertItem, entityId: item.id, payload: OutboxCoding.encode(row), at: t0)
+    try harness.context.save()
+    await harness.gateway.clearCalls()
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    let update = try #require(calls.firstIndex(of: "updateItem"))
+    let insert = try #require(calls.firstIndex(of: "insertItem"))
+    #expect(update < insert)
+    #expect(try freshItem(harness, item.id)?.isOnServer == true)
+  }
+}
+
+/// Règles de la reprise de compte (#87 §2.3, vecteur `008`).
+@MainActor
+@Suite struct AccountRekeyRulesTests {
+  @Test func onlyOwnModifiedListsAreResentAndUnpublishedProductsAreDropped() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let (me, other) = (UUID(), UUID())
+    let (published, gone) = (UUID(), UUID())
+    context.insert(Product(id: published, name: "Lait", normalizedName: "lait", categoryId: "dairy"))
+    let mine = ShoppingList(
+      name: "À moi", createdAt: t0, updatedAt: t0.addingTimeInterval(1), syncState: .synced, ownerId: me)
+    let theirs = ShoppingList(name: "D'autrui", createdAt: t0, updatedAt: t0.addingTimeInterval(1), ownerId: other)
+    let empty = ShoppingList(name: "Courses", createdAt: t0, updatedAt: t0)
+    let neverPulled = ShoppingList(name: "Hors ligne", createdAt: t0, updatedAt: t0)
+    for list in [mine, theirs, empty, neverPulled] { context.insert(list) }
+    let kept = ListItem(
+      listId: mine.id, label: "Lait", normalizedName: "lait", productId: published, categoryId: "dairy", position: 0,
+      syncState: .synced, isOnServer: true, updatedBy: other)
+    let purged = ListItem(
+      listId: mine.id, label: "Fromage", normalizedName: "fromage", productId: gone, categoryId: "dairy", position: 1,
+      syncState: .synced, isOnServer: true)
+    let foreign = ListItem(listId: theirs.id, label: "Pain", normalizedName: "pain", categoryId: "bakery", position: 0)
+    let offline = ListItem(
+      listId: neverPulled.id, label: "Café", normalizedName: "cafe", categoryId: "other", position: 0)
+    for item in [kept, purged, foreign, offline] { context.insert(item) }
+    try context.save()
+
+    #expect(try AccountRekey.resendCount(in: context, previousAccountId: me) == 2)
+    let oldKept = kept.id
+    let remap = try AccountRekey.run(in: context, previousAccountId: me, now: t0)
+
+    let lists = try context.fetch(FetchDescriptor<ShoppingList>())
+    #expect(Set(lists.map(\.name)) == ["À moi", "Hors ligne"])
+    #expect(lists.allSatisfy { $0.ownerId == nil && $0.syncState == .pending })
+    let items = try context.fetch(FetchDescriptor<ListItem>())
+    #expect(Set(items.map(\.label)) == ["Lait", "Fromage", "Café"])
+    #expect(items.allSatisfy { !$0.isOnServer && $0.updatedBy == nil })
+    #expect(items.first { $0.label == "Lait" }?.productId == published)
+    #expect(items.first { $0.label == "Fromage" }?.productId == nil)
+    #expect(remap[oldKept] == kept.id && kept.id != oldKept)
+    let entries = try context.fetch(FetchDescriptor<OutboxEntry>())
+    #expect(entries.filter { $0.kind == .upsertList }.count == 2)
+    #expect(entries.filter { $0.kind == .upsertItem }.allSatisfy { $0.changedFields == ListItemFields.all })
+  }
+
+  /// Ancien compte inconnu : une liste au propriétaire connu ne peut pas être prouvée à soi.
+  @Test func withoutThePreviousAccountAKnownOwnerIsNotResent() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    context.insert(ShoppingList(name: "Descendue", createdAt: t0, updatedAt: t0.addingTimeInterval(1), ownerId: UUID()))
+    context.insert(ShoppingList(name: "Locale", createdAt: t0, updatedAt: t0.addingTimeInterval(1)))
+    try context.save()
+    _ = try AccountRekey.run(in: context, previousAccountId: nil, now: t0)
+    #expect(try context.fetch(FetchDescriptor<ShoppingList>()).map(\.name) == ["Locale"])
+  }
+}
+
+/// Vecteur `009` côté passerelle : un compte e-mail sans session n'en recrée jamais d'anonyme, sans même appeler le
+/// serveur.
+@Suite struct SessionLossGatewayTests {
+  @Test func anEmailAccountWithoutSessionWaitsInsteadOfCreatingAnAnonymousOne() async throws {
+    let configuration = try #require(SupabaseConfiguration(url: "http://127.0.0.1:9", publishableKey: "k"))
+    let defaults = try #require(UserDefaults(suiteName: "tests.session-loss.\(UUID().uuidString)"))
+    let kinds = MemoryAccountKindStore(.email)
+    let gateway = SupabaseGateway(
+      configuration: configuration, store: MemorySecureStore(),
+      deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults), accountKinds: kinds)
+    await #expect(throws: RemoteError.unauthorized) { try await gateway.ensureSession() }
+    #expect(try await gateway.accountEmail() == nil)
+    // Compte anonyme : la création est tentée (serveur injoignable ici).
+    kinds.save(.anonymous)
+    await #expect(throws: RemoteError.network) { try await gateway.ensureSession() }
+  }
+}

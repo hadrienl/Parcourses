@@ -18,11 +18,10 @@ struct RemoteContractTests {
     return tables
   }()
 
-  /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. `profiles` et
-  /// `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot iOS 87.3. `list_members` (87.2) : lue en 87.4.
+  /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
+  /// `list_members` (#87, lot 87.2) : lue en 87.4.
   private static let tablesWithoutDTO: Set<String> = [
-    "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots",
-    "profiles", "list_item_tombstones", "list_members",
+    "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots", "list_members",
   ]
 
   /// Colonnes accordées à `authenticated` : `verb` vaut `insert` ou `update`, lues dans les migrations.
@@ -47,10 +46,7 @@ struct RemoteContractTests {
 
   /// Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
   /// avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
-  /// `updated_by` (#87, lot 87.1) : lue à partir du lot iOS 87.3.
   private static let serverOnlyColumns: [String: Set<String>] = [
-    "lists": ["updated_by"],
-    "list_items": ["updated_by"],
     "products": ["published_at"],
     "visits": [
       "auto_closed", "learn_outcome", "learn_weight", "next_attempt_at", "process_attempts", "process_error",
@@ -77,6 +73,7 @@ struct RemoteContractTests {
 
   private static let readDTOs: [any TableDTO.Type] = [
     ListRow.self, ListItemRow.self, VisitRow.self, CheckRow.self, CategoryRow.self, ProductRow.self,
+    TombstoneRow.self, ProfileRow.self,
   ]
 
   @Test func readDTOsCoverExactlyTheColumnsOfTheirTable() throws {
@@ -99,9 +96,19 @@ struct RemoteContractTests {
 
   @Test func patchesEncodeOnlyColumnsGrantedForUpdate() throws {
     let id = UUID()
-    let item = ListItemPatch(listId: id, productId: nil, label: "l", quantity: nil, checkedAt: nil)
+    let row = ListItemUpsert(id: id, listId: id, productId: nil, label: "l", quantity: nil, checkedAt: nil)
+    let item = ListItemFields(values: row, columns: ListItemFields.all)
     #expect(try Self.encodedKeys(ListPatch(name: "n")) == (try Self.granted("update", on: "lists")))
     #expect(try Self.encodedKeys(item) == (try Self.granted("update", on: "list_items")))
+    #expect(Set(ListItemFields.all) == (try Self.granted("update", on: "list_items")))
+    // Mise à jour partielle : seules les colonnes demandées partent, `null` compris.
+    let partial = ListItemFields(values: row, columns: [ListItemFields.checkedAt, "inconnue"])
+    let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(partial)) as? [String: Any])
+    #expect(Set(object.keys) == [ListItemFields.checkedAt])
+    #expect(object[ListItemFields.checkedAt] is NSNull)
+    let profile = ProfilePatch(displayName: "Léa")
+    #expect(try Self.encodedKeys(profile) == (try Self.granted("update", on: "profiles")))
+    #expect(try Self.encodedKeys(profile) == (try Self.granted("insert", on: "profiles")))
     #expect(try Self.encodedKeys(VisitClose(endedAt: .now)) == (try Self.granted("update", on: "visits")))
   }
 
@@ -116,13 +123,19 @@ struct RemoteContractTests {
   @Test func rowsDecodeFrozenPostgrestJSON() throws {
     let (u, d) = (Self.uuid, Self.date)
     let list = try decode(
-      ListRow.self, #"{"id":"\#(u)","owner_id":"\#(u)","name":"C","created_at":"\#(d)","updated_at":"\#(d)"}"#)
-    #expect(list.name == "C")
+      ListRow.self,
+      #"{"id":"\#(u)","owner_id":"\#(u)","name":"C","created_at":"\#(d)","updated_at":"\#(d)","updated_by":null}"#)
+    #expect(list.name == "C" && list.updatedBy == nil)
     let item = try decode(
       ListItemRow.self,
-      #"{"id":"\#(u)","list_id":"\#(u)","product_id":null,"label":"Lait","quantity":null,"checked_at":"\#(d)","created_at":"\#(d)","updated_at":"\#(d)"}"#
+      #"{"id":"\#(u)","list_id":"\#(u)","product_id":null,"label":"Lait","quantity":null,"checked_at":"\#(d)","created_at":"\#(d)","updated_at":"\#(d)","updated_by":"\#(u)"}"#
     )
-    #expect(item.checkedAt != nil && item.quantity == nil)
+    #expect(item.checkedAt != nil && item.quantity == nil && item.updatedBy == UUID(uuidString: u))
+    let tombstone = try decode(TombstoneRow.self, #"{"id":"\#(u)","list_id":"\#(u)","deleted_at":"\#(d)"}"#)
+    #expect(tombstone.listId == UUID(uuidString: u))
+    let profile = try decode(
+      ProfileRow.self, #"{"user_id":"\#(u)","display_name":"Léa","created_at":"\#(d)","updated_at":"\#(d)"}"#)
+    #expect(profile.displayName == "Léa")
     let visit = try decode(
       VisitRow.self,
       #"{"id":"\#(u)","user_id":"\#(u)","store_id":"\#(u)","list_id":null,"list_was_sorted":true,"started_at":"\#(d)","ended_at":null,"processed_at":null}"#

@@ -5,7 +5,10 @@ struct AboutView: View {
   @Environment(\.dismiss) private var dismiss
   /// Absent dans les aperçus et les tests sans app : la section « Vos données » est alors masquée.
   @Environment(AccountDeletion.self) private var deletion: AccountDeletion?
+  /// Absent sans serveur, dans les aperçus et les tests : la section « Compte » est masquée.
+  @Environment(AccountSession.self) private var account: AccountSession?
   @State private var confirmsDeletion = false
+  @State private var accountPrompts = AccountPrompts()
   /// Lu à l'ouverture de la confirmation : une visite ouverte ajoute une phrase.
   @State private var interruptsShopping = false
 
@@ -27,7 +30,10 @@ struct AboutView: View {
         Section {
           Text("Parcourses ne vous suit pas et n'utilise aucun outil d'analyse tiers.")
           Text(
-            "Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. Ces données sont rattachées à un identifiant anonyme, sans nom ni e-mail."
+            "Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. "
+              + (isEmailAccount
+                ? "Ces données sont rattachées à votre compte : votre adresse e-mail ne sert qu'à vous connecter, et seul votre prénom est montré aux membres de vos listes."
+                : "Ces données sont rattachées à un identifiant anonyme, sans nom ni e-mail.")
           )
           Text(
             "Les noms d'articles que vous saisissez restent privés. Un nom ne rejoint le catalogue commun, sans lien avec vous, qu'une fois saisi par au moins trois personnes."
@@ -42,6 +48,9 @@ struct AboutView: View {
           }
         } header: {
           Text("Confidentialité")
+        }
+        if let account, account.isAvailable {
+          AccountSection(account: account, isBlocked: isBlocking, prompts: $accountPrompts)
         }
         if let deletion {
           yourData(deletion)
@@ -72,6 +81,10 @@ struct AboutView: View {
       }
     }
     .accountDeletionPresentation(deletion)
+    .accountPrompts($accountPrompts, account: account)
+    .overlay {
+      if account?.isSigningOut == true { SignOutVeil() }
+    }
     // Une fois la requête partie, et tant qu'un doute attend « Réessayer » ou « Annuler », la feuille reste ouverte.
     .interactiveDismissDisabled(isBlocking)
   }
@@ -80,7 +93,7 @@ struct AboutView: View {
     Section {
       Text(
         deletion.deletesServerData
-          ? "Vous pouvez effacer vos listes, vos visites et votre identifiant anonyme, sur cet appareil et sur nos serveurs."
+          ? "Vous pouvez effacer vos listes, vos visites et \(accountWords), sur cet appareil et sur nos serveurs."
           : "Vous pouvez effacer vos listes et vos visites de cet appareil."
       )
       Button(role: .destructive) {
@@ -99,9 +112,16 @@ struct AboutView: View {
     }
   }
 
-  /// Suppression en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
+  /// Suppression ou déconnexion en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
   private var isBlocking: Bool {
-    deletion?.status == .deleting || deletion?.status == .failed(.unknown)
+    deletion?.status == .deleting || deletion?.status == .failed(.unknown) || account?.isSigningOut == true
+  }
+
+  private var isEmailAccount: Bool { account?.kind == .email }
+
+  /// Compte e-mail : l'adresse et le prénom partent aussi.
+  private var accountWords: String {
+    isEmailAccount ? "votre compte (adresse e-mail et prénom)" : "votre identifiant anonyme"
   }
 
   /// Textes de #68 §5.2 et §5.7.
@@ -109,7 +129,7 @@ struct AboutView: View {
     var sentences =
       deletion?.deletesServerData ?? false
       ? [
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme.",
+        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que \(accountWords).",
         "Votre contribution anonyme au plan des rayons des magasins est conservée.",
         "C'est définitif.",
       ]

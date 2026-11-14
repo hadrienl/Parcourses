@@ -295,11 +295,13 @@ private final class SpyHistory: ListRepository {
   @Test func theOpenListFollowsItsNewIdentifier() throws {
     let harness = try Harness()
     let list = try harness.lists.createList(name: "Courses", at: t0)
+    // Renommée : une liste vide jamais modifiée ne serait pas renvoyée (#87, vecteur 008).
+    try harness.lists.renameList(id: list.id, name: "Courses du samedi", at: t0.addingTimeInterval(1))
     let oldId = list.id
     let model = harness.detail(oldId)
     model.input = "lait"
 
-    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    let remap = try AccountRekey.run(in: harness.context, previousAccountId: nil, now: t0)
     NotificationCenter.default.post(
       name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
 

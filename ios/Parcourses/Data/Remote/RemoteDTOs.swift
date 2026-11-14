@@ -17,12 +17,24 @@ nonisolated struct ListRow: TableDTO, Equatable {
   let name: String
   let createdAt: Date
   let updatedAt: Date
+  /// Dernier compte à avoir écrit la ligne, `nil` si ce compte a été supprimé. Pas encore affiché (87.4).
+  let updatedBy: UUID?
+
+  init(id: UUID, ownerId: UUID, name: String, createdAt: Date, updatedAt: Date, updatedBy: UUID? = nil) {
+    self.id = id
+    self.ownerId = ownerId
+    self.name = name
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+    self.updatedBy = updatedBy
+  }
 
   enum CodingKeys: String, CodingKey, CaseIterable {
     case id, name
     case ownerId = "owner_id"
     case createdAt = "created_at"
     case updatedAt = "updated_at"
+    case updatedBy = "updated_by"
   }
 }
 
@@ -38,12 +50,64 @@ nonisolated struct ListItemRow: TableDTO, Equatable {
   let checkedAt: Date?
   let createdAt: Date
   let updatedAt: Date
+  /// Dernier compte à avoir écrit la ligne, `nil` si ce compte a été supprimé.
+  let updatedBy: UUID?
+
+  init(
+    id: UUID, listId: UUID, productId: UUID?, label: String, quantity: String?, checkedAt: Date?, createdAt: Date,
+    updatedAt: Date, updatedBy: UUID? = nil
+  ) {
+    self.id = id
+    self.listId = listId
+    self.productId = productId
+    self.label = label
+    self.quantity = quantity
+    self.checkedAt = checkedAt
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+    self.updatedBy = updatedBy
+  }
 
   enum CodingKeys: String, CodingKey, CaseIterable {
     case id, label, quantity
     case listId = "list_id"
     case productId = "product_id"
     case checkedAt = "checked_at"
+    case createdAt = "created_at"
+    case updatedAt = "updated_at"
+    case updatedBy = "updated_by"
+  }
+}
+
+/// Trace d'un article supprimé (`list_item_tombstones`, #87). Purgée par le serveur après 30 jours.
+nonisolated struct TombstoneRow: TableDTO, Equatable {
+  static let table = "list_item_tombstones"
+  static var columns: [String] { CodingKeys.allCases.map(\.rawValue) }
+
+  let id: UUID
+  let listId: UUID
+  let deletedAt: Date
+
+  enum CodingKeys: String, CodingKey, CaseIterable {
+    case id
+    case listId = "list_id"
+    case deletedAt = "deleted_at"
+  }
+}
+
+/// Prénom affiché d'un compte e-mail (`profiles`, #87). Un compte anonyme n'en a pas.
+nonisolated struct ProfileRow: TableDTO, Equatable {
+  static let table = "profiles"
+  static var columns: [String] { CodingKeys.allCases.map(\.rawValue) }
+
+  let userId: UUID
+  let displayName: String
+  let createdAt: Date
+  let updatedAt: Date
+
+  enum CodingKeys: String, CodingKey, CaseIterable {
+    case userId = "user_id"
+    case displayName = "display_name"
     case createdAt = "created_at"
     case updatedAt = "updated_at"
   }
@@ -378,20 +442,37 @@ nonisolated struct CheckUpload: Sendable, Equatable {
   let checkedAt: Date
 }
 
+/// Prénom écrit par le compte lui-même (`profiles`, colonnes accordées : `display_name`).
+nonisolated struct ProfilePatch: Encodable, Sendable {
+  let displayName: String
+
+  enum CodingKeys: String, CodingKey {
+    case displayName = "display_name"
+  }
+}
+
 // Colonnes modifiables uniquement : `id` n'a pas le privilège UPDATE, et un upsert PostgREST
 // classique le réécrirait (`on conflict do update set id = …`), d'où mise à jour puis insertion.
 nonisolated struct ListPatch: Encodable, Sendable {
   let name: String
 }
 
-nonisolated struct ListItemPatch: Encodable, Sendable {
-  let listId: UUID
-  let productId: UUID?
-  let label: String
-  let quantity: String?
-  let checkedAt: Date?
+/// Mise à jour partielle d'un article : seules les colonnes de `columns` partent, `null` compris (#87 §6.4). Deux
+/// membres qui changent des champs différents du même article gardent ainsi tous les deux leur modification.
+nonisolated struct ListItemFields: Encodable, Sendable, Equatable {
+  static let listId = "list_id"
+  static let productId = "product_id"
+  static let label = "label"
+  static let quantity = "quantity"
+  static let checkedAt = "checked_at"
+  /// Toutes les colonnes modifiables, triées : entrée écrite avant 87.3 ou article dont on ignore ce qui a changé.
+  static let all = [checkedAt, label, listId, productId, quantity]
 
-  enum CodingKeys: String, CodingKey {
+  let values: ListItemUpsert
+  /// Noms de colonnes serveur ; un nom inconnu est ignoré.
+  let columns: [String]
+
+  private enum CodingKeys: String, CodingKey {
     case label, quantity
     case listId = "list_id"
     case productId = "product_id"
@@ -400,11 +481,16 @@ nonisolated struct ListItemPatch: Encodable, Sendable {
 
   func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(listId, forKey: .listId)
-    try container.encode(productId, forKey: .productId)
-    try container.encode(label, forKey: .label)
-    try container.encode(quantity, forKey: .quantity)
-    try container.encode(checkedAt, forKey: .checkedAt)
+    for column in Set(columns) {
+      switch CodingKeys(rawValue: column) {
+      case .listId: try container.encode(values.listId, forKey: .listId)
+      case .productId: try container.encode(values.productId, forKey: .productId)
+      case .label: try container.encode(values.label, forKey: .label)
+      case .quantity: try container.encode(values.quantity, forKey: .quantity)
+      case .checkedAt: try container.encode(values.checkedAt, forKey: .checkedAt)
+      case nil: continue
+      }
+    }
   }
 }
 

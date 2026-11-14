@@ -65,6 +65,8 @@ struct LocalDataPurge {
     try checkpoint(.keychainPurged)
 
     UserDefaultsSyncCursors(defaults: defaults).removeAll()
+    // Le nouveau compte naît anonyme : une session absente pourra en recréer un.
+    UserDefaultsAccountKindStore(defaults: defaults).clear()
     UserDefaultsActivityDismissals.forget(in: defaults)
     urlCache.removeAllCachedResponses()
     try checkpoint(.preferencesPurged)

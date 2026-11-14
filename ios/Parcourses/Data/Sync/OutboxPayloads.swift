@@ -13,6 +13,8 @@ nonisolated enum OutboxCoding {
 
 nonisolated struct ItemDeletionPayload: Codable, Sendable {
   let listId: UUID
+  /// L'article était arrivé au serveur. `nil` : entrée écrite avant 87.3.
+  var isOnServer: Bool?
 }
 
 nonisolated struct VisitClosePayload: Codable, Sendable {

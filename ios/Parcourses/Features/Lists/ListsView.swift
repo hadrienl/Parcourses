@@ -10,6 +10,9 @@ struct ListsView: View {
   @State private var deleting: ListSummary?
   @State private var nameInput = ""
   @State private var showsAbout = false
+  @State private var signIn: AccountLink?
+  /// Absent sans serveur : aucune entrée de connexion.
+  @Environment(AccountSession.self) private var account: AccountSession?
 
   init(model: ListsModel, onOpen: @escaping (UUID) -> Void) {
     _model = State(initialValue: model)
@@ -21,12 +24,31 @@ struct ListsView: View {
       .ticketBackground()
       .navigationTitle("Mes listes")
       .toolbar {
+        if let account, account.isAvailable, account.kind == .anonymous {
+          // Tant que le compte est anonyme (#87, écran 4).
+          ToolbarItem(placement: .topBarLeading) {
+            Button {
+              signIn = account.makeLink()
+            } label: {
+              Label("Se connecter", systemImage: "person.crop.circle").labelStyle(.titleAndIcon)
+            }
+            .accessibilityIdentifier("signIn")
+          }
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button("À propos", systemImage: "info.circle") { showsAbout = true }
             .accessibilityIdentifier("about")
         }
       }
       .sheet(isPresented: $showsAbout) { AboutView() }
+      .sheet(item: $signIn) { link in
+        AccountSignInView(link: link) { Task { await account?.linkDidFinish() } }
+      }
+      .safeAreaInset(edge: .top) {
+        if let account, account.needsSignIn {
+          SessionLostBanner(account: account) { signIn = account.makeLink() }
+        }
+      }
       .safeAreaInset(edge: .bottom) { createButton }
       .opaqueBottomBar()
       // Relancé à chaque retour sur l'écran, pour des compteurs à jour.

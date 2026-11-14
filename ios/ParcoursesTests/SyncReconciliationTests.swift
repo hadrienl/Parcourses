@@ -125,7 +125,7 @@ private let t0 = syncEpoch
     _ = try harness.lists.addItem(
       listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
       at: t0)
-    await harness.gateway.failAlways("saveItem", with: .forbidden)
+    await harness.gateway.failAlways("insertItem", with: .forbidden)
     await harness.engine.drain()
     #expect(try harness.entries().filter { $0.syncState == .failed }.count == 1)
     #expect(try harness.fresh(ShoppingList.self).first?.syncState == .synced)

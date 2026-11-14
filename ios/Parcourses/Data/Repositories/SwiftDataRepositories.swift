@@ -118,7 +118,7 @@ final class SwiftDataListRepository: ListRepository {
         listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
         categoryId: categoryId, position: position, updatedAt: date)
       context.insert(item)
-      try context.enqueueUpsert(of: item, at: date)
+      try context.enqueueUpsert(of: item, at: date, changedFields: ListItemFields.all)
       return item
     }
     onEnqueue()
@@ -131,7 +131,7 @@ final class SwiftDataListRepository: ListRepository {
       item.checkedAt = checkedAt
       item.updatedAt = date
       item.syncState = .pending
-      try context.enqueueUpsert(of: item, at: date)
+      try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
     }
     onEnqueue()
   }
@@ -146,7 +146,7 @@ final class SwiftDataListRepository: ListRepository {
   func deleteItem(id: UUID) throws {
     let item = try requireWritableItem(id)
     try context.atomically {
-      try context.enqueueDeletion(ofItem: id, listId: item.listId, at: .now)
+      try context.enqueueDeletion(ofItem: id, listId: item.listId, isOnServer: item.isOnServer, at: .now)
       context.delete(item)
     }
     onEnqueue()
@@ -447,7 +447,7 @@ final class SwiftDataVisitRepository: VisitRepository {
     item.checkedAt = checkedAt
     item.updatedAt = date
     item.syncState = .pending
-    try context.enqueueUpsert(of: item, at: date)
+    try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
   }
 
   private func requireWritableItem(_ id: UUID) throws -> ListItem {

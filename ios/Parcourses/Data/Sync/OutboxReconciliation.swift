@@ -44,7 +44,8 @@ enum OutboxReconciliation {
           predicate: #Predicate { $0.syncStateRaw == pending }, sortBy: [SortDescriptor(\.position)]))
       for item in items where missing(item.id, .upsertItem) {
         guard try isActive(list: item.listId, in: context) else { continue }
-        try context.enqueueUpsert(of: item, at: now)
+        // On ignore ce qui a changé : toute la ligne part.
+        try context.enqueueUpsert(of: item, at: now, changedFields: ListItemFields.all)
         count += 1
       }
       count += try revokeWrongfulFailures(in: context, now: now)
@@ -106,7 +107,7 @@ enum OutboxReconciliation {
       ).isEmpty
       item.syncState = .pending
       if !hasActive {
-        try context.enqueueUpsert(of: item, at: now)
+        try context.enqueueUpsert(of: item, at: now, changedFields: ListItemFields.all)
         count += 1
       }
     }

@@ -872,7 +872,7 @@ extension SnapshotGateway {
     session.toggle(try row(session, "lait"))
     let oldUndo = try #require(session.undo)
 
-    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    let remap = try AccountRekey.run(in: harness.context, previousAccountId: nil, now: t0)
     NotificationCenter.default.post(
       name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
 
@@ -2489,7 +2489,7 @@ private final class Counter {
     session.toggle(try row(session, "lait"))
 
     // Ce que fait l'observateur de la notification, sans la diffuser aux sessions encore vivantes d'autres tests.
-    let remap = try AccountRekey.run(in: harness.context, now: t0)
+    let remap = try AccountRekey.run(in: harness.context, previousAccountId: nil, now: t0)
     session.apply(remap)
     session.performUndo()
 

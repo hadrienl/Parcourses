@@ -79,6 +79,12 @@ final class SyncRuntime {
     await engine.stop()
   }
 
+  /// Passe complète, attendue : après une connexion, la reprise des données (`AccountRekey`) puis la descente.
+  func synchronize() async {
+    guard !isStopped else { return }
+    await engine.drain(pull: true)
+  }
+
   func foreground() {
     let engine = engine
     Task { await engine.kick(pull: true) }

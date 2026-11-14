@@ -88,6 +88,10 @@ targets:
       - ParcoursesTests
       - path: ../shared/contract/tables.json
         buildPhase: resources
+      # Vecteurs de synchro partagés avec Android (#87), lus tous par SyncDecisionVectorTests.
+      - path: ../shared/test-vectors/sync
+        type: folder
+        buildPhase: resources
       - path: ../supabase/migrations
         type: folder
         buildPhase: resources

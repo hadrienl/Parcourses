@@ -33,6 +33,7 @@ nonisolated final class MemorySyncCursors: SyncCursors, @unchecked Sendable {
   var lists: Date?
   var items: Date?
   var catalog: Date?
+  var tombstones: Date?
 }
 
 /// Doublure : journal des appels et erreurs programmées par nom d'appel.
@@ -191,14 +192,86 @@ actor ScriptedSyncGateway: RemoteGateway {
     try checkAccount()
     deletedLists.append(id)
   }
-  func saveItem(_ item: ListItemUpsert) async throws {
-    try record("saveItem")
+  func insertItem(_ item: ListItemUpsert) async throws {
+    try record("insertItem")
     try checkAccount()
     try checkServer(item.id)
     if itemsNeedTheirList, !savedLists.contains(where: { $0.id == item.listId }) { throw RemoteError.forbidden }
+    if refusedLists.contains(item.listId) { throw RemoteError.forbidden }
+    // Comme la garde du serveur : un article enterré n'est pas recréé, sans erreur.
+    guard !tombstones.contains(where: { $0.id == item.id }) else { return }
     savedItems.append(item)
   }
-  func deleteItem(id: UUID) async throws { try record("deleteItem") }
+
+  /// Mises à jour reçues, colonnes comprises.
+  var patches: [(id: UUID, columns: [String])] = []
+  /// Articles que la RLS cache aux mises à jour (lecteur) : 0 ligne, sans erreur.
+  var readOnlyItems: Set<UUID> = []
+  /// Listes où l'insertion est refusée en `42501` (rôle abaissé).
+  var refusedLists: Set<UUID> = []
+  /// Listes que la RPC `accessible_list_ids` ne renvoie plus (supprimées ailleurs, accès retiré).
+  var hiddenLists: Set<UUID> = []
+  var tombstones: [TombstoneRow] = []
+  var deletedItems: Set<UUID> = []
+  var tombstoneCursors: [Date?] = []
+  func setReadOnlyItems(_ ids: Set<UUID>) { readOnlyItems = ids }
+  func setRefusedLists(_ ids: Set<UUID>) { refusedLists = ids }
+  func setHiddenLists(_ ids: Set<UUID>) { hiddenLists = ids }
+  func setTombstones(_ rows: [TombstoneRow]) { tombstones = rows }
+  /// Supprimé ailleurs il y a plus de 30 jours : la pierre tombale a été purgée.
+  func purgeElsewhere(_ id: UUID) { deletedItems.insert(id) }
+  /// Supprimé ailleurs : la ligne disparaît et laisse sa pierre tombale.
+  func deleteElsewhere(_ id: UUID, listId: UUID, at date: Date) {
+    deletedItems.insert(id)
+    tombstones.append(TombstoneRow(id: id, listId: listId, deletedAt: date))
+  }
+
+  /// Articles présents côté serveur, par identifiant.
+  private var serverItems: [UUID: UUID] {
+    var rows: [UUID: UUID] = [:]
+    for row in itemRows { rows[row.id] = row.listId }
+    for item in savedItems { rows[item.id] = item.listId }
+    for id in deletedItems { rows.removeValue(forKey: id) }
+    return rows
+  }
+
+  func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
+    try record("updateItem")
+    try checkAccount()
+    try checkServer(id)
+    guard serverItems[id] != nil, !readOnlyItems.contains(id) else { return false }
+    patches.append((id, fields.columns))
+    savedItems.append(fields.values)
+    return true
+  }
+  func deleteItem(id: UUID) async throws -> Bool {
+    try record("deleteItem")
+    guard serverItems[id] != nil, !readOnlyItems.contains(id) else { return false }
+    deleteElsewhere(id, listId: serverItems[id] ?? UUID(), at: serverNow ?? .now)
+    return true
+  }
+  func accessibleListIds() async throws -> [UUID] {
+    try record("accessibleListIds")
+    let ids = Set(listRows.map(\.id)).union(savedLists.map(\.id)).subtracting(deletedLists).subtracting(hiddenLists)
+    return Array(ids)
+  }
+  func fetchItems(listId: UUID) async throws -> [ListItemRow] {
+    try record("fetchItems(listId:)")
+    return itemRows.filter { $0.listId == listId && !deletedItems.contains($0.id) }
+  }
+  func fetchItemIds(listId: UUID) async throws -> [UUID] {
+    try record("fetchItemIds")
+    return serverItems.filter { $0.value == listId }.map(\.key)
+  }
+  func fetchTombstones(after: Date?) async throws -> [TombstoneRow] {
+    try record("fetchTombstones")
+    tombstoneCursors.append(after)
+    return tombstones.filter { row in after.map { row.deletedAt >= $0.addingTimeInterval(-5) } ?? true }
+  }
+  func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow] {
+    try record("fetchTombstones(ids:)")
+    return tombstones.filter { ids.contains($0.id) }
+  }
   func createVisit(_ visit: VisitInsert) async throws {
     try record("createVisit")
     try checkAccount()
@@ -412,7 +485,7 @@ final class SyncHarness {
     await harness.engine.drain(pull: true)
     #expect(
       await harness.gateway.calls.prefix(5).elementsEqual([
-        "saveList", "saveItem", "createVisit", "insertChecks", "closeVisit",
+        "saveList", "insertItem", "createVisit", "insertChecks", "closeVisit",
       ]))
     #expect(try harness.entries().isEmpty)
     #expect(await harness.gateway.checkBatches.map(\.count) == [3])

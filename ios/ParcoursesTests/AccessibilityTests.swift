@@ -66,6 +66,8 @@ struct PrivacyManifestTests {
       types == [
         "NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherUserContent",
         "NSPrivacyCollectedDataTypeProductInteraction", "NSPrivacyCollectedDataTypePurchaseHistory",
+        // Comptes e-mail (#87) : l'adresse sert à se connecter, le prénom s'affiche aux membres des listes.
+        "NSPrivacyCollectedDataTypeEmailAddress", "NSPrivacyCollectedDataTypeName",
       ])
     for entry in collected {
       #expect(entry["NSPrivacyCollectedDataTypeTracking"] as? Bool == false)

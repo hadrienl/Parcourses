@@ -19,27 +19,40 @@ actor SupabaseGateway: RemoteGateway {
   /// `max_rows` côté serveur. La pagination avance du nombre de lignes reçues : un plafond plus bas passe aussi.
   private static let pageSize = 1000
 
+  /// Filtre `in` des pierres tombales : au-delà, l'URL deviendrait trop longue.
+  private static let idsPerRequest = 100
+
   private let client: SupabaseClient
   private let rest: PostgrestClient
+  private let restURL: URL
+  private let publishableKey: String
   private let store: any SecureStore
   /// Suppression de compte en cours : `ensureSession` ne crée plus de compte (#68 §5.3).
   private let deletionFlags: any AccountDeletionFlagStore
+  /// Compte e-mail dont la session a disparu : pas de compte anonyme recréé (vecteur `009`).
+  private let accountKinds: any AccountKindStore
   /// Connexion en cours : l'acteur est réentrant, deux appels ne doivent pas créer deux comptes.
   private var signIn: Task<UUID, any Error>?
   private var categoryMap: CategoryMap?
 
   init(
     configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore(),
-    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
+    accountKinds: any AccountKindStore = UserDefaultsAccountKindStore()
   ) {
     self.store = store
     self.deletionFlags = deletionFlags
+    self.accountKinds = accountKinds
+    publishableKey = configuration.publishableKey
+    restURL = configuration.url.appending(path: "rest/v1")
     let client = SupabaseClient(
       supabaseURL: configuration.url,
       supabaseKey: configuration.publishableKey,
       options: SupabaseClientOptions(
         auth: .init(
           storage: KeychainAuthStorage(store: store),
+          // Codes à 6 chiffres seulement, jamais de lien ni de redirection : PKCE n'a rien à protéger.
+          flowType: .implicit,
           emitLocalSessionAsInitialSession: true
         )
       )
@@ -222,6 +235,11 @@ actor SupabaseGateway: RemoteGateway {
       }
     }
     if let signIn { return try await signIn.value }
+    // Compte e-mail sans session : la synchro attend la reconnexion, jamais un compte anonyme de plus (vecteur `009`).
+    if SyncDecisions.sessionLossAction(accountKind: accountKinds.kind) == .waitForSignIn {
+      try store.verifyAvailable()
+      throw RemoteError.unauthorized
+    }
     // Keychain verrouillé (arrière-plan avant le premier déverrouillage) : `currentSession` est nil alors
     // que la session existe. On échoue ici pour ne pas créer un second compte.
     try store.verifyAvailable()
@@ -253,27 +271,29 @@ actor SupabaseGateway: RemoteGateway {
     try await authorized { _ = try await self.rest.from(ListUpsert.table).delete().eq("id", value: id).execute() }
   }
 
-  func saveItem(_ item: ListItemUpsert) async throws {
-    try await authorized {
-      let patch = ListItemPatch(
-        listId: item.listId,
-        productId: item.productId,
-        label: item.label,
-        quantity: item.quantity,
-        checkedAt: item.checkedAt
-      )
+  func insertItem(_ item: ListItemUpsert) async throws {
+    try await authorized { try await self.insertIgnoringDuplicates(item, into: ListItemUpsert.table) }
+  }
+
+  func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
+    guard !Set(fields.columns).isDisjoint(with: ListItemFields.all) else { return true }
+    return try await authorized {
       let updated: [IdentifierRow] =
         try await self.rest.from(ListItemUpsert.table)
-        .update(patch)
-        .eq("id", value: item.id)
+        .update(fields)
+        .eq("id", value: id)
         .select("id")
         .execute().value
-      if updated.isEmpty { try await self.insertIgnoringDuplicates(item, into: ListItemUpsert.table) }
+      return !updated.isEmpty
     }
   }
 
-  func deleteItem(id: UUID) async throws {
-    try await authorized { _ = try await self.rest.from(ListItemUpsert.table).delete().eq("id", value: id).execute() }
+  func deleteItem(id: UUID) async throws -> Bool {
+    try await authorized {
+      let deleted: [IdentifierRow] =
+        try await self.rest.from(ListItemUpsert.table).delete().eq("id", value: id).select("id").execute().value
+      return !deleted.isEmpty
+    }
   }
 
   // MARK: - Visites et coches
@@ -344,6 +364,55 @@ actor SupabaseGateway: RemoteGateway {
     try await fetchUpdated(ListItemRow.self, updatedAfter: updatedAfter)
   }
 
+  func fetchItems(listId: UUID) async throws -> [ListItemRow] {
+    try await authorized {
+      try await self.fetchAllPages { from, to in
+        try await self.rest.from(ListItemRow.table).select(Self.selection(of: ListItemRow.self))
+          .eq("list_id", value: listId).order("id").range(from: from, to: to).execute().value
+      }
+    }
+  }
+
+  func fetchItemIds(listId: UUID) async throws -> [UUID] {
+    try await authorized {
+      let rows: [IdentifierRow] = try await self.fetchAllPages { from, to in
+        try await self.rest.from(ListItemRow.table).select("id")
+          .eq("list_id", value: listId).order("id").range(from: from, to: to).execute().value
+      }
+      return rows.map(\.id)
+    }
+  }
+
+  func accessibleListIds() async throws -> [UUID] {
+    try await authorized {
+      let rows: [IdentifierRow] = try await self.rest.rpc("accessible_list_ids").execute().value
+      return rows.map(\.id)
+    }
+  }
+
+  func fetchTombstones(after: Date?) async throws -> [TombstoneRow] {
+    try await authorized {
+      try await self.fetchAllPages { from, to in
+        var query = self.rest.from(TombstoneRow.table).select(Self.selection(of: TombstoneRow.self))
+        if let after { query = query.gte("deleted_at", value: after.addingTimeInterval(-Self.cursorOverlap)) }
+        return try await query.order("deleted_at").order("id").range(from: from, to: to).execute().value
+      }
+    }
+  }
+
+  func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow] {
+    guard !ids.isEmpty else { return [] }
+    return try await authorized {
+      var rows: [TombstoneRow] = []
+      for start in stride(from: 0, to: ids.count, by: Self.idsPerRequest) {
+        let chunk = ids[start..<min(start + Self.idsPerRequest, ids.count)].map(\.uuidString)
+        rows += try await self.rest.from(TombstoneRow.table).select(Self.selection(of: TombstoneRow.self))
+          .in("id", values: chunk).execute().value
+      }
+      return rows
+    }
+  }
+
   func fetchCategories() async throws -> [CategoryRow] {
     try await authorized { try await self.loadCategories() }
   }
@@ -407,6 +476,120 @@ actor SupabaseGateway: RemoteGateway {
     let parameters = GraphSnapshotParameters(storeId: storeId, knownVersion: knownVersion)
     return try await authorized {
       GraphSnapshotResponse.parse(try await self.rest.rpc("store_graph_snapshot", params: parameters).execute().data)
+    }
+  }
+
+  // MARK: - Comptes e-mail
+
+  func accountEmail() async throws -> String? {
+    do {
+      guard let session = client.auth.currentSession else {
+        try store.verifyAvailable()
+        return nil
+      }
+      return session.user.isAnonymous ? nil : session.user.email
+    } catch {
+      throw Self.classify(error)
+    }
+  }
+
+  func linkEmail(_ email: String) async throws {
+    try await mappedAuth {
+      // Le compte anonyme de l'appareil, créé s'il manque (premier lancement hors ligne) : c'est lui qui reçoit l'adresse.
+      _ = try await self.currentOrNewUser(captchaToken: nil)
+      _ = try await self.client.auth.update(user: UserAttributes(email: email))
+    }
+  }
+
+  func signInWithEmail(_ email: String) async throws {
+    try await mappedAuth {
+      try await self.client.auth.signInWithOTP(email: email, shouldCreateUser: false)
+    }
+  }
+
+  func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
+    let verified = try await mappedAuth {
+      let auth = self.client.auth
+      // Gardé avant la vérification : la session change de compte quand l'adresse en a déjà un.
+      let previous = auth.currentSession
+      let type: EmailOTPType = purpose == .link ? .emailChange : .email
+      let response = try await auth.verifyOTP(email: email, token: code, type: type)
+      // Sans session dans la réponse, le jeton en cours porte encore `is_anonymous` : on le renouvelle.
+      if response.session == nil { _ = try await auth.refreshSession() }
+      guard let session = auth.currentSession else { throw RemoteError.unauthorized }
+      let left = previous.flatMap { $0.user.isAnonymous && $0.user.id != session.user.id ? $0.accessToken : nil }
+      return VerifiedCode(accountId: session.user.id, previousAnonymousToken: left)
+    }
+    categoryMap = nil
+    return verified
+  }
+
+  func displayName() async throws -> String? {
+    try await mapped {
+      let id = try await self.resolveExistingSession()
+      let rows: [DisplayNameRow] =
+        try await self.rest.from(ProfileRow.table).select("display_name").eq("user_id", value: id).execute().value
+      return rows.first?.displayName
+    }
+  }
+
+  func setDisplayName(_ name: String) async throws {
+    try await mapped {
+      let id = try await self.resolveExistingSession()
+      let updated: [UserIdentifierRow] =
+        try await self.rest.from(ProfileRow.table)
+        .update(ProfilePatch(displayName: name))
+        .eq("user_id", value: id)
+        .select("user_id")
+        .execute().value
+      // `user_id` vaut `auth.uid()` par défaut : seule la colonne accordée part.
+      if updated.isEmpty {
+        try await self.rest.from(ProfileRow.table).insert(ProfilePatch(displayName: name), returning: .minimal)
+          .execute()
+      }
+    }
+  }
+
+  func signOut() async throws {
+    categoryMap = nil
+    try await mapped {
+      // Le SDK retire la session de l'appareil avant d'appeler `logout` : un échec réseau n'y change rien, le jeton de
+      // rafraîchissement expirera de lui-même.
+      try? await self.client.auth.signOut(scope: .local)
+      guard self.client.auth.currentSession == nil else { throw RemoteError.unexpected }
+    }
+  }
+
+  func deleteAccount(accessToken: String) async throws {
+    // Jamais le compte de la session : seul un compte quitté est supprimé ici.
+    guard accessToken != client.auth.currentSession?.accessToken else { throw RemoteError.rejected(code: "current") }
+    var request = URLRequest(url: restURL.appending(path: "rpc/delete_my_account"))
+    request.httpMethod = "POST"
+    request.setValue(publishableKey, forHTTPHeaderField: "apikey")
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = Data("{}".utf8)
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      guard let http = response as? HTTPURLResponse else { throw RemoteError.unexpected }
+      if let failure = RemoteError.uncodedFailure(status: http.statusCode, body: data) { throw failure }
+      guard (200..<300).contains(http.statusCode) else {
+        let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        throw RemoteError.fromPostgrest(code: body?["code"] as? String)
+      }
+    } catch {
+      throw Self.classify(error)
+    }
+  }
+
+  /// Refus de GoTrue gardé tel quel (statut et `error_code`) : l'écran de connexion en tire son message.
+  private func mappedAuth<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+    do {
+      return try await operation()
+    } catch let AuthError.api(_, code, _, response) {
+      throw AuthRequestError(status: response.statusCode, code: code.rawValue)
+    } catch {
+      throw Self.classify(error)
     }
   }
 
@@ -550,6 +733,22 @@ actor SupabaseGateway: RemoteGateway {
 
 private nonisolated struct IdentifierRow: Decodable, Sendable {
   let id: UUID
+}
+
+private nonisolated struct UserIdentifierRow: Decodable, Sendable {
+  let userId: UUID
+
+  enum CodingKeys: String, CodingKey {
+    case userId = "user_id"
+  }
+}
+
+private nonisolated struct DisplayNameRow: Decodable, Sendable {
+  let displayName: String
+
+  enum CodingKeys: String, CodingKey {
+    case displayName = "display_name"
+  }
 }
 
 private nonisolated struct VisitEndRow: Decodable, Sendable {

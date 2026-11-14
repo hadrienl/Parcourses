@@ -7,13 +7,17 @@ nonisolated protocol SyncCursors: Sendable {
   var lists: Date? { get set }
   var items: Date? { get set }
   var catalog: Date? { get set }
+  /// Plus récente pierre tombale descendue (#87), ou heure du serveur à la dernière réconciliation complète.
+  var tombstones: Date? { get set }
 }
 
 nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   private let defaults: UserDefaults
 
   /// Toutes les clés des curseurs : la suppression du compte les efface (`LocalDataPurge`).
-  static let keys = ["sync.cursor.account", "sync.cursor.lists", "sync.cursor.items", "sync.cursor.catalog"]
+  static let keys = [
+    "sync.cursor.account", "sync.cursor.lists", "sync.cursor.items", "sync.cursor.catalog", "sync.cursor.tombstones",
+  ]
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -39,5 +43,9 @@ nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   var catalog: Date? {
     get { defaults.object(forKey: "sync.cursor.catalog") as? Date }
     nonmutating set { defaults.set(newValue, forKey: "sync.cursor.catalog") }
+  }
+  var tombstones: Date? {
+    get { defaults.object(forKey: "sync.cursor.tombstones") as? Date }
+    nonmutating set { defaults.set(newValue, forKey: "sync.cursor.tombstones") }
   }
 }

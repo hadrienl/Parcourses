@@ -49,6 +49,17 @@ identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et fai
 - `supabase start` à la racine, puis `scripts/integration-test.sh` depuis `ios/` : tests du gateway contre `127.0.0.1:56321`. Sans cet environnement (CI comprise), ces tests sont ignorés.
 - `Package.resolved` fige les dépendances transitives. Après une mise à jour de `supabase-swift`, le recopier depuis le `.xcodeproj`.
 
+## Comptes e-mail et synchro multi-appareil (#87)
+
+- Décisions de synchro : `Data/Sync/SyncDecisions.swift`, fonctions pures communes avec Android, vérifiées par
+  `SyncDecisionVectorTests` contre tous les fichiers de `shared/test-vectors/sync/` (copiés dans le bundle de test).
+- Comptes : `AccountLink` (adresse, code à 6 chiffres, reprise vers un compte existant), `AccountSession` (état pour les
+  écrans, déconnexion, « Continuer sans compte »), drapeau `account.kind`. Écrans dans `Features/Account/`.
+- Intégration : `scripts/integration-test.sh` lit les codes dans Mailpit (`MAILPIT_URL` de `supabase status`, par
+  défaut `http://127.0.0.1:56324`) et vérifie en base que l'ancien compte anonyme a été supprimé après la reprise.
+- En local, un test en échec peut laisser `xcodebuild` bloqué après la fin de la suite (symbolication de la pile
+  d'appels, comme pour l'audit d'accessibilité) : arrêter le processus, le rapport est complet.
+
 ## Vérifications locales du choix du magasin
 
 Ignorées sans ces variables (CI comprise) :
