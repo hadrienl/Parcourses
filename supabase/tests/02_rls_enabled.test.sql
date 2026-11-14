@@ -10,7 +10,7 @@ select is_empty($$
 $$, 'RLS active sur toutes les tables de public');
 
 select is((select count(*)::int from pg_class as c join pg_namespace as n on n.oid = c.relnamespace
-           where n.nspname = 'public' and c.relkind = 'r'), 13, '13 tables dans public (dont profiles et list_item_tombstones, #87)');
+           where n.nspname = 'public' and c.relkind = 'r'), 14, '14 tables dans public (dont profiles, list_item_tombstones et list_members, #87)');
 
 select * from finish();
 rollback;

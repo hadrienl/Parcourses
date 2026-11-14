@@ -415,8 +415,14 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# #87 : send-invitation envoie par l'API de Mailpit en local et en CI. Projet hébergé : secrets RESEND_API_KEY,
+# INVITATION_FROM et INVITATION_BASE_URL (supabase secrets set), quand le domaine existera (#87 Q2).
+[edge_runtime.secrets]
+MAILPIT_API_URL = "http://supabase_inbucket_parcourses:8025"
+
+# Edge Function de l'envoi des invitations (#87, lot 87.2) : JWT de l'utilisateur exigé.
+[functions.send-invitation]
+verify_jwt = true
 
 [analytics]
 enabled = true

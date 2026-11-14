@@ -42,7 +42,7 @@ class RemoteContractTest {
 
     /**
      * Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. `profiles` et
-     * `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot Android 87.5.
+     * `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot Android 87.5. `list_members` (87.2) : lue en 87.6.
      */
     private val tablesWithoutDto =
         setOf(
@@ -53,6 +53,7 @@ class RemoteContractTest {
             "store_graph_snapshots",
             "profiles",
             "list_item_tombstones",
+            "list_members",
         )
 
     /**
