@@ -1,0 +1,75 @@
+{
+  "id": "001-item-save-request",
+  "function": "itemSaveRequest",
+  "description": "Requête d'envoi d'un article : insertion complète s'il n'a jamais atteint le serveur, sinon mise à jour des seuls champs modifiés (noms de colonnes serveur, triés). Aucun champ : rien à envoyer.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "jamais envoyé : insertion complète",
+      "input": {
+        "isOnServer": false,
+        "changedFields": [
+          "checked_at"
+        ]
+      },
+      "expected": {
+        "kind": "insert"
+      }
+    },
+    {
+      "name": "jamais envoyé, sans champ : insertion quand même",
+      "input": {
+        "isOnServer": false,
+        "changedFields": []
+      },
+      "expected": {
+        "kind": "insert"
+      }
+    },
+    {
+      "name": "déjà sur le serveur : seuls les champs modifiés",
+      "input": {
+        "isOnServer": true,
+        "changedFields": [
+          "quantity",
+          "checked_at"
+        ]
+      },
+      "expected": {
+        "kind": "patch",
+        "fields": [
+          "checked_at",
+          "quantity"
+        ]
+      }
+    },
+    {
+      "name": "doublons retirés",
+      "input": {
+        "isOnServer": true,
+        "changedFields": [
+          "label",
+          "label",
+          "product_id"
+        ]
+      },
+      "expected": {
+        "kind": "patch",
+        "fields": [
+          "label",
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "déjà sur le serveur, aucun champ : rien",
+      "input": {
+        "isOnServer": true,
+        "changedFields": []
+      },
+      "expected": {
+        "kind": "none"
+      }
+    }
+  ]
+}

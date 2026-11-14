@@ -1,0 +1,55 @@
+{
+  "id": "002-merge-changed-fields",
+  "function": "mergeChangedFields",
+  "description": "Une entrée de file remplacée (nouvelle modification du même article avant l'envoi) garde sa sequence et l'union des champs modifiés, triée.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "union",
+      "input": {
+        "pending": [
+          "checked_at"
+        ],
+        "new": [
+          "quantity"
+        ]
+      },
+      "expected": [
+        "checked_at",
+        "quantity"
+      ]
+    },
+    {
+      "name": "sans entrée en attente",
+      "input": {
+        "pending": null,
+        "new": [
+          "label",
+          "product_id"
+        ]
+      },
+      "expected": [
+        "label",
+        "product_id"
+      ]
+    },
+    {
+      "name": "recouvrement",
+      "input": {
+        "pending": [
+          "label",
+          "quantity"
+        ],
+        "new": [
+          "quantity",
+          "checked_at"
+        ]
+      },
+      "expected": [
+        "checked_at",
+        "label",
+        "quantity"
+      ]
+    }
+  ]
+}

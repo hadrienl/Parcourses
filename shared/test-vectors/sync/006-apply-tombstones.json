@@ -1,0 +1,59 @@
+{
+  "id": "006-apply-tombstones",
+  "function": "applyTombstones",
+  "description": "Pierres tombales descendues : tout article local de même id est supprimé de l'appareil, entrées de file comprises (la suppression gagne). Les ids inconnus sont ignorés. Sortie triée.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "article synchronisé",
+      "input": {
+        "localItems": [
+          "aaaaaaaa-0000-4000-8000-000000000001",
+          "aaaaaaaa-0000-4000-8000-000000000002"
+        ],
+        "tombstones": [
+          "aaaaaaaa-0000-4000-8000-000000000001"
+        ]
+      },
+      "expected": {
+        "delete": [
+          "aaaaaaaa-0000-4000-8000-000000000001"
+        ]
+      }
+    },
+    {
+      "name": "id inconnu ignoré",
+      "input": {
+        "localItems": [
+          "aaaaaaaa-0000-4000-8000-000000000001"
+        ],
+        "tombstones": [
+          "aaaaaaaa-0000-4000-8000-000000000003"
+        ]
+      },
+      "expected": {
+        "delete": []
+      }
+    },
+    {
+      "name": "plusieurs",
+      "input": {
+        "localItems": [
+          "aaaaaaaa-0000-4000-8000-000000000003",
+          "aaaaaaaa-0000-4000-8000-000000000001",
+          "aaaaaaaa-0000-4000-8000-000000000002"
+        ],
+        "tombstones": [
+          "aaaaaaaa-0000-4000-8000-000000000002",
+          "aaaaaaaa-0000-4000-8000-000000000003"
+        ]
+      },
+      "expected": {
+        "delete": [
+          "aaaaaaaa-0000-4000-8000-000000000002",
+          "aaaaaaaa-0000-4000-8000-000000000003"
+        ]
+      }
+    }
+  ]
+}

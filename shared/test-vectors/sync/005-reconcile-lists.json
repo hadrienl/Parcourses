@@ -1,0 +1,115 @@
+{
+  "id": "005-reconcile-lists",
+  "function": "reconcileLists",
+  "description": "Réconciliation des listes à la descente, à partir d'accessible_list_ids(). remove : listes locales déjà synchronisées une fois (syncedOnce) absentes du serveur (supprimées ailleurs, accès retiré, liste quittée), retirées de l'appareil avec leurs articles et leurs entrées de file, même en attente. Une liste jamais envoyée n'est pas touchée. fetchFully : listes accessibles inconnues de l'appareil, à descendre entièrement (sans curseur). Sorties triées.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "rien à faire",
+      "input": {
+        "local": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "syncedOnce": true
+          }
+        ],
+        "accessible": [
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      },
+      "expected": {
+        "remove": [],
+        "fetchFully": []
+      }
+    },
+    {
+      "name": "liste supprimée ailleurs",
+      "input": {
+        "local": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "syncedOnce": true
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "syncedOnce": true
+          }
+        ],
+        "accessible": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "expected": {
+        "remove": [
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "fetchFully": []
+      }
+    },
+    {
+      "name": "liste locale jamais envoyée : gardée",
+      "input": {
+        "local": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "syncedOnce": false
+          }
+        ],
+        "accessible": []
+      },
+      "expected": {
+        "remove": [],
+        "fetchFully": []
+      }
+    },
+    {
+      "name": "accès gagné : descente complète",
+      "input": {
+        "local": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "syncedOnce": true
+          }
+        ],
+        "accessible": [
+          "33333333-3333-4333-8333-333333333333",
+          "11111111-1111-4111-8111-111111111111",
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "expected": {
+        "remove": [],
+        "fetchFully": [
+          "22222222-2222-4222-8222-222222222222",
+          "33333333-3333-4333-8333-333333333333"
+        ]
+      }
+    },
+    {
+      "name": "les deux à la fois",
+      "input": {
+        "local": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "syncedOnce": true
+          },
+          {
+            "id": "44444444-4444-4444-8444-444444444444",
+            "syncedOnce": false
+          }
+        ],
+        "accessible": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      },
+      "expected": {
+        "remove": [
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "fetchFully": [
+          "22222222-2222-4222-8222-222222222222"
+        ]
+      }
+    }
+  ]
+}

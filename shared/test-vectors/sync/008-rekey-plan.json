@@ -1,0 +1,106 @@
+{
+  "id": "008-rekey-plan",
+  "function": "rekeyPlan",
+  "description": "Reprise de compte (AccountRekey) : sort de chaque liste locale. drop : liste dont on n'est pas propriétaire (ownerId connu et différent de l'ancien compte), retirée de l'appareil sans être renvoyée. remove : liste supprimée localement (règle existante). skip : liste vide jamais modifiée (aucun article, updatedAt égal à createdAt), retirée sans être renvoyée. resend : toutes les autres, renvoyées au nouveau compte sous de nouveaux ids. ownerId nul = jamais descendue, donc à soi.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "liste à soi",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000a1",
+          "deleted": false,
+          "itemCount": 3,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-02T10:00:00Z"
+        }
+      },
+      "expected": "resend"
+    },
+    {
+      "name": "liste jamais descendue",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": null,
+          "deleted": false,
+          "itemCount": 1,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-01T10:00:00Z"
+        }
+      },
+      "expected": "resend"
+    },
+    {
+      "name": "liste partagée par un autre",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000b1",
+          "deleted": false,
+          "itemCount": 5,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-03T10:00:00Z"
+        }
+      },
+      "expected": "drop"
+    },
+    {
+      "name": "liste supprimée",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000a1",
+          "deleted": true,
+          "itemCount": 2,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-03T10:00:00Z"
+        }
+      },
+      "expected": "remove"
+    },
+    {
+      "name": "liste vide jamais modifiée",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000a1",
+          "deleted": false,
+          "itemCount": 0,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-01T10:00:00Z"
+        }
+      },
+      "expected": "skip"
+    },
+    {
+      "name": "liste vide renommée : renvoyée",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000a1",
+          "deleted": false,
+          "itemCount": 0,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-01T11:00:00Z"
+        }
+      },
+      "expected": "resend"
+    },
+    {
+      "name": "une liste d'autrui supprimée localement reste drop",
+      "input": {
+        "previousAccountId": "00000000-0000-4000-8000-0000000000a1",
+        "list": {
+          "ownerId": "00000000-0000-4000-8000-0000000000b1",
+          "deleted": true,
+          "itemCount": 0,
+          "createdAt": "2026-11-01T10:00:00Z",
+          "updatedAt": "2026-11-01T10:00:00Z"
+        }
+      },
+      "expected": "drop"
+    }
+  ]
+}

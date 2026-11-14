@@ -1,0 +1,40 @@
+{
+  "id": "007-tombstone-pull-mode",
+  "function": "tombstonePullMode",
+  "description": "Mode de descente des suppressions. Sans curseur (premier passage, ou après une reprise de compte) ou avec un curseur de plus de 29 jours (les pierres tombales sont purgées à 30 jours) : réconciliation complète des articles (liste des id par liste, suppression des locaux synchronisés absents). Sinon : pierres tombales depuis le curseur. Dates ISO 8601 UTC.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "sans curseur",
+      "input": {
+        "cursor": null,
+        "now": "2026-11-15T10:00:00Z"
+      },
+      "expected": "fullReconcile"
+    },
+    {
+      "name": "curseur récent",
+      "input": {
+        "cursor": "2026-11-10T10:00:00Z",
+        "now": "2026-11-15T10:00:00Z"
+      },
+      "expected": "incremental"
+    },
+    {
+      "name": "29 jours pile : encore incrémental",
+      "input": {
+        "cursor": "2026-10-17T10:00:00Z",
+        "now": "2026-11-15T10:00:00Z"
+      },
+      "expected": "incremental"
+    },
+    {
+      "name": "plus de 29 jours",
+      "input": {
+        "cursor": "2026-10-17T09:59:59Z",
+        "now": "2026-11-15T10:00:00Z"
+      },
+      "expected": "fullReconcile"
+    }
+  ]
+}
