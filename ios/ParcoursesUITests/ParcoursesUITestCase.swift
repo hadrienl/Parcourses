@@ -132,7 +132,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     name.typeText("Samedi")
     app.alerts.buttons["Créer"].tap()
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    XCTAssertTrue(entry.waitForExistence(timeout: 15))
     for text in items {
       if !entry.hasFocus { entry.tap() }
       entry.typeText(text + "\n")

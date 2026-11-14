@@ -251,6 +251,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
           break
         } catch let error as NSError where Self.isAuditTimeout(error) {
           NSLog("AUDIT-CHAUFFE passe « \(pass) » : délai dépassé")
+          // Sans pause, les essais s'empilent : huit délais dépassés de suite, de 15,0 s chacun, sur iOS 18 (run de
+          // 7636593), runner à 150 % de CPU seulement. L'audit réel du même écran est ensuite passé.
+          Thread.sleep(forTimeInterval: Self.retryPause)
         } catch {
           // Erreur autre qu'un délai : l'audit réel la rencontrera et la signalera.
           NSLog("AUDIT-CHAUFFE passe « \(pass) » impossible : \(error)")
@@ -358,24 +361,27 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
-    XCTAssertTrue(name.waitForExistence(timeout: 5))
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
     name.typeText("Semaine")
     app.alerts.buttons["Créer"].tap()
 
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    // Alerte refermée avant l'audit : sinon il mesure ses textes, qui ne suivent pas Dynamic Type (constaté sur
+    // iOS 18, run de 7636593 : saisie apparue après plus de 5 s, texte sans identifiant signalé).
+    XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 15))
     audit(app, "liste-vide\(suffix)")
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
       if !entry.hasFocus { entry.tap() }
       entry.typeText(text + "\n")
     }
-    XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 15))
     row(app, "tomates", "non coché").tap()
-    XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
     audit(app, "liste-remplie\(suffix)")
 
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.buttons["about"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["about"].waitForExistence(timeout: 15))
     audit(app, "listes\(suffix)")
   }
 
@@ -403,9 +409,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   @MainActor
   private func openAbout(_ app: XCUIApplication) {
     let about = app.buttons["about"]
-    XCTAssertTrue(about.waitForExistence(timeout: 5))
+    XCTAssertTrue(about.waitForExistence(timeout: 15))
     about.tap()
-    XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
   }
 
   /// Choix du magasin, mode courses, feuille « articles restants » et résumé.
@@ -419,21 +425,21 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     ) { app in
       self.audit(app, "choix-magasin\(suffix)", modal: true)
     }
-    XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["Vous tracez le premier trajet ici"].waitForExistence(timeout: 15))
     audit(app, "mode-courses\(suffix)", modal: true)
 
     let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
     tomatoes.tap()
-    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 15))
     audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)
     app.buttons["finish"].tap()
-    XCTAssertTrue(app.buttons["keepRemaining"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keepRemaining"].waitForExistence(timeout: 15))
     audit(app, "articles-restants\(suffix)", modal: true)
     app.buttons["keepRemaining"].tap()
-    XCTAssertTrue(app.buttons["closeSummary"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["closeSummary"].waitForExistence(timeout: 15))
     audit(app, "resume\(suffix)", modal: true)
   }
 
