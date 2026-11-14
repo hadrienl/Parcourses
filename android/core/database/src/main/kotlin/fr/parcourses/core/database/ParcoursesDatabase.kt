@@ -67,7 +67,7 @@ abstract class ParcoursesDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
 
     companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         const val FILE_NAME = "parcourses.db"
     }
 }

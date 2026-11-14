@@ -18,6 +18,10 @@ sealed interface Route : NavKey {
     @Serializable
     data object About : Route
 
+    /** « Se connecter » (#87) : lier une adresse, ou se reconnecter à un compte e-mail. */
+    @Serializable
+    data object SignIn : Route
+
     /**
      * [slot] identifie l'écran, pas la liste : si la liste change d'identifiant (reprise de compte), la clé change
      * mais pas l'écran, qui garde son état et sa saisie en cours.
@@ -68,6 +72,7 @@ internal val routeConfiguration =
                 polymorphic(NavKey::class) {
                     subclass(Route.Lists::class)
                     subclass(Route.About::class)
+                    subclass(Route.SignIn::class)
                     subclass(Route.ListDetail::class)
                     subclass(Route.StorePicker::class)
                     subclass(Route.Shopping::class)

@@ -4,10 +4,15 @@ package fr.parcourses.core.network
 
 import fr.parcourses.core.network.FakeSupabase.Reply
 import fr.parcourses.core.network.dto.CheckUpload
+import fr.parcourses.core.network.dto.EmailCodePurpose
+import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import fr.parcourses.core.network.dto.ListItemFields
+import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.VisitAccess
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -21,6 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -336,7 +342,7 @@ class SupabaseGatewayTest {
             val gets = server.restRequests()
             assertEquals(2, gets.size)
             assertEquals(
-                "id,name,owner_id,created_at,updated_at".split(",").toSet(),
+                "id,name,owner_id,created_at,updated_at,updated_by".split(",").toSet(),
                 gets[0]
                     .url.parameters["select"]!!
                     .split(",")
@@ -535,6 +541,121 @@ class SupabaseGatewayTest {
             } finally {
                 app.close()
             }
+        }
+
+    // endregion
+
+    // region Comptes e-mail et synchro multi-appareil (#87, lot 87.5)
+
+    @Test
+    fun anItemUpdateSendsOnlyItsFieldsAndTellsWhetherARowWasTouched() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            val values = ListItemUpsert(id, id, null, "Lait", "2", null)
+            server.reply("PATCH list_items", Reply(body = "[]"), Reply(body = """[{"id":"$id"}]"""))
+
+            assertFalse(gateway.updateItem(id, ListItemFields(listOf(ListItemFields.CHECKED_AT), values)))
+            assertTrue(gateway.updateItem(id, ListItemFields(listOf(ListItemFields.CHECKED_AT), values)))
+
+            val patch = server.restRequests().first { it.method.value == "PATCH" }
+            assertEquals("""{"checked_at":null}""", server.bodyOf(patch))
+            assertEquals("eq.$id", patch.url.parameters["id"])
+            // Aucune insertion de repli (#87 §6.4).
+            assertTrue(server.restRequests().none { it.method.value == "POST" })
+        }
+
+    @Test
+    fun anItemDeletionTellsWhetherARowWasDeleted() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.reply("DELETE list_items", Reply(body = """[{"id":"$id"}]"""), Reply(body = "[]"))
+            assertTrue(gateway.deleteItem(id))
+            assertFalse(gateway.deleteItem(id))
+        }
+
+    @Test
+    fun listsAndTombstonesAreReadForTheDescent() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.reply("POST rpc/accessible_list_ids", Reply(body = """[{"id":"$id"}]"""))
+            val tomb = """{"id":"$id","list_id":"$id","deleted_at":"2026-11-08T10:00:00+00:00"}"""
+            server.reply("GET list_item_tombstones", Reply(body = "[$tomb]"), Reply(body = "[]"))
+
+            assertEquals(listOf(id), gateway.accessibleListIds())
+            assertEquals(listOf(id), gateway.fetchTombstones(listOf(id)).map { it.id })
+            assertTrue(gateway.fetchTombstones(emptyList()).isEmpty())
+            val byIds = server.restRequests().last { it.url.encodedPath.endsWith("list_item_tombstones") }
+            assertEquals("in.($id)", byIds.url.parameters["id"])
+            gateway.fetchTombstones(after = now)
+            val since = server.restRequests().last { it.url.encodedPath.endsWith("list_item_tombstones") }
+            assertEquals("gte.2026-11-08T09:59:55Z", since.url.parameters["deleted_at"])
+        }
+
+    @Test
+    fun aTakenAddressIsReportedThenTheCodeOpensTheExistingAccount() =
+        runBlocking<Unit> {
+            val anonymous = gateway.ensureSession()
+            server.authRefusals["user"] = HttpStatusCode.UnprocessableEntity to "email_exists"
+            val taken = gateway.linkEmail("lea@exemple.fr")
+            assertEquals(EmailCodeStatus(422, "email_exists"), taken)
+
+            assertTrue(gateway.signInWithEmail("lea@exemple.fr").isSent)
+            val otp = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/otp") }
+            val body = json(server.bodyOf(otp)).jsonObject
+            assertEquals("false", body["create_user"]?.jsonPrimitive?.content)
+            val token = checkNotNull(gateway.accessToken())
+
+            val existing = "bbbbbbbb-0000-4000-8000-000000000002"
+            server.verifiedUserId = existing
+            server.email = "lea@exemple.fr"
+            assertEquals(Uuid.parse(existing), gateway.verifyCode("lea@exemple.fr", "123456", EmailCodePurpose.SignIn))
+            val verify = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/verify") }
+            assertEquals("email", json(server.bodyOf(verify)).jsonObject["type"]?.jsonPrimitive?.content)
+            // Le dernier compte connu est l'anonyme : la synchronisation reprendra les données.
+            expectError<RemoteError.AccountChanged> { gateway.currentAccountId() }
+            assertEquals("lea@exemple.fr", gateway.accountEmail())
+
+            gateway.deleteAccount(token)
+            val rpc = server.requests.last { it.url.encodedPath.endsWith("rpc/delete_my_account") }
+            assertEquals("Bearer $token", rpc.headers[HttpHeaders.Authorization])
+            assertNotEquals(anonymous.toString(), existing)
+        }
+
+    @Test
+    fun aRefusedCodeOrRequestIsClassified() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.authRefusals["otp"] = HttpStatusCode.TooManyRequests to "over_email_send_rate_limit"
+            assertEquals(429, gateway.signInWithEmail("lea@exemple.fr").status)
+            server.authRefusals["verify"] = HttpStatusCode.Forbidden to "otp_expired"
+            val error =
+                expectError<RemoteError.Unauthorized> {
+                    gateway.verifyCode("lea@exemple.fr", "000000", EmailCodePurpose.Link)
+                }
+            assertEquals("otp_expired", error.authCode)
+            // La session anonyme reste.
+            assertNotNull(gateway.accessToken())
+            val verify = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/verify") }
+            assertEquals("email_change", json(server.bodyOf(verify)).jsonObject["type"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun theDisplayNameIsUpdatedOrInsertedAndSigningOutClearsTheSession() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.reply("PATCH profiles", Reply(body = "[]"))
+            server.reply("GET profiles", Reply(body = """[{"display_name":"Léa"}]"""))
+            gateway.setDisplayName("Léa")
+            val insert = server.restRequests().last()
+            assertEquals("POST", insert.method.value)
+            assertEquals("""[{"display_name":"Léa"}]""", server.bodyOf(insert))
+            assertEquals("Léa", gateway.displayName())
+
+            gateway.signOut()
+            assertEquals(1, server.logouts)
+            assertNull(harness.store.read().session)
+            assertNull(harness.store.read().lastAccountId)
+            expectError<RemoteError.Unauthorized> { gateway.currentAccountId() }
         }
 
     // endregion

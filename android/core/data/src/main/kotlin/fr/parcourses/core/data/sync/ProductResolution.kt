@@ -2,6 +2,7 @@ package fr.parcourses.core.data.sync
 
 import androidx.room3.withWriteTransaction
 import fr.parcourses.core.data.outbox.CheckPayload
+import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxCoding
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.database.ParcoursesDatabase
@@ -104,7 +105,7 @@ object ProductResolution {
                 }
                 val resolved = item.copy(productId = match.productId, syncState = SyncState.PENDING)
                 db.items().upsert(resolved)
-                queue.enqueueUpsert(resolved, at)
+                queue.enqueueUpsert(resolved, at, listOf(ItemFields.PRODUCT_ID))
                 redirectQueuedChecks(db, item.id, match.productId)
                 changed = true
             }

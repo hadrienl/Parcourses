@@ -54,6 +54,10 @@ abstract class DataTest {
 
     protected fun id(): String = Uuid.random().toString()
 
+    /** Doublure du serveur qui n'a supprimé aucune liste de l'appareil (#87 : réconciliation des listes). */
+    protected fun fakeGateway(): FakeRemoteGateway =
+        FakeRemoteGateway(localLists = { db.lists().getAll().map { it.id } })
+
     protected suspend fun insertList(
         id: String = id(),
         state: SyncState = SyncState.PENDING,

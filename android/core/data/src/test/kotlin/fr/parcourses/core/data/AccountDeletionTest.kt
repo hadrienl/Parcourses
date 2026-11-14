@@ -62,7 +62,7 @@ class AccountDeletionTest : DataTest() {
     /** Mort du processus simulée : ce n'est pas une `Exception`, rien ne la rattrape en chemin. */
     private class Killed : Error("processus tué")
 
-    private val gateway = FakeRemoteGateway()
+    private val gateway = fakeGateway()
     private val flag = KillableFlag(InMemoryAccountDeletionFlag())
     private val cursors = InMemorySyncCursors()
     private val guarded = DeletionGuardedGateway(gateway, flag)
@@ -217,7 +217,16 @@ class AccountDeletionTest : DataTest() {
         assertNotEquals(old, gateway.account)
         assertEquals(gateway.account, cursors.accountId)
         val uploads =
-            setOf("saveList", "saveItem", "deleteList", "deleteItem", "createVisit", "insertChecks", "closeVisit")
+            setOf(
+                "saveList",
+                "insertItem",
+                "updateItem",
+                "deleteList",
+                "deleteItem",
+                "createVisit",
+                "insertChecks",
+                "closeVisit",
+            )
         assertTrue("$after", after.none { it in uploads })
         assertTrue(gateway.acknowledged.isEmpty())
         assertTrue(db.outbox().all().isEmpty())
@@ -383,7 +392,7 @@ class AccountDeletionTest : DataTest() {
             assertEquals(1L, count("visits"))
             // La synchronisation reprend : l'article en file part.
             engine.drain()
-            assertTrue(gateway.callsOf("saveItem").size >= 3)
+            assertTrue(gateway.callsOf("insertItem").size >= 3)
         }
 
     @Test
@@ -444,7 +453,7 @@ class AccountDeletionTest : DataTest() {
             assertEquals("resumeSync", host.events.last())
             assertEquals(1L, count("lists"))
             engine.drain()
-            assertTrue(gateway.callsOf("saveItem").size >= 3)
+            assertTrue(gateway.callsOf("insertItem").size >= 3)
         }
 
     @Test

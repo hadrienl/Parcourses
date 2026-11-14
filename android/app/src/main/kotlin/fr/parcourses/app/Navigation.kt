@@ -13,8 +13,11 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import fr.parcourses.core.data.account.AccountState
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.feature.lists.ListDetailRoute
 import fr.parcourses.feature.lists.ListDetailViewModel
+import fr.parcourses.feature.lists.ListsAccountUi
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
 import fr.parcourses.feature.shopping.ShoppingRoute
@@ -41,6 +44,8 @@ fun ParcoursesNavHost(
     val sessionStuckFlow = remember(container) { container.sessionMaintenance?.isSessionStorageStuck ?: NotStuck }
 
     val deletion by container.accountDeletion.state.collectAsState()
+    val signOutFlow = remember(container) { container.accountSignOut?.state ?: NoSignOut }
+    val signOut by signOutFlow.collectAsState()
 
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
@@ -57,6 +62,11 @@ fun ParcoursesNavHost(
     // Suppression en cours : le mode courses se ferme, sans `closeVisit` (la visite va être effacée).
     LaunchedEffect(deletion) {
         if (deletion == AccountDeletionState.Running) backStack.closeShopping()
+    }
+
+    // Déconnexion (#87) : même chose, les données de l'appareil vont être effacées.
+    LaunchedEffect(signOut) {
+        if (signOut == AccountSignOutState.Running) backStack.closeShopping()
     }
 
     // Choix du magasin : le collecteur est ici car cette composition ne quitte jamais l'écran (voir `storeChoices`).
@@ -89,6 +99,9 @@ fun ParcoursesNavHost(
         ),
         localOnly = container.isLocalOnly,
     )
+    AccountSignOutOverlay(signOut, onAcknowledge = { container.accountSignOut?.acknowledge() })
+
+    val openSignIn = { if (backStack.lastOrNull() != Route.SignIn) backStack.add(Route.SignIn) }
 
     NavDisplay(
         backStack = backStack,
@@ -114,12 +127,20 @@ fun ParcoursesNavHost(
                                 },
                         )
                     val sessionStuck by sessionStuckFlow.collectAsState()
+                    val account by container.accountSession.state.collectAsState(AccountState())
                     ListsRoute(
                         viewModel = model,
                         // Appui sur une liste, ou liste qui vient d'être créée : voir `openListFromLists`.
                         onOpen = { id -> backStack.openListFromLists(id) },
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
                         aboutNeedsAttention = sessionStuck,
+                        account =
+                            ListsAccountUi(
+                                canSignIn = container.gateway != null && account.kind == AccountKind.Anonymous,
+                                needsSignIn = account.needsSignIn,
+                                onSignIn = openSignIn,
+                                onContinueWithoutAccount = container::continueWithoutAccount,
+                            ),
                     )
                 }
                 entry<Route.About> {
@@ -146,6 +167,20 @@ fun ParcoursesNavHost(
                                 },
                         )
                     val deletionState by deletionModel.state.collectAsState()
+                    val accountModel: AccountViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        AccountViewModel(
+                                            session = container.accountSession.takeIf { container.gateway != null },
+                                            signOut = container.accountSignOut,
+                                            onSignIn = openSignIn,
+                                        )
+                                    }
+                                },
+                        )
+                    val accountState by accountModel.state.collectAsState()
                     AboutScreen(
                         version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
@@ -153,7 +188,22 @@ fun ParcoursesNavHost(
                         sessionResetActions = reset.actions,
                         accountDeletion = deletionState,
                         accountDeletionActions = deletionModel.actions,
+                        account = accountState,
+                        accountActions = accountModel.actions,
                     )
+                }
+                entry<Route.SignIn> {
+                    val link = remember { container.newAccountLink() }
+                    val close = { if (backStack.lastOrNull() == Route.SignIn) backStack.removeLastOrNull() }
+                    if (link == null) {
+                        // Build sans Supabase : rien à quoi se connecter.
+                        LaunchedEffect(Unit) { close() }
+                    } else {
+                        val model: AccountLinkViewModel =
+                            viewModel(factory = viewModelFactory { initializer { AccountLinkViewModel(link) } })
+                        val linkState by model.state.collectAsState()
+                        AccountLinkScreen(state = linkState, actions = model.actions, onClose = { close() })
+                    }
                 }
                 entry<Route.ListDetail>(clazzContentKey = { it.slot }) { key ->
                     val model: ListDetailViewModel =
@@ -240,3 +290,6 @@ fun ParcoursesNavHost(
 
 /** Sans Supabase, pas de session : rien à réinitialiser. */
 private val NotStuck: StateFlow<Boolean> = MutableStateFlow(false)
+
+/** Sans Supabase, pas de compte e-mail : rien à déconnecter. */
+private val NoSignOut: StateFlow<AccountSignOutState> = MutableStateFlow(AccountSignOutState.Idle)

@@ -2,14 +2,18 @@ package fr.parcourses.core.data.sync
 
 import android.util.Log
 import fr.parcourses.core.data.outbox.CheckPayload
+import fr.parcourses.core.data.outbox.ItemDeletionPayload
+import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxCoding
 import fr.parcourses.core.data.outbox.ServerClock
 import fr.parcourses.core.data.outbox.VisitClosePayload
 import fr.parcourses.core.data.outbox.carriesDeviceTime
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.OutboxKind
+import fr.parcourses.core.database.entity.syncedOnce
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.VisitAccess
@@ -18,6 +22,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -27,7 +33,9 @@ import kotlinx.serialization.SerializationException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Ce que la synchronisation a besoin de savoir de son environnement. */
 class SyncDependencies(
@@ -98,10 +106,23 @@ class SyncEngine(
     @Volatile
     private var isSuspended = false
 
-    /** Pas de session valide : seule une passe forcée (`pull`) tente d'en retrouver une. */
+    private val waitingForSession = MutableStateFlow(false)
+
+    /**
+     * Pas de session valide : seule une passe forcée (`pull`) tente d'en retrouver une. Pour un compte e-mail, aucune
+     * n'est recréée (vecteur `009`) : l'app propose de se reconnecter.
+     */
+    val waitsForSession: StateFlow<Boolean> = waitingForSession.asStateFlow()
+
+    var isWaitingForSession: Boolean
+        get() = waitingForSession.value
+        private set(value) {
+            waitingForSession.value = value
+        }
+
+    /** Dernière reprise de compte : le compte repris et le nombre de listes renvoyées (message « Bon retour »). */
     @Volatile
-    var isWaitingForSession = false
-        private set
+    private var lastRekey: Pair<Uuid, Int>? = null
 
     // Demandes posées de n'importe quel thread, lues par la boucle de passes.
     private val isRunRequested = AtomicBoolean(false)
@@ -136,6 +157,31 @@ class SyncEngine(
         isSuspended = false
         isWaitingForSession = false
         request(pull = true)
+    }
+
+    /**
+     * Juste après une connexion par code (`AccountLink`) : reprend tout de suite les données locales pour le compte de
+     * la session s'il a changé ([AccountRekey]). Renvoie le nombre de listes ajoutées au compte [expected] (0 si rien
+     * n'était à reprendre), `null` si la reprise n'a pas pu se faire maintenant : la synchronisation la refera.
+     */
+    suspend fun adoptSessionAccount(expected: Uuid): Int? {
+        if (isStopped) return null
+        return passLock.withLock {
+            isWaitingForSession = false
+            when (prepareAccount()) {
+                AccountState.Stopped -> null
+                AccountState.Recovered, AccountState.Ready -> lastRekey?.takeIf { it.first == expected }?.second ?: 0
+            }
+        }
+    }
+
+    /**
+     * Accès d'une liste à revoir (#87 §6.4, rôle abaissé, accès retiré) : une liste que le serveur ne laisse plus lire
+     * quitte l'appareil ; sinon ses entrées en attente sont jetées et ses articles rechargés entièrement. Le rôle,
+     * lui, sera relu avec le partage (lot 87.6).
+     */
+    suspend fun refreshAccess(listId: String) {
+        passLock.withLock { refreshAccessLocked(listId) }
     }
 
     /** Note qu'une passe est due. `pull` : lancement, premier plan, retour du réseau ; lève aussi le délai. */
@@ -276,11 +322,15 @@ class SyncEngine(
         try {
             // D'abord le compte : sans session établie (stockage verrouillé compris), on ne touche à rien.
             val id = gateway.sessionAccountId()
-            val remap = rekey.run(dependencies.now())
+            val result = rekey.run(dependencies.now(), previousAccountId = cursors.accountId?.toString())
+            val remap = result.remap
             remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
             cursors.items = null
+            // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`).
+            cursors.tombstones = null
             cursors.accountId = id
+            lastRekey = id to result.resentLists
             gateway.acknowledgeAccount(id)
             needsAccountRecovery = false
             isWaitingForSession = false
@@ -393,11 +443,15 @@ class SyncEngine(
             }
 
             OutboxKind.UpsertItem -> {
-                gateway.saveItem(OutboxCoding.decode(ListItemUpsert.serializer(), payload))
+                sendItem(work, OutboxCoding.decode(ListItemUpsert.serializer(), payload))
             }
 
             OutboxKind.DeleteItem -> {
-                gateway.deleteItem(parse(work.entityId))
+                val deletion = OutboxCoding.decode(ItemDeletionPayload.serializer(), payload)
+                // Jamais arrivé au serveur : aucune ligne à supprimer, rien d'ambigu.
+                if (!gateway.deleteItem(parse(work.entityId)) && deletion.wasOnServer) {
+                    resolveZeroRow(parse(work.entityId), deletion.listId)
+                }
             }
 
             OutboxKind.CreateVisit -> {
@@ -417,7 +471,72 @@ class SyncEngine(
         }
     }
 
-    private fun parse(id: String) = kotlin.uuid.Uuid.parse(id)
+    private fun parse(id: String) = Uuid.parse(id)
+
+    /**
+     * Article (#87 §6.4, vecteur `001`) : insertion complète s'il n'a jamais atteint le serveur, sinon mise à jour des
+     * seuls champs modifiés, sans repli sur l'insertion. Une entrée d'avant la version 2 de la base garde l'ancien
+     * envoi (tous les champs, puis insertion si aucune ligne).
+     */
+    private suspend fun sendItem(
+        work: OutboxWork,
+        row: ListItemUpsert,
+    ) {
+        val fields = work.changedFields
+        if (fields == null) {
+            val all = ListItemFields(ListItemFields.PATCHABLE.sorted(), row)
+            if (!gateway.updateItem(row.id, all)) gateway.insertItem(row)
+            return
+        }
+        val isOnServer = store.item(work.entityId)?.isOnServer ?: false
+        when (val request = SyncDecisions.itemSaveRequest(isOnServer, ItemFields.decode(fields))) {
+            ItemSaveRequest.Insert -> {
+                gateway.insertItem(row)
+            }
+
+            is ItemSaveRequest.Patch -> {
+                if (!gateway.updateItem(row.id, ListItemFields(request.fields, row))) {
+                    resolveZeroRow(row.id, row.listId.toString())
+                }
+            }
+
+            ItemSaveRequest.None -> {
+                Unit
+            }
+        }
+    }
+
+    /**
+     * Mise à jour ou suppression sans ligne (vecteur `003`) : la pierre tombale dit si l'article a été supprimé
+     * ailleurs (il quitte l'appareil, son entrée aussi, sans réessayer) ; sinon l'accès a changé ([refreshAccess]).
+     */
+    private suspend fun resolveZeroRow(
+        itemId: Uuid,
+        listId: String,
+    ) {
+        val tombstoned = gateway.fetchTombstones(listOf(itemId)).any { it.id == itemId }
+        when (SyncDecisions.zeroRowOutcome(tombstoned)) {
+            ZeroRowOutcome.DeletedElsewhere -> {
+                Log.i(TAG, "Article supprimé ailleurs : modification abandonnée")
+                store.mergeTombstones(listOf(itemId.toString()))
+            }
+
+            ZeroRowOutcome.AccessLost -> {
+                refreshAccessLocked(listId)
+            }
+        }
+    }
+
+    /** Sous [passLock]. Voir [refreshAccess]. */
+    private suspend fun refreshAccessLocked(listId: String) {
+        val accessible = gateway.accessibleListIds().map { it.toString() }
+        if (listId !in accessible) {
+            store.removeLists(listOf(listId))
+            return
+        }
+        store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify)
+        Log.i(TAG, "Liste rechargée après un refus d'écriture")
+    }
 
     private suspend fun releaseParkedIfRecovered() {
         if (!isServerOutageSuspected) return
@@ -607,7 +726,7 @@ class SyncEngine(
         when (work.kind) {
             OutboxKind.CreateVisit -> handleForbiddenVisit(work)
             OutboxKind.InsertChecks -> handleForbiddenChecks(work)
-            OutboxKind.UpsertItem -> if (waitForList(work)) Next.Proceed else failForbidden(work)
+            OutboxKind.UpsertItem -> handleForbiddenItem(work)
             else -> failForbidden(work)
         }
 
@@ -623,6 +742,39 @@ class SyncEngine(
         confirmSession()?.let { return it }
         store.failVisit(work.entityId, "42501 sur une visite sans liste")
         return Next.Proceed
+    }
+
+    /**
+     * Insertion d'un article refusée en `42501` (vecteur `004`) : liste pas encore arrivée au serveur, attendre ;
+     * liste d'un autre propriétaire, revoir l'accès ; liste à soi déjà synchronisée, abandon (la réconciliation de la
+     * file la rendra si la liste repart).
+     */
+    @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
+    private suspend fun handleForbiddenItem(work: OutboxWork): Next {
+        val row = runCatching { OutboxCoding.decode(ListItemUpsert.serializer(), work.payloads[0]) }.getOrNull()
+        val list = row?.let { store.list(it.listId.toString()) } ?: return failForbidden(work)
+        val me = cursors.accountId?.toString()
+        val owned = list.ownerId == null || list.ownerId == me
+        return when (SyncDecisions.insertRefusedOutcome(list.syncedOnce, owned)) {
+            InsertRefusedOutcome.WaitForList -> {
+                if (waitForList(work)) Next.Proceed else failForbidden(work)
+            }
+
+            InsertRefusedOutcome.Reconcile -> {
+                failForbidden(work)
+            }
+
+            InsertRefusedOutcome.RefreshAccess -> {
+                try {
+                    refreshAccessLocked(list.id)
+                    Next.Proceed
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    stop(e)
+                }
+            }
+        }
     }
 
     private suspend fun failForbidden(work: OutboxWork): Next {
@@ -727,12 +879,18 @@ class SyncEngine(
     @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun pullAll(now: Instant) {
         try {
-            val lists = gateway.fetchLists(cursors.lists)
+            // Listes disparues (supprimées ailleurs, accès retiré) et listes nouvellement accessibles (vecteur `005`).
+            val plan = store.reconcile(gateway.accessibleListIds().map { it.toString() })
+            // Une liste nouvellement accessible a pu changer avant le curseur : toutes les listes sont relues.
+            val lists = gateway.fetchLists(if (plan.fetchFully.isEmpty()) cursors.lists else null)
             val items = gateway.fetchItems(cursors.items)
             val listsMerge = store.mergeLists(lists)
             val itemsMerge = store.mergeItems(items, classify)
+            // Ses articles aussi, sans curseur : ils ne viendraient jamais sinon.
+            for (id in plan.fetchFully) store.mergeItems(gateway.fetchItems(parse(id)), classify)
             cursors.lists = later(cursors.lists, listsMerge.cursor)
             cursors.items = later(cursors.items, itemsMerge.cursor)
+            pullTombstones(now)
             if (cursors.catalog?.let { now - it >= SyncRetryPolicy.catalogInterval } != false) {
                 val categories = gateway.fetchCategories()
                 store.applyCategories(categories)
@@ -756,6 +914,29 @@ class SyncEngine(
 
                 // N'arrête pas l'envoi : seul un nouvel essai de descente attend.
                 else -> pullBackoffUntil = now + SyncRetryPolicy.pullRetryInterval
+            }
+        }
+    }
+
+    /**
+     * Suppressions faites ailleurs (vecteurs `006` et `007`) : pierres tombales depuis le curseur, ou, sans curseur
+     * récent, liste des articles de chaque liste synchronisée. Le curseur prend alors l'heure du serveur.
+     */
+    private suspend fun pullTombstones(now: Instant) {
+        when (SyncDecisions.tombstonePullMode(cursors.tombstones, now)) {
+            TombstonePullMode.Incremental -> {
+                val rows = gateway.fetchTombstones(after = cursors.tombstones)
+                store.mergeTombstones(rows.map { it.id.toString() })
+                cursors.tombstones = later(cursors.tombstones, rows.maxOfOrNull { it.deletedAt })
+            }
+
+            TombstonePullMode.FullReconcile -> {
+                // Lue avant la liste des articles : une suppression faite entre-temps sera relue (recouvrement).
+                val serverNow = gateway.serverDate() ?: (now - FULL_RECONCILE_FALLBACK)
+                for (listId in store.syncedListIds()) {
+                    store.reconcileItems(listId, gateway.fetchItemIds(parse(listId)).map { it.toString() })
+                }
+                cursors.tombstones = serverNow
             }
         }
     }
@@ -789,5 +970,8 @@ class SyncEngine(
     private companion object {
         const val TAG = "SyncEngine"
         const val CLOCK_CONSTRAINT = "23514"
+
+        /** Heure du serveur illisible : le curseur des suppressions recule d'autant pour couvrir l'écart d'horloge. */
+        val FULL_RECONCILE_FALLBACK = 10.minutes
     }
 }

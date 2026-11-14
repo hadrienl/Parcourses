@@ -57,4 +57,61 @@
     <string name="about_session_cancel">Annuler</string>
     <string name="about_session_done">Session réinitialisée. Vos listes se synchronisent de nouveau dès que le réseau le permet.</string>
     <string name="about_session_failed">La réinitialisation n\'a pas abouti. Réessayez plus tard.</string>
+
+    <!-- Compte e-mail (#87, lot 87.5) : textes des maquettes (design/sharing-v1.html, écran 4). -->
+    <string name="account_title">Compte</string>
+    <string name="account_email">Adresse e-mail</string>
+    <string name="account_name">Prénom</string>
+    <string name="account_name_missing">Ajouter un prénom</string>
+    <string name="account_name_edit">Modifier le prénom</string>
+    <string name="account_note">Votre adresse ne sert qu’à vous connecter. Les membres de vos listes voient votre prénom.</string>
+    <string name="account_anonymous_body">Retrouvez vos listes et celles qu\'on partage avec vous.</string>
+    <string name="account_sign_in">Se connecter</string>
+    <string name="account_sign_out">Se déconnecter</string>
+    <string name="account_sign_out_title">Se déconnecter ?</string>
+    <string name="account_sign_out_body">Vos listes restent dans votre compte. Elles seront retirées de cet appareil.</string>
+    <string name="account_sign_out_running">Déconnexion…</string>
+    <string name="account_sign_out_offline">Il faut du réseau pour se déconnecter. Rien n\'a été retiré.</string>
+    <string name="account_sign_out_unsynced">Vos dernières modifications ne sont pas encore enregistrées dans votre compte. Réessayez dans un instant.</string>
+    <string name="account_sign_out_failed">La déconnexion n\'a pas abouti. Réessayez.</string>
+    <string name="account_cancel">Annuler</string>
+    <string name="account_ok">OK</string>
+    <string name="account_name_save_failed">Le prénom n\'a pas pu être enregistré. Réessayez avec du réseau.</string>
+
+    <!-- Se connecter, lier une adresse -->
+    <string name="link_close">Fermer</string>
+    <string name="link_title">Se connecter</string>
+    <string name="link_body">Retrouvez vos listes et celles qu\'on partage avec vous.</string>
+    <string name="link_email_label">Adresse e-mail</string>
+    <string name="link_email_placeholder">prenom@exemple.fr</string>
+    <string name="link_name_label">Prénom</string>
+    <string name="link_name_help">Les personnes avec qui vous partagez une liste verront ce prénom.</string>
+    <string name="link_name_error">Entre 1 et 40 caractères, sans adresse ni lien.</string>
+    <string name="link_cta">Recevoir un code</string>
+    <string name="link_sending">Envoi…</string>
+    <string name="code_title">Entrez le code</string>
+    <string name="code_sent_to">Envoyé à %1$s. Il expire dans 15 minutes.</string>
+    <string name="code_a11y">Code à 6 chiffres</string>
+    <string name="code_resend_in">Renvoyer le code dans %1$d s</string>
+    <string name="code_resend">Renvoyer le code</string>
+    <string name="code_ready">Vous pouvez renvoyer le code</string>
+    <string name="code_change">Changer d\'adresse</string>
+    <string name="code_verifying">Vérification…</string>
+    <string name="link_error_invalid_email">Cette adresse ne semble pas valide.</string>
+    <string name="link_error_invalid_code">Ce code ne correspond pas. Vérifiez le dernier e-mail reçu.</string>
+    <string name="link_error_expired_code">Ce code a expiré. Demandez-en un nouveau.</string>
+    <string name="link_error_rate_limited">Trop de codes demandés. Réessayez dans 1 min.</string>
+    <string name="link_error_too_many_codes">Trop d’essais. Patientez une minute avant de réessayer.</string>
+    <string name="link_error_offline">Il faut du réseau pour recevoir un code.</string>
+    <string name="link_error_unknown">Le code n\'a pas pu être envoyé. Vérifiez l\'adresse et réessayez.</string>
+    <string name="link_merging">Rapprochement de vos listes…</string>
+    <string name="link_welcome_title">Bon retour, %1$s !</string>
+    <string name="link_welcome_title_plain">Bon retour !</string>
+    <plurals name="link_welcome_body">
+        <item quantity="one">La liste de ce téléphone a été ajoutée à votre compte.</item>
+        <item quantity="other">Les %1$d listes de ce téléphone ont été ajoutées à votre compte.</item>
+    </plurals>
+    <string name="link_welcome_cta">Voir mes listes</string>
+    <string name="link_linked">Adresse liée. Vos listes sont rattachées à votre compte.</string>
+    <string name="link_done_cta">Terminer</string>
 </resources>

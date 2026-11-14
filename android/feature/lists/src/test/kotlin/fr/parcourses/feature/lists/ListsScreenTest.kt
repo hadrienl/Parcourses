@@ -183,4 +183,49 @@ class ListsScreenTest {
         rule.onNodeWithTag(TAG_ABOUT_BADGE, useUnmergedTree = true).assertExists()
         rule.onNodeWithContentDescription("À propos, action requise").assertExists()
     }
+
+    @Test
+    fun anAnonymousAccountOffersToSignInAndALostSessionAsksToReconnect() {
+        var account by mutableStateOf(ListsAccountUi())
+        var signIns = 0
+        var anonymous = 0
+        rule.setContent {
+            ParcoursesTheme {
+                ListsScreen(
+                    state = ListsUiState(isLoaded = true),
+                    onOpen = {},
+                    onCreate = {},
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onDismissError = {},
+                    onAbout = {},
+                    account = account,
+                )
+            }
+        }
+        rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_SESSION_BANNER).assertDoesNotExist()
+
+        account = ListsAccountUi(canSignIn = true, onSignIn = { signIns++ })
+        rule.onNodeWithText("Se connecter").performClick()
+        assertEquals(1, signIns)
+
+        // Compte e-mail sans session : bandeau, reconnexion, ou compte anonyme après confirmation.
+        account =
+            ListsAccountUi(
+                needsSignIn = true,
+                onSignIn = { signIns++ },
+                onContinueWithoutAccount = { anonymous++ },
+            )
+        rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
+        rule.onNodeWithText("Reconnectez-vous pour synchroniser.").assertExists()
+        rule.onNodeWithTag(TAG_SESSION_RECONNECT).performClick()
+        assertEquals(2, signIns)
+        rule.onNodeWithTag(TAG_SESSION_ANONYMOUS).performClick()
+        rule.onNodeWithText("Continuer sans compte ?").assertExists()
+        assertEquals(0, anonymous)
+        rule.onNodeWithTag(TAG_ANONYMOUS_CONFIRM).performClick()
+        assertEquals(1, anonymous)
+        rule.onNodeWithText("Continuer sans compte ?").assertDoesNotExist()
+    }
 }

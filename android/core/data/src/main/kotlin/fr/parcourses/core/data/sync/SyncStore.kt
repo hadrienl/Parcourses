@@ -14,6 +14,7 @@ import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.database.entity.syncedOnce
 import fr.parcourses.core.network.CategoryMap
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.ListItemRow
@@ -333,7 +334,15 @@ class SyncStore(
                 when {
                     local == null -> {
                         db.lists().upsert(
-                            ShoppingListEntity(id, row.name, row.createdAt, row.updatedAt, null, SyncState.SYNCED),
+                            ShoppingListEntity(
+                                id,
+                                row.name,
+                                row.createdAt,
+                                row.updatedAt,
+                                null,
+                                SyncState.SYNCED,
+                                ownerId = row.ownerId.toString(),
+                            ),
                         )
                         merge.changed = true
                     }
@@ -346,7 +355,12 @@ class SyncStore(
                     else -> {
                         merge.changed = merge.changed || local.name != row.name
                         db.lists().upsert(
-                            local.copy(name = row.name, updatedAt = row.updatedAt, syncState = SyncState.SYNCED),
+                            local.copy(
+                                name = row.name,
+                                updatedAt = row.updatedAt,
+                                syncState = SyncState.SYNCED,
+                                ownerId = row.ownerId.toString(),
+                            ),
                         )
                     }
                 }
@@ -410,6 +424,8 @@ class SyncStore(
                     position = items.nextPosition(listId),
                     updatedAt = row.updatedAt,
                     syncState = SyncState.SYNCED,
+                    isOnServer = true,
+                    updatedBy = row.updatedBy?.toString(),
                 ),
             )
             merge.changed = true
@@ -436,6 +452,8 @@ class SyncStore(
                 checkedAt = row.checkedAt,
                 updatedAt = row.updatedAt,
                 syncState = SyncState.SYNCED,
+                isOnServer = true,
+                updatedBy = row.updatedBy?.toString(),
             ),
         )
     }
@@ -482,6 +500,123 @@ class SyncStore(
 
     // endregion
 
+    // region Comptes et partage (#87)
+
+    suspend fun item(id: String): ListItemEntity? = db.items().get(id)
+
+    suspend fun list(id: String): ShoppingListEntity? = db.lists().get(id)
+
+    /**
+     * Réconciliation des listes à la descente (vecteur `005`) : les listes déjà synchronisées que le serveur ne laisse
+     * plus lire quittent l'appareil, articles et entrées de file comprises. Renvoie le plan, dont les listes à
+     * descendre entièrement. Les visites gardent leur liste : leur création repartira sans elle (`42501`).
+     */
+    suspend fun reconcile(listIds: Collection<String>): ListReconciliationPlan =
+        db.withWriteTransaction {
+            val local = db.lists().getAll().map { LocalListState(it.id, it.syncedOnce) }
+            val plan = SyncDecisions.reconcileLists(local, listIds)
+            removeListsLocked(plan.remove)
+            plan
+        }
+
+    /** Retire ces listes de l'appareil, avec leurs articles et toutes leurs entrées de file. */
+    suspend fun removeLists(ids: Collection<String>) = db.withWriteTransaction { removeListsLocked(ids) }
+
+    /**
+     * Pierres tombales descendues (vecteur `006`) : les articles locaux de même id sont supprimés, entrées de file
+     * comprises (la suppression gagne). Vrai si un article a disparu.
+     */
+    suspend fun mergeTombstones(ids: Collection<String>): Boolean =
+        db.withWriteTransaction {
+            val doomed = SyncDecisions.applyTombstones(db.items().allIds(), ids)
+            deleteItemsLocked(doomed)
+            doomed.isNotEmpty()
+        }
+
+    /**
+     * Réconciliation complète d'une liste (vecteur `007`, `fullReconcile`) : un article local déjà arrivé au serveur
+     * et absent de [serverIds] a été supprimé ailleurs. Vrai si un article a disparu.
+     */
+    suspend fun reconcileItems(
+        listId: String,
+        serverIds: Collection<String>,
+    ): Boolean =
+        db.withWriteTransaction {
+            val alive = serverIds.toSet()
+            val doomed =
+                db
+                    .items()
+                    .getByList(listId)
+                    .filter { it.isOnServer && it.id !in alive }
+                    .map { it.id }
+            deleteItemsLocked(doomed)
+            doomed.isNotEmpty()
+        }
+
+    /** Listes à réconcilier article par article : déjà synchronisées, non supprimées. */
+    suspend fun syncedListIds(): List<String> =
+        db
+            .lists()
+            .getAll()
+            .filter { it.deletedAt == null && it.syncedOnce }
+            .map { it.id }
+
+    /**
+     * `refreshAccess` (#87 §6.4) : les entrées en attente de la liste et de ses articles sont jetées, puis la liste
+     * reprend exactement les articles du serveur ([rows], descente complète).
+     */
+    suspend fun replaceItems(
+        listId: String,
+        rows: List<ListItemRow>,
+        classify: (String) -> PulledItemClassification,
+    ): PullMerge {
+        db.withWriteTransaction {
+            for (entry in outbox.all()) {
+                val tied =
+                    when (entry.kind()) {
+                        OutboxKind.UpsertList, OutboxKind.DeleteList -> entry.entityId == listId
+                        OutboxKind.UpsertItem, OutboxKind.DeleteItem -> OutboxDependencies.listId(entry) == listId
+                        else -> false
+                    }
+                if (tied) outbox.delete(entry.id)
+            }
+            val alive = rows.map { it.id.toString() }.toSet()
+            for (item in db.items().getByList(listId)) if (item.id !in alive) db.items().delete(item.id)
+            db.lists().get(listId)?.takeIf { it.syncState != SyncState.SYNCED }?.let {
+                db.lists().setSyncState(listId, SyncState.SYNCED)
+            }
+        }
+        return mergeItems(rows, classify)
+    }
+
+    private suspend fun removeListsLocked(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val doomed = ids.toSet()
+        for (entry in outbox.all()) {
+            val listId =
+                when (entry.kind()) {
+                    OutboxKind.UpsertList, OutboxKind.DeleteList -> entry.entityId
+                    OutboxKind.UpsertItem, OutboxKind.DeleteItem -> OutboxDependencies.listId(entry)
+                    else -> null
+                }
+            if (listId in doomed) outbox.delete(entry.id)
+        }
+        for (id in doomed) {
+            db.items().deleteByList(id)
+            db.lists().delete(id)
+        }
+        Log.i(TAG, "Listes retirées de l'appareil : ${doomed.size}")
+    }
+
+    private suspend fun deleteItemsLocked(ids: Collection<String>) {
+        for (id in ids) {
+            outbox.deleteAllFor(id)
+            db.items().delete(id)
+        }
+    }
+
+    // endregion
+
     // region Outils
 
     private suspend fun pendingEntityIds(): Set<String> = outbox.pending().map { it.entityId }.toSet()
@@ -498,6 +633,7 @@ class SyncStore(
         entityId = entries.first().entityId,
         payloads = entries.map { it.payload },
         attempts = entries.maxOf { it.attempts },
+        changedFields = entries.first().changedFields,
     )
 
     @Suppress("LoopWithTooManyJumpStatements") // port d'iOS : une garde par cas écarté
@@ -531,6 +667,8 @@ class SyncStore(
 
             OutboxKind.UpsertItem -> {
                 if (!stillPending) db.items().setSyncState(entityId, state)
+                // Envoi accusé : l'article est sur le serveur, même si une modification plus récente attend.
+                if (state == SyncState.SYNCED) db.items().markOnServer(entityId)
             }
 
             OutboxKind.DeleteList -> {

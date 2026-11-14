@@ -125,7 +125,8 @@ abstract class OutboxDao {
      * Remplace les entrées en attente de cette entité pour ces natures par une seule, dans une transaction.
      * La nouvelle entrée reprend la plus petite `sequence` retirée (sinon une liste renommée passerait derrière
      * ses articles) et le plus ancien départ de panne `serverFailingSince` (sinon chaque retouche relancerait le
-     * délai de grâce). Sans entrée à remplacer, elle est ajoutée en fin de file.
+     * délai de grâce). Sans entrée à remplacer, elle est ajoutée en fin de file. [changedFields] : voir
+     * [OutboxEntryEntity.changedFields] ; l'appelant y a déjà uni ceux de l'entrée remplacée.
      */
     @Transaction
     open suspend fun replacePending(
@@ -135,6 +136,7 @@ abstract class OutboxDao {
         payload: ByteArray,
         at: Instant,
         replacing: Set<OutboxKind> = setOf(kind),
+        changedFields: String? = null,
     ): OutboxEntryEntity {
         val doomed = pendingFor(entityId).filter { it.kind() in replacing }
         doomed.forEach { delete(it.id) }
@@ -148,8 +150,13 @@ abstract class OutboxDao {
                 createdAt = at,
                 nextAttemptAt = at,
                 serverFailingSince = doomed.mapNotNull { it.serverFailingSince }.minOrNull(),
+                changedFields = changedFields,
             )
         insert(entry)
         return entry
     }
+
+    /** Toutes les entrées d'une entité, abandonnées comprises : une suppression venue d'ailleurs les emporte. */
+    @Query("DELETE FROM outbox WHERE entityId = :entityId")
+    abstract suspend fun deleteAllFor(entityId: String): Int
 }

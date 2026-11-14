@@ -35,7 +35,7 @@ class RoomVisitRepositoryTest : DataTest() {
     private var wakeUps = 0
     private val visits by lazy { RoomVisitRepository(db, onEnqueue = { wakeUps++ }) }
     private val lists by lazy { RoomListRepository(db) }
-    private val gateway = FakeRemoteGateway()
+    private val gateway = fakeGateway()
     private val engine by lazy { SyncEngine(gateway, db, InMemorySyncCursors(), classify, dependencies) }
     private val store = id()
 

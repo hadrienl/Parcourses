@@ -11,8 +11,13 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
+import fr.parcourses.core.data.account.AccountLinkPhase
+import fr.parcourses.core.data.account.AccountLinkState
+import fr.parcourses.core.data.account.AccountState
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.ParcoursesTheme
+import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.feature.lists.ItemRow
 import fr.parcourses.feature.lists.ItemSection
 import fr.parcourses.feature.lists.ListDetailScreen
@@ -295,6 +300,53 @@ class ScreenshotTest {
     @Test
     fun aboutSessionDark() =
         capture("about-session-dark", dark = true) { AboutScreen("0.1.0 (1)", {}, sessionReset = stuckSession) }
+
+    // endregion
+
+    // region Compte (#87)
+
+    private val emailAccount =
+        AccountUiState(
+            visible = true,
+            account = AccountState(AccountKind.Email, email = "lea@exemple.fr", displayName = "Léa"),
+        )
+
+    @Test
+    fun aboutAccountLight() = capture("about-account-light") { AboutScreen("0.1.0 (1)", {}, account = emailAccount) }
+
+    @Test
+    fun aboutAccountDark() =
+        capture("about-account-dark", dark = true) { AboutScreen("0.1.0 (1)", {}, account = emailAccount) }
+
+    private val codeStep =
+        AccountLinkUiState(
+            AccountLinkState(
+                phase = AccountLinkPhase.EnterCode,
+                email = "lea@exemple.fr",
+                purpose = EmailCodePurpose.Link,
+            ),
+            resendIn = 42,
+        )
+
+    @Test
+    fun signInLight() = capture("sign-in-light") { AccountLinkScreen(AccountLinkUiState(), AccountLinkActions(), {}) }
+
+    @Test
+    fun signInCodeDark() =
+        capture("sign-in-code-dark", dark = true) {
+            AccountLinkScreen(codeStep, AccountLinkActions(), {})
+        }
+
+    @Test
+    fun signInCodeLarge() =
+        capture("sign-in-code-200", fontScale = 2f) { AccountLinkScreen(codeStep, AccountLinkActions(), {}) }
+
+    @Test
+    fun signInWelcomeLight() =
+        capture("sign-in-welcome-light") {
+            val done = AccountLinkState(AccountLinkPhase.Done, welcomeBack = true, listsAdded = 2, displayName = "Léa")
+            AccountLinkScreen(AccountLinkUiState(done), AccountLinkActions(), {})
+        }
 
     // endregion
 

@@ -19,7 +19,12 @@ data class ShoppingListEntity(
     /** Suppression douce, le temps que le `DELETE` parte au serveur. */
     val deletedAt: Instant? = null,
     val syncState: SyncState = SyncState.PENDING,
+    /** Propriétaire, appris à la descente (#87) ; `null` tant que la liste n'est jamais descendue : elle est à nous. */
+    val ownerId: String? = null,
 )
+
+/** Déjà arrivée au serveur une fois (envoi accusé ou ligne descendue) : `syncedOnce` du vecteur `005`. */
+val ShoppingListEntity.syncedOnce: Boolean get() = ownerId != null || syncState == SyncState.SYNCED
 
 /** Article d'une liste (`list_items`). `categoryId`, `notFoundAt` et `position` restent locaux. */
 @Entity(
@@ -40,6 +45,13 @@ data class ListItemEntity(
     val position: Int,
     val updatedAt: Instant,
     val syncState: SyncState = SyncState.PENDING,
+    /**
+     * Vrai dès qu'un envoi est accusé ou que la ligne est descendue (#87) : un changement part alors en mise à jour des
+     * seuls champs modifiés, jamais en insertion.
+     */
+    @ColumnInfo(defaultValue = "0") val isOnServer: Boolean = false,
+    /** Dernier compte qui a modifié l'article, appris à la descente (`updated_by`). */
+    val updatedBy: String? = null,
 )
 
 /** Visite d'un magasin (`visits`). Création et clôture partent séparément. */
@@ -172,6 +184,11 @@ data class OutboxEntryEntity(
     val syncState: SyncState = SyncState.PENDING,
     /** Première erreur serveur d'une suite ininterrompue. */
     val serverFailingSince: Instant? = null,
+    /**
+     * Articles seulement (#87) : noms de colonnes serveur modifiés, triés et séparés par des virgules. `null` pour une
+     * entrée écrite avant la version 2 de la base : tous les champs, puis insertion si aucune ligne (ancien envoi).
+     */
+    val changedFields: String? = null,
 ) {
     /** `null` si le type stocké est inconnu de cette version de l'app. */
     fun kind(): OutboxKind? = OutboxKind.fromRaw(kindRaw)
@@ -190,7 +207,8 @@ data class OutboxEntryEntity(
                     nextAttemptAt == other.nextAttemptAt &&
                     lastError == other.lastError &&
                     syncState == other.syncState &&
-                    serverFailingSince == other.serverFailingSince
+                    serverFailingSince == other.serverFailingSince &&
+                    changedFields == other.changedFields
             )
 
     override fun hashCode(): Int = 31 * id.hashCode() + payload.contentHashCode()

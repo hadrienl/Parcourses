@@ -1,5 +1,6 @@
 package fr.parcourses.feature.lists
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,13 +13,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +73,7 @@ fun ListsRoute(
     modifier: Modifier = Modifier,
     onAbout: (() -> Unit)? = null,
     aboutNeedsAttention: Boolean = false,
+    account: ListsAccountUi = ListsAccountUi(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ListsScreen(
@@ -77,6 +86,7 @@ fun ListsRoute(
         modifier = modifier,
         onAbout = onAbout,
         aboutNeedsAttention = aboutNeedsAttention,
+        account = account,
     )
 }
 
@@ -145,8 +155,10 @@ fun ListsScreen(
     modifier: Modifier = Modifier,
     onAbout: (() -> Unit)? = null,
     aboutNeedsAttention: Boolean = false,
+    account: ListsAccountUi = ListsAccountUi(),
 ) {
     var dialog by rememberSaveable(stateSaver = ListDialogSaver) { mutableStateOf<ListDialog?>(null) }
+    var confirmingAnonymous by rememberSaveable { mutableStateOf(false) }
     // Reprise de compte : la liste visée par un dialogue a changé d'identifiant ou disparu, il se ferme.
     LaunchedEffect(state.lists, state.isLoaded) {
         val target =
@@ -161,7 +173,7 @@ fun ListsScreen(
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
-        topBar = { ListsTopBar(onAbout, aboutNeedsAttention) },
+        topBar = { ListsTopBar(onAbout, aboutNeedsAttention, account.onSignIn.takeIf { account.canSignIn }) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { dialog = ListDialog.Create },
@@ -174,25 +186,22 @@ fun ListsScreen(
         },
     ) { padding ->
         TicketSheet(Modifier.padding(padding)) {
-            when {
-                !state.isLoaded -> {
-                    Unit
+            Column(Modifier.fillMaxSize()) {
+                if (account.needsSignIn) {
+                    SessionLostBanner(onReconnect = account.onSignIn, onAnonymous = { confirmingAnonymous = true })
                 }
-
-                state.lists.isEmpty() -> {
-                    EmptyLists()
-                }
-
-                else -> {
-                    ListsContent(
-                        lists = state.lists,
-                        onOpen = onOpen,
-                        onRename = { dialog = ListDialog.Rename(it) },
-                        onDelete = { dialog = ListDialog.Delete(it) },
-                    )
-                }
+                ListsBody(state, onOpen, onDialog = { dialog = it })
             }
         }
+    }
+    if (confirmingAnonymous && account.needsSignIn) {
+        ContinueWithoutAccountDialog(
+            onConfirm = {
+                confirmingAnonymous = false
+                account.onContinueWithoutAccount()
+            },
+            onDismiss = { confirmingAnonymous = false },
+        )
     }
     ListDialogs(
         dialog = dialog,
@@ -209,11 +218,18 @@ fun ListsScreen(
 private fun ListsTopBar(
     onAbout: (() -> Unit)?,
     needsAttention: Boolean,
+    onSignIn: (() -> Unit)?,
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
         title = { Text(stringResource(R.string.lists_title)) },
         actions = {
+            if (onSignIn != null) {
+                TextButton(
+                    onClick = onSignIn,
+                    modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_SIGN_IN),
+                ) { Text(stringResource(R.string.lists_sign_in), color = Ticket.colors.accent) }
+            }
             if (onAbout != null) {
                 IconButton(onClick = onAbout, modifier = Modifier.testTag(TAG_ABOUT)) {
                     // Pastille : À propos propose une action (session illisible, #51).
@@ -286,6 +302,32 @@ private fun ListDialogs(
 
         null -> {
             Unit
+        }
+    }
+}
+
+@Composable
+private fun ListsBody(
+    state: ListsUiState,
+    onOpen: (String) -> Unit,
+    onDialog: (ListDialog) -> Unit,
+) {
+    when {
+        !state.isLoaded -> {
+            Unit
+        }
+
+        state.lists.isEmpty() -> {
+            EmptyLists()
+        }
+
+        else -> {
+            ListsContent(
+                lists = state.lists,
+                onOpen = onOpen,
+                onRename = { onDialog(ListDialog.Rename(it)) },
+                onDelete = { onDialog(ListDialog.Delete(it)) },
+            )
         }
     }
 }
@@ -387,6 +429,7 @@ private fun subtitle(list: ListSummary): String =
     }
 
 internal const val TAG_NEW_LIST = "newList"
+internal const val TAG_SIGN_IN = "lists-sign-in"
 internal const val TAG_ABOUT = "about"
 internal const val TAG_ABOUT_BADGE = "about-badge"
 internal const val TAG_LISTS = "lists"

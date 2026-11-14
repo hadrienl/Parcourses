@@ -238,7 +238,7 @@ class OutboxTest : DataTest() {
             queue.enqueueInsertion(held, now, notBefore = now + 1.hours)
             val oldOutbox = db.outbox().all().map { it.id }
 
-            val remap = AccountRekey(db).run(now)
+            val remap = AccountRekey(db).run(now).remap
 
             val newList = db.lists().getAll().single()
             assertNotEquals(list.id, newList.id)
@@ -280,7 +280,7 @@ class OutboxTest : DataTest() {
             db.visits().upsert(unfinished)
             db.checks().upsert(check(unfinished.id, item.id).copy(syncState = SyncState.SYNCED))
 
-            val remap = AccountRekey(db).run(now)
+            val remap = AccountRekey(db).run(now).remap
 
             val keptDone = checkNotNull(db.visits().get(remap[done.id]))
             assertEquals(SyncState.SYNCED, keptDone.syncState)

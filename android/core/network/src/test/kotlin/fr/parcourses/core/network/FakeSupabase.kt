@@ -9,6 +9,7 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.content.TextContent
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,15 @@ class FakeSupabase {
     /** Compte supprimé (#68) : le rafraîchissement répond `refresh_token_not_found` et `/user`, `user_not_found`. */
     var accountGone = false
 
+    /** Refus de GoTrue programmés (#87) : `otp`, `user` (PUT), `verify` → statut et code `error_code`. */
+    val authRefusals = mutableMapOf<String, Pair<HttpStatusCode, String>>()
+
+    /** Compte ouvert par `/verify` (connexion à un compte existant). */
+    var verifiedUserId: String? = null
+
+    /** Adresse portée par la session après `/verify`. */
+    var email: String? = null
+
     /** Réponses REST, par `méthode chemin`. Absent : `200 []`. */
     val rest = mutableMapOf<String, MutableList<Reply>>()
 
@@ -73,7 +83,31 @@ class FakeSupabase {
             requests += request
             failWith?.let { throw it }
             val path = request.url.encodedPath
+            val refusal =
+                when {
+                    path.endsWith("/auth/v1/otp") -> authRefusals["otp"]
+                    path.endsWith("/auth/v1/verify") -> authRefusals["verify"]
+                    path.endsWith("/auth/v1/user") && request.method == HttpMethod.Put -> authRefusals["user"]
+                    else -> null
+                }
             when {
+                refusal != null -> {
+                    authError(refusal.first, refusal.second)
+                }
+
+                path.endsWith("/auth/v1/otp") || path.endsWith("/auth/v1/logout") -> {
+                    json("{}")
+                }
+
+                path.endsWith("/auth/v1/verify") -> {
+                    verifiedUserId?.let { userId = it }
+                    json(sessionJson())
+                }
+
+                path.endsWith("/auth/v1/user") && request.method == HttpMethod.Put -> {
+                    json("""{"id":"$userId","aud":"authenticated","new_email":"pending@exemple.fr"}""")
+                }
+
                 path.endsWith("/auth/v1/signup") -> {
                     json(sessionJson())
                 }
@@ -140,7 +174,8 @@ class FakeSupabase {
     private fun sessionJson(): String {
         val exp = System.currentTimeMillis() / 1000 + 3600
         return """{"access_token":"${jwt(exp)}","token_type":"bearer","expires_in":3600,"expires_at":$exp,""" +
-            """"refresh_token":"refresh-1","user":{"id":"$userId","aud":"authenticated","role":"authenticated","is_anonymous":true}}"""
+            """"refresh_token":"refresh-1","user":{"id":"$userId","aud":"authenticated","role":"authenticated",""" +
+            (email?.let { """"email":"$it","is_anonymous":false}}""" } ?: """"is_anonymous":true}}""")
     }
 
     private fun jwt(exp: Long): String {

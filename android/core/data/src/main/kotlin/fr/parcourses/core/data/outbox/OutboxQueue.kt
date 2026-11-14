@@ -1,11 +1,13 @@
 package fr.parcourses.core.data.outbox
 
+import fr.parcourses.core.data.sync.SyncDecisions
 import fr.parcourses.core.database.dao.OutboxDao
 import fr.parcourses.core.database.entity.CheckEntity
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.ShoppingListEntity
 import fr.parcourses.core.database.entity.VisitEntity
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.VisitInsert
@@ -35,10 +37,26 @@ class OutboxQueue(
         )
     }
 
+    /**
+     * Remplace l'entrée en attente de l'article. [changedFields] (noms de colonnes serveur, [ItemFields]) s'unit à
+     * ceux de l'entrée remplacée (vecteur `002`) : seuls ces champs partiront si l'article est déjà sur le serveur.
+     * Une entrée remplacée d'avant la version 2 de la base (`changedFields` nul) le reste : tous les champs partent.
+     */
     suspend fun enqueueUpsert(
         item: ListItemEntity,
         at: Instant,
+        changedFields: Collection<String> = ItemFields.ALL,
     ) {
+        val replaced = dao.pendingFor(item.id).filter { it.kind() == OutboxKind.UpsertItem }
+        val fields =
+            if (replaced.any { it.changedFields == null }) {
+                null
+            } else {
+                SyncDecisions.mergeChangedFields(
+                    replaced.flatMap { ItemFields.decode(it.changedFields) },
+                    changedFields,
+                )
+            }
         val row =
             ListItemUpsert(
                 id = item.id.asUuid(),
@@ -54,6 +72,7 @@ class OutboxQueue(
             entityId = item.id,
             payload = OutboxCoding.encode(ListItemUpsert.serializer(), row),
             at = at,
+            changedFields = fields?.let(ItemFields::encode),
         )
     }
 
@@ -77,17 +96,22 @@ class OutboxQueue(
         dao.enqueue(newId(), OutboxKind.DeleteList, ofList, ByteArray(0), at)
     }
 
+    /**
+     * [wasOnServer] : l'article avait atteint le serveur. Sinon une suppression sans ligne n'a rien d'ambigu : il
+     * n'y est jamais arrivé (#87).
+     */
     suspend fun enqueueDeletion(
         ofItem: String,
         listId: String,
         at: Instant,
+        wasOnServer: Boolean = true,
     ) {
         dao.cancelPending(ofItem, setOf(OutboxKind.UpsertItem))
         dao.enqueue(
             newId(),
             OutboxKind.DeleteItem,
             ofItem,
-            OutboxCoding.encode(ItemDeletionPayload.serializer(), ItemDeletionPayload(listId)),
+            OutboxCoding.encode(ItemDeletionPayload.serializer(), ItemDeletionPayload(listId, wasOnServer)),
             at,
         )
     }
@@ -149,4 +173,22 @@ class OutboxQueue(
             at,
         )
     }
+}
+
+/** Champs d'un article qu'un changement local peut modifier, en noms de colonnes serveur (#87 §6.4). */
+object ItemFields {
+    const val CHECKED_AT = ListItemFields.CHECKED_AT
+    const val LABEL = ListItemFields.LABEL
+    const val PRODUCT_ID = ListItemFields.PRODUCT_ID
+    const val QUANTITY = ListItemFields.QUANTITY
+
+    /** Tout ce que l'app modifie : l'article déplacé d'une liste à l'autre n'existe pas (`list_id` jamais changé). */
+    val ALL: List<String> = listOf(CHECKED_AT, LABEL, PRODUCT_ID, QUANTITY)
+
+    private const val SEPARATOR = ","
+
+    fun encode(fields: Collection<String>): String = fields.sorted().distinct().joinToString(SEPARATOR)
+
+    /** `null` (entrée d'avant la version 2) : aucun champ connu, l'appelant décide. */
+    fun decode(value: String?): List<String> = value?.split(SEPARATOR)?.filter { it.isNotEmpty() }.orEmpty()
 }

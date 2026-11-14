@@ -6,9 +6,15 @@ import fr.parcourses.core.data.EntryAnalyzer
 import fr.parcourses.core.data.account.AccountDeletion
 import fr.parcourses.core.data.account.AccountDeletionFlag
 import fr.parcourses.core.data.account.AccountDeletionHost
+import fr.parcourses.core.data.account.AccountKindFlag
+import fr.parcourses.core.data.account.AccountLink
+import fr.parcourses.core.data.account.AccountLinkHost
+import fr.parcourses.core.data.account.AccountSession
+import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
+import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
@@ -21,6 +27,7 @@ import fr.parcourses.core.data.repository.RoomStoreRepository
 import fr.parcourses.core.data.repository.RoomVisitRepository
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.data.sync.NetworkMonitor
 import fr.parcourses.core.data.sync.PulledItemClassification
@@ -62,6 +69,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -71,6 +79,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 /** Visite ouverte que l'app rouvre au lancement. */
 data class ResumableVisit(
@@ -97,10 +106,16 @@ class AppContainer(
     /** Drapeau durable de « Supprimer mes données » (#68) : tant qu'il existe, ni synchronisation ni compte créé. */
     val deletionFlag: AccountDeletionFlag by lazy { SharedPreferencesAccountDeletionFlag(context) }
 
+    /** Drapeau durable `account.kind` (#87) : un compte e-mail sans session attend la reconnexion. */
+    val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
+
     private val supabase: SupabaseGateway? by lazy { config?.let { createSupabaseGateway(context, it) } }
 
-    /** Toute l'app passe par la garde : aucun `ensureSession` pendant une suppression du compte. */
-    val gateway: RemoteGateway? by lazy { supabase?.let { DeletionGuardedGateway(it, deletionFlag) } }
+    /**
+     * Toute l'app passe par la garde : aucun `ensureSession` pendant une suppression du compte, et jamais de compte
+     * anonyme recréé pour un compte e-mail (#87).
+     */
+    val gateway: RemoteGateway? by lazy { supabase?.let { DeletionGuardedGateway(it, deletionFlag, accountKind) } }
 
     /** Entretien de la session (écran À propos) : `null` sans configuration Supabase. */
     val sessionMaintenance: SessionMaintenance? get() = supabase
@@ -183,6 +198,30 @@ class AppContainer(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val remaps: Flow<IdentifierRemap> = sessionGeneration.flatMapLatest { session.engine?.remaps ?: emptyFlow() }
+
+    /** Session perdue du moteur courant, y compris après un [reset]. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val waitsForSession: Flow<Boolean> =
+        sessionGeneration.flatMapLatest { session.engine?.waitsForSession ?: flowOf(false) }
+
+    /** Compte de l'appareil pour les écrans (#87) : type, adresse, prénom, session perdue. */
+    val accountSession: AccountSession by lazy { AccountSession(gateway, accountKind, waitsForSession) }
+
+    /** Une liaison par écran de connexion ; `null` sans Supabase. */
+    fun newAccountLink(): AccountLink? =
+        gateway?.let { remote ->
+            AccountLink(remote, accountKind, LinkHost(), isOnline = { networkMonitor.isOnline })
+        }
+
+    /** Ce que la liaison demande à la synchronisation : reprise immédiate des données, puis descente. */
+    private inner class LinkHost : AccountLinkHost {
+        override suspend fun adoptAccount(expected: Uuid): Int? = engine?.adoptSessionAccount(expected)
+
+        override fun sessionDidChange() {
+            accountSession.forget()
+            coordinator?.sessionDidChange()
+        }
+    }
 
     /** Une nouvelle entrée de file réveille la synchronisation. */
     val lists: ListRepository by lazy { RoomListRepository(database, onEnqueue = { coordinator?.requestSync() }) }
@@ -299,12 +338,47 @@ class AppContainer(
             AccountDeletion(
                 gateway = gateway,
                 flag = deletionFlag,
-                purge = LocalDataPurge(database, cursors),
+                purge = purge,
                 host = DeletionHost(),
                 isOnline = { networkMonitor.isOnline },
             ),
             maintenanceScope,
         )
+    }
+
+    /** Purge locale (#68), commune à la suppression et à la déconnexion : `account.kind` compris. */
+    private val purge by lazy { LocalDataPurge(database, cursors, accountKind = accountKind) }
+
+    /** « Se déconnecter » (#87 §2.4) : `null` sans Supabase. */
+    val accountSignOut: AccountSignOutController? by lazy {
+        gateway?.let { remote ->
+            AccountSignOutController(
+                AccountSignOut(
+                    gateway = remote,
+                    purge = purge,
+                    host = DeletionHost(),
+                    isOnline = { networkMonitor.isOnline },
+                    flush = {
+                        engine?.drain()
+                        database.outbox().pendingCount()
+                    },
+                ),
+                maintenanceScope,
+            )
+        }
+    }
+
+    /**
+     * « Continuer sans compte » (compte e-mail sans session, confirmé) : compte anonyme neuf, puis la synchronisation
+     * reprend les données de l'appareil (les listes partagées avec soi en partent, `AccountRekey`).
+     */
+    fun continueWithoutAccount() {
+        maintenanceScope.launch {
+            accountKind.write(AccountKind.Anonymous)
+            accountSession.forget()
+            gateway?.let { AuthBootstrap.signIn(it) }
+            coordinator?.sessionDidChange()
+        }
     }
 
     /** Build sans Supabase : la suppression ne purge que l'appareil (§5.7). */

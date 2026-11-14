@@ -3,8 +3,11 @@ package fr.parcourses.core.network
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckInsert
 import fr.parcourses.core.network.dto.CheckUpload
+import fr.parcourses.core.network.dto.EmailCodePurpose
+import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
-import fr.parcourses.core.network.dto.ListItemPatch
+import fr.parcourses.core.network.dto.IdRow
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListPatch
@@ -13,10 +16,13 @@ import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.NearbyStoreRow
 import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.ProductRow
+import fr.parcourses.core.network.dto.ProfilePatch
+import fr.parcourses.core.network.dto.ProfileRow
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TableSpec
+import fr.parcourses.core.network.dto.TombstoneRow
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitClose
 import fr.parcourses.core.network.dto.VisitInsert
@@ -24,11 +30,23 @@ import fr.parcourses.core.network.session.SecureState
 import fr.parcourses.core.network.session.SecureStateStore
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.OtpType
+import io.github.jan.supabase.auth.SignOutScope
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.exception.AuthRestException
+import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.ktor.client.request.header
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,6 +55,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.format.DateTimeFormatter
@@ -123,6 +142,124 @@ class SupabaseGateway internal constructor(
             }
         }
     }
+
+    override suspend fun deleteAccount(accessToken: String) {
+        mapped {
+            // Hors du client authentifié : la session courante est celle du nouveau compte, ce jeton vise l'ancien.
+            val response =
+                client.httpClient.request("${client.supabaseHttpUrl}/rest/v1/rpc/delete_my_account") {
+                    method = HttpMethod.Post
+                    header(HttpHeaders.Authorization, "Bearer $accessToken")
+                    contentType(ContentType.Application.Json)
+                    setBody("{}")
+                }
+            if (!response.status.isSuccess()) throw RemoteError.fromHttp(response.status.value)
+        }
+    }
+
+    override suspend fun accessToken(): String? =
+        mapped {
+            if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
+            auth.currentAccessTokenOrNull()
+        }
+
+    override suspend fun linkEmail(email: String): EmailCodeStatus =
+        mapped {
+            // La session du dernier compte connu : c'est elle qui reçoit l'adresse.
+            resolveExistingSession()
+            emailCodeStatus { auth.updateUser { this.email = email } }
+        }
+
+    override suspend fun signInWithEmail(email: String): EmailCodeStatus =
+        mapped {
+            emailCodeStatus {
+                auth.signInWith(OTP) {
+                    this.email = email
+                    // Un compte ne naît qu'anonyme (87.1) : la connexion ne vise qu'un compte existant.
+                    createUser = false
+                }
+            }
+        }
+
+    override suspend fun verifyCode(
+        email: String,
+        code: String,
+        purpose: EmailCodePurpose,
+    ): Uuid =
+        mapped {
+            // Sous le verrou de connexion : aucun compte anonyme ne se crée pendant l'adoption de la session.
+            signInLock.withLock {
+                store.checkWritable()
+                val type =
+                    when (purpose) {
+                        EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
+                        EmailCodePurpose.SignIn -> OtpType.Email.EMAIL
+                    }
+                // La session ouverte par le code est importée par le SDK, puis enregistrée chiffrée. Pas de garde du
+                // dernier compte : un autre compte est attendu après `SignIn`, la synchronisation le reprendra.
+                auth.verifyEmailOtp(type = type, email = email, token = code)
+                if (auth.currentSessionOrNull() == null) throw RemoteError.Unauthorized()
+                userId()
+            }
+        }
+
+    override suspend fun setDisplayName(name: String) {
+        authorized {
+            val body = RemoteJson.encodeToJsonElement(ProfilePatch.serializer(), ProfilePatch(name))
+            val updated =
+                rest
+                    .from(ProfileRow.spec.table)
+                    .update(body) {
+                        select(Columns.list("user_id"))
+                        filter { eq("user_id", userId().toString()) }
+                    }.data
+            // `user_id` prend `auth.uid()` par défaut côté serveur.
+            if (isEmptyResult(updated)) rest.from(ProfileRow.spec.table).insert(body)
+        }
+    }
+
+    override suspend fun displayName(): String? =
+        authorized {
+            val data =
+                rest
+                    .from(ProfileRow.spec.table)
+                    .select(Columns.list("display_name")) { filter { eq("user_id", userId().toString()) } }
+                    .data
+            val row = (RemoteJson.parseToJsonElement(data) as? JsonArray)?.firstOrNull() as? JsonObject
+            (row?.get("display_name") as? JsonPrimitive)?.content
+        }
+
+    override suspend fun accountEmail(): String? =
+        mapped {
+            if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
+            auth.currentUserOrNull()?.email?.takeIf { it.isNotBlank() }
+        }
+
+    @Suppress("TooGenericExceptionCaught") // Hors ligne ou serveur en panne : la session est vidée quand même.
+    override suspend fun signOut() {
+        mapped {
+            signInLock.withLock {
+                try {
+                    auth.signOut(SignOutScope.LOCAL)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Le jeton de rafraîchissement expirera seul : rien ne le garde plus sur l'appareil.
+                }
+                auth.clearSession()
+                store.update { SecureState() }
+            }
+        }
+    }
+
+    /** Un refus de GoTrue est rendu avec son statut et son code ; le reste (réseau…) est levé puis classé. */
+    private suspend fun emailCodeStatus(request: suspend () -> Unit): EmailCodeStatus =
+        try {
+            request()
+            EmailCodeStatus.Sent
+        } catch (e: AuthRestException) {
+            EmailCodeStatus(e.statusCode, e.errorCode?.value ?: e.error)
+        }
 
     override val isSessionStorageStuck: StateFlow<Boolean> get() = store.isStuck
 
@@ -230,23 +367,36 @@ class SupabaseGateway internal constructor(
         authorized { rest.from(ListUpsert.spec.table).delete { filter { eq("id", id.toString()) } } }
     }
 
-    override suspend fun saveItem(item: ListItemUpsert) {
+    override suspend fun insertItem(item: ListItemUpsert) {
+        authorized { insertIgnoringDuplicates(ListItemUpsert.spec, listOf(item)) }
+    }
+
+    override suspend fun updateItem(
+        id: Uuid,
+        fields: ListItemFields,
+    ): Boolean =
         authorized {
-            val patch = ListItemPatch(item.listId, item.productId, item.label, item.quantity, item.checkedAt)
             val updated =
                 rest
                     .from(ListItemUpsert.spec.table)
-                    .update(RemoteJson.encodeToJsonElement(ListItemPatch.serializer(), patch)) {
+                    .update(fields.toJson()) {
                         select(Columns.list("id"))
-                        filter { eq("id", item.id.toString()) }
+                        filter { eq("id", id.toString()) }
                     }.data
-            if (isEmptyResult(updated)) insertIgnoringDuplicates(ListItemUpsert.spec, listOf(item))
+            !isEmptyResult(updated)
         }
-    }
 
-    override suspend fun deleteItem(id: Uuid) {
-        authorized { rest.from(ListItemUpsert.spec.table).delete { filter { eq("id", id.toString()) } } }
-    }
+    override suspend fun deleteItem(id: Uuid): Boolean =
+        authorized {
+            val deleted =
+                rest
+                    .from(ListItemUpsert.spec.table)
+                    .delete {
+                        select(Columns.list("id"))
+                        filter { eq("id", id.toString()) }
+                    }.data
+            !isEmptyResult(deleted)
+        }
 
     // endregion
 
@@ -321,6 +471,67 @@ class SupabaseGateway internal constructor(
 
     override suspend fun fetchItems(updatedAfter: Instant?): List<ListItemRow> =
         fetchUpdated(ListItemRow.spec, updatedAfter)
+
+    override suspend fun fetchItems(listId: Uuid): List<ListItemRow> =
+        authorized {
+            fetchAllPages(ListItemRow.serializer()) { from, to ->
+                rest
+                    .from(ListItemRow.spec.table)
+                    .select(Columns.raw(ListItemRow.spec.selection)) {
+                        filter { eq("list_id", listId.toString()) }
+                        order("id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
+            }
+        }
+
+    override suspend fun fetchItemIds(listId: Uuid): List<Uuid> =
+        authorized {
+            fetchAllPages(IdRow.serializer()) { from, to ->
+                rest
+                    .from(ListItemRow.spec.table)
+                    .select(Columns.list("id")) {
+                        filter { eq("list_id", listId.toString()) }
+                        order("id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
+            }.map { it.id }
+        }
+
+    override suspend fun accessibleListIds(): List<Uuid> =
+        authorized {
+            decodeRpc("accessible_list_ids", buildJsonObject {}, ListSerializer(IdRow.serializer())).map { it.id }
+        }
+
+    override suspend fun fetchTombstones(after: Instant?): List<TombstoneRow> =
+        authorized {
+            fetchAllPages(TombstoneRow.serializer()) { from, to ->
+                rest
+                    .from(TombstoneRow.spec.table)
+                    .select(Columns.raw(TombstoneRow.spec.selection)) {
+                        if (after != null) filter { gte("deleted_at", (after - CURSOR_OVERLAP).toString()) }
+                        order("deleted_at", Order.ASCENDING)
+                        order("id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
+            }
+        }
+
+    override suspend fun fetchTombstones(ids: List<Uuid>): List<TombstoneRow> {
+        if (ids.isEmpty()) return emptyList()
+        return authorized {
+            // Par paquets : la liste part dans l'URL.
+            ids.distinct().chunked(ID_BATCH).flatMap { batch ->
+                val data =
+                    rest
+                        .from(TombstoneRow.spec.table)
+                        .select(Columns.raw(TombstoneRow.spec.selection)) {
+                            filter { isIn("id", batch.map(Uuid::toString)) }
+                        }.data
+                RemoteJson.decodeFromString(ListSerializer(TombstoneRow.serializer()), data)
+            }
+        }
+    }
 
     override suspend fun fetchCategories(): List<CategoryRow> = authorized { loadCategories() }
 
@@ -501,6 +712,9 @@ class SupabaseGateway internal constructor(
     private companion object {
         /** `max_rows` côté serveur. La pagination avance du nombre de lignes reçues. */
         const val PAGE_SIZE = 1000
+
+        /** Identifiants par requête `id=in.(…)` : l'URL reste courte. */
+        const val ID_BATCH = 100
 
         /** Recouvrement du curseur : deux transactions proches peuvent valider dans le désordre. */
         val CURSOR_OVERLAP = 5.seconds

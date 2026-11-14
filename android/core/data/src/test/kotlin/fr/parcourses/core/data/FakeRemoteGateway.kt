@@ -4,7 +4,10 @@ import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
+import fr.parcourses.core.network.dto.EmailCodePurpose
+import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListRow
@@ -14,6 +17,7 @@ import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
+import fr.parcourses.core.network.dto.TombstoneRow
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Instant
@@ -21,7 +25,10 @@ import kotlin.uuid.Uuid
 
 /** Doublure du serveur : enregistre les appels et lève les erreurs programmées, méthode par méthode. */
 @Suppress("TooManyFunctions")
-class FakeRemoteGateway : RemoteGateway {
+class FakeRemoteGateway(
+    /** Listes de l'appareil : par défaut, le serveur n'en a supprimé aucune (voir [accessible]). */
+    private val localLists: suspend () -> List<String> = { emptyList() },
+) : RemoteGateway {
     var account: Uuid = Uuid.random()
     var serverDate: Instant? = null
     var visitAccess = VisitAccess.Open
@@ -33,9 +40,36 @@ class FakeRemoteGateway : RemoteGateway {
         List<ProductResolutionRequest>,
     ) -> List<ResolvedProductRow> = { list -> list.map { ResolvedProductRow() } }
 
-    /** Appels, dans l'ordre : `saveList:<id>`, `saveItem:<id>`, `resolveProducts`… */
+    /** Pierres tombales du serveur (#87). */
+    var tombstones: List<TombstoneRow> = emptyList()
+
+    /**
+     * Listes lisibles (`accessible_list_ids`). Par défaut : celles de l'appareil, de [remoteLists], et celles envoyées
+     * par `saveList`, comme un serveur sans partage qui n'a rien supprimé.
+     */
+    var accessible: (() -> List<Uuid>)? = null
+    private val savedLists = mutableSetOf<Uuid>()
+    private val deletedItems = mutableSetOf<Uuid>()
+
+    /** Réponse de `updateItem` / `deleteItem` : `false` = aucune ligne touchée. */
+    var rowTouched: (Uuid) -> Boolean = { true }
+
+    /** Réponses de GoTrue aux demandes de code. */
+    var linkStatus: EmailCodeStatus = EmailCodeStatus.Sent
+    var signInStatus: EmailCodeStatus = EmailCodeStatus.Sent
+
+    /** Compte ouvert par `verifyCode` : `null` = le même ([EmailCodePurpose.Link]). */
+    var codeAccount: Uuid? = null
+    var email: String? = null
+    var displayName: String? = null
+    val deletedTokens = mutableListOf<String>()
+
+    /** Appels, dans l'ordre : `saveList:<id>`, `insertItem:<id>`, `updateItem:<id>`, `resolveProducts`… */
     val calls = mutableListOf<String>()
     val savedItems = mutableListOf<ListItemUpsert>()
+
+    /** Champs envoyés par `updateItem`, dans l'ordre. */
+    val patches = mutableListOf<ListItemFields>()
     val savedChecks = mutableListOf<List<CheckUpload>>()
     val acknowledged = mutableListOf<Uuid>()
     private val failures = mutableMapOf<String, ArrayDeque<Throwable>>()
@@ -123,16 +157,31 @@ class FakeRemoteGateway : RemoteGateway {
 
     override suspend fun serverDate(): Instant? = serverDate.also { enter("serverDate") }
 
-    override suspend fun saveList(list: ListUpsert) = enter("saveList", list.id.toString())
+    override suspend fun saveList(list: ListUpsert) {
+        enter("saveList", list.id.toString())
+        savedLists += list.id
+    }
 
     override suspend fun deleteList(id: Uuid) = enter("deleteList", id.toString())
 
-    override suspend fun saveItem(item: ListItemUpsert) {
-        enter("saveItem", item.id.toString())
+    override suspend fun insertItem(item: ListItemUpsert) {
+        enter("insertItem", item.id.toString())
         savedItems += item
     }
 
-    override suspend fun deleteItem(id: Uuid) = enter("deleteItem", id.toString())
+    override suspend fun updateItem(
+        id: Uuid,
+        fields: ListItemFields,
+    ): Boolean {
+        enter("updateItem", id.toString())
+        patches += fields
+        return rowTouched(id).also { if (it) savedItems += fields.values }
+    }
+
+    override suspend fun deleteItem(id: Uuid): Boolean {
+        enter("deleteItem", id.toString())
+        return rowTouched(id).also { if (it) deletedItems += id }
+    }
 
     override suspend fun createVisit(visit: VisitInsert) = enter("createVisit", visit.id.toString())
 
@@ -152,6 +201,78 @@ class FakeRemoteGateway : RemoteGateway {
 
     override suspend fun fetchItems(updatedAfter: Instant?): List<ListItemRow> =
         remoteItems.also { enter("fetchItems") }
+
+    override suspend fun fetchItems(listId: Uuid): List<ListItemRow> =
+        remoteItems.filter { it.listId == listId }.also { enter("fetchItemsOfList", listId.toString()) }
+
+    /** Articles connus du serveur : ceux de [remoteItems] et ceux reçus, moins ceux supprimés. */
+    override suspend fun fetchItemIds(listId: Uuid): List<Uuid> {
+        enter("fetchItemIds", listId.toString())
+        val ids =
+            remoteItems.filter { it.listId == listId }.map { it.id } +
+                savedItems.filter { it.listId == listId }.map { it.id }
+        return ids.distinct() - deletedItems
+    }
+
+    override suspend fun accessibleListIds(): List<Uuid> {
+        enter("accessibleListIds")
+        return accessible?.invoke()
+            ?: (localLists().map(Uuid::parse) + remoteLists.map { it.id } + savedLists).distinct()
+    }
+
+    override suspend fun fetchTombstones(after: Instant?): List<TombstoneRow> {
+        enter("fetchTombstones")
+        return tombstones.filter { after == null || it.deletedAt >= after }
+    }
+
+    override suspend fun fetchTombstones(ids: List<Uuid>): List<TombstoneRow> {
+        enter("fetchTombstonesOf", ids.joinToString(","))
+        return tombstones.filter { it.id in ids }
+    }
+
+    override suspend fun deleteAccount(accessToken: String) {
+        enter("deleteAccountWithToken")
+        deletedTokens += accessToken
+    }
+
+    override suspend fun accessToken(): String? = if (hasSession) "token-$account" else null
+
+    override suspend fun linkEmail(email: String): EmailCodeStatus {
+        enter("linkEmail", email)
+        requireSession()
+        return linkStatus
+    }
+
+    override suspend fun signInWithEmail(email: String): EmailCodeStatus {
+        enter("signInWithEmail", email)
+        return signInStatus
+    }
+
+    override suspend fun verifyCode(
+        email: String,
+        code: String,
+        purpose: EmailCodePurpose,
+    ): Uuid {
+        enter("verifyCode", purpose.wireName)
+        codeAccount?.let { account = it }
+        hasSession = true
+        this.email = email
+        return account
+    }
+
+    override suspend fun setDisplayName(name: String) {
+        enter("setDisplayName", name)
+        displayName = name
+    }
+
+    override suspend fun displayName(): String? = displayName.also { enter("displayName") }
+
+    override suspend fun accountEmail(): String? = email
+
+    override suspend fun signOut() {
+        enter("signOut")
+        hasSession = false
+    }
 
     override suspend fun fetchCategories(): List<CategoryRow> = remoteCategories.also { enter("fetchCategories") }
 

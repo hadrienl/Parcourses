@@ -1,6 +1,7 @@
 package fr.parcourses.core.data.repository
 
 import androidx.room3.withWriteTransaction
+import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.CheckEntity
@@ -304,7 +305,7 @@ class RoomVisitRepository(
         at: Instant,
     ) {
         db.items().setChecked(itemId, checkedAt, at)
-        queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at)
+        queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at, listOf(ItemFields.CHECKED_AT))
     }
 
     /** Un double événement ne doit pas compter deux passages devant le même rayon. */
