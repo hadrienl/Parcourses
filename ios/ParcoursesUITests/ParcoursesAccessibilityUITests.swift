@@ -21,6 +21,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     "quickEntry", "shoppingEntry", "finish", "undo", "undoMessage", "allChecked", "suggestion", "addItem",
   ]
 
+  /// Attribution OpenStreetMap, pied de page du choix du magasin : elle reste auditée.
+  fileprivate static let pickerFooter = "osmAttribution"
+
   /// État de l'écran relevé avant l'audit : le gestionnaire ne fait plus de requêtes XCUI, qui ralentissent l'audit
   /// au point de dépasser son délai sur les machines de CI.
   private struct Screen {
@@ -35,6 +38,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
     let sheetIsShown: Bool
+    /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
+    /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
+    let pickerFooterTop: CGFloat?
     /// Bas de l'écran.
     let bottom: CGFloat
 
@@ -55,6 +61,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       dockTop = top
       linesCutByDock = top.map { ParcoursesAccessibilityUITests.linesCut(at: $0, in: app) } ?? 0
       sheetIsShown = app.buttons["keepRemaining"].exists
+      let footer = app.descendants(matching: .any)[ParcoursesAccessibilityUITests.pickerFooter]
+      pickerFooterTop =
+        app.navigationBars["Choisir le magasin"].exists && footer.exists ? footer.frame.minY : nil
       bottom = app.windows.firstMatch.frame.maxY
     }
   }
@@ -127,6 +136,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       if screen.keyboard?.intersects(frame) ?? false { return .known("6 sous le clavier") }
       if !dockIdentifiers.contains(element.identifier), let top = screen.dockTop, frame.maxY > top {
         return .known("6 sous le dock")
+      }
+      // 6 bis. Même cas sous le pied de page opaque du choix du magasin : selon le défilement laissé par `reveal`,
+      //    une ligne passe à moitié dessous, et l'audit mesure les lettres coupées (constaté sur iOS 18.6 en AX5 :
+      //    « Continuer sans magasin » échoue au contraste, rogné par l'attribution sur la capture). L'attribution
+      //    elle-même reste auditée.
+      if element.identifier != pickerFooter, let top = screen.pickerFooterTop, frame.maxY > top {
+        return .known("6 bis sous le pied de page du choix du magasin")
       }
       // 7. Éléments à cheval sur le bord de l'écran : lignes passées sous la barre de navigation en défilant, ou bas
       //    d'une feuille qui défile (« articles restants » en AX5 sur iPhone 11). L'audit mesure la partie visible,

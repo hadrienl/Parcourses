@@ -81,8 +81,9 @@ jobs:
           path: ios/DerivedData
           key: dd-${{ matrix.ios }}-${{ hashFiles('ios/project.yml', 'ios/Package.resolved', 'ios/Config/*.xcconfig', 'ios/Packages/*/Package.swift') }}
       - name: Build et tests
-        # ~35 min mesurées : borne un démarrage de simulateur bloqué (bootstatus attend sans limite).
-        timeout-minutes: 75
+        # ~35 min mesurées sur iOS latest, ~75 min sur un runner iOS 18 lent : borne un démarrage de simulateur
+        # bloqué (bootstatus attend sans limite).
+        timeout-minutes: 100
         run: |
           udid=$(scripts/simulator.sh "${{ matrix.ios }}")
           xcrun simctl list devices | grep "$udid"
@@ -94,10 +95,14 @@ jobs:
           # Démarré par xcodebuild juste avant les tests, ce pic tombait sur les premiers audits, qui dépassaient leur
           # délai. Il était retombé moins de 3 min après le démarrage : les tests partent au plus tôt 4 min après le
           # démarrage, même si la compilation est plus courte. `|| true` : déjà démarré, il n'y a rien à faire.
-          xcrun simctl boot "$udid" || true
-          booted=$(date +%s)
+          # Sauf sur iOS 18 : son runtime vient d'être téléchargé, et son premier démarrage migre les données du
+          # système. Mené pendant la compilation, cette migration a duré 13 min puis échoué (« Data Migration
+          # Failed »), et toute la suite a tourné 1,6 fois plus lentement. Il démarre donc après la compilation.
+          boot() { xcrun simctl boot "$udid" || true; booted=$(date +%s); }
+          if [[ "${{ matrix.ios }}" != 18 ]]; then boot; fi
           xcodebuild build-for-testing -project Parcourses.xcodeproj -scheme Parcourses \
             -destination "id=$udid" -derivedDataPath DerivedData
+          if [[ "${{ matrix.ios }}" == 18 ]]; then boot; fi
           xcrun simctl bootstatus "$udid" -b
           settle=$((240 - ($(date +%s) - booted)))
           if ((settle > 0)); then echo "Simulateur démarré depuis peu : $settle s d'attente"; sleep "$settle"; fi
