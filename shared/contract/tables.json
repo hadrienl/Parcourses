@@ -13,6 +13,11 @@
     "product_id",
     "visit_id"
   ],
+  "list_item_tombstones": [
+    "deleted_at",
+    "id",
+    "list_id"
+  ],
   "list_items": [
     "checked_at",
     "created_at",
@@ -21,14 +26,16 @@
     "list_id",
     "product_id",
     "quantity",
-    "updated_at"
+    "updated_at",
+    "updated_by"
   ],
   "lists": [
     "created_at",
     "id",
     "name",
     "owner_id",
-    "updated_at"
+    "updated_at",
+    "updated_by"
   ],
   "products": [
     "category_id",
@@ -38,6 +45,12 @@
     "normalized_name",
     "off_code",
     "published_at"
+  ],
+  "profiles": [
+    "created_at",
+    "display_name",
+    "updated_at",
+    "user_id"
   ],
   "store_edges": [
     "last_seen_at",
