@@ -69,16 +69,36 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"list_items": {
+                },"list_item_tombstones": {
                   Row: {
-                    "checked_at": string | null,"created_at": string,"id": string,"label": string,"list_id": string,"product_id": string | null,"quantity": string | null,"updated_at": string
+                    "deleted_at": string,"id": string,"list_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "checked_at"?: string | null,"created_at"?: string,"id"?: string,"label": string,"list_id": string,"product_id"?: string | null,"quantity"?: string | null,"updated_at"?: string
+                    "deleted_at"?: string,"id": string,"list_id": string
                   }
                   Update: {
-                    "checked_at"?: string | null,"created_at"?: string,"id"?: string,"label"?: string,"list_id"?: string,"product_id"?: string | null,"quantity"?: string | null,"updated_at"?: string
+                    "deleted_at"?: string,"id"?: string,"list_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "list_item_tombstones_list_id_fkey"
+      columns: ["list_id"]
+isOneToOne: false
+      referencedRelation: "lists"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"list_items": {
+                  Row: {
+                    "checked_at": string | null,"created_at": string,"id": string,"label": string,"list_id": string,"product_id": string | null,"quantity": string | null,"updated_at": string,"updated_by": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "checked_at"?: string | null,"created_at"?: string,"id"?: string,"label": string,"list_id": string,"product_id"?: string | null,"quantity"?: string | null,"updated_at"?: string,"updated_by"?: string | null
+                  }
+                  Update: {
+                    "checked_at"?: string | null,"created_at"?: string,"id"?: string,"label"?: string,"list_id"?: string,"product_id"?: string | null,"quantity"?: string | null,"updated_at"?: string,"updated_by"?: string | null
                   }
                   Relationships: [
                     {
@@ -97,14 +117,14 @@ isOneToOne: false
                   ]
                 },"lists": {
                   Row: {
-                    "created_at": string,"id": string,"name": string,"owner_id": string,"updated_at": string
+                    "created_at": string,"id": string,"name": string,"owner_id": string,"updated_at": string,"updated_by": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"id"?: string,"name"?: string,"owner_id"?: string,"updated_at"?: string
+                    "created_at"?: string,"id"?: string,"name"?: string,"owner_id"?: string,"updated_at"?: string,"updated_by"?: string | null
                   }
                   Update: {
-                    "created_at"?: string,"id"?: string,"name"?: string,"owner_id"?: string,"updated_at"?: string
+                    "created_at"?: string,"id"?: string,"name"?: string,"owner_id"?: string,"updated_at"?: string,"updated_by"?: string | null
                   }
                   Relationships: [
                     
@@ -128,6 +148,20 @@ isOneToOne: false
       referencedRelation: "categories"
       referencedColumns: ["id"]
     }
+                  ]
+                },"profiles": {
+                  Row: {
+                    "created_at": string,"display_name": string,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"display_name": string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"display_name"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
                   ]
                 },"store_edges": {
                   Row: {
@@ -273,7 +307,12 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "delete_my_account":
+            "accessible_list_ids":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "id": string
+            }[]
+                           },
+"delete_my_account":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "nearby_stores":

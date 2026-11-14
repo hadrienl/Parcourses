@@ -18,9 +18,11 @@ struct RemoteContractTests {
     return tables
   }()
 
-  /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
+  /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. `profiles` et
+  /// `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot iOS 87.3.
   private static let tablesWithoutDTO: Set<String> = [
     "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots",
+    "profiles", "list_item_tombstones",
   ]
 
   /// Colonnes accordées à `authenticated` : `verb` vaut `insert` ou `update`, lues dans les migrations.
@@ -45,7 +47,10 @@ struct RemoteContractTests {
 
   /// Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
   /// avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
+  /// `updated_by` (#87, lot 87.1) : lue à partir du lot iOS 87.3.
   private static let serverOnlyColumns: [String: Set<String>] = [
+    "lists": ["updated_by"],
+    "list_items": ["updated_by"],
     "products": ["published_at"],
     "visits": [
       "auto_closed", "learn_outcome", "learn_weight", "next_attempt_at", "process_attempts", "process_error",
