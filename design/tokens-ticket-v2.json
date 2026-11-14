@@ -144,6 +144,126 @@
         ],
         "other": "inkMuted"
       }
+    },
+    "sharing": {
+      "$note": "Partage de liste (#87, maquettes design/sharing-v1.html). Noms communs iOS/Android.",
+      "avatar": {
+        "size": 28,
+        "sizeMember": 36,
+        "sizeInline": 22,
+        "overlap": 8,
+        "ring": 2,
+        "ringColor": "paper",
+        "font": {
+          "family": "mono",
+          "weight": 700,
+          "size": 12
+        },
+        "maxStacked": 3,
+        "overflow": "+N",
+        "initials": "1 lettre ; 2 lettres si deux membres partagent l'initiale",
+        "a11y": "décoratif : le prénom passe dans le libellé du bouton ou de la ligne",
+        "fill": "paperEdge",
+        "ink": "ink"
+      },
+      "authorMark": {
+        "size": 20,
+        "stroke": 1,
+        "color": "inkMuted",
+        "shows": "updated_by, seulement si ce n'est pas moi",
+        "a11y": "« modifié par <prénom> » ajouté au libellé de la ligne"
+      },
+      "badge": {
+        "font": {
+          "family": "mono",
+          "weight": 700,
+          "size": 10,
+          "case": "upper",
+          "tracking": 0.08
+        },
+        "radius": 4,
+        "paddingH": 6,
+        "paddingV": 4,
+        "shared": {
+          "text": "accent",
+          "border": "accent",
+          "fill": "none"
+        },
+        "readOnly": {
+          "text": "ink",
+          "border": "paperEdge",
+          "fill": "paperEdge"
+        }
+      },
+      "role": {
+        "labels": {
+          "owner": "Propriétaire",
+          "editor": "Peut modifier",
+          "viewer": "Lecture seule"
+        },
+        "$note": "rôles nommés par ce qu'ils permettent, jamais accordés au genre"
+      },
+      "roleControl": {
+        "ios": "contrôle segmenté, hauteur 44",
+        "android": "groupe de boutons connectés M3 Expressive, hauteur 48, sélection = accent/onAccent + coche"
+      },
+      "codeInput": {
+        "length": 6,
+        "cell": {
+          "width": 38,
+          "height": 52,
+          "radius": {
+            "ios": 10,
+            "android": 6
+          },
+          "border": 1.5,
+          "borderFocused": 2
+        },
+        "font": {
+          "family": "mono",
+          "weight": 800,
+          "size": 24
+        },
+        "ios": "un seul TextField .oneTimeCode, cases décoratives",
+        "android": "un seul BasicTextField KeyboardType.NumberPassword, cases décoratives",
+        "autoSubmit": true,
+        "resendAfterSeconds": 60
+      },
+      "field": {
+        "height": {
+          "ios": 48,
+          "android": 56
+        },
+        "border": 1,
+        "borderColor": "inkMuted",
+        "borderFocused": {
+          "width": 2,
+          "color": "accent"
+        },
+        "borderError": {
+          "width": 2,
+          "color": "destructive"
+        }
+      },
+      "sheet": {
+        "ios": "sheet .large (Partager), .medium (invitation reçue) ; Liquid Glass sur les boutons de la barre seulement",
+        "android": "dialogue plein écran (Partager, Membres), ModalBottomSheet (membre, invitation)"
+      },
+      "presence": {
+        "shape": "capsule paperEdge, avatar 28",
+        "motion": "aucune animation en boucle"
+      },
+      "otherCheck": {
+        "motion": "identique à motion.check puis motion.reorder ; reduced = fondu 150 ms",
+        "haptics": "aucun",
+        "a11y": "annonce polie regroupée sur 2 s"
+      },
+      "skeleton": {
+        "color": "paperEdge",
+        "radius": 4,
+        "pulseMs": 1400,
+        "reduced": "fixe"
+      }
     }
   },
   "variants": {
@@ -169,6 +289,13 @@
             "grocery": "#A3520A",
             "hygiene": "#8A3FA0",
             "bio": "#4F6F12"
+          },
+          "sharing": {
+            "caution": "#8A4B00",
+            "cautionFill": "#FCEBC9",
+            "accentFill": "#E3E7FA",
+            "inverseAccent": "#8FA6FF",
+            "onDestructive": "#FFFFFF"
           }
         },
         "dark": {
@@ -190,9 +317,17 @@
             "grocery": "#F2B06A",
             "hygiene": "#E0A3F0",
             "bio": "#C3DC6A"
+          },
+          "sharing": {
+            "caution": "#F5BF62",
+            "cautionFill": "#2E2615",
+            "accentFill": "#1E2540",
+            "inverseAccent": "#2340C8",
+            "onDestructive": "#12141A"
           }
         },
-        "$contrast": "accent clair 8,0:1 ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte ; desk : fond autour du ticket (maquette) ; destructive ≥ 4,5:1 sur paper (iOS #60) ; threadIdleHighContrast ≥ 3:1 sur paper (contraste accru : fil 5 pt)"
+        "$contrast": "accent clair 7,5:1 (8,0:1 en sombre) ; couleurs de rayon ≥ 4,6:1 sur paper ; la couleur de rayon double toujours un libellé texte ; desk : fond autour du ticket (maquette) ; destructive ≥ 4,5:1 sur paper (iOS #60) ; threadIdleHighContrast ≥ 3:1 sur paper (contraste accru : fil 5 pt)",
+        "$contrastSharing": "ink sur paperEdge (avatar, badge lecture seule) 13,2:1 et 13,0:1 ; caution 6,4:1 et 11,0:1 sur paper, 5,8:1 et 8,9:1 sur cautionFill ; ink sur cautionFill 14,5:1 et 12,9:1 ; ink sur accentFill 13,9:1 et 13,0:1, accent sur accentFill 6,5:1 ; inverseAccent sur ink 7,4:1 et 6,9:1 ; onDestructive sur destructive 5,4:1 et 6,5:1 ; inkMuted (bord de champ, marque d'auteur) sur paper 6,6:1 et 8,0:1 (≥ 3:1 exigé, WCAG 1.4.11) ; couleur dynamique simulée (accent #2F6A3F / #94D6A4) ≥ 6:1 sur paper. Règle : destructive n'est jamais du texte sur paperEdge en clair (4,2:1) ; dialogues Android sur paper avec filet threadIdle."
       },
       "signature": {
         "thread": "fil de 3 pt dans une gouttière de 28 pt ; il avance d'une perle à chaque coche",
