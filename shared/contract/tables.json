@@ -29,6 +29,14 @@
     "updated_at",
     "updated_by"
   ],
+  "list_members": [
+    "added_by",
+    "created_at",
+    "list_id",
+    "role",
+    "updated_at",
+    "user_id"
+  ],
   "lists": [
     "created_at",
     "id",

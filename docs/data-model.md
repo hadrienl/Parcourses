@@ -6,7 +6,8 @@ Conception : issues #4 (modèle) et #8 (socle Supabase). Base Supabase locale (P
 
 ```
 auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
-            │          └─< list_item_tombstones   (articles supprimés, 30 jours)
+            │          ├─< list_item_tombstones   (articles supprimés, 30 jours)
+            │          └─< list_members >─ auth.users   (éditeurs et lecteurs, #87)
             ├── profiles                (prénom, comptes e-mail)
             └─< visits ─< checks >─────────┘
                   │
@@ -15,10 +16,10 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
                      ─< store_stats   (confiance globale)
 ```
 
-- **Données privées** (RLS par utilisateur) : `lists`, `list_items`, `list_item_tombstones`, `profiles`, `visits`, `checks`.
-  Les politiques de `lists` et `list_items` restent sur `owner_id = auth.uid()` ; seules `list_item_tombstones` et
-  `accessible_list_ids()` passent déjà par `sharing.readable_list_ids()` (#87), qui ne renvoie aujourd'hui que les listes
-  de l'appelant. Le lot 87.2 l'étendra aux membres et y fera passer les politiques des listes et des articles.
+- **Données privées** (RLS par utilisateur et par rôle) : `lists`, `list_items`, `list_item_tombstones`, `list_members`,
+  `profiles`, `visits`, `checks`. Une liste est lisible par son propriétaire et ses membres, ses articles sont écrits par
+  son propriétaire et ses éditeurs (`sharing.readable_list_ids()`, `sharing.writable_list_ids()`, #87, lot 87.2) : voir
+  « Partage d'une liste ». Visites et coches restent celles d'un seul compte.
 - **Connaissance partagée** (lecture par `authenticated`, écriture par la Secret key seulement) :
   `categories`, `products`, `stores`. Seuls les produits **publiés** (`published_at` non nul) sont lisibles (#69) :
   voir « Catalogue : produit privé, publication à 3 comptes ».
@@ -63,6 +64,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
 | `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 | `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
+| `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -75,10 +77,11 @@ doit ajouter ses `grant` et sa RLS (le test `02_rls_enabled` échoue sinon).
 | `categories`, `stores` | ✅ | — | — | — |
 | `products` | ✅ produits publiés seulement (RLS `published_at is not null`) | — | — | — |
 | `store_edges`, `store_entries`, `store_stats`, `store_graph_snapshots` | — (RPC `store_graph_snapshot`) | — | — | — |
-| `lists` | ✅ | `id, name` | `name` | ✅ |
-| `list_items` | ✅ | `id, list_id, label, quantity, product_id, checked_at` | `label, quantity, product_id, checked_at, list_id` | ✅ |
+| `lists` | ✅ propriétaire et membres | `id, name` | `name`, propriétaire seulement | ✅ propriétaire seulement |
+| `list_items` | ✅ propriétaire et membres | `id, list_id, label, quantity, product_id, checked_at` : propriétaire et éditeurs | `label, quantity, product_id, checked_at, list_id` : propriétaire et éditeurs | ✅ propriétaire et éditeurs |
+| `list_members` | ✅ membres de la liste et son propriétaire | — (RPC) | — (RPC) | — (RPC) |
 | `list_item_tombstones` | ✅ listes lisibles (`sharing.readable_list_ids()`) | — (trigger) | — | — (purge) |
-| `profiles` | ✅ sa ligne seulement (87.2 : aussi celles des membres de ses listes) | `display_name`, compte e-mail seulement | `display_name`, compte e-mail seulement | — (cascade) |
+| `profiles` | ✅ sa ligne, et celles des comptes avec qui l'on partage une liste | `display_name`, compte e-mail seulement | `display_name`, compte e-mail seulement | — (cascade) |
 | `visits` | ✅ | `id, store_id, list_id, list_was_sorted, started_at` | `ended_at` | — |
 | `checks` | ✅ | `id, visit_id, product_id, category_id, checked_at` | — | — |
 
@@ -299,6 +302,105 @@ de `lists` et `list_members` (87.2) ne s'appellent pas l'une l'autre.
 Fichiers et dossiers), les fichiers montés depuis le dépôt sont illisibles dans les conteneurs (« Interrupted system
 call ») : Kong ne sert pas les modèles d'e-mail (GoTrue envoie alors ses modèles anglais par défaut, avec un lien) et
 `supabase test db` ne trouve aucun test.
+
+## Partage d'une liste (#87, lot 87.2)
+
+Conception : #87 §3 et §6 ; décisions du 14/11 (prénom affiché, invitation acceptée avec une autre adresse après un
+avertissement, pas de mode courses pour un lecteur, liste confiée à l'éditeur le plus ancien, « Copier le lien » crée
+un nouveau jeton, `preview_invitation` ne nomme la liste qu'à l'adresse invitée).
+
+**Rôles.** Le propriétaire reste `lists.owner_id`. `list_members (list_id, user_id, role, added_by, created_at,
+updated_at)` porte les éditeurs (`editor`) et les lecteurs (`viewer`) ; aucun client ne l'écrit, seules les RPC. La RLS
+applique les rôles : un lecteur qui modifie ou supprime un article touche **0 ligne, sans erreur** (la RLS filtre), et
+reçoit `42501` s'il en ajoute un. Les apps doivent donc traiter « 0 ligne » comme un refus possible et lever le doute par
+la pierre tombale (conception §6.4). Seul le propriétaire renomme, supprime, invite et gère les membres. Une visite peut
+porter une liste dont on est propriétaire ou éditeur (`visits_insert`) ; un lecteur ne fait pas les courses (Q5) : sa
+visite est refusée en `42501`, et les apps la renvoient sans liste. La visite et ses coches restent celles du compte.
+`lists_select` teste `owner_id` directement pour le propriétaire : une insertion « on conflict (id) do nothing » (renvoi
+idempotent des apps) exige que la nouvelle ligne passe aussi la politique SELECT, ce que `readable_list_ids()` ne
+permet pas pour une liste en cours de création.
+
+**Invitations** (`sharing.list_invitations`, jamais lue par un client) : adresse invitée (minuscules), rôle, haché sha256
+du jeton (le jeton clair, 32 octets aléatoires en base64url, n'est renvoyé qu'une fois), échéance à 7 jours, `sent_count`,
+`accepted_at`/`accepted_by`, `declined_at`, `revoked_at`. Une seule invitation vivante par liste et par adresse :
+« Renvoyer » et « Copier le lien » lui donnent un **nouveau jeton** (l'ancien lien cesse de marcher) et une nouvelle
+échéance. Les invitations closes ou expirées depuis plus de 30 jours sont purgées (`sharing.purge_invitations`, job
+`sharing-invitations-purge`, 04:41 UTC), avec les compteurs de plus de 2 jours.
+
+**RPC** (toutes `security definer`, réservées à `authenticated`). Un « compte e-mail » est un compte non anonyme dont
+l'adresse est confirmée (`auth.users.email_confirmed_at`, lu en base, pas dans le JWT) ; les autres reçoivent `42501`.
+
+| RPC | Qui | Réponse |
+| --- | --- | --- |
+| `create_invitation(p_list_id, p_email, p_role = 'editor', p_send_email = false)` | propriétaire, compte e-mail | `(invitation_id, invitee_email, token, expires_at, sender_name)` ; `invitee_email` = l'adresse enregistrée (ASCII, minuscules), à laquelle l'e-mail part ; `sender_name` = prénom s'il ne contient que des lettres, espaces, apostrophes et traits d'union (ni point, ni barre oblique, ni chiffre : rien qu'une messagerie transformerait en lien), sinon nul |
+| `revoke_invitation(p_invitation_id)` | propriétaire | — |
+| `list_sharing(p_list_id)` | propriétaire et membres (anonymes compris) | JSON : `role`, `owner` et `members` (prénom, rôle, `is_me`, `joined_at`, **jamais d'adresse**), `invitations` (propriétaire seulement : adresse, rôle, échéance, `expired`) |
+| `my_invitations()` | compte e-mail | invitations vivantes adressées à son adresse, hors listes dont il est déjà membre |
+| `preview_invitation(p_token)` | compte e-mail | `status` (`pending`, `expired`, `used`, `member`, `invalid`, `rate_limited`), nom de la liste **seulement si l'adresse correspond** (`email_matches`) ou si l'appelant est déjà membre, prénom du propriétaire, rôle, adresse invitée masquée (`c•••@exemple.fr`) |
+| `accept_invitation(p_token \| p_invitation_id)` | compte e-mail ; par id : adresse égale | `(status, list_id, role)` : `accepted`, `member` (idempotent), `invalid`, `expired`, `used`, `rate_limited`. Deux invitations : le rôle le plus élevé est gardé |
+| `decline_invitation(p_invitation_id)` | l'invité (adresse égale) | — |
+| `set_member_role(p_list_id, p_user_id, p_role)` | propriétaire | — (`P0001 not_member`) |
+| `remove_member(p_list_id, p_user_id)` | propriétaire, ou le membre lui-même (quitter) | — (idempotente) |
+
+Erreurs de `create_invitation` (`P0001`, message stable, HTTP 400) : `invalid_email`, `invalid_role`, `self_invitation`,
+`already_member`, `list_full`, `daily_limit`, `pending_limit`, `recipient_limit` ; `42501` (HTTP 403) si l'appelant n'est
+pas propriétaire, sans dire si la liste existe. Aucune réponse ne dit si une adresse a un compte, sauf `already_member`
+pour la liste de l'appelant : **fuite acceptée** (conception §1.5), le propriétaire peut apprendre qu'une adresse qu'il
+saisit est celle d'un membre, même si ce membre avait accepté avec une autre adresse. Adresse acceptée : ASCII imprimable
+seulement (`^[a-z0-9._%+-]+@…`), après `lower(btrim())` ; aucune variante Unicode (U+00A0, U+FEFF…) ne passe. Les
+variantes Gmail (points, `+étiquette`) restent des adresses distinctes pour les plafonds. `preview_invitation` et `accept_invitation` répondent par un statut plutôt que par une
+erreur, pour que les essais comptent dans le plafond.
+
+**Plafonds** (constantes des RPC, `sharing.rate_counters`, fenêtres Europe/Paris ; une adresse n'y figure que
+**pseudonymisée** par un sha256 sans sel, qu'un dictionnaire d'adresses connues permettrait de retrouver ; les compteurs
+sont purgés après 2 jours). Renouveler une invitation expirée compte comme en créer une (participants, invitations
+vivantes). Un envoi raté (`sent = false`) compte quand même dans le plafond du destinataire et dans `sent_count` :
+
+| Plafond | Valeur |
+| --- | --- |
+| Participants par liste (propriétaire, membres, invitations vivantes) | 10 |
+| Créations et renouvellements de jeton par compte et par jour | 20 |
+| Invitations vivantes par compte, toutes listes | 50 |
+| Envois par adresse destinataire et par jour, tous expéditeurs (`p_send_email`) | 3 |
+| Aperçus et acceptations par compte et par heure | 30 |
+
+**Edge Function `send-invitation`** (`supabase/functions/send-invitation/`, sans dépendance) : `POST { list_id, email,
+role? }` avec le JWT de l'utilisateur. Elle appelle `create_invitation(…, p_send_email => true)` **avec ce JWT** (aucun
+droit de plus que l'utilisateur), puis envoie l'e-mail à `invitee_email` et répond `{ invitation_id, link, sent,
+expires_at }`. Erreurs de la RPC relayées avec leur statut HTTP (`{ error, code }`) : seuls les messages connus
+(`invalid_email`, `already_member`, `list_full`…) passent tels quels, les autres deviennent `rpc_failed`.
+`verify_jwt = false` : PostgREST vérifie le JWT que la fonction lui transmet, quel que soit le mode de signature du projet. `sent = false` si l'envoi a échoué : l'invitation existe, l'app
+propose « Copier le lien ». E-mail : prénom de l'expéditeur (ou « Quelqu'un »), rôle, lien, échéance, **pas le nom de la
+liste**. Lien : `INVITATION_BASE_URL#<jeton>`, par défaut `parcourses://invitation#<jeton>` tant qu'il n'y a pas de
+domaine (#87 Q2, lot 87.7). Envoi : API Resend si `RESEND_API_KEY` et `INVITATION_FROM` sont définis, sinon API de Mailpit
+si `MAILPIT_API_URL` l'est (pile locale, `[edge_runtime.secrets]`), sinon rien. Le test de bout en bout la lance avec Deno
+contre la pile locale (`SEND_INVITATION_PORT`), sans le conteneur Edge Runtime.
+
+**Temps réel** (Broadcast depuis la base). Chaque compte écoute son canal privé `user:<uid>` ; la politique
+`parcourses_user_topic_select` sur `realtime.messages` n'autorise que le sien, et aucune politique d'insertion n'existe :
+un client n'émet rien. Messages : événement `changed`, charge `{ id, list_id, kind }` sans aucun libellé, `kind` ∈
+`items`, `list`, `members`, `invitations`. Émis par des triggers par instruction (un ajout de 20 articles = un message par
+membre) sur `list_items`, `lists` (la suppression d'une liste part d'un trigger `before delete`, avant que la cascade
+n'efface les membres) et `list_members` (le membre retiré est prévenu), et par les RPC d'invitation (propriétaire ; invité
+qui a déjà un compte : `invitations`). `realtime.send` ne fait jamais échouer une écriture (il journalise un WARNING). Les
+messages sont écrits dans la transaction : une écriture annulée n'émet rien. Realtime met environ 5 s à refuser un canal
+non autorisé. La politique compare aussi le topic de chaque ligne au canal rejoint. À la suppression d'une liste, chaque
+membre reçoit `list`, puis `members` (la cascade sur `list_members`) : sans effet, les apps font une seule descente.
+La migration échoue si `realtime.send` ou `realtime.messages` manquent.
+
+**Suppression du compte** (`delete_my_account`, #68) : chaque liste partagée du compte est d'abord confiée à son éditeur
+le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
+le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :
+un héritier qui quitte la liste au même moment est attendu.
+
+**Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
+(`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`
+et `INVITATION_BASE_URL` (`supabase secrets set`). Sans ces secrets, la fonction crée l'invitation et répond
+`sent = false`.
+
+**Limites connues** : un article **déplacé** d'une liste à une autre ne laisse aucune trace dans l'ancienne (les apps
+ne déplacent pas d'article). Les revendications de produits privés (#69) et les contributeurs d'un instantané (#70)
+comptent chaque membre d'un foyer comme un compte indépendant (conception §3.4) : à traiter dans ces tickets.
 
 ## Types et contrat
 

@@ -115,6 +115,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"list_members": {
+                  Row: {
+                    "added_by": string | null,"created_at": string,"list_id": string,"role": string,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "added_by"?: string | null,"created_at"?: string,"list_id": string,"role": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "added_by"?: string | null,"created_at"?: string,"list_id"?: string,"role"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "list_members_list_id_fkey"
+      columns: ["list_id"]
+isOneToOne: false
+      referencedRelation: "lists"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"lists": {
                   Row: {
                     "created_at": string,"id": string,"name": string,"owner_id": string,"updated_at": string,"updated_by": string | null
@@ -307,13 +327,34 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "accessible_list_ids":
+            "accept_invitation":
+{ Args: { "p_invitation_id"?: string,"p_token"?: string }; Returns: {
+              "list_id": string,"role": string,"status": string
+            }[]
+                           },
+"accessible_list_ids":
 { Args: Record<PropertyKey, never>; Returns: {
               "id": string
             }[]
                            },
+"create_invitation":
+{ Args: { "p_email": string,"p_list_id": string,"p_role"?: string,"p_send_email"?: boolean }; Returns: {
+              "expires_at": string,"invitation_id": string,"invitee_email": string,"sender_name": string,"token": string
+            }[]
+                           },
+"decline_invitation":
+{ Args: { "p_invitation_id": string }; Returns: undefined
+                           },
 "delete_my_account":
 { Args: Record<PropertyKey, never>; Returns: undefined
+                           },
+"list_sharing":
+{ Args: { "p_list_id": string }; Returns: Json
+                           },
+"my_invitations":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "expires_at": string,"id": string,"inviter_name": string,"list_id": string,"list_name": string,"role": string
+            }[]
                            },
 "nearby_stores":
 { Args: { "lat": number,"lng": number,"max_results"?: number,"radius_m"?: number }; Returns: {
@@ -323,15 +364,29 @@ isOneToOne: false
 "normalize_label":
 { Args: { "label": string }; Returns: string
                            },
+"preview_invitation":
+{ Args: { "p_token": string }; Returns: {
+              "email_matches": boolean,"expires_at": string,"invitation_id": string,"invited_email_masked": string,"inviter_name": string,"list_id": string,"list_name": string,"role": string,"status": string
+            }[]
+                           },
+"remove_member":
+{ Args: { "p_list_id": string,"p_user_id": string }; Returns: undefined
+                           },
 "resolve_products":
 { Args: { "p_items": Json }; Returns: {
               "category_slug": string,"id": string,"name": string,"normalized_name": string
             }[]
                            },
+"revoke_invitation":
+{ Args: { "p_invitation_id": string }; Returns: undefined
+                           },
 "search_stores":
 { Args: { "max_results"?: number,"q": string }; Returns: {
               "address": string,"chain": string,"id": string,"name": string,"organic_aisle": boolean
             }[]
+                           },
+"set_member_role":
+{ Args: { "p_list_id": string,"p_role": string,"p_user_id": string }; Returns: undefined
                            },
 "store_graph_snapshot":
 { Args: { "p_known_version"?: number,"p_store_id": string }; Returns: Json
