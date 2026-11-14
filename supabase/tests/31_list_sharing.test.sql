@@ -2,7 +2,7 @@
 -- transfert des listes à la suppression du compte, purge.
 begin;
 \ir 00_helpers.psql
-select plan(120);
+select plan(133);
 
 -- Comptes e-mail confirmés (sharing.email_account lit email_confirmed_at) et un anonyme.
 create or replace function tests.email_user(p_email text) returns uuid language plpgsql as $$
@@ -58,6 +58,15 @@ select ok(not has_function_privilege('anon', f, 'EXECUTE'), f || ' fermée à an
 from unnest(array['public.create_invitation(uuid, text, text, boolean)', 'public.accept_invitation(text, uuid)',
   'public.preview_invitation(text)', 'public.list_sharing(uuid)', 'public.my_invitations()']) as f;
 
+-- Non-régression : les apps créent une liste par « insert … on conflict (id) do nothing » ; la nouvelle ligne doit
+-- passer la politique SELECT (sinon 42501), comme un article d'une liste partagée renvoyé par une éditrice.
+select tests.authenticate_as(:'h');
+select lives_ok($$ insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000872a9', 'Idempotente')
+  on conflict (id) do nothing $$, 'création d''une liste avec on conflict do nothing');
+select lives_ok($$ insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000872a9', 'Idempotente')
+  on conflict (id) do nothing $$, 'renvoi de la même liste : sans erreur');
+select tests.clear_authentication();
+
 -- Création d'une invitation.
 select tests.authenticate_as(:'a');
 select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872a1', 'x@test.local') $$,
@@ -76,8 +85,13 @@ select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0
 select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872a1', ' Hadrien@Test.local ') $$,
   'P0001', 'self_invitation', 'on ne s''invite pas soi-même (casse et espaces ignorés)');
 
-select invitation_id as inv_l, token as tok_l1, sender_name as sender
+select throws_ok(format($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872a1', %L) $$,
+  'lea@test.local' || chr(160)), 'P0001', 'invalid_email', 'adresse avec un caractère invisible (U+00A0) refusée');
+select throws_ok(format($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872a1', %L) $$,
+  chr(65279) || 'lea@test.local'), 'P0001', 'invalid_email', 'adresse avec U+FEFF refusée');
+select invitation_id as inv_l, token as tok_l1, sender_name as sender, invitee_email as sent_to
 from public.create_invitation('00000000-0000-0000-0000-0000000872a1', 'Lea@Test.local', 'editor', true) \gset
+select is(:'sent_to'::text, 'lea@test.local', 'adresse enregistrée renvoyée, à laquelle l''e-mail part');
 select is(char_length(:'tok_l1'), 43, 'jeton de 256 bits en base64url (43 caractères)');
 select is(:'sender'::text, 'Hadrien', 'prénom de l''expéditeur, pour l''e-mail');
 select tests.clear_authentication();
@@ -148,7 +162,8 @@ select tests.authenticate_as(:'l');
 select is((select count(*)::int from public.list_items where list_id = '00000000-0000-0000-0000-0000000872a1'), 2,
   'l''éditrice lit les articles');
 select lives_ok($$ insert into public.list_items (id, list_id, label)
-  values ('00000000-0000-0000-0000-0000000872a4', '00000000-0000-0000-0000-0000000872a1', 'Beurre') $$, 'l''éditrice ajoute');
+  values ('00000000-0000-0000-0000-0000000872a4', '00000000-0000-0000-0000-0000000872a1', 'Beurre')
+  on conflict (id) do nothing $$, 'l''éditrice ajoute (on conflict do nothing, comme les apps)');
 select is((select updated_by from public.list_items where id = '00000000-0000-0000-0000-0000000872a4'), :'l'::uuid,
   'updated_by : l''éditrice');
 update public.list_items set checked_at = now() where id = '00000000-0000-0000-0000-0000000872a2';
@@ -175,8 +190,8 @@ select throws_ok($$ insert into public.list_items (list_id, label) values ('0000
   '42501', null, 'le lecteur n''ajoute pas');
 update public.list_items set checked_at = now() where id = '00000000-0000-0000-0000-0000000872a3';
 delete from public.list_items where id = '00000000-0000-0000-0000-0000000872a3';
-select is((select checked_at from public.list_items where id = '00000000-0000-0000-0000-0000000872a3'), null,
-  'le lecteur ne coche pas, ne supprime pas (0 ligne, sans erreur)');
+select results_eq($$ select checked_at from public.list_items where id = '00000000-0000-0000-0000-0000000872a3' $$,
+  $$ values (null::timestamptz) $$, 'le lecteur ne coche pas, ne supprime pas : l''article est là, non coché (0 ligne, sans erreur)');
 select is_empty($$ select 1 from public.list_item_tombstones where id = '00000000-0000-0000-0000-0000000872a3' $$,
   'pas de pierre tombale pour une suppression refusée');
 select ok(exists (select 1 from public.accessible_list_ids() where id = '00000000-0000-0000-0000-0000000872a1'),
@@ -184,9 +199,14 @@ select ok(exists (select 1 from public.accessible_list_ids() where id = '0000000
 select results_eq($$ select display_name from public.profiles order by display_name $$,
   $$ values ('Hadrien'::text), ('Léa'::text), ('Tom'::text) $$, 'prénoms des membres lisibles, pas celui d''Eve');
 select is((select count(*)::int from public.list_members), 2, 'le lecteur voit les membres');
-select lives_ok(format($$ insert into public.visits (id, store_id, list_id, list_was_sorted)
+select throws_ok(format($$ insert into public.visits (id, store_id, list_id, list_was_sorted)
   values ('00000000-0000-0000-0000-0000000872f1', %L, '00000000-0000-0000-0000-0000000872a1', true) $$,
-  (select id from public.stores limit 1)), 'une visite peut porter une liste partagée');
+  (select id from public.stores limit 1)), '42501', null, 'un lecteur ne fait pas les courses de la liste (Q5)');
+select tests.authenticate_as(:'l');
+select lives_ok(format($$ insert into public.visits (id, store_id, list_id, list_was_sorted)
+  values ('00000000-0000-0000-0000-0000000872f2', %L, '00000000-0000-0000-0000-0000000872a1', true) $$,
+  (select id from public.stores limit 1)), 'une éditrice fait les courses de la liste partagée');
+select tests.authenticate_as(:'t');
 
 -- Étrangère : rien.
 select tests.authenticate_as(:'e');
@@ -264,13 +284,22 @@ select lives_ok($$ select i.* from generate_series(1, 9) as g
 select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n10@test.local') $$,
   'P0001', 'list_full', 'dix participants au plus');
 select lives_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n1@test.local') $$,
-  'renouveler le jeton d''une invitation existante reste possible');
+  'renouveler le jeton d''une invitation vivante reste possible');
+-- Une invitation expirée ne compte plus ; la renouveler revient à en créer une, plafond compris.
+select tests.clear_authentication();
+update sharing.list_invitations set expires_at = now() - interval '1 second'
+where list_id = '00000000-0000-0000-0000-0000000872e1' and invitee_email = 'n2@test.local';
+select tests.authenticate_as(:'e');
+select lives_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n11@test.local') $$,
+  'la place libérée par l''invitation expirée est reprise');
+select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n2@test.local') $$,
+  'P0001', 'list_full', 'renouveler une invitation expirée ne contourne pas le plafond');
 select tests.clear_authentication();
 insert into sharing.rate_counters (scope, subject, window_start, count)
 values ('invite_account', :'e', date_trunc('day', now(), 'Europe/Paris'), 20)
 on conflict (scope, subject, window_start) do update set count = 20;
 select tests.authenticate_as(:'e');
-select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n2@test.local') $$,
+select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872e1', 'n3@test.local') $$,
   'P0001', 'daily_limit', '20 invitations par jour au plus');
 select tests.clear_authentication();
 insert into sharing.rate_counters (scope, subject, window_start, count)
@@ -287,7 +316,6 @@ insert into sharing.list_invitations (list_id, inviter_id, invitee_email, role, 
 select '00000000-0000-0000-0000-0000000872b1', :'c', 'm' || g || '@test.local', 'viewer',
   sha256(convert_to('t' || g, 'UTF8')), now() + interval '1 day'
 from generate_series(1, 50) as g;
-delete from public.list_members where list_id = '00000000-0000-0000-0000-0000000872b1';
 select tests.authenticate_as(:'c');
 insert into public.lists (id, name) values ('00000000-0000-0000-0000-0000000872b2', 'Camille 2');
 select throws_ok($$ select * from public.create_invitation('00000000-0000-0000-0000-0000000872b2', 'x@test.local') $$,
@@ -304,7 +332,13 @@ select is((select status from public.preview_invitation('nimporte')), 'rate_limi
 select tests.clear_authentication();
 update public.profiles set display_name = 'Promo www.exemple.fr' where user_id = :'e';
 select is(sharing.mail_safe_name(:'e'), null, 'un prénom qui contient un lien ne figure pas dans l''e-mail');
-select is(sharing.mail_safe_name(:'h'), 'Hadrien', 'un prénom ordinaire y figure');
+update public.profiles set display_name = 'bit.ly/x' where user_id = :'e';
+select is(sharing.mail_safe_name(:'e'), null, 'ni un lien raccourci (point, barre oblique)');
+update public.profiles set display_name = 'Tom 2' where user_id = :'e';
+select is(sharing.mail_safe_name(:'e'), null, 'ni un chiffre');
+update public.profiles set display_name = 'Jean-Marc d''Aubigné' where user_id = :'e';
+select is(sharing.mail_safe_name(:'e'), 'Jean-Marc d''Aubigné', 'un prénom composé, accentué, avec apostrophe, y figure');
+select is(sharing.mail_safe_name(:'l'), 'Léa', 'Léa y figure');
 
 -- Temps réel : signaux sans contenu, au propriétaire et aux membres. Sautés sans partition du jour.
 select tests.authenticate_as(:'h');
@@ -347,13 +381,20 @@ else skip('realtime.messages sans partition du jour', 1) end;
 -- Canal privé : Léa ne lit que user:<Léa>, et n'émet rien.
 select tests.authenticate_as(:'l');
 select set_config('realtime.topic', 'user:' || :'l', true) as _topic \gset
-select case when tests.realtime_ready() then
-  ok((select count(*) from realtime.messages) > 0, 'Léa lit les messages de son canal')
-else skip('realtime.messages sans partition du jour', 1) end;
+select case when tests.realtime_ready() then collect_tap(
+  ok((select count(*) from realtime.messages) > 0, 'Léa lit les messages de son canal'),
+  is((select count(*)::int from realtime.messages where topic <> 'user:' || :'l'), 0, 'et seulement ceux de son canal')
+) else skip('realtime.messages sans partition du jour', 2) end;
 select set_config('realtime.topic', 'user:' || :'h', true) as _topic \gset
 select is_empty($$ select 1 from realtime.messages $$, 'Léa ne lit pas le canal d''Hadrien');
-select throws_ok(format($$ insert into realtime.messages (topic, extension, payload, event, private)
-  values ('user:%s', 'broadcast', '{}', 'changed', true) $$, :'h'), '42501', null, 'un client n''émet rien');
+select case when tests.realtime_ready() then
+  throws_ok(format($$ insert into realtime.messages (topic, extension, payload, event, private)
+    values ('user:%s', 'broadcast', '{}', 'changed', true) $$, :'h'), '42501', null,
+    'un client n''émet rien : refus de la RLS (authenticated a le droit INSERT, vérifié ci-dessous)')
+else skip('realtime.messages sans partition du jour', 1) end;
+
+select ok(has_table_privilege('authenticated', 'realtime.messages', 'INSERT'),
+  'authenticated a INSERT sur realtime.messages : seul l''absence de politique d''insertion l''arrête');
 
 -- Suppression du compte : chaque liste partagée est confiée à l'éditeur le plus ancien, à défaut au lecteur.
 select tests.clear_authentication();

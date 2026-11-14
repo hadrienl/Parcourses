@@ -10,6 +10,16 @@
 -- Temps réel : signal sans contenu ({ list_id, kind }) sur le canal privé user:<uid> de chaque membre (Broadcast depuis
 -- la base, realtime.send). Les apps y répondent par une descente, qui passe par PostgREST et sa RLS.
 
+-- Garde : les signaux passent par realtime.send. S'il manquait (projet sans Realtime), chaque écriture d'une liste ou
+-- d'un article échouerait en 42883 : la migration échoue plutôt.
+do $$
+begin
+  if to_regprocedure('realtime.send(jsonb,text,text,boolean)') is null or to_regclass('realtime.messages') is null then
+    raise exception 'realtime.send ou realtime.messages absent : activer Realtime avant cette migration';
+  end if;
+end;
+$$;
+
 -- Membres d'une liste, hors propriétaire. Écrits seulement par les RPC (aucun droit d'écriture client).
 create table if not exists public.list_members (
   list_id     uuid not null references public.lists (id) on delete cascade,
@@ -95,6 +105,17 @@ as $$
   select m.list_id from public.list_members as m where m.user_id = (select auth.uid()) and m.role = 'editor';
 $$;
 
+-- Listes dont l'appelant est membre (hors propriétaire), pour la politique SELECT de lists (voir plus bas).
+create or replace function sharing.member_list_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.list_id from public.list_members as m where m.user_id = (select auth.uid());
+$$;
+
 -- Comptes avec qui l'appelant partage au moins une liste (propriétaires et membres), lui compris : leur prénom lui est
 -- lisible.
 create or replace function sharing.co_member_ids()
@@ -113,15 +134,20 @@ $$;
 revoke all on function sharing.readable_list_ids() from public, anon, authenticated;
 revoke all on function sharing.writable_list_ids() from public, anon, authenticated;
 revoke all on function sharing.co_member_ids() from public, anon, authenticated;
+revoke all on function sharing.member_list_ids() from public, anon, authenticated;
+grant execute on function sharing.member_list_ids() to authenticated;
 grant execute on function sharing.readable_list_ids() to authenticated;
 grant execute on function sharing.writable_list_ids() to authenticated;
 grant execute on function sharing.co_member_ids() to authenticated;
 
 -- Politiques par rôle. Un lecteur qui écrit un article touche 0 ligne (mise à jour, suppression : la RLS filtre sans
 -- erreur) ou reçoit 42501 (insertion). Le propriétaire seul renomme et supprime la liste.
+-- lists_select garde le test direct sur owner_id : une insertion avec « on conflict (id) do nothing » (renvoi
+-- idempotent des apps) exige que la nouvelle ligne passe aussi la politique SELECT, et readable_list_ids() ne voit pas
+-- une liste en cours de création (42501 sinon).
 drop policy if exists lists_select on public.lists;
 create policy lists_select on public.lists for select to authenticated
-  using (id in (select sharing.readable_list_ids()));
+  using (owner_id = (select auth.uid()) or id in (select sharing.member_list_ids()));
 
 drop policy if exists list_items_select on public.list_items;
 create policy list_items_select on public.list_items for select to authenticated
@@ -138,14 +164,16 @@ drop policy if exists list_items_delete on public.list_items;
 create policy list_items_delete on public.list_items for delete to authenticated
   using (list_id in (select sharing.writable_list_ids()));
 
--- Une visite peut porter une liste partagée : la visite reste celle du compte (#87 §7).
+-- Une visite peut porter une liste partagée dont on est propriétaire ou éditeur : la visite reste celle du compte
+-- (#87 §7). Un lecteur ne fait pas les courses (décision Q5) : sa visite est refusée (42501), et les apps la renvoient
+-- sans liste, comme pour une liste supprimée.
 drop policy if exists visits_insert on public.visits;
 create policy visits_insert on public.visits for insert to authenticated
   with check (
     user_id = (select auth.uid())
     and ended_at is null
     and processed_at is null
-    and (list_id is null or list_id in (select sharing.readable_list_ids()))
+    and (list_id is null or list_id in (select sharing.writable_list_ids()))
   );
 
 -- Prénom : le sien, et celui des comptes avec qui l'on partage une liste.
@@ -400,6 +428,7 @@ create policy parcourses_user_topic_select on realtime.messages for select to au
   using (
     realtime.messages.extension = 'broadcast'
     and (select realtime.topic()) = 'user:' || (select auth.uid())::text
+    and realtime.messages.topic = (select realtime.topic())
   );
 
 -- Jeton d'invitation : 32 octets aléatoires en base64url (43 caractères).
@@ -421,8 +450,9 @@ as $$
   select sha256(convert_to(coalesce(p_token, ''), 'UTF8'));
 $$;
 
--- Prénom d'un compte tel qu'il peut figurer dans un e-mail : nul s'il ressemble à une adresse, un lien ou un numéro
--- (filtre du catalogue, #69), pour qu'un prénom ne serve pas à faire passer un lien dans un e-mail envoyé par nous.
+-- Prénom d'un compte tel qu'il peut figurer dans un e-mail envoyé par nous : seulement des lettres (latines, accents
+-- compris), des espaces, des apostrophes et des traits d'union, 2 à 40 caractères. Sinon nul (« Quelqu'un ») : ni point,
+-- ni barre oblique, ni chiffre, donc rien qu'un client de messagerie transformerait en lien (bit.ly/x, promo.shop).
 create or replace function sharing.mail_safe_name(p_user_id uuid)
 returns text
 language sql
@@ -430,7 +460,8 @@ stable
 set search_path = ''
 as $$
   select p.display_name from public.profiles as p
-  where p.user_id = p_user_id and catalog.is_publishable(public.normalize_label(p.display_name));
+  where p.user_id = p_user_id
+    and p.display_name ~ '^[A-Za-zÀ-ÖØ-öø-ÿŒœ]([A-Za-zÀ-ÖØ-öø-ÿŒœ '' ’-]{0,38}[A-Za-zÀ-ÖØ-öø-ÿŒœ])?$';
 $$;
 
 -- Adresse masquée : première lettre, puis le domaine (c•••@exemple.fr).
@@ -446,6 +477,9 @@ $$;
 -- Crée une invitation, ou renouvelle le jeton de l'invitation vivante de cette adresse (« Renvoyer », « Copier le
 -- lien » : l'ancien lien cesse de marcher). Propriétaire seulement, avec un compte e-mail. p_send_email : vrai quand
 -- l'Edge Function send-invitation va l'envoyer (compte dans le plafond par destinataire), faux pour « Copier le lien ».
+-- L'adresse est réduite à l'ASCII imprimable et mise en minuscules ; invitee_email renvoie la forme enregistrée, à
+-- laquelle l'Edge Function envoie (aucune variante Unicode ne contourne le plafond par destinataire, et l'adresse
+-- enregistrée est celle qui reçoit l'e-mail). Les variantes Gmail (points, +étiquette) restent des adresses distinctes.
 -- Erreurs (P0001, message stable) : invalid_email, invalid_role, self_invitation, already_member, list_full,
 -- daily_limit, pending_limit, recipient_limit. 42501 si l'appelant n'est pas propriétaire (sans dire si la liste
 -- existe). Ne dit jamais si l'adresse a un compte Parcourses, sauf s'il est déjà membre de cette liste.
@@ -455,7 +489,7 @@ create or replace function public.create_invitation(
   p_role text default 'editor',
   p_send_email boolean default false
 )
-returns table (invitation_id uuid, token text, expires_at timestamptz, sender_name text)
+returns table (invitation_id uuid, invitee_email text, token text, expires_at timestamptz, sender_name text)
 language plpgsql
 volatile
 security definer
@@ -472,6 +506,8 @@ declare
   v_email text := lower(btrim(coalesce(p_email, '')));
   v_owner uuid;
   v_existing uuid;
+  v_existing_expires timestamptz;
+  v_counts_as_new boolean;
   v_token text := sharing.new_token();
   v_participants integer;
 begin
@@ -486,26 +522,30 @@ begin
   if p_role is null or p_role not in ('editor', 'viewer') then
     raise exception 'invalid_role';
   end if;
-  if char_length(v_email) > 254 or v_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+  if char_length(v_email) > 254 or v_email !~ '^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$' then
     raise exception 'invalid_email';
   end if;
   if v_email = v_me.email then
     raise exception 'self_invitation';
   end if;
+  -- Fuite acceptée (conception #87 §1.5) : le propriétaire apprend qu'une adresse qu'il saisit est celle d'un membre.
+  -- GoTrue range les adresses en minuscules : comparaison directe, par l'index de auth.users.
   if exists (
     select 1 from auth.users as u
     inner join public.list_members as m on m.user_id = u.id and m.list_id = p_list_id
-    where lower(u.email) = v_email and u.email_confirmed_at is not null
+    where u.email = v_email and u.email_confirmed_at is not null
   ) then
     raise exception 'already_member';
   end if;
 
-  select i.id into v_existing from sharing.list_invitations as i
+  select i.id, i.expires_at into v_existing, v_existing_expires from sharing.list_invitations as i
   where i.list_id = p_list_id and i.invitee_email = v_email
     and i.accepted_at is null and i.declined_at is null and i.revoked_at is null
   for update;
 
-  if v_existing is null then
+  -- Renouveler une invitation expirée revient à en créer une : elle n'était plus comptée, les plafonds s'appliquent.
+  v_counts_as_new := v_existing is null or v_existing_expires <= now();
+  if v_counts_as_new then
     select 1 + (select count(*) from public.list_members as m where m.list_id = p_list_id)
          + (select count(*) from sharing.list_invitations as i
             where i.list_id = p_list_id and i.accepted_at is null and i.declined_at is null
@@ -548,10 +588,10 @@ begin
   -- Le propriétaire (ses autres appareils) et l'invité, s'il a déjà un compte, sont prévenus.
   perform sharing.notify(v_me.user_id, p_list_id, 'members');
   perform sharing.notify(u.id, null, 'invitations')
-  from auth.users as u where lower(u.email) = v_email and u.email_confirmed_at is not null;
+  from auth.users as u where u.email = v_email and u.email_confirmed_at is not null;
 
   return query
-  select v_existing, v_token, i.expires_at, sharing.mail_safe_name(v_me.user_id)
+  select v_existing, v_email, v_token, i.expires_at, sharing.mail_safe_name(v_me.user_id)
   from sharing.list_invitations as i where i.id = v_existing;
 end;
 $$;
@@ -666,7 +706,7 @@ $$;
 -- status : invalid (jeton inconnu : rien d'autre), expired (expirée, révoquée ou refusée), used (acceptée par un autre
 -- compte), member (déjà membre ou propriétaire : list_id donné), pending. Le nom de la liste n'est donné que si
 -- l'adresse du compte est celle de l'invitation (décision du 14/11) ; sinon email_matches est faux et l'app affiche
--- l'avertissement avec l'adresse masquée. 30 consultations ou acceptations par jeton et par heure et par compte au plus
+-- l'avertissement avec l'adresse masquée. 30 consultations ou acceptations par compte et par heure au plus
 -- (rate_limited).
 create or replace function public.preview_invitation(p_token text)
 returns table (
@@ -914,6 +954,12 @@ begin
   if v_user is null then
     raise exception 'not authenticated' using errcode = '42501';
   end if;
+
+  -- Verrou des membres des listes de l'appelant : un héritier qui quitte la liste au même moment est attendu.
+  perform 1 from public.list_members as m
+  inner join public.lists as l on l.id = m.list_id
+  where l.owner_id = v_user
+  for update of m;
 
   with heirs as (
     select distinct on (m.list_id) m.list_id, m.user_id

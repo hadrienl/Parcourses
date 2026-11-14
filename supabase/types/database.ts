@@ -339,7 +339,7 @@ isOneToOne: false
                            },
 "create_invitation":
 { Args: { "p_email": string,"p_list_id": string,"p_role"?: string,"p_send_email"?: boolean }; Returns: {
-              "expires_at": string,"invitation_id": string,"sender_name": string,"token": string
+              "expires_at": string,"invitation_id": string,"invitee_email": string,"sender_name": string,"token": string
             }[]
                            },
 "decline_invitation":

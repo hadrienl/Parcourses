@@ -1,8 +1,9 @@
 // Edge Function send-invitation (#87, lot 87.2) : crée une invitation (ou renouvelle son jeton) et l'envoie par e-mail.
 //
-// POST { list_id, email, role? } avec le JWT de l'utilisateur (verify_jwt). Tous les contrôles (propriétaire, compte
+// POST { list_id, email, role? } avec le JWT de l'utilisateur. Tous les contrôles (propriétaire, compte
 // e-mail, adresse, plafonds) sont faits en SQL par la RPC create_invitation, appelée avec ce JWT : la fonction n'a
-// aucun droit de plus que l'utilisateur. Réponse 200 { invitation_id, link, sent, expires_at } ; sent = false si
+// aucun droit de plus que l'utilisateur. La passerelle ne vérifie pas le JWT (verify_jwt = false) : PostgREST le fait,
+// quel que soit le mode de signature du projet (clés historiques ou asymétriques). Réponse 200 { invitation_id, link, sent, expires_at } ; sent = false si
 // l'e-mail n'a pas pu partir (l'invitation existe : l'app propose « Copier le lien »). Erreurs de la RPC relayées avec
 // leur statut HTTP : { error, code } (error = invalid_email, already_member, list_full, daily_limit… ; code PostgREST).
 //
@@ -16,7 +17,26 @@
 
 type Role = "editor" | "viewer";
 
-type Invitation = { invitation_id: string; token: string; expires_at: string; sender_name: string | null };
+type Invitation = {
+  invitation_id: string;
+  invitee_email: string;
+  token: string;
+  expires_at: string;
+  sender_name: string | null;
+};
+
+// Messages de la RPC relayés tels quels ; tout autre message devient rpc_failed (pas de détail interne au client).
+const KNOWN_ERRORS = new Set([
+  "invalid_email",
+  "invalid_role",
+  "self_invitation",
+  "already_member",
+  "list_full",
+  "daily_limit",
+  "pending_limit",
+  "recipient_limit",
+  "not allowed",
+]);
 
 type Mail = { to: string; subject: string; text: string; html: string };
 
@@ -113,7 +133,7 @@ async function handle(request: Request): Promise<Response> {
   }
 
   const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_ANON_KEY");
+  const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
   if (!url || !key) return json({ error: "misconfigured" }, 500);
 
   // La RPC est appelée avec le JWT de l'utilisateur : auth.uid() est le sien.
@@ -130,14 +150,16 @@ async function handle(request: Request): Promise<Response> {
     } catch {
       // Réponse non JSON : seul le statut est relayé.
     }
-    return json({ error: error.message ?? "rpc_failed", code: error.code ?? null }, rpc.status);
+    const message = error.message && KNOWN_ERRORS.has(error.message) ? error.message : "rpc_failed";
+    return json({ error: message, code: error.code ?? null }, rpc.status);
   }
   const [invitation] = JSON.parse(payload) as Invitation[];
 
   const base = Deno.env.get("INVITATION_BASE_URL") ?? "parcourses://invitation";
   const link = `${base}#${invitation.token}`;
   const sent = await deliver(
-    invitationMail(body.email.trim().toLowerCase(), invitation.sender_name, role, link, new Date(invitation.expires_at)),
+    // L'adresse enregistrée par la RPC, et non celle reçue : c'est elle que comptent les plafonds.
+    invitationMail(invitation.invitee_email, invitation.sender_name, role, link, new Date(invitation.expires_at)),
   );
   return json({ invitation_id: invitation.invitation_id, link, sent, expires_at: invitation.expires_at });
 }

@@ -314,7 +314,11 @@ updated_at)` porte les éditeurs (`editor`) et les lecteurs (`viewer`) ; aucun c
 applique les rôles : un lecteur qui modifie ou supprime un article touche **0 ligne, sans erreur** (la RLS filtre), et
 reçoit `42501` s'il en ajoute un. Les apps doivent donc traiter « 0 ligne » comme un refus possible et lever le doute par
 la pierre tombale (conception §6.4). Seul le propriétaire renomme, supprime, invite et gère les membres. Une visite peut
-porter une liste lisible (`visits_insert`) : la visite et ses coches restent celles du compte.
+porter une liste dont on est propriétaire ou éditeur (`visits_insert`) ; un lecteur ne fait pas les courses (Q5) : sa
+visite est refusée en `42501`, et les apps la renvoient sans liste. La visite et ses coches restent celles du compte.
+`lists_select` teste `owner_id` directement pour le propriétaire : une insertion « on conflict (id) do nothing » (renvoi
+idempotent des apps) exige que la nouvelle ligne passe aussi la politique SELECT, ce que `readable_list_ids()` ne
+permet pas pour une liste en cours de création.
 
 **Invitations** (`sharing.list_invitations`, jamais lue par un client) : adresse invitée (minuscules), rôle, haché sha256
 du jeton (le jeton clair, 32 octets aléatoires en base64url, n'est renvoyé qu'une fois), échéance à 7 jours, `sent_count`,
@@ -328,11 +332,11 @@ l'adresse est confirmée (`auth.users.email_confirmed_at`, lu en base, pas dans 
 
 | RPC | Qui | Réponse |
 | --- | --- | --- |
-| `create_invitation(p_list_id, p_email, p_role = 'editor', p_send_email = false)` | propriétaire, compte e-mail | `(invitation_id, token, expires_at, sender_name)` ; `sender_name` = prénom s'il passe le filtre de #69 (`catalog.is_publishable`), sinon nul |
+| `create_invitation(p_list_id, p_email, p_role = 'editor', p_send_email = false)` | propriétaire, compte e-mail | `(invitation_id, invitee_email, token, expires_at, sender_name)` ; `invitee_email` = l'adresse enregistrée (ASCII, minuscules), à laquelle l'e-mail part ; `sender_name` = prénom s'il ne contient que des lettres, espaces, apostrophes et traits d'union (ni point, ni barre oblique, ni chiffre : rien qu'une messagerie transformerait en lien), sinon nul |
 | `revoke_invitation(p_invitation_id)` | propriétaire | — |
 | `list_sharing(p_list_id)` | propriétaire et membres (anonymes compris) | JSON : `role`, `owner` et `members` (prénom, rôle, `is_me`, `joined_at`, **jamais d'adresse**), `invitations` (propriétaire seulement : adresse, rôle, échéance, `expired`) |
 | `my_invitations()` | compte e-mail | invitations vivantes adressées à son adresse, hors listes dont il est déjà membre |
-| `preview_invitation(p_token)` | compte e-mail | `status` (`pending`, `expired`, `used`, `member`, `invalid`, `rate_limited`), nom de la liste **seulement si l'adresse correspond** (`email_matches`), prénom du propriétaire, rôle, adresse invitée masquée (`c•••@exemple.fr`) |
+| `preview_invitation(p_token)` | compte e-mail | `status` (`pending`, `expired`, `used`, `member`, `invalid`, `rate_limited`), nom de la liste **seulement si l'adresse correspond** (`email_matches`) ou si l'appelant est déjà membre, prénom du propriétaire, rôle, adresse invitée masquée (`c•••@exemple.fr`) |
 | `accept_invitation(p_token \| p_invitation_id)` | compte e-mail ; par id : adresse égale | `(status, list_id, role)` : `accepted`, `member` (idempotent), `invalid`, `expired`, `used`, `rate_limited`. Deux invitations : le rôle le plus élevé est gardé |
 | `decline_invitation(p_invitation_id)` | l'invité (adresse égale) | — |
 | `set_member_role(p_list_id, p_user_id, p_role)` | propriétaire | — (`P0001 not_member`) |
@@ -341,11 +345,16 @@ l'adresse est confirmée (`auth.users.email_confirmed_at`, lu en base, pas dans 
 Erreurs de `create_invitation` (`P0001`, message stable, HTTP 400) : `invalid_email`, `invalid_role`, `self_invitation`,
 `already_member`, `list_full`, `daily_limit`, `pending_limit`, `recipient_limit` ; `42501` (HTTP 403) si l'appelant n'est
 pas propriétaire, sans dire si la liste existe. Aucune réponse ne dit si une adresse a un compte, sauf `already_member`
-pour la liste de l'appelant. `preview_invitation` et `accept_invitation` répondent par un statut plutôt que par une
+pour la liste de l'appelant : **fuite acceptée** (conception §1.5), le propriétaire peut apprendre qu'une adresse qu'il
+saisit est celle d'un membre, même si ce membre avait accepté avec une autre adresse. Adresse acceptée : ASCII imprimable
+seulement (`^[a-z0-9._%+-]+@…`), après `lower(btrim())` ; aucune variante Unicode (U+00A0, U+FEFF…) ne passe. Les
+variantes Gmail (points, `+étiquette`) restent des adresses distinctes pour les plafonds. `preview_invitation` et `accept_invitation` répondent par un statut plutôt que par une
 erreur, pour que les essais comptent dans le plafond.
 
-**Plafonds** (constantes des RPC, `sharing.rate_counters`, fenêtres Europe/Paris ; une adresse n'y est écrite que
-hachée) :
+**Plafonds** (constantes des RPC, `sharing.rate_counters`, fenêtres Europe/Paris ; une adresse n'y figure que
+**pseudonymisée** par un sha256 sans sel, qu'un dictionnaire d'adresses connues permettrait de retrouver ; les compteurs
+sont purgés après 2 jours). Renouveler une invitation expirée compte comme en créer une (participants, invitations
+vivantes). Un envoi raté (`sent = false`) compte quand même dans le plafond du destinataire et dans `sent_count` :
 
 | Plafond | Valeur |
 | --- | --- |
@@ -357,8 +366,10 @@ hachée) :
 
 **Edge Function `send-invitation`** (`supabase/functions/send-invitation/`, sans dépendance) : `POST { list_id, email,
 role? }` avec le JWT de l'utilisateur. Elle appelle `create_invitation(…, p_send_email => true)` **avec ce JWT** (aucun
-droit de plus que l'utilisateur), puis envoie l'e-mail et répond `{ invitation_id, link, sent, expires_at }` ; erreurs de
-la RPC relayées (`{ error, code }`, même statut HTTP). `sent = false` si l'envoi a échoué : l'invitation existe, l'app
+droit de plus que l'utilisateur), puis envoie l'e-mail à `invitee_email` et répond `{ invitation_id, link, sent,
+expires_at }`. Erreurs de la RPC relayées avec leur statut HTTP (`{ error, code }`) : seuls les messages connus
+(`invalid_email`, `already_member`, `list_full`…) passent tels quels, les autres deviennent `rpc_failed`.
+`verify_jwt = false` : PostgREST vérifie le JWT que la fonction lui transmet, quel que soit le mode de signature du projet. `sent = false` si l'envoi a échoué : l'invitation existe, l'app
 propose « Copier le lien ». E-mail : prénom de l'expéditeur (ou « Quelqu'un »), rôle, lien, échéance, **pas le nom de la
 liste**. Lien : `INVITATION_BASE_URL#<jeton>`, par défaut `parcourses://invitation#<jeton>` tant qu'il n'y a pas de
 domaine (#87 Q2, lot 87.7). Envoi : API Resend si `RESEND_API_KEY` et `INVITATION_FROM` sont définis, sinon API de Mailpit
@@ -373,11 +384,14 @@ membre) sur `list_items`, `lists` (la suppression d'une liste part d'un trigger 
 n'efface les membres) et `list_members` (le membre retiré est prévenu), et par les RPC d'invitation (propriétaire ; invité
 qui a déjà un compte : `invitations`). `realtime.send` ne fait jamais échouer une écriture (il journalise un WARNING). Les
 messages sont écrits dans la transaction : une écriture annulée n'émet rien. Realtime met environ 5 s à refuser un canal
-non autorisé.
+non autorisé. La politique compare aussi le topic de chaque ligne au canal rejoint. À la suppression d'une liste, chaque
+membre reçoit `list`, puis `members` (la cascade sur `list_members`) : sans effet, les apps font une seule descente.
+La migration échoue si `realtime.send` ou `realtime.messages` manquent.
 
 **Suppression du compte** (`delete_my_account`, #68) : chaque liste partagée du compte est d'abord confiée à son éditeur
 le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
-le compte. Les invitations envoyées par le compte partent avec lui.
+le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :
+un héritier qui quitte la liste au même moment est attendu.
 
 **Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
 (`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`
