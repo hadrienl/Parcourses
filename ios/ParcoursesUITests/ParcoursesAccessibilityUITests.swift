@@ -362,7 +362,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
-    name.typeText("Semaine")
+    type("Semaine", into: name, app)
     app.alerts.buttons["Créer"].tap()
 
     let entry = app.textFields["quickEntry"]
@@ -373,7 +373,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     audit(app, "liste-vide\(suffix)")
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
       if !entry.hasFocus { entry.tap() }
-      entry.typeText(text + "\n")
+      type(text + "\n", into: entry, app)
     }
     XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 15))
     row(app, "tomates", "non coché").tap()

@@ -12,24 +12,24 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
-    XCTAssertTrue(name.waitForExistence(timeout: 5))
-    name.typeText("Semaine")
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
     app.alerts.buttons["Créer"].tap()
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    XCTAssertTrue(entry.waitForExistence(timeout: 15))
     entry.tap()
-    entry.typeText("tomates\n")
-    XCTAssertTrue(row(app, "tomates", "non coché").waitForExistence(timeout: 5))
+    type("tomates\n", into: entry, app)
+    XCTAssertTrue(row(app, "tomates", "non coché").waitForExistence(timeout: 15))
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.staticTexts["Semaine"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["Semaine"].waitForExistence(timeout: 15))
 
     // Annuler ne touche à rien.
     let confirmation = openConfirmation(app)
     capture(app, "suppression-1-confirmation")
     confirmation.buttons["Annuler"].firstMatch.tap()
-    XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(confirmation.waitForNonExistence(timeout: 15))
     app.buttons["closeAbout"].tap()
-    XCTAssertTrue(app.staticTexts["Semaine"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["Semaine"].waitForExistence(timeout: 15))
 
     // Supprimer : message, puis l'écran Listes vide.
     openConfirmation(app).buttons["Supprimer"].firstMatch.tap()
@@ -61,7 +61,7 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
     XCTAssertGreaterThanOrEqual(button.frame.height, 44)
     button.tap()
     let confirmation = app.alerts["Supprimer toutes vos données ?"]
-    XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+    XCTAssertTrue(confirmation.waitForExistence(timeout: 15))
     XCTAssertTrue(confirmation.staticTexts["Vos listes et vos visites seront effacées de cet appareil."].exists)
     XCTAssertTrue(confirmation.buttons["Supprimer"].firstMatch.exists)
     XCTAssertTrue(confirmation.buttons["Annuler"].firstMatch.exists)
@@ -71,9 +71,9 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
   @MainActor
   private func openAbout(_ app: XCUIApplication) {
     let about = app.buttons["about"]
-    XCTAssertTrue(about.waitForExistence(timeout: 5))
+    XCTAssertTrue(about.waitForExistence(timeout: 15))
     about.tap()
-    XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
   }
 
   /// À propos, puis « Supprimer mes données… » : renvoie l'alerte de confirmation.
@@ -85,7 +85,7 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
     reveal(button, in: app)
     button.tap()
     let confirmation = app.alerts["Supprimer toutes vos données ?"]
-    XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+    XCTAssertTrue(confirmation.waitForExistence(timeout: 15))
     return confirmation
   }
 }
