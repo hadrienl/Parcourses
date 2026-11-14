@@ -77,27 +77,27 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "2-liste-triee-inconnu")
 
     // Coche et annulation.
-    row(app, "tomates", "non coché").tap()
+    row(app, "tomates", "non coché", in: "shoppingList").tap()
     XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 3))
     capture(app, "3-annulation")
     app.buttons["undo"].tap()
-    XCTAssertTrue(row(app, "tomates", "non coché").waitForExistence(timeout: 3))
+    XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").waitForExistence(timeout: 3))
 
     // La coche rejoint le panier après le délai d'inactivité.
-    row(app, "tomates", "non coché").tap()
+    row(app, "tomates", "non coché", in: "shoppingList").tap()
     XCTAssertTrue(app.staticTexts["Dans le panier (1)"].waitForExistence(timeout: 5))
 
     // Introuvable.
-    row(app, "xyzzy", "non coché").swipeLeft()
+    row(app, "xyzzy", "non coché", in: "shoppingList").swipeLeft()
     app.buttons["Pas trouvé"].firstMatch.tap()
-    XCTAssertTrue(row(app, "xyzzy", "introuvable").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "xyzzy", "introuvable", in: "shoppingList").waitForExistence(timeout: 5))
     capture(app, "4-introuvable")
 
     // Ajout en route.
     let entry = app.textFields["shoppingEntry"]
     entry.tap()
     entry.typeText("pommes\n")
-    XCTAssertTrue(row(app, "pommes", "non coché").waitForExistence(timeout: 5))
+    XCTAssertTrue(row(app, "pommes", "non coché", in: "shoppingList").waitForExistence(timeout: 5))
     capture(app, "5-ajout-en-route")
 
     // Fin : la sheet demande quoi faire des articles restants.
