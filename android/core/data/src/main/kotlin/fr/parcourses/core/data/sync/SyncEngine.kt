@@ -142,6 +142,7 @@ class SyncEngine(
     private var resolutionAttempts = mutableMapOf<String, String>()
     private var resolutionBackoffUntil: Instant? = null
     private var fullReconcileNotBefore: Instant? = null
+    private var reconciledThisPass = false
 
     /**
      * Arrête le moteur (suppression du compte, #68) : plus aucune passe ne démarre, et l'appel ne rend la main qu'une
@@ -221,6 +222,7 @@ class SyncEngine(
     @Suppress("CyclomaticComplexMethod", "ReturnCount") // port d'iOS : un cas par état, gardes de sortie anticipée
     private suspend fun pass(pull: Boolean) {
         var pullDue = pull
+        reconciledThisPass = false
         reconcileQueueIfNeeded()
         // Une descente demandée reste due si la passe s'arrête avant elle.
         if (!dependencies.isOnline()) return deferPull(pullDue)
@@ -341,8 +343,10 @@ class SyncEngine(
             remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
             cursors.items = null
-            // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`).
+            // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`), sans
+            // attendre l'échéance fixée pour l'ancien faute d'heure du serveur.
             cursors.tombstones = null
+            fullReconcileNotBefore = null
             cursors.accountId = id
             cursors.accountKind = dependencies.accountKind()
             lastRekey = id to result.resentLists
@@ -968,7 +972,8 @@ class SyncEngine(
             }
 
             TombstonePullMode.FullReconcile -> {
-                reconcileAllItems()
+                // Une seule par passe, et pas avant l'échéance fixée faute d'heure du serveur.
+                if (mayReconcileAllItems()) reconcileAllItems()
             }
         }
     }
@@ -978,7 +983,11 @@ class SyncEngine(
      * une suppression faite entre-temps sera relue (recouvrement). Sans elle, le curseur reste nul et la passe suivante
      * réconcilie encore en entier.
      */
+    private fun mayReconcileAllItems(): Boolean =
+        !reconciledThisPass && fullReconcileNotBefore?.let { it > dependencies.now() } != true
+
     private suspend fun reconcileAllItems() {
+        reconciledThisPass = true
         val serverNow = gateway.serverDate()
         // Sans heure du serveur, le curseur reste nul : la suivante, avant l'envoi, attend une heure.
         fullReconcileNotBefore = if (serverNow == null) dependencies.now() + FULL_RECONCILE_SPACING else null
@@ -998,9 +1007,7 @@ class SyncEngine(
         }
         // Rien de synchronisé (premier passage, reprise de compte) : la descente posera le curseur. Dernière
         // réconciliation sans heure du serveur : pas avant chaque passe.
-        if (store.syncedListIds().isEmpty() || fullReconcileNotBefore?.let { it > dependencies.now() } == true) {
-            return true
-        }
+        if (store.syncedListIds().isEmpty() || !mayReconcileAllItems()) return true
         return try {
             reconcileAllItems()
             true

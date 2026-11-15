@@ -12,6 +12,7 @@ import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.data.repository.RoomListRepository
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.CategorySeed
@@ -181,6 +182,8 @@ class SyncIntegrationTest {
                 override suspend fun dataAccount(): Uuid? = device.cursors.accountId
 
                 override suspend fun pendingChanges(): Int = device.db.outbox().pendingCount()
+
+                override suspend fun adoptDataAccount(account: Uuid) = device.cursors.adopt(account, AccountKind.Email)
 
                 override suspend fun purgeLocalData() = error("pas de changement de compte e-mail ici")
             },

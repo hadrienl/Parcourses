@@ -82,11 +82,22 @@ class AccountSignOutController(
     private val current = MutableStateFlow<AccountSignOutState>(AccountSignOutState.Idle)
     val state: StateFlow<AccountSignOutState> = current.asStateFlow()
 
-    /** Avant la confirmation : file envoyée, synchronisation arrêtée, modifications restantes comptées. */
-    suspend fun prepare(): Int = signOut.prepare()
+    /**
+     * Avant la confirmation : file envoyée, synchronisation arrêtée, modifications restantes comptées, puis [onReady]
+     * (hors du fil principal).
+     */
+    fun prepare(
+        onReady: (Int) -> Unit,
+        onFailed: () -> Unit = {},
+    ) {
+        // Dans le scope de l'app : la synchro arrêtée par `prepare` est toujours reprise, par `abandon` ou `start`.
+        scope.launch { signOut.prepare()?.let(onReady) ?: onFailed() }
+    }
 
-    /** Confirmation fermée : la synchronisation reprend. */
-    fun abandon() = signOut.abandon()
+    /** Confirmation fermée : la synchronisation reprend, après la fin de `prepare` (même verrou). */
+    fun abandon() {
+        scope.launch { signOut.abandon() }
+    }
 
     /** Après confirmation. `false` si une déconnexion tourne déjà. */
     fun start(): Boolean {
@@ -207,26 +218,38 @@ class AccountViewModel(
     /** Compte d'abord ce qui n'est pas parti (synchronisation arrêtée), puis ouvre la confirmation. */
     private fun requestSignOut() {
         val controller = signOut ?: return
-        if (confirming.value || requesting) return
-        requesting = true
-        viewModelScope.launch {
-            try {
-                unsent.value = controller.prepare()
+        if (confirming.value || prepared.value) return
+        prepared.value = true
+        controller.prepare(
+            onReady = { count ->
+                unsent.value = count
                 confirming.value = true
-            } finally {
-                requesting = false
-            }
-        }
+            },
+            // Synchro déjà reprise par `prepare` : rien à abandonner.
+            onFailed = { prepared.value = false },
+        )
     }
 
     private fun dismissSignOut() {
-        if (confirming.compareAndSet(expect = true, update = false)) signOut?.abandon()
+        if (confirming.compareAndSet(expect = true, update = false)) release()
     }
 
-    private var requesting = false
+    /** Synchro arrêtée par `prepare` sans confirmation : elle reprend (fermeture, ou écran quitté). */
+    internal fun release() {
+        if (prepared.compareAndSet(expect = true, update = false)) signOut?.abandon()
+    }
+
+    override fun onCleared() {
+        release()
+    }
+
+    /** `prepare` demandé, ni confirmé ni abandonné : la synchronisation est arrêtée. */
+    private val prepared = MutableStateFlow(false)
 
     private fun confirmSignOut() {
         if (!confirming.compareAndSet(expect = true, update = false)) return
+        // Confirmé : la déconnexion reprend la main sur la synchronisation.
+        prepared.value = false
         signOut?.start()
     }
 

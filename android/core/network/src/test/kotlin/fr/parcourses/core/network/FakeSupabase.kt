@@ -40,6 +40,9 @@ class FakeSupabase {
     var userId = "aaaaaaaa-0000-4000-8000-000000000001"
     var failWith: Throwable? = null
 
+    /** Rafraîchissement en panne (500), le reste répond. */
+    var failRefresh = false
+
     /** Compte supprimé (#68) : le rafraîchissement répond `refresh_token_not_found` et `/user`, `user_not_found`. */
     var accountGone = false
 
@@ -110,6 +113,10 @@ class FakeSupabase {
 
                 path.endsWith("/auth/v1/signup") -> {
                     json(sessionJson())
+                }
+
+                path.endsWith("/auth/v1/token") && failRefresh -> {
+                    authError(HttpStatusCode.InternalServerError, "unexpected_failure")
                 }
 
                 path.endsWith("/auth/v1/token") && accountGone -> {
@@ -192,6 +199,7 @@ class FakeSupabase {
 class GatewayHarness(
     val server: FakeSupabase = FakeSupabase(),
     val store: SecureStateStore = MemorySecureStateStore(),
+    clock: kotlin.time.Clock = kotlin.time.Clock.System,
 ) {
     private val scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
     val config = SupabaseConfig.create("http://127.0.0.1:56321", "publishable-key")!!
@@ -199,6 +207,7 @@ class GatewayHarness(
         SupabaseGateway(
             createSupabaseClient(config, store, server.engine, Dispatchers.Unconfined, lifecycleCallbacks = false),
             store,
+            clock,
         )
 
     fun close() = scope.cancel()
