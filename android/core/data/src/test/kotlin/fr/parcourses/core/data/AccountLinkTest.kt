@@ -571,4 +571,31 @@ class AccountLinkTest : DataTest() {
             assertTrue(runCatching { blocked.ensureSession() }.exceptionOrNull() is RemoteError.Unauthorized)
             assertTrue(gateway.callsOf("ensureSession").isEmpty())
         }
+
+    /** Relecture de #95 (3) : la reprise au premier plan a déjà purgé et adopté B ; « Réessayer » ne purge pas encore. */
+    @Test
+    fun retryingAfterTheForegroundReplayDoesNotPurgeTwice() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            repository.createList("Courses de A", now)
+            engine.drain()
+            gateway.hasSession = false
+            val accountB = Uuid.random()
+            gateway.codeAccount = accountB
+            purgeFailures = 1
+            val link = link()
+            link.requestCode("tom@exemple.fr")
+            link.verify("123456")
+            assertEquals(AccountLinkError.Unknown, link.state.value.error)
+            // Reprise au premier plan : purge faite, B adopté, drapeau effacé.
+            LocalDataPurge(db, cursors, accountKind = kind).run()
+            cursors.adopt(accountB, AccountKind.Email)
+            switch.clear()
+            syncSteps.clear()
+
+            link.retryMerge()
+
+            assertEquals(AccountLinkPhase.Done, link.state.value.phase)
+            assertEquals(listOf("resume"), syncSteps)
+        }
 }

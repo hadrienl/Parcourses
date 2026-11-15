@@ -48,10 +48,11 @@ interface RemoteGateway {
     suspend fun sessionAccountId(): Uuid
 
     /**
-     * Compte de la session enregistrée, lu sur l'appareil **sans rafraîchissement ni réseau** ; `null` sans session.
+     * Compte de la session enregistrée, lu **dans le stockage chiffré**, sans importer la session dans le SDK (qui la
+     * rafraîchirait en arrière-plan et la laisserait nulle en mémoire), ni réseau ; `null` sans session.
      * [RemoteError.SecureStorageLocked] si le stockage chiffré est illisible.
      */
-    suspend fun storedSessionAccountId(): Uuid?
+    suspend fun storedSessionAccount(): StoredSessionAccount?
 
     /** Les données locales ont été réidentifiées pour [id] : il devient le dernier compte connu. */
     suspend fun acknowledgeAccount(id: Uuid)
@@ -212,3 +213,9 @@ interface RemoteGateway {
         knownVersion: Long?,
     ): GraphSnapshotResponse
 }
+
+/** Compte d'une session enregistrée (#87) : [email] nul pour un compte anonyme. */
+data class StoredSessionAccount(
+    val accountId: Uuid,
+    val email: String?,
+)

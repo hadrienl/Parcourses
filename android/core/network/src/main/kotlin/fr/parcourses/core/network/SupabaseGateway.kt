@@ -119,16 +119,17 @@ class SupabaseGateway internal constructor(
 
     override suspend fun sessionAccountId(): Uuid = mapped { existingSessionUser() }
 
-    override suspend fun storedSessionAccountId(): Uuid? =
+    override suspend fun storedSessionAccount(): StoredSessionAccount? =
         mapped {
-            if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
-            if (auth.currentSessionOrNull() == null) {
-                // Stockage inaccessible : lève `SecureStorageLocked` plutôt que de conclure à l'absence de session.
-                store.read()
-                null
-            } else {
-                auth.currentUserOrNull()?.id?.let(Uuid::parse)
-            }
+            // Lecture directe : `loadFromStorage` importerait la session avec rafraîchissement automatique, et
+            // `currentSessionOrNull` resterait nul pendant un rafraîchissement d'arrière-plan.
+            val session = store.read().session ?: return@mapped null
+            // Session sans utilisateur : rien ne permet de conclure, l'appelant garde son drapeau.
+            val user = session.user ?: throw RemoteError.Unexpected()
+            StoredSessionAccount(
+                Uuid.parse(user.id),
+                user.email?.takeIf { it.isNotBlank() && user.isAnonymous != true },
+            )
         }
 
     override suspend fun acknowledgeAccount(id: Uuid) {

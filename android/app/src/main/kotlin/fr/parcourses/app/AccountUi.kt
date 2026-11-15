@@ -86,13 +86,18 @@ class AccountSignOutController(
      * Avant la confirmation : file envoyée, synchronisation arrêtée, modifications restantes comptées, puis [onReady]
      * (hors du fil principal).
      */
-    fun prepare(onReady: (Int) -> Unit) {
+    fun prepare(
+        onReady: (Int) -> Unit,
+        onFailed: () -> Unit = {},
+    ) {
         // Dans le scope de l'app : la synchro arrêtée par `prepare` est toujours reprise, par `abandon` ou `start`.
-        scope.launch { onReady(signOut.prepare()) }
+        scope.launch { signOut.prepare()?.let(onReady) ?: onFailed() }
     }
 
-    /** Confirmation fermée : la synchronisation reprend. */
-    fun abandon() = signOut.abandon()
+    /** Confirmation fermée : la synchronisation reprend, après la fin de `prepare` (même verrou). */
+    fun abandon() {
+        scope.launch { signOut.abandon() }
+    }
 
     /** Après confirmation. `false` si une déconnexion tourne déjà. */
     fun start(): Boolean {
@@ -215,10 +220,14 @@ class AccountViewModel(
         val controller = signOut ?: return
         if (confirming.value || prepared.value) return
         prepared.value = true
-        controller.prepare { count ->
-            unsent.value = count
-            confirming.value = true
-        }
+        controller.prepare(
+            onReady = { count ->
+                unsent.value = count
+                confirming.value = true
+            },
+            // Synchro déjà reprise par `prepare` : rien à abandonner.
+            onFailed = { prepared.value = false },
+        )
     }
 
     private fun dismissSignOut() {

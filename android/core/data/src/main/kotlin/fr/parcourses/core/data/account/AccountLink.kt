@@ -259,7 +259,10 @@ class AccountLink(
         lock.withLock {
             val switch = pendingSwitch ?: return@withLock
             current.update { it.copy(busy = true, error = null) }
-            if (replaceDeviceData(switch.first.accountId)) completeSwitch() else failMerge()
+            val account = switch.first.accountId
+            // La reprise au premier plan a déjà purgé et adopté ce compte : pas de seconde purge.
+            val replayed = !switchFlag.isPending && host.dataAccount() == account
+            if (replayed || replaceDeviceData(account)) completeSwitch() else failMerge()
         }
 
     /** Purge faite : drapeau effacé, synchronisation reprise, puis fin du déroulé. */

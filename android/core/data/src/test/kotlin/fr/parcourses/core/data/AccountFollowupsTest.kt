@@ -15,6 +15,7 @@ import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncDependencies
 import fr.parcourses.core.data.sync.SyncEngine
+import fr.parcourses.core.network.StoredSessionAccount
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListRow
 import kotlinx.coroutines.flow.first
@@ -196,5 +197,49 @@ class AccountFollowupsTest : DataTest() {
             engine.drain(pull = true)
 
             assertEquals(1, gateway.callsOf("fetchItemIds").size)
+        }
+
+    /**
+     * Bloquant de la relecture de #95 : relance pendant un rafraîchissement d'arrière-plan, le SDK n'a aucune session
+     * en mémoire mais la session B est dans le stockage. La reprise la lit là, voit B et purge.
+     */
+    @Test
+    fun aSessionBeingRefreshedInTheBackgroundIsStillSeenAndPurged() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            repository.createList("Courses de A", now)
+            cursors.accountId = Uuid.random()
+            switch.write()
+            gateway.hasSession = false
+            val accountB = Uuid.random()
+            gateway.storedSessionOverride = true
+            gateway.storedSession = StoredSessionAccount(accountB, "tom@exemple.fr")
+
+            assertTrue(replay.run())
+
+            assertEquals(1, purges)
+            assertTrue(db.lists().getAll().isEmpty())
+            assertEquals(accountB, cursors.accountId)
+            assertFalse(switch.isPending)
+        }
+
+    /** Relecture de #95 (4) : après un changement de compte, la réconciliation complète n'attend pas l'échéance. */
+    @Test
+    fun aNewAccountGetsItsFullReconciliationAtOnce() =
+        runBlocking {
+            val list = repository.createList("Courses", now - 1.days)
+            repository.renameList(list.id, "Courses", now)
+            repository.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            gateway.serverDate = null
+            engine.drain(pull = true)
+            assertTrue(gateway.callsOf("fetchItemIds").isNotEmpty())
+            // Nouveau compte (anonyme) dans l'heure : sa première descente réconcilie quand même.
+            gateway.account = Uuid.random()
+            gateway.calls.clear()
+
+            engine.drain(pull = true)
+
+            assertTrue(gateway.callsOf("saveList").isNotEmpty())
+            assertTrue(gateway.callsOf("fetchItemIds").isNotEmpty())
         }
 }

@@ -687,14 +687,35 @@ class SupabaseGatewayTest {
             }
         }
 
-    /** Compte de la session lu sur l'appareil, sans réseau ; `null` sans session. */
+    /**
+     * Bloquant de la relecture de #95 : session B stockée, proche de l'échéance, jamais chargée en mémoire (app
+     * relancée). Elle est lue dans le stockage, sans être importée ni rafraîchie : ni requête, ni session en mémoire.
+     */
     @Test
-    fun theStoredSessionAccountIsReadWithoutTheNetwork() =
+    fun aStoredSessionNearItsExpiryIsReadWithoutLoadingNorRefreshingIt() =
         runBlocking<Unit> {
-            assertNull(gateway.storedSessionAccountId())
-            val id = gateway.ensureSession()
-            val before = server.requests.size
-            assertEquals(id, gateway.storedSessionAccountId())
-            assertEquals(before, server.requests.size)
+            // Premier lancement : une session e-mail est enregistrée.
+            server.email = "tom@exemple.fr"
+            server.verifiedUserId = "bbbbbbbb-0000-4000-8000-000000000002"
+            gateway.ensureSession()
+            gateway.verifyCode("tom@exemple.fr", "123456", EmailCodePurpose.SignIn)
+            // Relance 55 min plus tard (plus de 80 % de la durée de vie) : nouveau client, même stockage.
+            val later =
+                object : kotlin.time.Clock {
+                    override fun now() =
+                        kotlin.time.Clock.System
+                            .now() + kotlin.time.Duration.parse("55m")
+                }
+            val relaunched = GatewayHarness(server = server, store = harness.store, clock = later)
+            try {
+                val before = server.requests.size
+                val stored = relaunched.gateway.storedSessionAccount()
+                assertEquals(Uuid.parse("bbbbbbbb-0000-4000-8000-000000000002"), stored?.accountId)
+                assertEquals("tom@exemple.fr", stored?.email)
+                assertEquals(before, server.requests.size)
+            } finally {
+                relaunched.close()
+            }
+            assertNull(GatewayHarness().gateway.storedSessionAccount())
         }
 }

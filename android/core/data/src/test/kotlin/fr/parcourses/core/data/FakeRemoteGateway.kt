@@ -3,6 +3,7 @@ package fr.parcourses.core.data
 import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
+import fr.parcourses.core.network.StoredSessionAccount
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
@@ -148,7 +149,21 @@ class FakeRemoteGateway(
         }
     }
 
-    override suspend fun storedSessionAccountId(): Uuid? = if (hasSession) account else null
+    /**
+     * Session du stockage chiffré : par défaut celle de la mémoire. Différente quand le SDK a vidé sa session en
+     * mémoire pendant un rafraîchissement d'arrière-plan.
+     */
+    var storedSession: StoredSessionAccount? = null
+    var storedSessionOverride = false
+
+    override suspend fun storedSessionAccount(): StoredSessionAccount? =
+        if (storedSessionOverride) {
+            storedSession
+        } else if (hasSession) {
+            StoredSessionAccount(account, email)
+        } else {
+            null
+        }
 
     override suspend fun sessionAccountId(): Uuid = account.also { enter("sessionAccountId") }.also { requireSession() }
 

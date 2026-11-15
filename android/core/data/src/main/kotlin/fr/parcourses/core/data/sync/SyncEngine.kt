@@ -343,8 +343,10 @@ class SyncEngine(
             remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
             cursors.items = null
-            // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`).
+            // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`), sans
+            // attendre l'échéance fixée pour l'ancien faute d'heure du serveur.
             cursors.tombstones = null
+            fullReconcileNotBefore = null
             cursors.accountId = id
             cursors.accountKind = dependencies.accountKind()
             lastRekey = id to result.resentLists

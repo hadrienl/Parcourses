@@ -11,12 +11,15 @@ import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.network.RemoteGateway
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -32,7 +35,11 @@ import java.lang.reflect.Proxy
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class)
 class AccountSignOutViewModelTest {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+    // Dispatcher de test : les lancements du contrôleur ne s'exécutent qu'à la demande, la course existe vraiment.
+    private val dispatcher = StandardTestDispatcher()
+    private val scope = TestScope(dispatcher)
+    private var flushGate = CompletableDeferred<Unit>().also { it.complete(Unit) }
+    private var unsentFails = false
     private val steps = mutableListOf<String>()
     private val db =
         ParcoursesDatabaseFactory.createInMemory(
@@ -72,19 +79,18 @@ class AccountSignOutViewModelTest {
                 host,
                 InMemoryAccountSignOutFlag(),
                 isOnline = { true },
-                flush = {},
-                unsent = { 2 },
+                flush = { flushGate.await() },
+                unsent = { if (unsentFails) error("SQLite verrouillé") else 2 },
             ),
             scope,
         )
 
     @Before
-    fun setUp() = Dispatchers.setMain(Dispatchers.Unconfined)
+    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher(dispatcher.scheduler))
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        scope.cancel()
         db.close()
     }
 
@@ -93,15 +99,54 @@ class AccountSignOutViewModelTest {
     fun leavingTheScreenBeforeConfirmingResumesTheSync() {
         val model = AccountViewModel(session = null, signOut = controller, onSignIn = {})
         model.actions.onSignOutRequest()
+        scope.advanceUntilIdle()
         assertTrue(model.state.value.confirmingSignOut)
         assertEquals(2, model.state.value.unsentChanges)
         assertEquals(listOf("suspend"), steps)
 
         model.release()
+        scope.advanceUntilIdle()
 
         assertEquals(listOf("suspend", "resume"), steps)
         // Une seule reprise, même si la fermeture suit.
         model.actions.onSignOutDismiss()
+        scope.advanceUntilIdle()
+        assertEquals(listOf("suspend", "resume"), steps)
+    }
+
+    /**
+     * Relecture de #95 : Retour pendant l'envoi de la file. La reprise attend la fin de la préparation, sinon elle
+     * passerait avant l'arrêt et la synchro resterait arrêtée jusqu'au relancement.
+     */
+    @Test
+    fun backDuringTheFlushResumesTheSyncAfterThePreparation() {
+        flushGate = CompletableDeferred()
+        val model = AccountViewModel(session = null, signOut = controller, onSignIn = {})
+        model.actions.onSignOutRequest()
+        scope.runCurrent()
+        // Retour pendant l'envoi : la préparation tient le verrou.
+        model.release()
+        scope.runCurrent()
+        assertEquals(emptyList<String>(), steps)
+
+        flushGate.complete(Unit)
+        scope.advanceUntilIdle()
+
+        assertEquals(listOf("suspend", "resume"), steps)
+    }
+
+    /** Relecture de #95 : un échec du comptage (SQLite) reprend la synchro, sans confirmation ni plantage. */
+    @Test
+    fun aFailureWhileCountingResumesTheSync() {
+        unsentFails = true
+        val model = AccountViewModel(session = null, signOut = controller, onSignIn = {})
+        model.actions.onSignOutRequest()
+        scope.advanceUntilIdle()
+
+        assertEquals(listOf("suspend", "resume"), steps)
+        assertTrue(!model.state.value.confirmingSignOut)
+        model.release()
+        scope.advanceUntilIdle()
         assertEquals(listOf("suspend", "resume"), steps)
     }
 }

@@ -39,9 +39,10 @@ class AccountSwitchReplay(
         lock.withLock {
             if (!flag.isPending) return@withLock true
             try {
-                val session = gateway.storedSessionAccountId()
-                val emailSession = session != null && gateway.accountEmail() != null
-                if (emailSession && session != cursors.accountId) {
+                // Lue dans le stockage, jamais importée : un rafraîchissement en cours ne la cache pas.
+                val stored = gateway.storedSessionAccount()
+                if (stored?.email != null && stored.accountId != cursors.accountId) {
+                    val session = stored.accountId
                     purgeDevice()
                     kind.write(AccountKind.Email)
                     cursors.adopt(session, AccountKind.Email)
