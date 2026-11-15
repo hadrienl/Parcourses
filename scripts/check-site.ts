@@ -63,11 +63,14 @@ const walk = (dir: string): string[] =>
 const files = walk("");
 for (const path of files.filter((p) => /\.(html|css|js|svg)$/.test(p))) {
   const text = read(path);
-  for (const m of text.matchAll(/(?:src|href)\s*=\s*"(https?:)?\/\/[^"]*"|url\(\s*['"]?(https?:)?\/\/|@import/g)) {
+  for (const m of text.matchAll(/(?:src|href|srcset)\s*=\s*["'](https?:)?\/\/[^"']*["']|url\(\s*['"]?(https?:)?\/\/|@import/g)) {
     fail(`${path} : ressource distante ${m[0]}`);
   }
   if (path.endsWith(".html")) {
     if (!/Content-Security-Policy" content="default-src 'none'/.test(text)) fail(`${path} : CSP default-src 'none' attendue`);
+    if (!/Content-Security-Policy" content="[^"]*form-action 'none'/.test(text)) fail(`${path} : CSP form-action 'none' attendue`);
+    // style-src 'self' bloque sans bruit les styles en ligne : ils n'ont rien à faire dans les pages.
+    if (/<style|\sstyle\s*=/.test(text)) fail(`${path} : style en ligne, bloqué par la CSP (style-src 'self')`);
     // Chaque ressource locale citée (/chemin) existe dans site/.
     for (const m of text.matchAll(/(?:src|href)\s*=\s*"\/([^"#?]*)"/g)) {
       const target = m[1] === "" || m[1].endsWith("/") ? `${m[1]}index.html` : m[1];

@@ -6,7 +6,7 @@
   <!-- Page d'accueil (landing de lancement). Statique : aucun script, aucune ressource distante, CSP stricte. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>Parcourses : votre liste de courses, dans l'ordre des rayons</title>
+  <title>Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons</title>
   <meta name="description" content="Parcourses range votre liste de courses dans l'ordre des rayons de votre magasin, appris avec les courses de tous. Partage en temps réel, hors ligne, sans publicité. Bientôt sur l'App Store et Google Play.">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#E3DCCF" media="(prefers-color-scheme: light)">
@@ -18,17 +18,17 @@
   <meta property="og:locale" content="fr_FR">
   <meta property="og:site_name" content="Parcourses">
   <meta property="og:url" content="https://parcourses.hadrien.eu/">
-  <meta property="og:title" content="Parcourses : votre liste de courses, dans l'ordre des rayons">
+  <meta property="og:title" content="Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons">
   <meta property="og:description" content="Votre liste se range dans l'ordre des rayons du magasin, appris avec les courses de tous. Bientôt sur l'App Store et Google Play.">
   <meta property="og:image" content="https://parcourses.hadrien.eu/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Un ticket de caisse Parcourses : la liste rangée par rayon, reliée par le fil du trajet.">
+  <meta property="og:image:alt" content="Un ticket de caisse Parcourses&nbsp;: la liste rangée par rayon, reliée par le fil du trajet.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Parcourses : votre liste de courses, dans l'ordre des rayons">
+  <meta name="twitter:title" content="Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons">
   <meta name="twitter:description" content="Votre liste se range dans l'ordre des rayons du magasin, appris avec les courses de tous. Bientôt sur l'App Store et Google Play.">
   <meta name="twitter:image" content="https://parcourses.hadrien.eu/og.png">
-  <meta name="twitter:image:alt" content="Un ticket de caisse Parcourses : la liste rangée par rayon, reliée par le fil du trajet.">
+  <meta name="twitter:image:alt" content="Un ticket de caisse Parcourses&nbsp;: la liste rangée par rayon, reliée par le fil du trajet.">
   <link rel="stylesheet" href="/landing.css">
 </head>
 <body>
@@ -94,7 +94,7 @@
             <label for="ordre-rayons">Dans l'ordre des rayons</label>
           </fieldset>
 
-          <div class="ticket" aria-hidden="true">
+          <div class="paper-shadow ticket-wrap"><div class="ticket" aria-hidden="true">
             <div class="tk-head">
               <p class="tk-store">Supermarché · Auch</p>
               <p class="tk-meta"><span class="m-rayons">Samedi · trajet connu à 82&nbsp;%</span><span class="m-saisie">Samedi · liste écrite à la va-vite</span></p>
@@ -114,7 +114,8 @@
               <div class="tk-row r-cafe"><span class="tk-box"></span><span class="tk-name">Café moulu</span><span class="tk-qty">1</span></div>
             </div>
           </div>
-          <figcaption class="sr-only">Exemple : une liste écrite dans le désordre (lait, pâtes, tomates, beurre, café, basilic) devient, dans l'ordre des rayons : fruits et légumes (tomates, déjà cochées, puis basilic), crèmerie (lait, beurre), épicerie salée (pâtes), petit-déjeuner (café). Il reste 5 articles.</figcaption>
+          </div>
+          <figcaption class="sr-only">Exemple&nbsp;: une liste écrite dans le désordre (lait, pâtes, tomates, beurre, café, basilic) devient, dans l'ordre des rayons&nbsp;: fruits et légumes (tomates, déjà cochées, puis basilic), crèmerie (lait, beurre), épicerie salée (pâtes), petit-déjeuner (café). Il reste 5 articles.</figcaption>
         </figure>
       </div>
     </section>
@@ -131,13 +132,13 @@
             <div class="step-text">
               <p class="step-num">01 · La saisie</p>
               <h3>Vous écrivez, Parcourses range</h3>
-              <p>Tapez « nesq » : Parcourses propose Nesquik et le classe au petit-déjeuner. Le rayon est deviné pendant la saisie, même avec une faute de frappe.</p>
+              <p>Tapez «&nbsp;nesqick&nbsp;»&nbsp;: Parcourses comprend Nesquik et le range au petit-déjeuner. Le rayon de chaque article est deviné dès l'ajout, faute de frappe comprise.</p>
             </div>
             <div class="step-visual" aria-hidden="true">
               <div class="card">
-                <div class="field"><span>nesq</span><i class="caret"></i></div>
+                <div class="field"><span>nesqick</span><i class="caret"></i></div>
                 <ul class="suggest">
-                  <li><span>Nesquik</span><span class="chip grocery"><svg><use href="#c-breakfast"/></svg>Petit-déjeuner</span></li>
+                  <li class="new"><span>nesqick</span><span class="chip grocery"><svg><use href="#c-breakfast"/></svg>Petit-déjeuner</span></li>
                   <li><span>Comté</span><span class="chip dairy"><svg><use href="#c-cheese"/></svg>Fromages</span></li>
                   <li><span>Pain de campagne</span><span class="chip fresh"><svg><use href="#c-bakery"/></svg>Boulangerie</span></li>
                 </ul>
@@ -156,12 +157,12 @@
               <div class="card">
                 <div class="store-opt sel">
                   <b>Supermarché · Auch</b>
-                  <small>À 350 m · trajet connu à 82&nbsp;%</small>
+                  <small>À 350&nbsp;m · trajet connu à 82&nbsp;%</small>
                   <span class="meter"><i class="m82"></i></span>
                 </div>
                 <div class="store-opt">
                   <b>Supérette · centre-ville</b>
-                  <small>À 1,2 km · en apprentissage, 24&nbsp;%</small>
+                  <small>À 1,2&nbsp;km · en apprentissage, 24&nbsp;%</small>
                   <span class="meter"><i class="m24"></i></span>
                 </div>
                 <span class="btn-mock">Commencer les courses</span>
@@ -175,13 +176,13 @@
               <p class="step-num">03 · L'apprentissage</p>
               <h3>Le trajet s'apprend avec les courses de tous</h3>
               <p>Personne ne dessine le plan du magasin. Parcourses le déduit de l'ordre dans lequel chacun coche ses articles. Plus il y a de passages, plus l'ordre est juste.</p>
-              <p>Ce qui est mis en commun, c'est l'ordre des rayons, jamais qui est passé. Dans un magasin encore inconnu, la liste suit un ordre courant, et votre passage aide à le corriger.</p>
+              <p>Ce qui est mis en commun, c'est l'ordre des rayons, sans identifiant de personne. Dans un magasin encore inconnu, la liste suit un ordre courant, et votre passage aide à le corriger.</p>
             </div>
             <div class="step-visual">
               <svg class="learn" viewBox="0 0 320 212" role="img" aria-labelledby="learn-t">
-                <title id="learn-t">Trois passages anonymes cochent les mêmes rayons dans des ordres un peu différents ; Parcourses en tire un seul trajet : fruits et légumes, crèmerie, épicerie salée, entretien.</title>
+                <title id="learn-t">Trois passages anonymes cochent les mêmes rayons dans des ordres un peu différents&nbsp;; Parcourses en tire un seul trajet&nbsp;: fruits et légumes, crèmerie, épicerie salée, entretien.</title>
                 <g class="lt-label">
-                  <text x="0" y="28">Passage</text><text x="0" y="62">Passage</text><text x="0" y="96">Passage</text>
+                  <text x="0" y="28">Passage 1</text><text x="0" y="62">Passage 2</text><text x="0" y="96">Passage 3</text>
                 </g>
                 <g class="lt-trace">
                   <path d="M92 24h180"/><path d="M92 58h180"/><path d="M92 92h180"/>
@@ -196,7 +197,7 @@
                 <g class="lt-node dairy"><circle cx="120" cy="176" r="16"/><use href="#c-dairy" x="110" y="166" width="20" height="20"/></g>
                 <g class="lt-node grocery"><circle cx="200" cy="176" r="16"/><use href="#c-savory" x="190" y="166" width="20" height="20"/></g>
                 <g class="lt-node hygiene"><circle cx="280" cy="176" r="16"/><use href="#c-household" x="270" y="166" width="20" height="20"/></g>
-                <text class="lt-caption" x="160" y="210" text-anchor="middle">Un trajet, sans nom ni position</text>
+                <text class="lt-caption" x="160" y="210" text-anchor="middle">Un trajet, sans identifiant</text>
               </svg>
             </div>
           </li>
@@ -210,11 +211,10 @@
             </div>
             <div class="step-visual" aria-hidden="true">
               <div class="card">
-                <div class="presence"><span class="av">C</span>Camille fait aussi les courses</div>
+                <div class="share-head"><span class="share-title">Courses de la semaine</span><span class="stack"><span class="av">C</span><span class="av">M</span></span></div>
                 <div class="mini-row done"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Lait entier</span><span class="av sm">C</span></div>
                 <div class="mini-row"><span class="tk-box"></span><span class="tk-name">Beurre doux</span><span class="tk-qty">1</span></div>
                 <div class="mini-row added"><span class="tk-box"></span><span class="tk-name">Crème fraîche</span><span class="av sm">C</span></div>
-                <p class="mini-meta">Ajouté par Camille · à l'instant</p>
               </div>
             </div>
           </li>
@@ -260,7 +260,7 @@
       </div>
     </section>
 
-    <!-- 3. Histoire (texte à valider et à personnaliser par l'auteur) -->
+    <!-- 3. Histoire -->
     <section class="story" id="histoire" aria-labelledby="titre-histoire">
       <div class="wrap story-grid">
         <div>
@@ -268,15 +268,15 @@
           <h2 id="titre-histoire">Né un samedi, entre deux rayons inconnus</h2>
           <p class="story-intro">Parcourses n'est pas sorti d'un bureau. Il vient d'un samedi de courses raté, comme tout le monde en a connu.</p>
         </div>
-        <article class="receipt" aria-label="Le samedi où l'idée est née">
+        <div class="paper-shadow receipt-wrap"><article class="receipt" aria-label="Le samedi où l'idée est née">
           <p class="rc-head">Un samedi matin</p>
           <ol class="rc-lines">
-            <li><span class="rc-t">09 h 50</span><p>La liste est tapée à la va-vite, sur le pas de la porte. Rien n'est classé : tout tombe dans « Autres ».</p></li>
-            <li><span class="rc-t">10 h 20</span><p>Le magasin est bondé, et ses rayons, inconnus. On remonte trois fois la même allée, on cherche la farine, on oublie le beurre.</p></li>
-            <li><span class="rc-t">11 h 45</span><p>Sur la route du retour, une idée : si chacun cochait sa liste dans l'ordre où il passe, le magasin finirait par nous apprendre son chemin. Ensemble.</p></li>
+            <li><span class="rc-t">09&nbsp;h&nbsp;50</span><p>La liste est tapée à la va-vite, sur le pas de la porte. Rien n'est classé&nbsp;: tout tombe dans «&nbsp;Autres&nbsp;».</p></li>
+            <li><span class="rc-t">10&nbsp;h&nbsp;20</span><p>Le magasin est bondé, et ses rayons, inconnus. On remonte trois fois la même allée, on cherche la farine, on oublie le beurre.</p></li>
+            <li><span class="rc-t">11&nbsp;h&nbsp;45</span><p>Sur la route du retour, une idée&nbsp;: si chacun cochait sa liste dans l'ordre où il passe, le magasin finirait par nous apprendre son chemin. Ensemble.</p></li>
           </ol>
           <p class="rc-total"><span>Rendu</span><b>Parcourses</b></p>
-        </article>
+        </article></div>
       </div>
     </section>
 
@@ -285,28 +285,38 @@
       <div class="wrap trust-grid">
         <div>
           <p class="kicker">Confidentialité</p>
-          <h2 id="titre-confiance">Ce que Parcourses ne garde pas</h2>
-          <p class="trust-intro">Une liste de courses en dit long. Parcourses n'en garde que ce qui sert à ranger la vôtre.</p>
+          <h2 id="titre-confiance">Ce que Parcourses garde, et ce qu'il oublie</h2>
+          <p class="trust-intro">Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. Voici le détail.</p>
           <p class="note">La politique de confidentialité complète sera publiée ici avec la sortie de l'app.</p>
         </div>
-        <ul class="nolist">
-          <li>
-            <h3><span class="sr-only">Pas de publicité</span><span class="struck" aria-hidden="true">La publicité</span></h3>
-            <p>Aucune publicité, aucun outil de mesure d'audience ni de traçage, dans l'app comme sur ce site.</p>
-          </li>
-          <li>
-            <h3><span class="sr-only">Votre position n'est pas gardée</span><span class="struck" aria-hidden="true">Votre position</span></h3>
-            <p>Le GPS sert seulement à trouver le magasin où vous êtes. La position n'est jamais enregistrée.</p>
-          </li>
-          <li>
-            <h3><span class="sr-only">Personne ne sait qui est passé où</span><span class="struck" aria-hidden="true">Qui est passé où</span></h3>
-            <p>Le trajet appris d'un magasin est commun à tous et ne contient aucun identifiant de personne. Pas de compte à créer pour commencer : une adresse e-mail ne sert qu'à partager une liste.</p>
-          </li>
-          <li id="supprimer-mes-donnees">
-            <h3><span class="sr-only">Vos données ne restent pas si vous partez</span><span class="struck" aria-hidden="true">Vos données, si vous partez</span></h3>
-            <p>Dans l'app, « À propos », puis « Supprimer mes données » efface votre compte, vos listes et vos coches.</p>
-          </li>
-        </ul>
+        <div class="trust-lists">
+          <h3>Jamais</h3>
+          <ul class="nolist">
+            <li>
+              <p class="li-title"><span class="sr-only">Pas de publicité</span><span class="struck" aria-hidden="true">La publicité</span></p>
+              <p>Aucune publicité ni aucun outil d'analyse tiers, dans l'app comme sur ce site.</p>
+            </li>
+            <li>
+              <p class="li-title"><span class="sr-only">Votre position n'est pas conservée</span><span class="struck" aria-hidden="true">Votre position</span></p>
+              <p>Le GPS sert une seule fois à trouver le magasin où vous êtes, puis la position est oubliée.</p>
+            </li>
+          </ul>
+          <h3>Gardé, et pourquoi</h3>
+          <ul class="keeplist">
+            <li>
+              <p class="li-title">Vos visites et vos coches</p>
+              <p>Elles sont rattachées à un identifiant anonyme, sans nom ni e-mail, et servent à apprendre le trajet. Le plan commun qui en sort ne contient aucun identifiant de personne.</p>
+            </li>
+            <li>
+              <p class="li-title">Votre adresse e-mail, si vous la donnez</p>
+              <p>Pas de compte à créer pour commencer. L'adresse n'est demandée que pour partager une liste ou la retrouver sur un autre appareil, et seul votre prénom est montré aux membres de vos listes.</p>
+            </li>
+            <li id="supprimer-mes-donnees">
+              <p class="li-title">Jusqu'à ce que vous les supprimiez</p>
+              <p>Dans l'app, «&nbsp;À propos&nbsp;», puis «&nbsp;Supprimer mes données…&nbsp;» efface votre compte, vos listes, vos visites et vos coches. Une liste partagée passe à son plus ancien membre, et votre contribution anonyme au plan des rayons reste. Sans utilisation de l'app pendant 365&nbsp;jours, vos données sont aussi supprimées.</p>
+            </li>
+          </ul>
+        </div>
       </div>
     </section>
 
