@@ -7,18 +7,23 @@ struct MemberAvatar: View {
   var size: CGFloat = 28
   /// Anneau couleur papier qui sépare les pastilles empilées.
   var ring = true
-  /// Suit Dynamic Type sans plafond (un plafond est signalé par l'audit) : avatar posé dans le contenu, comme celui de
-  /// la carte d'invitation. Les pastilles de la barre et des lignes gardent leur taille, la barre ne s'agrandit pas.
+  /// Suit Dynamic Type : avatar posé dans le contenu, comme celui de la carte d'invitation. L'initiale prend alors un
+  /// style de texte (`subheadline`, la taille de l'initiale d'un avatar de 36 pt à la taille par défaut), et le cercle
+  /// grandit avec lui. Les pastilles de la barre et des lignes gardent leur taille, la barre ne s'agrandit pas.
   var scalesWithText = false
-  @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
+  @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
 
   var body: some View {
     let side = scalesWithText ? size * scale : size
     Text(label)
-      .font(.system(size: side * 0.43, weight: .bold, design: .monospaced))
+      .font(
+        scalesWithText
+          ? .system(.subheadline, design: .monospaced).weight(.bold)
+          : .system(size: size * 0.43, weight: .bold, design: .monospaced)
+      )
       .foregroundStyle(Palette.ink)
       .lineLimit(1)
-      .minimumScaleFactor(0.6)
+      .minimumScaleFactor(scalesWithText ? 1 : 0.6)
       .frame(width: side, height: side)
       .background(Palette.paperEdge, in: Circle())
       .overlay { if ring { Circle().strokeBorder(Palette.paper, lineWidth: 2) } }

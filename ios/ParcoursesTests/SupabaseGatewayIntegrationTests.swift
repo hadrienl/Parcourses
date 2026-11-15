@@ -1283,16 +1283,27 @@ struct SharingIntegrationTests {
     #expect(Set(joined.participants.compactMap(\.displayName)) == ["Hadrien", "Léa"])
     #expect(try member.items(list.id).map(\.label) == ["Lait"])
 
-    // Par le lien : nouveau jeton, aperçu « déjà membre », acceptation idempotente.
-    let link = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .viewer)
+    // Un membre ne se réinvite pas : le serveur refuse (already_member), au format du vecteur 003.
+    await #expect(throws: SharingRequestError(error: "already_member")) {
+      _ = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .viewer)
+    }
+    #expect(try await member.remote.listSharing(listId: list.id).role == .editor)
+
+    // Par le lien, sur une seconde liste : aperçu « en attente » à la même adresse, acceptation, puis le même lien
+    // rouvert dit « déjà membre ».
+    let second = try owner.lists.createList(name: "IT-87.4 lien", at: .now)
+    await owner.engine.drain(pull: true)
+    let link = try await owner.remote.invitationLink(listId: second.id, email: memberEmail, role: .viewer)
     let linkURL = try #require(URL(string: link))
     let token = try #require(InvitationLinks(httpsHost: nil).token(in: linkURL))
     let preview = try await member.remote.previewInvitation(token: token)
-    #expect(preview.cardState == .alreadyMember)
+    // L'aperçu ne donne l'id de la liste qu'à un membre ; à la bonne adresse, il en donne le nom.
+    #expect(preview.cardState == .acceptable && preview.listName == "IT-87.4 lien" && preview.listId == nil)
+    let byLink = try await member.remote.acceptInvitation(token: token)
+    #expect(byLink.outcome == .joined && byLink.listId == second.id)
     let again = try await member.remote.acceptInvitation(token: token)
     #expect(again.outcome == .alreadyMember)
-    // Le rôle le plus élevé reste.
-    #expect(try await member.remote.listSharing(listId: list.id).role == .editor)
+    #expect(try await member.remote.listSharing(listId: second.id).role == .viewer)
 
     // Temps réel : Léa écoute son canal, Hadrien coche, le signal arrive et la descente apporte la coche.
     let stream = await member.remote.userSignals(userId: memberId)
