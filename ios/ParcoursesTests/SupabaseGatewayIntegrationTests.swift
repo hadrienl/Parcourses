@@ -1331,14 +1331,18 @@ struct SharingIntegrationTests {
     #expect(checked.checkedAt != nil && checked.updatedBy == ownerId)
     await member.remote.closeUserSignals()
 
-    // Rôle abaissé : relu à la descente ; une modification faite ensuite est refusée (0 ligne) et jetée.
+    // Rôle abaissé pendant que Léa décoche encore (éditrice sur son appareil) : le serveur refuse (0 ligne),
+    // `refreshAccess` relit le rôle, l'écriture est jetée et la valeur du serveur revient.
     try await owner.remote.setMemberRole(listId: list.id, userId: memberId, role: .viewer)
+    try member.lists.setChecked(itemId: milk.id, checkedAt: nil, at: .now)
     await member.engine.drain(pull: true)
     #expect(try member.list(list.id)?.role == .viewer)
-    try member.lists.setChecked(itemId: milk.id, checkedAt: nil, at: .now)
-    await member.engine.drain()
     #expect(try ModelContext(member.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
     #expect(try member.items(list.id).first { $0.id == milk.id }?.checkedAt != nil)
+    // Lectrice désormais : l'appareil refuse toute écriture sur la liste.
+    #expect(throws: RepositoryError.readOnly(list.id)) {
+      try member.lists.setChecked(itemId: milk.id, checkedAt: nil, at: .now)
+    }
 
     // Retrait : la liste quitte l'appareil de Léa.
     try await owner.remote.removeMember(listId: list.id, userId: memberId)
