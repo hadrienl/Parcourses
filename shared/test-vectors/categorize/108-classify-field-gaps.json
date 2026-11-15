@@ -1,0 +1,807 @@
+{
+  "id": "108-classify-field-gaps",
+  "description": "Saisies ratées lors d'un test en magasin (#98) et mots courants voisins : variantes d'orthographe, plats préparés, céréales, pâtes à tartiner. « croque » ne déborde pas sur « croquette ».",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "Nesquick",
+      "expected": {
+        "normalized": "nesquick",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquick",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Nesquik",
+      "expected": {
+        "normalized": "nesquik",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquik",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Nesquick 1 kg",
+      "expected": {
+        "normalized": "nesquick",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquick",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Spéculos",
+      "expected": {
+        "normalized": "speculo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "speculo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Spéculoos",
+      "expected": {
+        "normalized": "speculoo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "speculoo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Lotus spéculos",
+      "expected": {
+        "normalized": "lotu speculo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "speculo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "biscuits spéculos Lotus",
+      "expected": {
+        "normalized": "biscuit speculo lotu",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "biscuit",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pâte de spéculoos",
+      "expected": {
+        "normalized": "pate speculoo",
+        "category_id": "breakfast",
+        "matched_keyword": "pate speculoo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pâte de spéculos",
+      "expected": {
+        "normalized": "pate speculo",
+        "category_id": "breakfast",
+        "matched_keyword": "pate speculo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pâte à tartiner spéculoos",
+      "expected": {
+        "normalized": "pate tartiner speculoo",
+        "category_id": "breakfast",
+        "matched_keyword": "pate tartiner",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Croque monsieur",
+      "expected": {
+        "normalized": "croque monsieur",
+        "category_id": "deli",
+        "matched_keyword": "croque monsieur",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Croque-madame",
+      "expected": {
+        "normalized": "croque madame",
+        "category_id": "deli",
+        "matched_keyword": "croque madame",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croque-en-bouche",
+      "expected": {
+        "normalized": "croque bouche",
+        "category_id": "bakery",
+        "matched_keyword": "croque bouche",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "2 croques",
+      "expected": {
+        "normalized": "croque",
+        "category_id": "deli",
+        "matched_keyword": "croque",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croque monsieur surgelé",
+      "expected": {
+        "normalized": "croque monsieur surgele",
+        "category_id": "frozen",
+        "matched_keyword": "surgele",
+        "match": "override",
+        "organic": false
+      }
+    },
+    {
+      "input": "pain croque monsieur",
+      "expected": {
+        "normalized": "pain croque monsieur",
+        "category_id": "bakery",
+        "matched_keyword": "pain croque",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquettes",
+      "expected": {
+        "normalized": "croquette",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquettes chien",
+      "expected": {
+        "normalized": "croquette chien",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquettes de pommes de terre",
+      "expected": {
+        "normalized": "croquette pomme terre",
+        "category_id": "frozen",
+        "matched_keyword": "croquette pomme terre",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Feuilleté fromage",
+      "expected": {
+        "normalized": "feuillete fromage",
+        "category_id": "deli",
+        "matched_keyword": "feuillete",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "feuilletés apéritif",
+      "expected": {
+        "normalized": "feuillete aperitif",
+        "category_id": "snacks",
+        "matched_keyword": "feuillete aperitif",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "feuilletés apéro",
+      "expected": {
+        "normalized": "feuillete apero",
+        "category_id": "snacks",
+        "matched_keyword": "feuillete apero",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "friands à la viande",
+      "expected": {
+        "normalized": "friand viande",
+        "category_id": "deli",
+        "matched_keyword": "friand",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "bouchées à la reine",
+      "expected": {
+        "normalized": "bouchee reine",
+        "category_id": "deli",
+        "matched_keyword": "bouchee reine",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "gratin dauphinois",
+      "expected": {
+        "normalized": "gratin dauphinoi",
+        "category_id": "deli",
+        "matched_keyword": "gratin",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "plat à gratin",
+      "expected": {
+        "normalized": "plat gratin",
+        "category_id": "household",
+        "matched_keyword": "plat gratin",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "parmentier de canard",
+      "expected": {
+        "normalized": "parmentier canard",
+        "category_id": "deli",
+        "matched_keyword": "parmentier",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "tartiflette",
+      "expected": {
+        "normalized": "tartiflette",
+        "category_id": "deli",
+        "matched_keyword": "tartiflette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "fromage à tartiflette",
+      "expected": {
+        "normalized": "fromage tartiflette",
+        "category_id": "cheese",
+        "matched_keyword": "fromage tartiflette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "brandade de morue",
+      "expected": {
+        "normalized": "brandade morue",
+        "category_id": "deli",
+        "matched_keyword": "brandade",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "paëlla",
+      "expected": {
+        "normalized": "paella",
+        "category_id": "deli",
+        "matched_keyword": "paella",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "moussaka",
+      "expected": {
+        "normalized": "moussaka",
+        "category_id": "deli",
+        "matched_keyword": "moussaka",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "gnocchis",
+      "expected": {
+        "normalized": "gnocchi",
+        "category_id": "deli",
+        "matched_keyword": "gnocchi",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "hummus",
+      "expected": {
+        "normalized": "hummu",
+        "category_id": "deli",
+        "matched_keyword": "hummu",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "salade de pâtes",
+      "expected": {
+        "normalized": "salade pate",
+        "category_id": "deli",
+        "matched_keyword": "salade pate",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "salade de riz",
+      "expected": {
+        "normalized": "salade riz",
+        "category_id": "deli",
+        "matched_keyword": "salade riz",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "plats préparés",
+      "expected": {
+        "normalized": "plat prepare",
+        "category_id": "deli",
+        "matched_keyword": "plat prepare",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "quenelles",
+      "expected": {
+        "normalized": "quenelle",
+        "category_id": "deli",
+        "matched_keyword": "quenelle",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "samosas",
+      "expected": {
+        "normalized": "samosa",
+        "category_id": "deli",
+        "matched_keyword": "samosa",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "accras de morue",
+      "expected": {
+        "normalized": "accra morue",
+        "category_id": "deli",
+        "matched_keyword": "accra",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "blinis",
+      "expected": {
+        "normalized": "blini",
+        "category_id": "deli",
+        "matched_keyword": "blini",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "tarte flambée",
+      "expected": {
+        "normalized": "tarte flambee",
+        "category_id": "deli",
+        "matched_keyword": "tarte flambee",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "tourte",
+      "expected": {
+        "normalized": "tourte",
+        "category_id": "deli",
+        "matched_keyword": "tourte",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Chocapic",
+      "expected": {
+        "normalized": "chocapic",
+        "category_id": "breakfast",
+        "matched_keyword": "chocapic",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Kellogg's Special K",
+      "expected": {
+        "normalized": "kellogg s special k",
+        "category_id": "breakfast",
+        "matched_keyword": "special k",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "barres Special K",
+      "expected": {
+        "normalized": "barre special k",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "barre special k",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Trésor",
+      "expected": {
+        "normalized": "tresor",
+        "category_id": "breakfast",
+        "matched_keyword": "tresor",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Miel Pops",
+      "expected": {
+        "normalized": "miel pop",
+        "category_id": "breakfast",
+        "matched_keyword": "miel pop",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "miel",
+      "expected": {
+        "normalized": "miel",
+        "category_id": "breakfast",
+        "matched_keyword": "miel",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "cornflakes",
+      "expected": {
+        "normalized": "cornflake",
+        "category_id": "breakfast",
+        "matched_keyword": "cornflake",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Weetabix",
+      "expected": {
+        "normalized": "weetabix",
+        "category_id": "breakfast",
+        "matched_keyword": "weetabix",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "flocons d'avoine",
+      "expected": {
+        "normalized": "flocon avoine",
+        "category_id": "breakfast",
+        "matched_keyword": "flocon avoine",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "avoine",
+      "expected": {
+        "normalized": "avoine",
+        "category_id": "breakfast",
+        "matched_keyword": "avoine",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "lait d'avoine",
+      "expected": {
+        "normalized": "lait avoine",
+        "category_id": "dairy",
+        "matched_keyword": "lait avoine",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "boisson à l'avoine",
+      "expected": {
+        "normalized": "boisson avoine",
+        "category_id": "dairy",
+        "matched_keyword": "boisson avoine",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "boisson soja",
+      "expected": {
+        "normalized": "boisson soja",
+        "category_id": "dairy",
+        "matched_keyword": "boisson soja",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "boisson riz",
+      "expected": {
+        "normalized": "boisson riz",
+        "category_id": "dairy",
+        "matched_keyword": "boisson riz",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pain d'épices",
+      "expected": {
+        "normalized": "pain epice",
+        "category_id": "breakfast",
+        "matched_keyword": "pain epice",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Nocciolata",
+      "expected": {
+        "normalized": "nocciolata",
+        "category_id": "breakfast",
+        "matched_keyword": "nocciolata",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Poulain",
+      "expected": {
+        "normalized": "poulain",
+        "category_id": "breakfast",
+        "matched_keyword": "poulain",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "tablette Poulain",
+      "expected": {
+        "normalized": "tablette poulain",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "tablette poulain",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "chocolat Poulain",
+      "expected": {
+        "normalized": "chocolat poulain",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "chocolat",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "crêpes dentelle",
+      "expected": {
+        "normalized": "crepe dentelle",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "crepe dentelle",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "crêpes",
+      "expected": {
+        "normalized": "crepe",
+        "category_id": "breakfast",
+        "matched_keyword": "crepe",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "palets bretons",
+      "expected": {
+        "normalized": "palet breton",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "palet breton",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "langues de chat",
+      "expected": {
+        "normalized": "langue chat",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "langue chat",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "meringues",
+      "expected": {
+        "normalized": "meringue",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "meringue",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pépito",
+      "expected": {
+        "normalized": "pepito",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pepito",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pim's",
+      "expected": {
+        "normalized": "pim s",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pim s",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pim's orange",
+      "expected": {
+        "normalized": "pim s orange",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pim s",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pims",
+      "expected": {
+        "normalized": "pim",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pim",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "yoghourt",
+      "expected": {
+        "normalized": "yoghourt",
+        "category_id": "dairy",
+        "matched_keyword": "yoghourt",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "yogourt",
+      "expected": {
+        "normalized": "yogourt",
+        "category_id": "dairy",
+        "matched_keyword": "yogourt",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "mayo",
+      "expected": {
+        "normalized": "mayo",
+        "category_id": "savory-grocery",
+        "matched_keyword": "mayo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "apéro",
+      "expected": {
+        "normalized": "apero",
+        "category_id": "snacks",
+        "matched_keyword": "apero",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "biscuits apéro",
+      "expected": {
+        "normalized": "biscuit apero",
+        "category_id": "snacks",
+        "matched_keyword": "biscuit apero",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "PQ",
+      "expected": {
+        "normalized": "pq",
+        "category_id": "hygiene",
+        "matched_keyword": "pq",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "papier WC",
+      "expected": {
+        "normalized": "papier wc",
+        "category_id": "hygiene",
+        "matched_keyword": "papier wc",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "iced tea",
+      "expected": {
+        "normalized": "iced tea",
+        "category_id": "beverages",
+        "matched_keyword": "iced tea",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Fuze Tea",
+      "expected": {
+        "normalized": "fuze tea",
+        "category_id": "beverages",
+        "matched_keyword": "fuze tea",
+        "match": "brand",
+        "organic": false
+      }
+    }
+  ]
+}

@@ -363,6 +363,95 @@ export function categorizeGroups(): CategorizeGroup[] {
         rendez-vous dentiste => other
       `),
     },
+    {
+      id: "108-classify-field-gaps",
+      description:
+        "Saisies ratées lors d'un test en magasin (#98) et mots courants voisins : variantes " +
+        "d'orthographe, plats préparés, céréales, pâtes à tartiner. « croque » ne déborde pas sur " +
+        "« croquette ».",
+      cases: lines(`
+        Nesquick => breakfast
+        Nesquik => breakfast
+        Nesquick 1 kg => breakfast
+        Spéculos => sweet-grocery
+        Spéculoos => sweet-grocery
+        Lotus spéculos => sweet-grocery
+        biscuits spéculos Lotus => sweet-grocery
+        pâte de spéculoos => breakfast
+        pâte de spéculos => breakfast
+        pâte à tartiner spéculoos => breakfast
+        Croque monsieur => deli
+        Croque-madame => deli
+        croque-en-bouche => bakery
+        2 croques => deli
+        croque monsieur surgelé => frozen
+        pain croque monsieur => bakery
+        croquettes => pets
+        croquettes chien => pets
+        croquettes de pommes de terre => frozen
+        Feuilleté fromage => deli
+        feuilletés apéritif => snacks
+        feuilletés apéro => snacks
+        friands à la viande => deli
+        bouchées à la reine => deli
+        gratin dauphinois => deli
+        plat à gratin => household
+        parmentier de canard => deli
+        tartiflette => deli
+        fromage à tartiflette => cheese
+        brandade de morue => deli
+        paëlla => deli
+        moussaka => deli
+        gnocchis => deli
+        hummus => deli
+        salade de pâtes => deli
+        salade de riz => deli
+        plats préparés => deli
+        quenelles => deli
+        samosas => deli
+        accras de morue => deli
+        blinis => deli
+        tarte flambée => deli
+        tourte => deli
+        Chocapic => breakfast
+        Kellogg's Special K => breakfast
+        barres Special K => sweet-grocery
+        Trésor => breakfast
+        Miel Pops => breakfast
+        miel => breakfast
+        cornflakes => breakfast
+        Weetabix => breakfast
+        flocons d'avoine => breakfast
+        avoine => breakfast
+        lait d'avoine => dairy
+        boisson à l'avoine => dairy
+        boisson soja => dairy
+        boisson riz => dairy
+        pain d'épices => breakfast
+        Nocciolata => breakfast
+        Poulain => breakfast
+        tablette Poulain => sweet-grocery
+        chocolat Poulain => sweet-grocery
+        crêpes dentelle => sweet-grocery
+        crêpes => breakfast
+        palets bretons => sweet-grocery
+        langues de chat => sweet-grocery
+        meringues => sweet-grocery
+        Pépito => sweet-grocery
+        Pim's => sweet-grocery
+        Pim's orange => sweet-grocery
+        Pims => sweet-grocery
+        yoghourt => dairy
+        yogourt => dairy
+        mayo => savory-grocery
+        apéro => snacks
+        biscuits apéro => snacks
+        PQ => hygiene
+        papier WC => hygiene
+        iced tea => beverages
+        Fuze Tea => beverages
+      `),
+    },
   ];
 }
 
