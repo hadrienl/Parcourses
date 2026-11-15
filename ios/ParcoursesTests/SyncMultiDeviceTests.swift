@@ -465,6 +465,36 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
   }
 }
 
+extension UndatedFullReconcileTests {
+  /// Changement de compte adopté sans réidentification (`AccountSession.adoptAccount`) : l'espacement repart de zéro,
+  /// la première passe du nouveau compte réconcilie avant d'envoyer.
+  @Test func aNewAccountResetsTheSpacing() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await harness.engine.drain(pull: true)
+    await harness.gateway.setServerNow(nil)
+    harness.cursors.tombstones = nil
+    await harness.engine.drain(pull: true)
+    // Le compte B est adopté : session, dernier compte connu et curseurs écrits par `adoptAccount`.
+    await harness.gateway.loseAccount()
+    let accountB = await harness.gateway.account
+    await harness.gateway.setKnownAccount(accountB)
+    harness.cursors.accountId = accountB
+    harness.cursors.accountKind = .email
+    await harness.gateway.clearCalls()
+    harness.clock.advance(10)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: harness.clock.now, at: harness.clock.now)
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    let reconciled = try #require(calls.firstIndex(of: "serverDate"))
+    let sent = try #require(calls.firstIndex(of: "updateItem"))
+    #expect(reconciled < sent)
+  }
+}
+
 /// README des vecteurs : un ancien compte e-mail n'est jamais repris, même si l'app est tuée entre `verifyCode` et la
 /// purge du changement de compte.
 @MainActor

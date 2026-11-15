@@ -580,6 +580,25 @@ private final class SignOutHost: AccountDeletionHost {
     #expect(setup.session.needsSignIn)
   }
 
+  /// Changement achevé par le rejeu (purge en échec, puis retour au premier plan), puis un nouvel essai : les données
+  /// sont déjà celles de B, rien n'est purgé une seconde fois.
+  @Test func anAlreadyFinishedSwitchIsNotPurgedTwice() async throws {
+    let setup = try makeSetup(kind: .email)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    setup.previous.value = UUID()
+    let accountB = UUID()
+    await setup.gateway.setLocalSession(accountB)
+    await setup.gateway.setEmail("b@exemple.fr")
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(!flags.isPending)
+    // Faite depuis sur B, hors ligne : elle doit survivre au nouvel essai.
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "De B", at: .now)
+    try await setup.session.adoptAccount(accountB)
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 1)
+    #expect(UserDefaultsSyncCursors(defaults: setup.defaults).accountId == accountB)
+  }
+
   /// Session anonyme avec le drapeau : aucun compte e-mail n'a été ouvert, rien n'est purgé ni adopté.
   @Test func anAnonymousSessionClearsTheSwitchFlagWithoutPurging() async throws {
     let setup = try makeSetup(kind: .email)

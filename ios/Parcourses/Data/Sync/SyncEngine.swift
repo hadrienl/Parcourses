@@ -119,6 +119,9 @@ actor SyncEngine {
   private var undatedFullReconcileNotBefore: Date?
   /// Réconciliation complète déjà faite pendant cette passe : la descente ne la refait pas.
   private var isFullyReconciledThisPass = false
+  /// Compte de la dernière passe prête : un autre compte (changement adopté par `AccountSession.adoptAccount`, sans
+  /// réidentification ici) remet l'espacement des réconciliations à zéro.
+  private var preparedAccountId: UUID?
 
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
@@ -310,6 +313,10 @@ actor SyncEngine {
           needsAccountRecovery = true
         } else {
           cursors.accountId = id
+          if preparedAccountId != id {
+            preparedAccountId = id
+            undatedFullReconcileNotBefore = nil
+          }
           await noteAccountKind()
           return .ready
         }

@@ -167,6 +167,12 @@ final class AccountSession {
   /// opérations : appelé par la vérification d'un code ou par le rejeu, qui y sont déjà.
   func adoptAccount(_ id: UUID) async throws {
     guard let gateway else { return }
+    // Changement déjà achevé (rejeu au premier plan, puis nouvel essai) : les données sont déjà celles de ce compte,
+    // une seconde purge effacerait ce qui a été fait depuis.
+    if !switchFlags.isPending, cursors.accountId == id, cursors.accountKind == .email {
+      Self.logger.notice("Changement de compte déjà achevé : aucune nouvelle purge")
+      return
+    }
     host?.endShopping()
     try purge?.run(keepingSession: true)
     try await gateway.acknowledgeAccount(id)
