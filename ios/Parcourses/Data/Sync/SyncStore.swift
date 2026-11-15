@@ -10,6 +10,10 @@ nonisolated struct OutboxWork: Sendable, Equatable {
   let entityId: UUID
   let payloads: [Data]
   let attempts: Int
+  /// `upsertItem` : colonnes modifiées, `nil` pour une entrée écrite avant 87.3 (toute la ligne part).
+  var changedFields: [String]?
+  /// `upsertItem` : l'article est déjà sur le serveur, l'envoi ne porte que les champs modifiés.
+  var isOnServer = false
 }
 
 /// Ce qu'il faut savoir d'un article pour le créer localement à la descente.
@@ -65,7 +69,7 @@ actor SyncStore {
       {
         return try checksBatch(from: entry, visitId: visitId, now: now)
       }
-      return work(of: [entry], kind: kind)
+      return try work(of: [entry], kind: kind)
     }
     return nil
   }
@@ -116,6 +120,9 @@ actor SyncStore {
     for entityId in entities {
       try applyToEntity(kind: work.kind, entityId: entityId, state: .synced, pending: pending)
     }
+    // Même remplacée pendant l'envoi, la ligne est arrivée : l'entrée suivante ne doit plus l'insérer (elle serait
+    // ignorée) mais la mettre à jour.
+    if work.kind == .upsertItem { try item(id: work.entityId)?.isOnServer = true }
     try modelContext.save()
   }
 
@@ -266,12 +273,17 @@ actor SyncStore {
         guard local.deletedAt == nil else { continue }
         merge.changed = merge.changed || local.name != row.name
         local.name = row.name
+        // Dates du serveur, toutes les deux : une liste jamais modifiée y garde `updated_at` égal à `created_at`, ce
+        // que `AccountRekey` lit (vecteur `008`). L'heure de l'appareil ne s'y compare pas.
+        local.createdAt = row.createdAt
         local.updatedAt = row.updatedAt
         local.syncState = .synced
+        local.ownerId = row.ownerId
       } else {
         modelContext.insert(
           ShoppingList(
-            id: row.id, name: row.name, createdAt: row.createdAt, updatedAt: row.updatedAt, syncState: .synced))
+            id: row.id, name: row.name, createdAt: row.createdAt, updatedAt: row.updatedAt, syncState: .synced,
+            ownerId: row.ownerId))
         merge.changed = true
       }
     }
@@ -320,6 +332,8 @@ actor SyncStore {
         local.checkedAt = row.checkedAt
         local.updatedAt = row.updatedAt
         local.syncState = .synced
+        local.isOnServer = true
+        local.updatedBy = row.updatedBy
       } else {
         let classification = classify(row.label)
         var descriptor = FetchDescriptor<ListItem>(
@@ -331,13 +345,122 @@ actor SyncStore {
             id: row.id, listId: row.listId, label: row.label, normalizedName: classification.normalizedName,
             quantity: row.quantity, productId: row.productId,
             categoryId: try categoryId(productId: row.productId) ?? classification.categoryId,
-            checkedAt: row.checkedAt, position: position, updatedAt: row.updatedAt, syncState: .synced))
+            checkedAt: row.checkedAt, position: position, updatedAt: row.updatedAt, syncState: .synced,
+            isOnServer: true, updatedBy: row.updatedBy))
         merge.changed = true
       }
     }
     try modelContext.save()
     merge.finish(rows.map(\.updatedAt))
     return merge
+  }
+
+  // MARK: - Listes accessibles et suppressions (#87)
+
+  /// Listes locales, supprimées comprises, et si elles ont déjà atteint le serveur (accusées ou descendues).
+  func localListStates() throws -> [LocalListState] {
+    try modelContext.fetch(FetchDescriptor<ShoppingList>()).map {
+      LocalListState(id: $0.id, syncedOnce: $0.ownerId != nil || $0.syncState == .synced)
+    }
+  }
+
+  /// Réconciliation des listes avec `accessible_list_ids()` (vecteur `005`) : une liste déjà synchronisée absente du
+  /// serveur quitte l'appareil avec ses articles et leurs entrées, même en attente. Renvoie aussi les listes à
+  /// descendre entièrement.
+  func reconcile(listIds accessible: [UUID]) throws -> (decision: ListReconciliation, changed: Bool) {
+    let decision = SyncDecisions.reconcileLists(local: try localListStates(), accessible: accessible)
+    for listId in decision.remove { try removeList(listId) }
+    try modelContext.save()
+    return (decision, !decision.remove.isEmpty)
+  }
+
+  /// Pierres tombales descendues (vecteur `006`) : l'article local de même id part, entrées comprises (la suppression
+  /// gagne). Vrai si un article affiché a disparu.
+  func merge(tombstones rows: [TombstoneRow]) throws -> Bool {
+    let ids = Set(rows.map(\.id))
+    guard !ids.isEmpty else { return false }
+    let local = try modelContext.fetch(FetchDescriptor<ListItem>())
+    let doomed = Set(SyncDecisions.applyTombstones(localItems: local.map(\.id), tombstones: Array(ids)))
+    for item in local where doomed.contains(item.id) { modelContext.delete(item) }
+    for entry in try pendingEntries() where ids.contains(entry.entityId) {
+      if entry.kind == .upsertItem || entry.kind == .deleteItem { modelContext.delete(entry) }
+    }
+    try modelContext.save()
+    return !doomed.isEmpty
+  }
+
+  /// Listes dont les articles sont confrontés au serveur dans une réconciliation complète : déjà synchronisées, pas
+  /// supprimées sur l'appareil.
+  func reconcilableListIds() throws -> [UUID] {
+    try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.deletedAt == nil }))
+      .filter { $0.ownerId != nil || $0.syncState == .synced }.map(\.id)
+  }
+
+  /// Réconciliation complète (vecteur `007`) : un article local déjà arrivé au serveur et absent de `serverIds` a été
+  /// supprimé ailleurs. Un article jamais envoyé reste. Vrai si un article a disparu.
+  func reconcileItems(listId: UUID, serverIds: Set<UUID>) throws -> Bool {
+    let gone = try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }))
+      .filter { $0.isOnServer && !serverIds.contains($0.id) }
+    guard !gone.isEmpty else { return false }
+    let ids = Set(gone.map(\.id))
+    gone.forEach(modelContext.delete)
+    for entry in try pendingEntries() where ids.contains(entry.entityId) { modelContext.delete(entry) }
+    try modelContext.save()
+    return true
+  }
+
+  /// Liste rechargée entièrement (`refreshAccess`) : les entrées de ses articles sont jetées, les articles absents du
+  /// serveur retirés, puis les lignes du serveur appliquées. `keepingUnsent` (liste à soi) : les articles jamais
+  /// envoyés et leurs entrées restent. Vrai si l'affichage a changé.
+  func replaceItems(
+    listId: UUID, rows: [ListItemRow], keepingUnsent: Bool, classify: @Sendable (String) -> PulledItemClassification
+  ) throws -> Bool {
+    var changed = false
+    let local = try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }))
+    let unsent = keepingUnsent ? Set(local.filter { !$0.isOnServer }.map(\.id)) : []
+    for entry in try pendingEntries() where entry.kind == .upsertItem || entry.kind == .deleteItem {
+      guard OutboxDependencies.listId(of: entry) == listId, !unsent.contains(entry.entityId) else { continue }
+      modelContext.delete(entry)
+    }
+    let serverIds = Set(rows.map(\.id))
+    for item in local where !serverIds.contains(item.id) && !unsent.contains(item.id) {
+      modelContext.delete(item)
+      changed = true
+    }
+    try modelContext.save()
+    return try merge(items: rows, classify: classify).changed || changed
+  }
+
+  /// La liste existe-t-elle, est-elle partie au serveur, et à qui est-elle (vecteur `004`) ?
+  func listOwnership(_ listId: UUID) throws -> (exists: Bool, synced: Bool, ownerId: UUID?) {
+    guard
+      let list = try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId })).first
+    else { return (false, false, nil) }
+    return (true, list.syncState != .pending || list.ownerId != nil, list.ownerId)
+  }
+
+  /// Liste dont une ligne a disparu du serveur alors qu'elle n'y est plus lisible : retirée de l'appareil.
+  func forget(listId: UUID) throws {
+    try removeList(listId)
+    try modelContext.save()
+  }
+
+  /// Liste disparue du serveur (supprimée ailleurs, accès retiré) : retirée de l'appareil, sans enregistrer.
+  private func removeList(_ listId: UUID) throws {
+    for entry in try pendingEntries() {
+      switch entry.kind {
+      case .upsertList, .deleteList:
+        if entry.entityId == listId { modelContext.delete(entry) }
+      case .upsertItem, .deleteItem:
+        if OutboxDependencies.listId(of: entry) == listId { modelContext.delete(entry) }
+      default:
+        break
+      }
+    }
+    try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }))
+      .forEach(modelContext.delete)
+    try modelContext.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId }))
+      .forEach(modelContext.delete)
   }
 
   /// `shared/categories/` fait foi : aucun id local n'est jamais supprimé ni ajouté ici.
@@ -395,6 +518,10 @@ actor SyncStore {
     Set(try pendingEntries().map(\.entityId))
   }
 
+  private func item(id: UUID) throws -> ListItem? {
+    try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first
+  }
+
   private func entry(id: UUID) throws -> OutboxEntry? {
     try modelContext.fetch(FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.id == id })).first
   }
@@ -405,10 +532,15 @@ actor SyncStore {
       .categoryId
   }
 
-  private func work(of entries: [OutboxEntry], kind: OutboxKind) -> OutboxWork {
-    OutboxWork(
+  private func work(of entries: [OutboxEntry], kind: OutboxKind) throws -> OutboxWork {
+    var work = OutboxWork(
       entryIds: entries.map(\.id), kind: kind, entityId: entries[0].entityId, payloads: entries.map(\.payload),
       attempts: entries.map(\.attempts).max() ?? 0)
+    if kind == .upsertItem {
+      work.changedFields = entries[0].changedFields
+      work.isOnServer = try item(id: entries[0].entityId)?.isOnServer ?? false
+    }
+    return work
   }
 
   private func checksBatch(from first: OutboxEntry, visitId: UUID, now: Date) throws -> OutboxWork {
@@ -419,7 +551,7 @@ actor SyncStore {
       guard batch.count < Self.maxChecksPerBatch else { break }
       batch.append(entry)
     }
-    return work(of: batch, kind: .insertChecks)
+    return try work(of: batch, kind: .insertChecks)
   }
 
   /// `pending` : une entrée plus récente de la même entité garde celle-ci en attente.

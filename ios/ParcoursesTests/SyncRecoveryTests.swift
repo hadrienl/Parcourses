@@ -11,6 +11,15 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
   try harness.context.fetch(FetchDescriptor<Model>())
 }
 
+extension SyncHarness {
+  /// Liste renommée après sa création : une liste vide jamais modifiée ne serait pas renvoyée (#87, vecteur 008).
+  func modifiedList(_ name: String) throws -> ShoppingList {
+    let list = try lists.createList(name: name, at: t0)
+    try lists.renameList(id: list.id, name: name, at: t0.addingTimeInterval(1))
+    return list
+  }
+}
+
 /// Perte de session : un nouveau compte anonyme ne voit plus rien, tout repart sous de nouveaux identifiants.
 @MainActor
 @Suite(.serialized) struct AccountRecoveryTests {
@@ -47,8 +56,10 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
     let oldItem = try #require(try all(harness, ListItem.self).first).id
     let oldChecks = Set(try all(harness, Check.self).map(\.id))
     await harness.engine.drain()
+    // Descendue avec son propriétaire, l'ancien compte : elle est à soi et repart (#87, vecteur 008).
+    let owner = await harness.gateway.account
     await harness.gateway.setPull(lists: [
-      ListRow(id: oldList, ownerId: UUID(), name: "Courses", createdAt: t0, updatedAt: t0)
+      ListRow(id: oldList, ownerId: owner, name: "Courses", createdAt: t0, updatedAt: t0)
     ])
     await harness.engine.drain(pull: true)
     await harness.gateway.setPull()
@@ -86,7 +97,8 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
     #expect(await gateway.visits.last?.listId == list.id)
     #expect(Set(await gateway.checkBatches.last?.map(\.id) ?? []) == Set(checks.map(\.id)))
     let calls = await gateway.calls
-    let order = ["saveList", "saveItem", "createVisit", "insertChecks", "closeVisit"].compactMap(calls.firstIndex(of:))
+    let order = ["saveList", "insertItem", "createVisit", "insertChecks", "closeVisit"].compactMap(
+      calls.firstIndex(of:))
     #expect(order.count == 5 && order == order.sorted())
 
     #expect(try harness.entries().isEmpty)
@@ -155,7 +167,7 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
 
   @Test func anOpenVisitWithoutCheckStaysLocal() async throws {
     let harness = try SyncHarness()
-    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let list = try harness.modifiedList("Courses")
     try harness.visits.startVisit(storeId: UUID(), listId: list.id, listWasSorted: false, at: t0)
     await harness.gateway.setKnownAccount(UUID())
     await harness.engine.drain(pull: true)
@@ -229,7 +241,7 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
   /// Keychain vidé (restauration sur un autre iPhone) : la passerelle ne connaît plus l'ancien compte, le curseur si.
   @Test func anEmptiedKeychainIsDetectedThroughTheCursor() async throws {
     let harness = try SyncHarness()
-    let list = try harness.lists.createList(name: "A", at: t0)
+    let list = try harness.modifiedList("A")
     let oldId = list.id
     await harness.engine.drain(pull: true)
     await harness.gateway.loseAccount()
@@ -252,9 +264,21 @@ private func all<Model: PersistentModel>(_ harness: SyncHarness, _ type: Model.T
     #expect(try harness.fresh(ListItem.self).first?.label == "Orphelin")
   }
 
+  /// Vecteur `008` : la liste « Courses » vide du premier lancement n'est pas ajoutée au nouveau compte.
+  @Test func anEmptyUntouchedListIsNotResent() async throws {
+    let harness = try SyncHarness()
+    _ = try harness.lists.createList(name: "Courses", at: t0)
+    await harness.engine.drain(pull: true)
+    await harness.gateway.loseAccount()
+    await harness.engine.drain(pull: true)
+    #expect(try all(harness, ShoppingList.self).isEmpty)
+    #expect(try harness.entries().isEmpty)
+    #expect(await harness.gateway.savedLists.count == 1)
+  }
+
   @Test func screensReceiveTheMapping() async throws {
     let harness = try SyncHarness()
-    let list = try harness.lists.createList(name: "A", at: t0)
+    let list = try harness.modifiedList("A")
     let oldId = list.id
     let received = Box<[UUID: UUID]>([:])
     let token = NotificationCenter.default.addObserver(forName: .syncDidRekeyData, object: nil, queue: nil) {

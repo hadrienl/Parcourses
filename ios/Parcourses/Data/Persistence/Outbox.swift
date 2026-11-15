@@ -53,8 +53,11 @@ extension ModelContext {
     entry.serverFailingSince = since
   }
 
-  nonisolated func enqueueUpsert(of item: ListItem, at date: Date) throws {
+  /// `changedFields` : colonnes serveur modifiées (`ListItemFields`). L'entrée remplacée lègue les siennes (vecteur
+  /// `002`) ; une entrée écrite avant 87.3 (`nil`) le reste, et toute la ligne partira.
+  nonisolated func enqueueUpsert(of item: ListItem, at date: Date, changedFields: [String]) throws {
     let since = try serverFailureStart(entityId: item.id)
+    let fields = try pendingChangedFields(entityId: item.id)
     let kept = try cancelPendingOutboxEntries(entityId: item.id, kinds: [.upsertItem])
     let row = ListItemUpsert(
       id: item.id, listId: item.listId, productId: item.productId, label: item.label, quantity: item.quantity,
@@ -62,6 +65,24 @@ extension ModelContext {
     let entry = try enqueueOutboxEntry(
       kind: .upsertItem, entityId: item.id, payload: OutboxCoding.encode(row), at: date, keepingSequence: kept)
     entry.serverFailingSince = since
+    switch fields {
+    case .some(.none): entry.changedFields = nil
+    case .some(.some(let pending)):
+      entry.changedFields = SyncDecisions.mergeChangedFields(pending: pending, new: changedFields)
+    case .none: entry.changedFields = SyncDecisions.mergeChangedFields(pending: nil, new: changedFields)
+    }
+  }
+
+  /// Champs de l'entrée d'article en attente : `nil` sans entrée, `.some(nil)` pour une entrée écrite avant 87.3.
+  private nonisolated func pendingChangedFields(entityId: UUID) throws -> [String]?? {
+    let pending = SyncState.pending.rawValue
+    let kind = OutboxKind.upsertItem.rawValue
+    let entries = try fetch(
+      FetchDescriptor<OutboxEntry>(
+        predicate: #Predicate { $0.entityId == entityId && $0.syncStateRaw == pending && $0.kindRaw == kind }))
+    guard !entries.isEmpty else { return nil }
+    if entries.contains(where: { $0.changedFields == nil }) { return .some(nil) }
+    return .some(entries.flatMap { $0.changedFields ?? [] })
   }
 
   /// Plus rien de la liste ni de ses articles ne doit partir avant sa suppression.
@@ -81,10 +102,12 @@ extension ModelContext {
     try enqueueOutboxEntry(kind: .deleteList, entityId: id, payload: Data(), at: date)
   }
 
-  nonisolated func enqueueDeletion(ofItem id: UUID, listId: UUID, at date: Date) throws {
+  /// `isOnServer` : une suppression sans ligne d'un article jamais accusé n'a rien supprimé, ce n'est pas un refus.
+  nonisolated func enqueueDeletion(ofItem id: UUID, listId: UUID, isOnServer: Bool, at date: Date) throws {
     try cancelPendingOutboxEntries(entityId: id, kinds: [.upsertItem])
     try enqueueOutboxEntry(
-      kind: .deleteItem, entityId: id, payload: OutboxCoding.encode(ItemDeletionPayload(listId: listId)), at: date)
+      kind: .deleteItem, entityId: id,
+      payload: OutboxCoding.encode(ItemDeletionPayload(listId: listId, isOnServer: isOnServer)), at: date)
   }
 
   /// Entrée de création de la visite : différée à la première coche, une visite sans coche ne part jamais (#9 §5.5).

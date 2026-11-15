@@ -184,10 +184,57 @@ actor DeletionGateway: RemoteGateway {
     writes.append((kind, id))
   }
 
-  func saveList(_ list: ListUpsert) async throws { try write("saveList") }
-  func deleteList(id: UUID) async throws { try write("deleteList") }
-  func saveItem(_ item: ListItemUpsert) async throws { try write("saveItem") }
-  func deleteItem(id: UUID) async throws { try write("deleteItem") }
+  /// Lignes reçues par compte : la descente (listes accessibles, articles) les retrouve.
+  private var serverLists: [UUID: Set<UUID>] = [:]
+  private var serverItems: [UUID: [UUID: UUID]] = [:]
+
+  func saveList(_ list: ListUpsert) async throws {
+    try write("saveList")
+    let account = try liveAccount()
+    serverLists[account, default: []].insert(list.id)
+  }
+  func deleteList(id: UUID) async throws {
+    try write("deleteList")
+    let account = try liveAccount()
+    serverLists[account, default: []].remove(id)
+  }
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
+    try write("insertItem")
+    let account = try liveAccount()
+    guard serverItems[account]?[item.id] == nil else { return false }
+    serverItems[account, default: [:]][item.id] = item.listId
+    return true
+  }
+  func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
+    try write("updateItem")
+    let account = try liveAccount()
+    return serverItems[account]?[id] != nil
+  }
+  func deleteItem(id: UUID) async throws -> Bool {
+    try write("deleteItem")
+    let account = try liveAccount()
+    return serverItems[account, default: [:]].removeValue(forKey: id) != nil
+  }
+  func accessibleListIds() async throws -> [UUID] {
+    let account = try liveAccount()
+    return Array(serverLists[account] ?? [])
+  }
+  func fetchItems(listId: UUID) async throws -> [ListItemRow] {
+    _ = try liveAccount()
+    return []
+  }
+  func fetchItemIds(listId: UUID) async throws -> [UUID] {
+    let account = try liveAccount()
+    return (serverItems[account] ?? [:]).filter { $0.value == listId }.map(\.key)
+  }
+  func fetchTombstones(after: Date?) async throws -> [TombstoneRow] {
+    _ = try liveAccount()
+    return []
+  }
+  func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow] {
+    _ = try liveAccount()
+    return []
+  }
   func createVisit(_ visit: VisitInsert) async throws { try write("createVisit") }
   func insertChecks(_ checks: [CheckUpload]) async throws { try write("insertChecks") }
   func closeVisit(id: UUID, endedAt: Date) async throws { try write("closeVisit") }

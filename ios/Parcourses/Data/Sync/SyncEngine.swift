@@ -227,6 +227,12 @@ actor SyncEngine {
     case .recovered: pull = true
     case .ready: break
     }
+    // Curseur des pierres tombales trop vieux : les articles supprimés ailleurs pendant la longue absence partent avant
+    // qu'un envoi ne les touche (README des vecteurs).
+    guard await reconcileItemsBeforeSending() else {
+      if pull { isPullRequested = true }
+      return
+    }
     // Avant l'envoi : l'article et ses coches en file partent avec leur produit.
     await resolveProducts()
     guard let sent = await sendQueue() else {
@@ -295,6 +301,7 @@ actor SyncEngine {
           needsAccountRecovery = true
         } else {
           cursors.accountId = id
+          await noteAccountKind()
           return .ready
         }
       }
@@ -314,8 +321,11 @@ actor SyncEngine {
       // D'abord le compte : sans session établie (Keychain verrouillé compris), on ne touche à rien.
       let id = try await gateway.sessionAccountId()
       let now = dependencies.now()
+      let previous = cursors.accountId
+      let previousKind = cursors.accountKind ?? .anonymous
       try await MainActor.run { [container] in
-        let remap = try AccountRekey.run(in: container.mainContext, now: now)
+        let remap = try AccountRekey.run(
+          in: container.mainContext, previousAccountId: previous, previousAccountKind: previousKind, now: now)
         NotificationCenter.default.post(
           name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
         NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
@@ -324,7 +334,11 @@ actor SyncEngine {
       store = SyncStore(modelContainer: container)
       cursors.lists = nil
       cursors.items = nil
+      // Sans curseur : la première descente du nouveau compte réconcilie ses articles en entier (vecteur `007`).
+      cursors.tombstones = nil
       cursors.accountId = id
+      cursors.accountKind = nil
+      await noteAccountKind()
       try await gateway.acknowledgeAccount(id)
       needsAccountRecovery = false
       isWaitingForSession = false
@@ -336,6 +350,15 @@ actor SyncEngine {
       needsAccountRecovery = true
       _ = stop(on: error, recovering: true)
       return .stopped
+    }
+  }
+
+  /// Nature du compte des données, lue dans la session (sans appel au serveur). Illisible : rien ne change.
+  private func noteAccountKind() async {
+    do {
+      cursors.accountKind = try await gateway.accountEmail() == nil ? .anonymous : .email
+    } catch {
+      // Keychain verrouillé : la nature déjà notée reste.
     }
   }
 
@@ -374,7 +397,13 @@ actor SyncEngine {
           return sent
         }
         do {
-          try await send(work)
+          if case .untouched(let listId) = try await send(work) {
+            isWaitingForSession = false
+            switch try await handleUntouched(work, listId: listId) {
+            case .proceed: continue
+            case .stop: return nil
+            }
+          }
           try await store.complete(work)
           isWaitingForSession = false
           try await releaseParkedIfRecovered()
@@ -435,16 +464,28 @@ actor SyncEngine {
     try await store.releaseParked(now: dependencies.now())
   }
 
-  private func send(_ work: OutboxWork) async throws {
+  /// Issue d'un envoi accepté par le serveur.
+  private enum SendOutcome {
+    case sent
+    /// Mise à jour ou suppression d'un article déjà sur le serveur sans aucune ligne touchée : supprimé ailleurs, ou
+    /// accès perdu (la RLS filtre sans erreur).
+    case untouched(listId: UUID)
+  }
+
+  private func send(_ work: OutboxWork) async throws -> SendOutcome {
     switch work.kind {
     case .upsertList:
       try await gateway.saveList(try OutboxCoding.decode(ListUpsert.self, from: work.payloads[0]))
     case .deleteList:
       try await gateway.deleteList(id: work.entityId)
     case .upsertItem:
-      try await gateway.saveItem(try OutboxCoding.decode(ListItemUpsert.self, from: work.payloads[0]))
+      return try await sendItem(work)
     case .deleteItem:
-      try await gateway.deleteItem(id: work.entityId)
+      let payload = try? OutboxCoding.decode(ItemDeletionPayload.self, from: work.payloads[0])
+      if try await gateway.deleteItem(id: work.entityId) { return .sent }
+      // Jamais accusé, ou entrée écrite avant 87.3 : il n'y avait peut-être rien à supprimer, ce n'est pas un refus.
+      guard payload?.isOnServer == true, let listId = payload?.listId else { return .sent }
+      return .untouched(listId: listId)
     case .createVisit:
       try await gateway.createVisit(try OutboxCoding.decode(VisitInsert.self, from: work.payloads[0]))
     case .insertChecks:
@@ -455,6 +496,88 @@ actor SyncEngine {
       let close = try OutboxCoding.decode(VisitClosePayload.self, from: work.payloads[0])
       try await gateway.closeVisit(id: close.visitId, endedAt: close.endedAt)
     }
+    return .sent
+  }
+
+  /// Insertion complète d'un article jamais arrivé, sinon les seuls champs modifiés (vecteur `001`), sans repli sur
+  /// l'insertion : un article supprimé ailleurs ne doit pas revenir.
+  private func sendItem(_ work: OutboxWork) async throws -> SendOutcome {
+    let row = try OutboxCoding.decode(ListItemUpsert.self, from: work.payloads[0])
+    guard let changed = work.changedFields else {
+      // Entrée écrite avant 87.3 : on ignore ce qui a changé et si l'article est arrivé. Toute la ligne part, puis
+      // l'insertion s'il n'existait pas ; le serveur ignore celle d'un article supprimé (pierre tombale).
+      let fields = ListItemFields(values: row, columns: ListItemFields.all)
+      if try await !gateway.updateItem(id: row.id, fields: fields) { try await gateway.insertItem(row) }
+      return .sent
+    }
+    switch SyncDecisions.itemSaveRequest(isOnServer: work.isOnServer, changedFields: changed) {
+    case .insert:
+      if try await gateway.insertItem(row) { return .sent }
+      // Rien d'inséré : la ligne existait déjà (réponse d'une insertion précédente perdue, article d'avant la
+      // migration) ou elle est enterrée. Les champs de l'entrée partent en mise à jour, sinon une coche faite entre-temps
+      // n'arriverait jamais ; 0 ligne se tranche ensuite par la pierre tombale.
+      let columns = SyncDecisions.mergeChangedFields(pending: nil, new: changed)
+      guard !columns.isEmpty else { return .sent }
+      let touched = try await gateway.updateItem(id: row.id, fields: ListItemFields(values: row, columns: columns))
+      if !touched { return .untouched(listId: row.listId) }
+    case .patch(let columns):
+      let touched = try await gateway.updateItem(id: row.id, fields: ListItemFields(values: row, columns: columns))
+      if !touched { return .untouched(listId: row.listId) }
+    case .none:
+      break
+    }
+    return .sent
+  }
+
+  /// 0 ligne touchée : la pierre tombale de l'article lève le doute (vecteur `003`).
+  private func handleUntouched(_ work: OutboxWork, listId: UUID) async throws -> Next {
+    let tombstones: [TombstoneRow]
+    do {
+      tombstones = try await gateway.fetchTombstones(ids: [work.entityId])
+    } catch {
+      return stop(on: error)
+    }
+    let ownerId = try await store.listOwnership(listId).ownerId
+    let ownedByMe = ownerId.map { $0 == cursors.accountId } ?? true
+    switch SyncDecisions.zeroRowOutcome(
+      tombstoned: tombstones.contains { $0.id == work.entityId }, listOwnedByMe: ownedByMe)
+    {
+    case .deletedElsewhere:
+      // L'article et ses entrées partent, sans nouvel essai : la suppression gagne. Les autres entrées restent.
+      let row = TombstoneRow(id: work.entityId, listId: listId, deletedAt: dependencies.now())
+      if try await store.merge(tombstones: [row]) { await Self.postDataChange() }
+      return .proceed
+    case .accessLost:
+      do {
+        try await refreshAccess(listId: listId)
+      } catch {
+        return stop(on: error)
+      }
+      return .proceed
+    }
+  }
+
+  /// Accès perdu ou rôle abaissé (#87 §6.4) : la liste quitte l'appareil si elle n'est plus lisible ; sinon les
+  /// entrées de ses articles sont jetées et elle est rechargée entièrement. La relecture du rôle (`list_sharing`)
+  /// arrive avec le partage (87.4).
+  func refreshAccess(listId: UUID) async throws {
+    let accessible = try await gateway.accessibleListIds()
+    if accessible.contains(listId) {
+      let rows = try await gateway.fetchItems(listId: listId)
+      // Liste à soi : les articles jamais envoyés et leurs entrées restent, rien ne les a refusés.
+      let ownerId = try await store.listOwnership(listId).ownerId
+      let isMine = ownerId.map { $0 == cursors.accountId } ?? true
+      _ = try await store.replaceItems(listId: listId, rows: rows, keepingUnsent: isMine, classify: classify)
+    } else {
+      // Une ligne de cette liste était sur le serveur : elle en a disparu, même si l'appareil ne l'a jamais descendue.
+      try await store.forget(listId: listId)
+      _ = try await store.reconcile(listIds: accessible)
+    }
+    await Self.postDataChange()
+  }
+
+  private static func postDataChange() async {
+    await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
   }
 
   private enum Next {
@@ -613,10 +736,34 @@ actor SyncEngine {
       return try await handleForbiddenChecks(work)
 
     case .upsertItem:
-      if try await waitForList(work) { return .proceed }
-      return try await failForbidden(work)
+      return try await handleRefusedItem(work)
 
     default:
+      return try await failForbidden(work)
+    }
+  }
+
+  /// `42501` sur un article (vecteur `004`) : liste pas encore partie, liste d'autrui (rôle abaissé, retrait) ou liste à
+  /// soi.
+  private func handleRefusedItem(_ work: OutboxWork) async throws -> Next {
+    let row = try OutboxCoding.decode(ListItemUpsert.self, from: work.payloads[0])
+    let ownership = try await store.listOwnership(row.listId)
+    let ownedByMe = ownership.ownerId.map { $0 == cursors.accountId } ?? true
+    switch SyncDecisions.insertRefusedOutcome(listSynced: ownership.synced, listOwnedByMe: ownedByMe) {
+    case .waitForList:
+      if try await waitForList(work) { return .proceed }
+      return try await failForbidden(work)
+    case .refreshAccess:
+      do {
+        try await refreshAccess(listId: row.listId)
+      } catch {
+        return stop(on: error)
+      }
+      return .proceed
+    case .reconcile:
+      // Liste supprimée ailleurs, sans doute : la descente qui suit la retire (`accessible_list_ids`).
+      isRunRequested = true
+      isPullRequested = true
       return try await failForbidden(work)
     }
   }
@@ -676,12 +823,24 @@ actor SyncEngine {
 
   private func pullAll(at now: Date) async {
     do {
-      let lists = try await gateway.fetchLists(updatedAfter: cursors.lists)
+      // Listes accessibles d'abord (vecteur `005`) : une liste supprimée ailleurs, ou dont l'accès a été retiré, quitte
+      // l'appareil ; une liste nouvellement accessible est descendue entièrement, ses articles étant plus anciens que
+      // le curseur.
+      let accessible = try await gateway.accessibleListIds()
+      let reconciliation = try await store.reconcile(listIds: accessible)
+      let fetchFully = reconciliation.decision.fetchFully
+      let lists = try await gateway.fetchLists(updatedAfter: fetchFully.isEmpty ? cursors.lists : nil)
       let items = try await gateway.fetchItems(updatedAfter: cursors.items)
       let listsMerge = try await store.merge(lists: lists)
       let itemsMerge = try await store.merge(items: items, classify: classify)
+      var dataChanged = reconciliation.changed || listsMerge.changed || itemsMerge.changed
+      for listId in fetchFully {
+        let rows = try await gateway.fetchItems(listId: listId)
+        dataChanged = try await store.merge(items: rows, classify: classify).changed || dataChanged
+      }
       cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
       cursors.items = Self.later(cursors.items, itemsMerge.cursor)
+      dataChanged = try await pullTombstones(now: now) || dataChanged
       var catalogChanged = false
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
         let categories = try await gateway.fetchCategories()
@@ -697,9 +856,7 @@ actor SyncEngine {
       try await releaseParkedIfRecovered()
       isWaitingForSession = false
       // Catalogue changé : l'écran Liste ouvert reconstruit ses suggestions (un nom retiré n'y reste pas).
-      if listsMerge.changed || itemsMerge.changed || catalogChanged {
-        await MainActor.run { NotificationCenter.default.post(name: .syncDidChangeData, object: nil) }
-      }
+      if dataChanged || catalogChanged { await Self.postDataChange() }
     } catch {
       isPullRequested = true
       guard !Task.isCancelled else { return }
@@ -710,6 +867,57 @@ actor SyncEngine {
       default:
         // N'arrête pas l'envoi : seul un nouvel essai de descente attend.
         pullBackoffUntil = now.addingTimeInterval(SyncRetryPolicy.pullRetryInterval)
+      }
+    }
+  }
+
+  /// Suppressions faites ailleurs (vecteurs `006` et `007`). Vrai si un article affiché a disparu.
+  private func pullTombstones(now: Date) async throws -> Bool {
+    switch SyncDecisions.tombstonePullMode(cursor: cursors.tombstones, now: now) {
+    case .incremental:
+      let rows = try await gateway.fetchTombstones(after: cursors.tombstones)
+      let changed = try await store.merge(tombstones: rows)
+      cursors.tombstones = Self.later(cursors.tombstones, rows.map(\.deletedAt).max())
+      return changed
+    case .fullReconcile:
+      return try await reconcileItemsFully()
+    }
+  }
+
+  /// Réconciliation complète des articles (vecteur `007`). Heure du serveur d'abord : une suppression faite pendant la
+  /// réconciliation sera relue la fois suivante. Sans en-tête lisible, le curseur reste vide et elle recommencera.
+  private func reconcileItemsFully() async throws -> Bool {
+    let serverNow = try await gateway.serverDate()
+    var changed = false
+    for listId in try await store.reconcilableListIds() {
+      let ids = try await gateway.fetchItemIds(listId: listId)
+      changed = try await store.reconcileItems(listId: listId, serverIds: Set(ids)) || changed
+    }
+    cursors.tombstones = serverNow
+    return changed
+  }
+
+  /// `fullReconcile` dû : la réconciliation complète passe avant l'envoi de la file. Faux si la passe doit s'arrêter
+  /// (session perdue ou compte changé) ; une autre erreur reporte seulement la réconciliation, comme une descente.
+  private func reconcileItemsBeforeSending() async -> Bool {
+    let now = dependencies.now()
+    guard SyncDecisions.tombstonePullMode(cursor: cursors.tombstones, now: now) == .fullReconcile else { return true }
+    if let pullBackoffUntil, pullBackoffUntil > now { return true }
+    do {
+      // Aucune liste encore arrivée au serveur : rien à confronter, la descente posera le curseur.
+      guard try await !store.reconcilableListIds().isEmpty else { return true }
+      if try await reconcileItemsFully() { await Self.postDataChange() }
+      return true
+    } catch {
+      guard !Task.isCancelled else { return false }
+      switch error as? RemoteError {
+      case .accountChanged, .unauthorized, .accountGone, .keychainLocked:
+        _ = stop(on: error)
+        return false
+      default:
+        Self.logger.notice("Réconciliation des articles reportée : \(String(describing: error), privacy: .private)")
+        pullBackoffUntil = now.addingTimeInterval(SyncRetryPolicy.pullRetryInterval)
+        return true
       }
     }
   }

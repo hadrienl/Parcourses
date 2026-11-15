@@ -1,0 +1,32 @@
+{
+  "id": "004-insert-refused-outcome",
+  "function": "insertRefusedOutcome",
+  "description": "Insertion d'un article refusée en 42501. Liste pas encore partie : attendre la liste (comportement actuel, 30 s sans essai consommé). Liste d'un autre propriétaire : refreshAccess. Liste à soi, déjà synchronisée : réconciliation (comportement actuel).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "liste pas encore envoyée",
+      "input": {
+        "listSynced": false,
+        "listOwnedByMe": true
+      },
+      "expected": "waitForList"
+    },
+    {
+      "name": "liste partagée par un autre",
+      "input": {
+        "listSynced": true,
+        "listOwnedByMe": false
+      },
+      "expected": "refreshAccess"
+    },
+    {
+      "name": "liste à soi, synchronisée",
+      "input": {
+        "listSynced": true,
+        "listOwnedByMe": true
+      },
+      "expected": "reconcile"
+    }
+  ]
+}

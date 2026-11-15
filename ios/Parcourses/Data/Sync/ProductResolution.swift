@@ -85,7 +85,7 @@ nonisolated enum ProductResolution {
 
       item.productId = productId
       item.syncState = .pending
-      try context.enqueueUpsert(of: item, at: date)
+      try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.productId])
 
       let checks = try context.fetch(
         FetchDescriptor<Check>(

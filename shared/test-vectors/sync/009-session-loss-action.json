@@ -1,0 +1,22 @@
+{
+  "id": "009-session-loss-action",
+  "function": "sessionLossAction",
+  "description": "Session perdue (Keychain vidé, transfert d'appareil). Compte anonyme : nouveau compte anonyme puis AccountRekey (comportement actuel). Compte e-mail (drapeau durable account.kind = email) : pas de nouveau compte, la synchro attend la reconnexion (bandeau « Reconnectez-vous »).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "anonyme",
+      "input": {
+        "accountKind": "anonymous"
+      },
+      "expected": "createAnonymous"
+    },
+    {
+      "name": "e-mail",
+      "input": {
+        "accountKind": "email"
+      },
+      "expected": "waitForSignIn"
+    }
+  ]
+}

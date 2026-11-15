@@ -1,0 +1,40 @@
+{
+  "id": "010-link-email-next-step",
+  "function": "linkEmailNextStep",
+  "description": "Après updateUser({ email }) (liaison d'une adresse à un compte anonyme) : succès = saisie du code de liaison (verifyOtp type email_change, même compte). 422 email_exists = connexion au compte existant (signInWithOtp sans création, puis code de type email, puis AccountRekey). 429 = trop de demandes. Autre erreur : réessayer.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "adresse nouvelle",
+      "input": {
+        "status": 200,
+        "errorCode": null
+      },
+      "expected": "enterLinkCode"
+    },
+    {
+      "name": "adresse déjà prise",
+      "input": {
+        "status": 422,
+        "errorCode": "email_exists"
+      },
+      "expected": "signInExisting"
+    },
+    {
+      "name": "trop de demandes",
+      "input": {
+        "status": 429,
+        "errorCode": "over_email_send_rate_limit"
+      },
+      "expected": "rateLimited"
+    },
+    {
+      "name": "autre",
+      "input": {
+        "status": 500,
+        "errorCode": "unexpected_failure"
+      },
+      "expected": "retry"
+    }
+  ]
+}

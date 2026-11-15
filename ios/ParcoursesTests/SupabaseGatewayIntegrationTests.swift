@@ -78,19 +78,27 @@ struct SupabaseGatewayIntegrationTests {
     let item = ListItemUpsert(
       id: UUID(), listId: list.id, productId: nil, label: "Lait", quantity: "2", checkedAt: checkedAt
     )
-    try await gateway.saveItem(item)
-    try await gateway.saveItem(item)
+    #expect(try await gateway.insertItem(item))
+    #expect(try await gateway.insertItem(item) == false)
     var items = try await gateway.fetchItems(updatedAfter: nil)
     #expect(items.count == 1)
     #expect(abs((items.first?.checkedAt ?? .distantPast).timeIntervalSince(checkedAt)) < 0.001)
+    #expect(items.first?.updatedBy == owner)
 
-    // Un `null` vide bien la colonne.
-    try await gateway.saveItem(
-      ListItemUpsert(id: item.id, listId: list.id, productId: nil, label: "Lait", quantity: nil, checkedAt: nil)
-    )
+    // Un `null` vide bien la colonne, et seules les colonnes demandées partent.
+    let cleared = ListItemUpsert(
+      id: item.id, listId: list.id, productId: nil, label: "Autre", quantity: nil, checkedAt: nil)
+    #expect(
+      try await gateway.updateItem(
+        id: item.id,
+        fields: ListItemFields(values: cleared, columns: [ListItemFields.quantity, ListItemFields.checkedAt])))
     items = try await gateway.fetchItems(updatedAfter: nil)
     #expect(items.first?.quantity == nil)
     #expect(items.first?.checkedAt == nil)
+    #expect(items.first?.label == "Lait")
+    #expect(try await gateway.fetchItems(listId: list.id).map(\.id) == [item.id])
+    #expect(try await gateway.fetchItemIds(listId: list.id) == [item.id])
+    #expect(try await gateway.accessibleListIds() == [list.id])
 
     let stranger = try await makeGateway()
     #expect(try await stranger.fetchLists(updatedAfter: nil).isEmpty)
@@ -99,8 +107,19 @@ struct SupabaseGatewayIntegrationTests {
     let future = Date.now.addingTimeInterval(3600)
     #expect(try await gateway.fetchLists(updatedAfter: future).isEmpty)
 
-    try await gateway.deleteItem(id: item.id)
-    try await gateway.deleteItem(id: item.id)
+    let before = Date.now.addingTimeInterval(-60)
+    #expect(try await gateway.deleteItem(id: item.id))
+    #expect(try await gateway.deleteItem(id: item.id) == false)
+    // Pierre tombale lisible, par date comme par identifiant ; une mise à jour ne touche plus rien.
+    #expect(try await gateway.fetchTombstones(after: before).map(\.id).contains(item.id))
+    #expect(try await gateway.fetchTombstones(ids: [item.id, UUID()]).map(\.id) == [item.id])
+    #expect(try await stranger.fetchTombstones(ids: [item.id]).isEmpty)
+    #expect(
+      try await gateway.updateItem(id: item.id, fields: ListItemFields(values: item, columns: ListItemFields.all))
+        == false)
+    // Renvoyée, l'insertion ne ressuscite pas l'article, et le dit.
+    #expect(try await gateway.insertItem(item) == false)
+    #expect(try await gateway.fetchItemIds(listId: list.id).isEmpty)
     try await gateway.deleteList(id: list.id)
     try await gateway.deleteList(id: list.id)
     #expect(try await gateway.fetchLists(updatedAfter: nil).isEmpty)
@@ -297,13 +316,63 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     try await remote.deleteList(id: id)
   }
-  func saveItem(_ item: ListItemUpsert) async throws {
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
     try check()
-    try await remote.saveItem(item)
+    return try await remote.insertItem(item)
   }
-  func deleteItem(id: UUID) async throws {
+  func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
     try check()
-    try await remote.deleteItem(id: id)
+    return try await remote.updateItem(id: id, fields: fields)
+  }
+  func deleteItem(id: UUID) async throws -> Bool {
+    try check()
+    return try await remote.deleteItem(id: id)
+  }
+  func fetchItems(listId: UUID) async throws -> [ListItemRow] {
+    try check()
+    return try await remote.fetchItems(listId: listId)
+  }
+  func fetchItemIds(listId: UUID) async throws -> [UUID] {
+    try check()
+    return try await remote.fetchItemIds(listId: listId)
+  }
+  func accessibleListIds() async throws -> [UUID] {
+    try check()
+    return try await remote.accessibleListIds()
+  }
+  func fetchTombstones(after: Date?) async throws -> [TombstoneRow] {
+    try check()
+    return try await remote.fetchTombstones(after: after)
+  }
+  func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow] {
+    try check()
+    return try await remote.fetchTombstones(ids: ids)
+  }
+  func accountEmail() async throws -> String? { try await remote.accountEmail() }
+  func linkEmail(_ email: String) async throws {
+    try check()
+    try await remote.linkEmail(email)
+  }
+  func signInWithEmail(_ email: String) async throws {
+    try check()
+    try await remote.signInWithEmail(email)
+  }
+  func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
+    try check()
+    return try await remote.verifyCode(email: email, code: code, purpose: purpose)
+  }
+  func displayName() async throws -> String? {
+    try check()
+    return try await remote.displayName()
+  }
+  func setDisplayName(_ name: String) async throws {
+    try check()
+    try await remote.setDisplayName(name)
+  }
+  func signOut() async throws { try await remote.signOut() }
+  func deleteAccount(accessToken: String) async throws {
+    try check()
+    try await remote.deleteAccount(accessToken: accessToken)
   }
   func createVisit(_ visit: VisitInsert) async throws {
     try check()
@@ -362,6 +431,8 @@ private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
   var lists: Date?
   var items: Date?
   var catalog: Date?
+  var tombstones: Date?
+  var accountKind: AccountKind?
 }
 
 /// La file complète contre le Supabase local.
@@ -780,5 +851,320 @@ struct AccountDeletionIntegrationTests {
     device.flags.clear()
     _ = try await device.gateway.ensureSession()
     try device.keychain.removeAll()
+  }
+}
+
+/// Mailpit de la pile locale : les codes de connexion y arrivent (#87).
+private nonisolated enum Mailpit {
+  static let url: URL = {
+    let value = ProcessInfo.processInfo.environment["PARCOURSES_IT_MAILPIT"] ?? "http://127.0.0.1:56324"
+    return URL(string: value) ?? URL(filePath: "/")
+  }()
+
+  /// Code à 6 chiffres du dernier e-mail reçu par `address` et pas encore lu. Attend au plus 10 s.
+  static func code(to address: String, seen: inout Set<String>) async throws -> String {
+    var search = URLComponents(url: url.appending(path: "api/v1/search"), resolvingAgainstBaseURL: false)
+    search?.queryItems = [URLQueryItem(name: "query", value: "to:\"\(address)\"")]
+    let searchURL = try #require(search?.url)
+    for _ in 0..<50 {
+      let (data, _) = try await URLSession.shared.data(from: searchURL)
+      let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+      let ids = (object?["messages"] as? [[String: Any]] ?? []).compactMap { $0["ID"] as? String }
+      if let id = ids.first(where: { !seen.contains($0) }) {
+        seen.insert(id)
+        let (body, _) = try await URLSession.shared.data(from: url.appending(path: "api/v1/message/\(id)"))
+        let message = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let text = try #require(message["Text"] as? String)
+        #expect(!text.contains("http://") && !text.contains("https://"), "le code arrive sans lien")
+        return String(try #require(text.firstMatch(of: /\b(\d{6})\b/)).output.1)
+      }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    throw RemoteError.network
+  }
+}
+
+/// Comptes e-mail et synchro multi-appareil de bout en bout contre la pile locale (#87, lot 87.3) : liaison par code
+/// lu dans Mailpit, adresse déjà prise puis connexion et reprise, deux appareils du même compte, perte de session.
+@MainActor
+@Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
+struct AccountsIntegrationTests {
+  /// Un appareil : Keychain, préférences, store et moteur isolés.
+  private struct Device {
+    let remote: SupabaseGateway
+    let keychain: KeychainStore
+    let defaults: UserDefaults
+    let kinds: UserDefaultsAccountKindStore
+    let cursors: UserDefaultsSyncCursors
+    let container: ModelContainer
+    let engine: SyncEngine
+    let lists: SwiftDataListRepository
+
+    /// Compte de l'appareil, retenu ici comme par `AppModel` : la liaison s'y adosse (changement de compte).
+    let account: AccountSession
+
+    var context: ModelContext { container.mainContext }
+
+    func link() -> AccountLink {
+      // Toujours présent : la passerelle existe.
+      account.makeLink() ?? AccountLink(gateway: remote, kinds: kinds)
+    }
+
+    /// Lecture sur un contexte neuf : le contexte principal reçoit les écritures du moteur plus tard.
+    func items() throws -> [ListItem] { try ModelContext(container).fetch(FetchDescriptor<ListItem>()) }
+    func listNames() throws -> Set<String> {
+      Set(try ModelContext(container).fetch(FetchDescriptor<ShoppingList>()).map(\.name))
+    }
+  }
+
+  private func makeDevice() async throws -> Device {
+    let configuration = try #require(LocalSupabase.configuration)
+    let keychain = KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
+    let defaults = try #require(UserDefaults(suiteName: "tests.it.accounts.\(UUID().uuidString)"))
+    let kinds = UserDefaultsAccountKindStore(defaults: defaults)
+    let remote = SupabaseGateway(
+      configuration: configuration, store: keychain,
+      deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults), accountKinds: kinds)
+    try await remote.ensureSession()
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    try SwiftDataCategoryRepository(context: container.mainContext).seedIfNeeded()
+    let cursors = UserDefaultsSyncCursors(defaults: defaults)
+    let engine = SyncEngine(
+      gateway: remote, container: container, cursors: cursors, classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    let pendingChanges: () -> Int = { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 }
+    let link = AccountLink.Dependencies(
+      resendableLists: { id in
+        guard cursors.accountId != id else { return 0 }
+        return (try? AccountRekey.resendCount(in: container.mainContext, previousAccountId: cursors.accountId)) ?? 0
+      },
+      synchronize: { await engine.drain(pull: true) },
+      sessionDidChange: { Task { await engine.resume() } },
+      previousAccountId: { cursors.accountId }, pendingChanges: pendingChanges,
+      suspendSync: { await engine.suspend() }, resumeSync: { await engine.resume() })
+    let account = AccountSession(
+      gateway: remote, kinds: kinds,
+      purge: LocalDataPurge(
+        container: container, keychain: keychain, defaults: defaults,
+        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults),
+      dependencies: AccountSession.Dependencies(pendingChanges: pendingChanges, link: link))
+    return Device(
+      remote: remote, keychain: keychain, defaults: defaults, kinds: kinds, cursors: cursors, container: container,
+      engine: engine, lists: SwiftDataListRepository(context: container.mainContext), account: account)
+  }
+
+  @discardableResult
+  private func addItem(_ device: Device, _ label: String, to listId: UUID) throws -> ListItem {
+    try device.lists.addItem(
+      listId: listId, label: label, normalizedName: label.lowercased(), quantity: nil, productId: nil,
+      categoryId: "other", at: .now)
+  }
+
+  @Test func twoDevicesOfOneEmailAccountStayInSync() async throws {
+    let email = "it-87-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    var seen: Set<String> = []
+
+    // Premier téléphone : compte anonyme, une liste, puis l'adresse liée par le code reçu.
+    let a = try await makeDevice()
+    let account = try await a.remote.currentAccountId()
+    let list = try a.lists.createList(name: "IT-87 A", at: .now)
+    let milk = try addItem(a, "Lait", to: list.id)
+    let bread = try addItem(a, "Pain", to: list.id)
+    await a.engine.drain(pull: true)
+    let linkA = a.link()
+    #expect(linkA.canLink)
+    linkA.email = email
+    linkA.displayName = "Léa"
+    await linkA.requestCode()
+    #expect(linkA.phase == .enterCode && linkA.purpose == .link, "\(String(describing: linkA.error))")
+    let codeA = try await Mailpit.code(to: email, seen: &seen)
+    await linkA.verify(code: codeA == "000000" ? "111111" : "000000")
+    #expect(linkA.error == .invalidCode)
+    await linkA.verify(code: codeA)
+    #expect(linkA.outcome == .linked)
+    #expect(a.kinds.kind == .email)
+    // Même compte : aucune donnée ne bouge.
+    #expect(try await a.remote.currentAccountId() == account)
+    #expect(try await a.remote.accountEmail() == email)
+    #expect(try await a.remote.displayName() == "Léa")
+    #expect(try a.listNames() == ["IT-87 A"])
+
+    // Second téléphone, anonyme, avec sa propre liste : l'adresse est prise, il se connecte au compte existant.
+    let b = try await makeDevice()
+    let anonymousB = try await b.remote.currentAccountId()
+    let listB = try b.lists.createList(name: "IT-87 B", at: .now)
+    try addItem(b, "Café", to: listB.id)
+    _ = try b.lists.createList(name: "Courses", at: .now)
+    await b.engine.drain(pull: true)
+    let linkB = b.link()
+    linkB.email = email
+    await linkB.requestCode()
+    #expect(linkB.purpose == .signIn, "\(String(describing: linkB.error))")
+    let codeB = try await Mailpit.code(to: email, seen: &seen)
+    await linkB.verify(code: codeB)
+    // « Bon retour, Léa ! » : la liste vide jamais modifiée n'est pas ajoutée (vecteur 008).
+    #expect(linkB.outcome == .signedIn(displayName: "Léa", addedLists: 1))
+    #expect(try await b.remote.currentAccountId() == account)
+    #expect(try b.listNames() == ["IT-87 A", "IT-87 B"])
+    await a.engine.drain(pull: true)
+    #expect(try a.listNames() == ["IT-87 A", "IT-87 B"])
+
+    // Deux champs du même article, un par appareil : les deux gagnent (envoi par champ).
+    try a.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
+    let milkB = try #require(try b.context.fetch(FetchDescriptor<ListItem>()).first { $0.id == milk.id })
+    milkB.quantity = "2"
+    try b.context.enqueueUpsert(of: milkB, at: .now, changedFields: [ListItemFields.quantity])
+    try b.context.save()
+    await a.engine.drain()
+    await b.engine.drain()
+    let row = try #require(try await a.remote.fetchItems(listId: list.id).first { $0.id == milk.id })
+    #expect(row.checkedAt != nil && row.quantity == "2")
+    await a.engine.drain(pull: true)
+    await b.engine.drain(pull: true)
+    for device in [a, b] {
+      let local = try #require(try device.items().first { $0.id == milk.id })
+      #expect(local.checkedAt != nil && local.quantity == "2")
+    }
+
+    // Insertion arrivée au serveur, réponse perdue : l'article n'est pas accusé, puis il est coché. La coche arrive.
+    let eggs = try addItem(a, "Œufs", to: list.id)
+    let eggsRow = ListItemUpsert(
+      id: eggs.id, listId: list.id, productId: nil, label: "Œufs", quantity: nil, checkedAt: nil)
+    #expect(try await a.remote.insertItem(eggsRow))
+    try a.lists.setChecked(itemId: eggs.id, checkedAt: .now, at: .now)
+    await a.engine.drain()
+    #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+    await b.engine.drain(pull: true)
+    #expect(try b.items().first { $0.id == eggs.id }?.checkedAt != nil)
+
+    // Suppression sur un appareil : la pierre tombale la propage à l'autre.
+    try a.lists.deleteItem(id: bread.id)
+    await a.engine.drain()
+    await b.engine.drain(pull: true)
+    #expect(try !b.items().contains { $0.id == bread.id })
+    #expect(try b.items().contains { $0.id == milk.id })
+
+    // Perte de session d'un compte e-mail (Keychain vidé) : aucun compte anonyme, la synchro attend (vecteur 009).
+    try a.keychain.removeAll()
+    await #expect(throws: RemoteError.unauthorized) { try await a.remote.ensureSession() }
+    await a.engine.drain(pull: true)
+    #expect(await a.engine.isWaitingForSession)
+    // Reconnexion avec la même adresse : même compte, rien à réidentifier.
+    let relink = a.link()
+    #expect(!relink.canLink)
+    relink.email = email
+    // `max_frequency` (1 s en local) : un second code pour le même compte, trop tôt, serait refusé en 429.
+    try await Task.sleep(for: .seconds(2))
+    await relink.requestCode()
+    #expect(relink.phase == .enterCode, "\(String(describing: relink.error))")
+    await relink.verify(code: try await Mailpit.code(to: email, seen: &seen))
+    #expect(relink.outcome == .signedIn(displayName: "Léa", addedLists: 0))
+    #expect(try await a.remote.currentAccountId() == account)
+    #expect(try ModelContext(a.container).fetch(FetchDescriptor<ShoppingList>()).contains { $0.id == list.id })
+
+    if let path = ProcessInfo.processInfo.environment["PARCOURSES_IT_ACCOUNTS_OUT"] {
+      try "\(anonymousB.uuidString.lowercased()) \(account.uuidString.lowercased())\n"
+        .write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    try await a.remote.deleteAccount()
+    try a.keychain.removeAll()
+    try b.keychain.removeAll()
+  }
+
+  /// Compte e-mail A sans session, connexion à un autre compte e-mail B : l'appareil est purgé, B ne reçoit rien de A.
+  @Test func signingInToAnotherEmailAccountLeavesThePreviousListsBehind() async throws {
+    let first = "it-87-a-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    let second = "it-87-b-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    var seen: Set<String> = []
+    // Le compte B existe, avec sa liste, créé sur un autre téléphone.
+    let other = try await makeDevice()
+    _ = try other.lists.createList(name: "IT-87 de B", at: .now)
+    await other.engine.drain(pull: true)
+    let linkB = other.link()
+    linkB.email = second
+    await linkB.requestCode()
+    await linkB.verify(code: try await Mailpit.code(to: second, seen: &seen))
+    let accountB = try await other.remote.currentAccountId()
+
+    // Le téléphone de A : liste envoyée, une modification encore en file, puis la session disparaît.
+    let a = try await makeDevice()
+    let list = try a.lists.createList(name: "IT-87 de A", at: .now)
+    try addItem(a, "Lait", to: list.id)
+    await a.engine.drain(pull: true)
+    let linkA = a.link()
+    linkA.email = first
+    await linkA.requestCode()
+    await linkA.verify(code: try await Mailpit.code(to: first, seen: &seen))
+    try a.lists.renameList(id: list.id, name: "IT-87 de A, renommée", at: .now)
+    try a.keychain.removeAll()
+    await a.engine.drain(pull: true)
+    #expect(await a.engine.isWaitingForSession)
+
+    let switching = a.link()
+    #expect(!switching.canLink)
+    // L'écran prévient : la modification en file sera perdue.
+    #expect(switching.losesPendingChangesOnSwitch)
+    switching.email = second
+    // `max_frequency` (1 s en local) : B a reçu un code juste avant.
+    try await Task.sleep(for: .seconds(2))
+    await switching.requestCode()
+    #expect(switching.phase == .enterCode, "\(String(describing: switching.error))")
+    await switching.verify(code: try await Mailpit.code(to: second, seen: &seen))
+    #expect(switching.outcome == .signedIn(displayName: nil, addedLists: 0))
+    #expect(try await a.remote.currentAccountId() == accountB)
+    #expect(try a.listNames() == ["IT-87 de B"])
+    #expect(try await other.remote.fetchLists(updatedAfter: nil).map(\.name) == ["IT-87 de B"])
+    #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+
+    try await other.remote.deleteAccount()
+    try a.keychain.removeAll()
+    try other.keychain.removeAll()
+  }
+
+  /// Déconnexion : session oubliée, appareil purgé, compte anonyme vide ; les listes restent dans le compte.
+  @Test func signingOutLeavesTheListsInTheAccount() async throws {
+    let email = "it-87-out-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    var seen: Set<String> = []
+    let a = try await makeDevice()
+    let list = try a.lists.createList(name: "IT-87 déconnexion", at: .now)
+    try addItem(a, "Lait", to: list.id)
+    await a.engine.drain(pull: true)
+    let link = a.link()
+    link.email = email
+    await link.requestCode()
+    await link.verify(code: try await Mailpit.code(to: email, seen: &seen))
+    let account = try await a.remote.currentAccountId()
+
+    let session = AccountSession(
+      gateway: a.remote, kinds: a.kinds,
+      purge: LocalDataPurge(
+        container: a.container, keychain: a.keychain, defaults: a.defaults,
+        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: a.defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: a.defaults))
+    await session.refresh()
+    #expect(session.kind == .email && session.email == email)
+    await session.signOut()
+    #expect(try ModelContext(a.container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    let fresh = try await a.remote.currentAccountId()
+    #expect(fresh != account)
+    #expect(try await a.remote.accountEmail() == nil)
+    #expect(try await a.remote.fetchLists(updatedAfter: nil).isEmpty)
+
+    // Reconnexion depuis le nouveau compte anonyme : la liste revient.
+    let back = try await makeDevice()
+    let again = back.link()
+    again.email = email
+    try await Task.sleep(for: .seconds(2))
+    await again.requestCode()
+    #expect(again.purpose == .signIn, "\(String(describing: again.error))")
+    await again.verify(code: try await Mailpit.code(to: email, seen: &seen))
+    #expect(try await back.remote.currentAccountId() == account)
+    #expect(try back.listNames() == ["IT-87 déconnexion"])
+    try await back.remote.deleteAccount()
+    try a.keychain.removeAll()
+    try back.keychain.removeAll()
   }
 }

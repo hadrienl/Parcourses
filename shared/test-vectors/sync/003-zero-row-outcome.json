@@ -1,0 +1,40 @@
+{
+  "id": "003-zero-row-outcome",
+  "function": "zeroRowOutcome",
+  "description": "Une mise à jour ou une suppression d'article déjà connu du serveur a touché 0 ligne : la RLS filtre sans erreur. Pierre tombale présente = supprimé ailleurs (retirer l'article et l'entrée, sans réessayer). Absente sur une liste dont on est propriétaire = supprimé ailleurs aussi (pierre tombale purgée après 30 jours : le propriétaire ne perd jamais l'accès à sa liste) ; seule cette entrée est retirée, les autres restent. Absente sur une liste d'un autre = accès perdu ou rôle abaissé (refreshAccess de la liste).",
+  "format_version": 2,
+  "cases": [
+    {
+      "name": "pierre tombale : supprimé ailleurs",
+      "input": {
+        "tombstoned": true,
+        "listOwnedByMe": false
+      },
+      "expected": "deletedElsewhere"
+    },
+    {
+      "name": "pierre tombale sur ma liste : supprimé ailleurs",
+      "input": {
+        "tombstoned": true,
+        "listOwnedByMe": true
+      },
+      "expected": "deletedElsewhere"
+    },
+    {
+      "name": "pas de pierre tombale sur ma liste : pierre tombale purgée, supprimé ailleurs",
+      "input": {
+        "tombstoned": false,
+        "listOwnedByMe": true
+      },
+      "expected": "deletedElsewhere"
+    },
+    {
+      "name": "pas de pierre tombale sur la liste d'un autre : accès perdu",
+      "input": {
+        "tombstoned": false,
+        "listOwnedByMe": false
+      },
+      "expected": "accessLost"
+    }
+  ]
+}

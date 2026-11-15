@@ -81,6 +81,34 @@ final class AppEnvironment {
       })
   }
 
+  /// Compte de l'appareil (#87) : liaison d'une adresse, connexion, déconnexion.
+  func makeAccountSession() -> AccountSession {
+    let sync = sync
+    let container = container
+    let cursors = UserDefaultsSyncCursors()
+    // Entrées `pending` et `failed` : toutes celles qui restent dans la file seraient perdues.
+    let pendingChanges: () -> Int = { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 }
+    let link = AccountLink.Dependencies(
+      isOnline: { sync?.isOnline ?? true },
+      resendableLists: { accountId in
+        // Même compte (reconnexion) : rien n'est renvoyé.
+        guard cursors.accountId != accountId else { return 0 }
+        return (try? AccountRekey.resendCount(in: container.mainContext, previousAccountId: cursors.accountId)) ?? 0
+      },
+      synchronize: { await sync?.synchronize() },
+      sessionDidChange: { sync?.sessionDidChange() },
+      previousAccountId: { cursors.accountId },
+      pendingChanges: pendingChanges,
+      suspendSync: { await sync?.suspend() },
+      resumeSync: { await sync?.resumeAndWait() })
+    return AccountSession(
+      gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: LocalDataPurge(container: container),
+      dependencies: AccountSession.Dependencies(
+        isOnline: { sync?.isOnline ?? true },
+        pendingChanges: pendingChanges,
+        sessionDidChange: { sync?.sessionDidChange() }, link: link))
+  }
+
   /// Étape 2 de la suppression : rien ne reste affiché hors de l'app (nom de liste, magasin, article suivant), et
   /// plus rien n'écrit dans le store. La visite ouverte n'est pas close : elle va disparaître.
   func endShoppingForDeletion() {

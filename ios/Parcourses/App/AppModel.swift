@@ -9,12 +9,17 @@ final class AppModel {
   /// Change à chaque reconstruction : `RootView` repart de zéro, modèles d'écran compris.
   private(set) var generation = 0
   private(set) var deletion: AccountDeletion?
+  /// Compte de l'appareil (#87), reconstruit avec l'environnement.
+  private(set) var account: AccountSession?
   /// Drapeau `account.deletion` trouvé au lancement : la reprise de la suppression remplace l'app jusqu'à son issue,
   /// sans synchronisation ni `ensureSession`.
   private(set) var isResumingDeletion: Bool
   let gateway: (any RemoteGateway)?
 
-  init(flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()) {
+  init(
+    flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
+    signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore()
+  ) {
     let gateway = AuthBootstrap.makeGateway()
     self.gateway = gateway
     environment = Result { try AppEnvironment.live(gateway: gateway) }
@@ -22,9 +27,20 @@ final class AppModel {
     let current = try? environment.get()
     deletion = current?.makeAccountDeletion()
     deletion?.host = self
+    account = current?.makeAccountSession()
+    account?.host = self
+    // Déconnexion interrompue par un arrêt de l'app : la purge est achevée avant toute synchro, qui reste arrêtée sinon.
+    if signOutFlags.isPending, account?.resumePendingSignOut() == true { current?.sync?.resume() }
     // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
     // Jamais pendant une suppression : la coche irait dans des données sur le point d'être effacées.
     if !isResumingDeletion { CheckNextItemRouter.handler = current?.activityActions }
+  }
+
+  /// Au lancement, avant la synchro : changement de compte interrompu (drapeau `account.switch`), achevé puis synchro
+  /// reprise. Sinon la synchro reste arrêtée jusqu'au lancement suivant.
+  func resumePendingSwitch(flags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore()) async {
+    guard flags.isPending, let account else { return }
+    if await account.resumePendingSwitch() { sync?.resume() }
   }
 
   var sync: SyncRuntime? {
@@ -65,6 +81,8 @@ extension AppModel: AccountDeletionHost {
     let next = try? environment.get()
     deletion = next?.makeAccountDeletion()
     deletion?.host = self
+    account = next?.makeAccountSession()
+    account?.host = self
     CheckNextItemRouter.handler = next?.activityActions
     // Aucune visite ne survit à la purge : toute activité encore affichée est orpheline.
     next?.endOrphanActivities(keeping: nil)

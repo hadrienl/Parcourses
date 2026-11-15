@@ -16,10 +16,10 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   /// Garde-fou : ces noms sont repris tels quels par Android. Un écart doit passer par `SYNC.md`.
   @Test func entityAndPropertyNamesMatchTheDesign() {
     let expected: [String: Set<String>] = [
-      "ShoppingList": ["id", "name", "createdAt", "updatedAt", "deletedAt", "syncStateRaw"],
+      "ShoppingList": ["id", "name", "createdAt", "updatedAt", "deletedAt", "syncStateRaw", "ownerId"],
       "ListItem": [
         "id", "listId", "label", "normalizedName", "quantity", "productId", "categoryId", "checkedAt", "notFoundAt",
-        "position", "updatedAt", "syncStateRaw",
+        "position", "updatedAt", "syncStateRaw", "isOnServer", "updatedBy",
       ],
       "Visit": ["id", "storeId", "listId", "listWasSorted", "startedAt", "endedAt", "syncStateRaw", "endSyncStateRaw"],
       "Check": ["id", "visitId", "itemId", "productId", "categoryId", "checkedAt", "syncStateRaw"],
@@ -30,10 +30,10 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       "CategorySeedState": ["id", "version"],
       "OutboxEntry": [
         "id", "sequence", "kindRaw", "entityId", "payload", "createdAt", "attempts", "nextAttemptAt", "lastError",
-        "syncStateRaw", "serverFailingSince",
+        "syncStateRaw", "serverFailingSince", "changedFields",
       ],
     ]
-    let schema = Schema(versionedSchema: SchemaV3.self)
+    let schema = Schema(versionedSchema: SchemaV4.self)
     let actual = Dictionary(
       uniqueKeysWithValues: schema.entities.map { ($0.name, Set($0.storedProperties.map(\.name))) })
     #expect(actual == expected)
@@ -43,8 +43,45 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(SchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
     #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
     #expect(SchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
-    #expect(ParcoursesMigrationPlan.schemas.count == 3)
-    #expect(ParcoursesMigrationPlan.stages.count == 2)
+    #expect(SchemaV4.versionIdentifier == Schema.Version(4, 0, 0))
+    #expect(ParcoursesMigrationPlan.schemas.count == 4)
+    #expect(ParcoursesMigrationPlan.stages.count == 3)
+  }
+
+  /// Store écrit par une version précédente (V3) : les colonnes de 87.3 arrivent, un article accusé est marqué
+  /// présent sur le serveur, l'entrée en attente garde sa charge utile et n'a pas de champs (envoi complet).
+  @Test func aV3StoreMigratesToV4() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "v3.store")
+    let (listId, synced, pending, entryId) = (UUID(), UUID(), UUID(), UUID())
+    do {
+      let schema = Schema(versionedSchema: SchemaV3.self)
+      let container = try ModelContainer(
+        for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
+      let context = ModelContext(container)
+      context.insert(SchemaV1.ShoppingList(id: listId, name: "Ancienne", syncState: .synced))
+      context.insert(
+        SchemaV1.ListItem(
+          id: synced, listId: listId, label: "Lait", normalizedName: "lait", categoryId: "dairy", position: 0,
+          syncState: .synced))
+      context.insert(
+        SchemaV1.ListItem(
+          id: pending, listId: listId, label: "Pain", normalizedName: "pain", categoryId: "bakery", position: 1))
+      context.insert(
+        SchemaV3.OutboxEntry(id: entryId, sequence: 1, kind: .upsertItem, entityId: pending, payload: Data([1])))
+      try context.save()
+    }
+
+    let context = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+    let items = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<ListItem>()).map { ($0.id, $0) })
+    #expect(items[synced]?.isOnServer == true)
+    #expect(items[pending]?.isOnServer == false)
+    #expect(items[synced]?.updatedBy == nil)
+    #expect(try context.fetch(FetchDescriptor<ShoppingList>()).first?.ownerId == nil)
+    let entry = try #require(try context.fetch(FetchDescriptor<OutboxEntry>()).first)
+    #expect(entry.id == entryId && entry.payload == Data([1]) && entry.changedFields == nil)
   }
 
   @Test func valuesSurviveReopeningTheStoreFile() throws {

@@ -23,7 +23,9 @@ struct ParcoursesApp: App {
     }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
-      case .active: app.sync?.foreground()
+      case .active:
+        app.sync?.foreground()
+        Task { await app.account?.refresh() }
       case .background:
         guard let sync = app.sync else { break }
         sync.enteredBackground()
@@ -43,12 +45,15 @@ struct ParcoursesApp: App {
     } else {
       RootView(environment: environment)
         .environment(app.deletion)
+        .environment(app.account)
         .task {
+          await app.resumePendingSwitch()
           environment.sync?.start()
           if let gateway = app.gateway {
             await AuthBootstrap.signIn(gateway)
             environment.sync?.sessionDidChange()
           }
+          await app.account?.refresh()
         }
         // Après une suppression : environnement neuf, écrans et modèles repartent de zéro.
         .id(app.generation)
