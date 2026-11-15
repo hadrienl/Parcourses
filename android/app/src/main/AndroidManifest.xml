@@ -64,7 +64,8 @@
           https://<hôte>/.well-known/assetlinks.json (docs/site.md). Hôte : `parcourses.invitationHost`, le même que
           BuildConfig.INVITATION_HOST. Un alias et non un filtre de MainActivity, pour qu'un hôte vide coupe le https :
           l'alias est alors désactivé, sans autoVerify, sur un hôte réservé qui ne répond jamais (`.invalid`).
-          Le jeton est dans le fragment, que le filtre ne lit pas : MainActivity le vérifie (parseInvitationLink).
+          Chemin exact `/i/` (`path`, pas `pathPrefix`) : /i/invitation.js ou /i/autre restent au navigateur. Le
+          fragment et la requête ne comptent pas pour le filtre : MainActivity relit le lien (parseInvitationLink).
         -->
         <activity-alias
             android:name=".InvitationAppLinks"
@@ -78,7 +79,7 @@
                 <data
                     android:scheme="https"
                     android:host="${invitationHost}"
-                    android:pathPrefix="/i/" />
+                    android:path="/i/" />
             </intent-filter>
         </activity-alias>
     </application>

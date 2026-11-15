@@ -13,13 +13,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /** Racine de l'app : le [container] est unique par processus (une seule connexion anonyme à la fois). */
-class ParcoursesApp :
+open class ParcoursesApp :
     Application(),
     Configuration.Provider,
     LiveUpdateHost {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val container: AppContainer by lazy { AppContainer(this) }
+    val container: AppContainer by lazy { createContainer() }
+
+    /** Conteneur du processus. Les tests Robolectric de [MainActivity] le remplacent par un build à base en mémoire. */
+    protected open fun createContainer(): AppContainer = AppContainer(this)
 
     // Le receiver de la Live Update retrouve ici l'instance unique du contrôleur.
     override val liveUpdates: ShoppingLiveUpdates get() = container.liveUpdates

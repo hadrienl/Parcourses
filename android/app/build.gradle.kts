@@ -1,3 +1,4 @@
+import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuildConfigField
 
 plugins {
@@ -109,6 +110,21 @@ if (selectedEnvironment.orNull != "local") {
             }
         }
     }
+}
+
+// App Links des invitations (#87, lot 87.7) contrôlés sur le manifeste fusionné de chaque variante :
+// `:app:check<Variante>InvitationAppLinks`. La CI le lance avec l'hôte par défaut, puis avec `-Pparcourses.invitationHost=`.
+androidComponents.onVariants { variant ->
+    val name = variant.name.replaceFirstChar { it.uppercase() }
+    // Lu hors du bloc : dans `register`, `invitationHost` désigne la propriété de la tâche.
+    val buildHost = invitationHost
+    val appLinks =
+        tasks.register<InvitationAppLinksCheck>("check${name}InvitationAppLinks") {
+            mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+            invitationHost.set(buildHost)
+            report.set(layout.buildDirectory.file("reports/invitationAppLinks/${variant.name}.txt"))
+        }
+    tasks.named("check") { dependsOn(appLinks) }
 }
 
 // Baseline Profile (A12) : généré par :baselineprofile sur un appareil, puis commité dans

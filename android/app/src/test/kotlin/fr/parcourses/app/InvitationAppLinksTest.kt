@@ -1,31 +1,24 @@
 package fr.parcourses.app
 
 import android.app.Application
+import android.content.ComponentName
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.sharing.SharingDecisions
-import fr.parcourses.core.data.sync.AccountKind
-import fr.parcourses.core.database.ParcoursesDatabaseFactory
-import fr.parcourses.core.designsystem.ParcoursesTheme
 import fr.parcourses.core.network.InvitationLinks
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
@@ -33,47 +26,31 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * App Links des invitations (#87, lot 87.7) : hôte du build, filtre du manifeste, jeton lu dans l'intention et carte
- * de l'invitation. Un lien https sur l'hôte configuré mène au même écran que `parcourses://invitation#<jeton>`.
+ * App Links des invitations (#87, lot 87.7) : liens construits avec l'hôte du build, filtre du manifeste et jeton lu
+ * dans l'intention. Aucun hôte écrit en dur : tout vient de `BuildConfig.INVITATION_HOST`. Les tests du https sont
+ * ignorés quand le build n'a pas d'hôte ; la variante sans hôte (alias désactivé) est vérifiée sur le manifeste
+ * fusionné par `:app:check<Variante>InvitationAppLinks` (CI), et ici en désactivant l'alias.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class)
 class InvitationAppLinksTest {
-    @get:Rule
-    val rule = createComposeRule()
-
     private val app = RuntimeEnvironment.getApplication()
     private val host = BuildConfig.INVITATION_HOST
     private val token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
 
-    // Conteneur créé à la demande : seuls les tests de navigation ouvrent une base.
-    private val container by lazy {
-        AppContainer(app, config = null) { context ->
-            ParcoursesDatabaseFactory.createInMemory(context, Dispatchers.IO, AndroidSQLiteDriver())
-        }
-    }
-    private var containerUsed = false
-
-    @After
-    fun tearDown() {
-        if (containerUsed) container.database.close()
-    }
-
-    /** Intention d'un navigateur ou d'une app de messagerie qui ouvre [url]. */
-    private fun view(url: String): Intent =
-        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+    private fun assumeHttpsHost() = assumeTrue("build sans hôte d'invitation", host.isNotEmpty())
 
     private fun resolved(url: String) =
-        app.packageManager.queryIntentActivities(view(url), PackageManager.GET_RESOLVED_FILTER)
+        app.packageManager.queryIntentActivities(viewIntent(url), PackageManager.GET_RESOLVED_FILTER)
 
-    // region Hôte du build
+    // region Liens
 
     @Test
-    fun theDefaultHostIsTheDecidedDomain() {
-        assertEquals("parcourses.hadrien.eu", host)
+    fun copiedLinksUseTheBuildHost() {
+        assumeHttpsHost()
         val links = InvitationLinks(host)
         // « Copier le lien » : le lien https, que l'app relit comme un lien du schéma.
-        assertEquals("https://parcourses.hadrien.eu/i/#$token", links.link(token))
+        assertEquals("https://$host/i/#$token", links.link(token))
         assertEquals(token, SharingDecisions.parseInvitationLink(links.link(token), links.httpsHost))
         assertEquals(token, SharingDecisions.parseInvitationLink("parcourses://invitation#$token", links.httpsHost))
     }
@@ -83,8 +60,8 @@ class InvitationAppLinksTest {
         val links = InvitationLinks("")
         assertNull(links.httpsHost)
         assertEquals("parcourses://invitation#$token", links.link(token))
-        assertNull(AppLinkIntents.invitationToken(view("https://$host/i/#$token"), links.httpsHost))
-        assertEquals(token, AppLinkIntents.invitationToken(view("parcourses://invitation#$token"), links.httpsHost))
+        assertNull(AppLinkIntents.invitationToken(viewIntent("https://parcourses.example/i/#$token"), links.httpsHost))
+        assertEquals(token, AppLinkIntents.invitationToken(viewIntent("parcourses://invitation#$token"), null))
     }
 
     /**
@@ -93,6 +70,7 @@ class InvitationAppLinksTest {
      */
     @Test
     fun vector001HoldsWithTheBuildHost() {
+        assumeHttpsHost()
         val dir = File(requireNotNull(System.getProperty("parcourses.sharingVectors")) { "parcourses.sharingVectors" })
         val vector = Json.parseToJsonElement(File(dir, "001-parse-invitation-link.json").readText()).jsonObject
         val example = Regex("parcourses\\.example", RegexOption.IGNORE_CASE)
@@ -112,7 +90,7 @@ class InvitationAppLinksTest {
                     ?.jsonPrimitive
                     ?.content
             val name = case.getValue("name").jsonPrimitive.content
-            assertEquals(name, expected, AppLinkIntents.invitationToken(view(url), httpsHost))
+            assertEquals(name, expected, AppLinkIntents.invitationToken(viewIntent(url), httpsHost))
             assertEquals(name, expected, SharingDecisions.parseInvitationLink(url, httpsHost))
         }
     }
@@ -125,10 +103,12 @@ class InvitationAppLinksTest {
 
     @Test
     fun theHttpsLinkOpensTheAppWithAVerifiedFilter() {
+        assumeHttpsHost()
         val matches = resolved("https://$host/i/#$token")
         assertEquals(1, matches.size)
         val activity = matches.single().activityInfo
         assertEquals(app.packageName, activity.packageName)
+        assertEquals(INVITATION_ALIAS, activity.name)
         assertEquals(MainActivity::class.java.name, activity.targetActivity)
         // `autoVerify` : API masquée d'IntentFilter, lue par réflexion sur l'android-all de Robolectric.
         val filter = requireNotNull(matches.single().filter)
@@ -140,70 +120,69 @@ class InvitationAppLinksTest {
 
     @Test
     fun anotherHostHttpOrAnotherPathIsRefused() {
+        assumeHttpsHost()
         listOf(
             "https://evil.example/i/#$token",
             "https://$host.evil.example/i/#$token",
             "http://$host/i/#$token",
             "https://$host/x/#$token",
             "https://$host/#$token",
+            // Chemin exact (`android:path`) : les fichiers de la page et les sous-chemins restent au navigateur.
+            "https://$host/i/invitation.js",
+            "https://$host/i/x/#$token",
+            "https://$host/i#$token",
         ).forEach { url ->
             assertTrue(url, resolved(url).isEmpty())
-            assertNull(url, AppLinkIntents.invitationToken(view(url), host))
+            assertNull(url, AppLinkIntents.invitationToken(viewIntent(url), host))
         }
+    }
+
+    /**
+     * Une requête ne fait pas partie du chemin pour le filtre : `/i/?utm=…#jeton` ouvre l'app, mais le vecteur `001`
+     * exige `/i/` exactement, donc aucun jeton n'est lu (l'app s'ouvre sur ses listes).
+     */
+    @Test
+    fun aQueryReachesTheAppWithoutAToken() {
+        assumeHttpsHost()
+        val url = "https://$host/i/?utm_source=mail#$token"
+        assertEquals(1, resolved(url).size)
+        assertNull(AppLinkIntents.invitationToken(viewIntent(url), host))
     }
 
     @Test
     fun theSchemeLinkIsKept() {
         val matches = resolved("parcourses://invitation#$token")
         assertEquals(MainActivity::class.java.name, matches.single().activityInfo.name)
-        assertEquals(token, AppLinkIntents.invitationToken(view("parcourses://invitation#$token"), host))
+        assertEquals(token, AppLinkIntents.invitationToken(viewIntent("parcourses://invitation#$token"), host))
+    }
+
+    /** Ce que produit un hôte vide (alias désactivé) : plus aucun lien https vers l'app, le schéma reste. */
+    @Test
+    fun aDisabledAliasCutsHttpsButKeepsTheScheme() {
+        app.packageManager.setComponentEnabledSetting(
+            ComponentName(app, INVITATION_ALIAS),
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        val https = if (host.isEmpty()) "https://parcourses.example/i/#$token" else "https://$host/i/#$token"
+        assertTrue(resolved(https).isEmpty())
+        assertEquals(1, resolved("parcourses://invitation#$token").size)
     }
 
     @Test
     fun aLinkReplayedFromRecentAppsIsNotFollowed() {
-        val replayed = view("https://$host/i/#$token").addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+        val replayed = viewIntent("parcourses://invitation#$token").addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
         assertNull(AppLinkIntents.invitationToken(replayed, host))
-        assertNull(
-            AppLinkIntents.invitationToken(Intent(Intent.ACTION_MAIN, Uri.parse("https://$host/i/#$token")), host),
-        )
+        val notView = Intent(Intent.ACTION_MAIN, Uri.parse("parcourses://invitation#$token"))
+        assertNull(AppLinkIntents.invitationToken(notView, host))
     }
 
     // endregion
-    // region Navigation
-
-    /** L'intention reçue par `MainActivity`, puis la navigation : l'écran `Route.Invitation` s'ouvre sur ce jeton. */
-    private fun openFromIntent(url: String) {
-        val received = requireNotNull(AppLinkIntents.invitationToken(view(url), container.invitationLinks.httpsHost))
-        container.offerInvitation(received)
-        rule.waitUntil(5_000) { rule.onAllNodesWithTag(TAG_INVITATION_CLOSE).fetchSemanticsNodes().isNotEmpty() }
-        assertEquals(token, container.pendingInvitation)
-    }
-
-    private fun showNavigation() {
-        containerUsed = true
-        container.accountKind.write(AccountKind.Email)
-        rule.setContent { ParcoursesTheme { ParcoursesNavHost(container) } }
-    }
-
-    @Test
-    fun theHttpsLinkOpensTheInvitationCard() {
-        showNavigation()
-        openFromIntent("https://$host/i/#$token")
-    }
-
-    @Test
-    fun theSchemeLinkOpensTheSameInvitationCard() {
-        showNavigation()
-        openFromIntent("parcourses://invitation#$token")
-        // Un second lien, https cette fois, remplace l'écran du premier : un seul écran d'invitation.
-        openFromIntent("https://$host/i/#$token")
-        assertEquals(1, rule.onAllNodesWithTag(TAG_INVITATION_CLOSE).fetchSemanticsNodes().size)
-    }
-
-    // endregion
-
-    private companion object {
-        /** `TAG_INVITATION_CLOSE` de `:feature:lists` (interne au module) : barre de l'écran d'une invitation. */
-        const val TAG_INVITATION_CLOSE = "invitation-close"
-    }
 }
+
+/** Alias du manifeste qui porte le filtre des App Links. */
+internal const val INVITATION_ALIAS = "fr.parcourses.app.InvitationAppLinks"
+
+/** Intention d'un navigateur ou d'une app de messagerie qui ouvre [url]. */
+internal fun viewIntent(url: String): Intent =
+    Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
