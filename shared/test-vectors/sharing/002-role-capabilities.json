@@ -1,0 +1,53 @@
+{
+  "id": "002-role-capabilities",
+  "function": "roleCapabilities",
+  "description": "Ce que l'interface propose selon le rôle sur la liste (#87 §1.4, Q5 : un lecteur ne fait pas les courses). Le serveur reste juge (RLS) ; l'interface n'affiche pas ce qu'il refuserait.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "propriétaire",
+      "input": {
+        "role": "owner"
+      },
+      "expected": {
+        "canEditItems": true,
+        "canShop": true,
+        "canShare": true,
+        "canManageMembers": true,
+        "canLeave": false,
+        "canRenameList": true,
+        "canDeleteList": true
+      }
+    },
+    {
+      "name": "éditeur",
+      "input": {
+        "role": "editor"
+      },
+      "expected": {
+        "canEditItems": true,
+        "canShop": true,
+        "canShare": false,
+        "canManageMembers": false,
+        "canLeave": true,
+        "canRenameList": false,
+        "canDeleteList": false
+      }
+    },
+    {
+      "name": "lecteur",
+      "input": {
+        "role": "viewer"
+      },
+      "expected": {
+        "canEditItems": false,
+        "canShop": false,
+        "canShare": false,
+        "canManageMembers": false,
+        "canLeave": true,
+        "canRenameList": false,
+        "canDeleteList": false
+      }
+    }
+  ]
+}

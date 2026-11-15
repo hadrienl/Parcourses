@@ -33,6 +33,15 @@ fun supabaseUrl(environment: String): String =
 
 fun String.asBuildConfigString() = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+// Hôte des liens d'invitation https (#87) : vide par défaut jusqu'aux App Links et à assetlinks.json du lot 87.7.
+// Aucun domaine n'est écrit en dur ; `-Pparcourses.invitationHost=<hôte>` ou ~/.gradle/gradle.properties.
+val invitationHost: String =
+    providers
+        .gradleProperty("parcourses.invitationHost")
+        .orNull
+        .orEmpty()
+        .trim()
+
 android {
     namespace = "fr.parcourses.app"
     defaultConfig {
@@ -41,6 +50,7 @@ android {
         versionName = "0.1.0"
     }
     buildFeatures.buildConfig = true
+    defaultConfig.buildConfigField("String", "INVITATION_HOST", invitationHost.asBuildConfigString())
     // Captures Roborazzi (A11) : Robolectric a besoin des ressources fusionnées.
     testOptions.unitTests.isIncludeAndroidResources = true
     buildTypes {
@@ -114,6 +124,7 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)

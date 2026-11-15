@@ -47,11 +47,12 @@ class RemoteContractTest {
             ProductRow.spec,
             TombstoneRow.spec,
             ProfileRow.spec,
+            ListMemberRow.spec,
         )
 
     /**
      * Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
-     * `list_members` (#87, lot 87.2) : lue avec le partage, lot Android 87.6.
+     * `list_members` est lue depuis le lot 87.6 (pastilles, marques d'auteur) : elle a son DTO.
      */
     private val tablesWithoutDto =
         setOf(
@@ -60,7 +61,6 @@ class RemoteContractTest {
             "store_entries",
             "store_stats",
             "store_graph_snapshots",
-            "list_members",
         )
 
     /**

@@ -45,6 +45,18 @@
                     android:scheme="parcourses"
                     android:host="shopping" />
             </intent-filter>
+            <!--
+              Invitation (#87) : parcourses://invitation#<jeton>, ouvert depuis un e-mail ou la page /i/ (BROWSABLE).
+              Pas d'autoVerify ni de lien https : les App Links et assetlinks.json viennent au lot 87.7.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="parcourses"
+                    android:host="invitation" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

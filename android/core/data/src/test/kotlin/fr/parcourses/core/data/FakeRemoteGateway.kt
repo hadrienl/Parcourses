@@ -1,5 +1,6 @@
 package fr.parcourses.core.data
 
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
@@ -8,15 +9,23 @@ import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import fr.parcourses.core.network.dto.InvitationAcceptance
+import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
+import fr.parcourses.core.network.dto.ListMemberRow
+import fr.parcourses.core.network.dto.ListParticipant
 import fr.parcourses.core.network.dto.ListRow
+import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.NearbyStoreRow
 import fr.parcourses.core.network.dto.ProductResolutionRequest
+import fr.parcourses.core.network.dto.ProfileRow
+import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
+import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TombstoneRow
 import fr.parcourses.core.network.dto.VerifiedCode
@@ -323,4 +332,100 @@ class FakeRemoteGateway(
         storeId: Uuid,
         knownVersion: Long?,
     ): GraphSnapshotResponse = GraphSnapshotResponse.Unchanged
+
+    // region Partage (#87, lot 87.6)
+
+    /** Membres des listes (`list_members`) et prénoms (`profiles`) du serveur. */
+    var listMembers: List<ListMemberRow> = emptyList()
+    var profiles: List<ProfileRow> = emptyList()
+
+    /** Mon rôle par liste ; par défaut propriétaire de mes listes, éditeur des autres. */
+    val roles = mutableMapOf<Uuid, ListRole>()
+
+    /** Réponses programmées des invitations. */
+    var sentInvitation: (Uuid, String, ListRole) -> SentInvitation = { _, _, _ ->
+        SentInvitation(
+            Uuid.random(),
+            "parcourses://invitation#${"a".repeat(TOKEN_LENGTH)}",
+            true,
+            Instant.DISTANT_FUTURE,
+        )
+    }
+    var receivedInvitations: List<ReceivedInvitation> = emptyList()
+    var preview: InvitationPreview = InvitationPreview(status = "invalid")
+    var acceptance: InvitationAcceptance = InvitationAcceptance(status = "invalid")
+
+    override suspend fun sendInvitation(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): SentInvitation {
+        enter("sendInvitation", email)
+        return sentInvitation(listId, email, role)
+    }
+
+    override suspend fun invitationLink(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): String {
+        enter("invitationLink", email)
+        return "parcourses://invitation#${"b".repeat(TOKEN_LENGTH)}"
+    }
+
+    override suspend fun revokeInvitation(id: Uuid) = enter("revokeInvitation", id.toString())
+
+    /** Refus (`not allowed`) pour une liste que [accessibleListIds] ne donne pas. */
+    override suspend fun listSharing(listId: Uuid): ListSharing {
+        enter("listSharing", listId.toString())
+        val readable =
+            accessible?.invoke()
+                ?: (localLists().map(Uuid::parse) + remoteLists.map { it.id } + savedLists).distinct()
+        if (listId !in readable) throw RemoteError.Forbidden()
+        val owner = remoteLists.firstOrNull { it.id == listId }?.ownerId ?: account
+        val role = roles[listId] ?: if (owner == account) ListRole.Owner else ListRole.Editor
+        val names = profiles.associate { it.userId to it.displayName }
+        val members =
+            listMembers.filter { it.listId == listId }.map {
+                ListParticipant(it.userId, names[it.userId], it.role, it.userId == account, it.createdAt)
+            }
+        return ListSharing(listId, role, ListParticipant(owner, names[owner], isMe = owner == account), members)
+    }
+
+    override suspend fun myInvitations(): List<ReceivedInvitation> = receivedInvitations.also { enter("myInvitations") }
+
+    override suspend fun previewInvitation(token: String): InvitationPreview =
+        preview.also { enter("previewInvitation") }
+
+    override suspend fun acceptInvitation(token: String): InvitationAcceptance =
+        acceptance.also { enter("acceptInvitation", "token") }
+
+    override suspend fun acceptInvitation(id: Uuid): InvitationAcceptance =
+        acceptance.also { enter("acceptInvitation", id.toString()) }
+
+    override suspend fun declineInvitation(id: Uuid) = enter("declineInvitation", id.toString())
+
+    override suspend fun setMemberRole(
+        listId: Uuid,
+        userId: Uuid,
+        role: ListRole,
+    ) = enter("setMemberRole", "$userId:${role.wireName}")
+
+    override suspend fun removeMember(
+        listId: Uuid,
+        userId: Uuid,
+    ) = enter("removeMember", userId.toString())
+
+    override suspend fun fetchListMembers(): List<ListMemberRow> = listMembers.also { enter("fetchListMembers") }
+
+    override suspend fun fetchProfiles(userIds: List<Uuid>): List<ProfileRow> {
+        enter("fetchProfiles")
+        return profiles.filter { it.userId in userIds }
+    }
+
+    private companion object {
+        const val TOKEN_LENGTH = 43
+    }
+
+    // endregion
 }

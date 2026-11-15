@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sharing.SharingFailure
+import fr.parcourses.core.data.sharing.SharingService
 import fr.parcourses.core.data.sync.IdentifierRemap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +34,10 @@ data class ListsUiState(
 class ListsViewModel(
     private val repository: ListRepository,
     remaps: Flow<IdentifierRemap> = emptyFlow(),
+    /** Partage (#87) : « Quitter la liste ». `null` sans Supabase. */
+    private val sharing: SharingService? = null,
+    /** Texte d'un échec du partage (hors ligne…), traduit par l'écran. */
+    private val sharingError: (SharingFailure) -> String = { it.kind.wireName },
     private val now: () -> Instant = { Clock.System.now() },
 ) : ViewModel() {
     private val errorDetail = MutableStateFlow<String?>(null)
@@ -70,6 +76,18 @@ class ListsViewModel(
 
     fun delete(id: String) {
         viewModelScope.launch { perform { repository.deleteList(identifiers[id], now()) } }
+    }
+
+    /** « Quitter la liste » (membre) : la liste disparaît de l'appareil. Réseau exigé, rien en file. */
+    fun leave(id: String) {
+        val remote = sharing ?: return
+        viewModelScope.launch {
+            try {
+                remote.leaveList(identifiers[id])
+            } catch (e: SharingFailure) {
+                errorDetail.value = sharingError(e)
+            }
+        }
     }
 
     fun dismissError() = errorDetail.update { null }

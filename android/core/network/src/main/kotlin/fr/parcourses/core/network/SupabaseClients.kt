@@ -11,6 +11,7 @@ import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.logging.LogLevel
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.realtime.Realtime
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,16 +23,22 @@ import okhttp3.Response
 import java.io.IOException
 
 /**
- * Passerelle de production : session chiffrée (DataStore + Tink + Keystore), OkHttp, pas de Realtime (#10, §4.2).
- * Création sans effet réseau : la connexion anonyme se fait par [AuthBootstrap.signIn].
+ * Passerelle de production : session chiffrée (DataStore + Tink + Keystore), OkHttp, Realtime pour les seuls signaux
+ * du partage (#87 §6.2, canal ouvert au premier plan). Création sans effet réseau : la connexion anonyme se fait par
+ * [AuthBootstrap.signIn].
  */
 fun createSupabaseGateway(
     context: Context,
     config: SupabaseConfig,
+    invitationLinks: InvitationLinks = InvitationLinks(null),
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): SupabaseGateway {
     val store = DataStoreSecureStateStore.create(context, dispatcher)
-    return SupabaseGateway(createSupabaseClient(config, store, okHttpEngine(), dispatcher), store)
+    return SupabaseGateway(
+        createSupabaseClient(config, store, okHttpEngine(), dispatcher),
+        store,
+        invitationLinks = invitationLinks,
+    )
 }
 
 /** Moteur HTTP de l'app : OkHttp, avec le seul intercepteur qui distingue une requête jamais partie. */
@@ -82,6 +89,8 @@ internal fun createSupabaseClient(
             enableLifecycleCallbacks = lifecycleCallbacks
         }
         install(Postgrest)
+        // Aucune connexion tant qu'aucun canal n'est ouvert : le WebSocket suit le canal `user:<uid>` (#87 §6.6).
+        install(Realtime)
     }
 
 /**
@@ -91,11 +100,13 @@ internal fun createSupabaseClient(
 fun createInMemorySupabaseGateway(
     config: SupabaseConfig,
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
-): RemoteGateway {
+    functionsUrl: String? = null,
+): SupabaseGateway {
     val store = InMemorySecureStateStore()
     return SupabaseGateway(
         createSupabaseClient(config, store, okHttpEngine(), dispatcher, lifecycleCallbacks = false),
         store,
+        functionsUrl = functionsUrl,
     )
 }
 

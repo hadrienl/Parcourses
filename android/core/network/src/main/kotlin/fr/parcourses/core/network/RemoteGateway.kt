@@ -1,18 +1,26 @@
 package fr.parcourses.core.network
 
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import fr.parcourses.core.network.dto.InvitationAcceptance
+import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
+import fr.parcourses.core.network.dto.ListMemberRow
 import fr.parcourses.core.network.dto.ListRow
+import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.NearbyStoreRow
 import fr.parcourses.core.network.dto.ProductResolutionRequest
+import fr.parcourses.core.network.dto.ProfileRow
+import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
+import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TombstoneRow
 import fr.parcourses.core.network.dto.VerifiedCode
@@ -111,6 +119,65 @@ interface RemoteGateway {
      * et le dernier compte connu comme [signOutLocally]. Hors ligne, la session est quand même vidée sur l'appareil.
      */
     suspend fun signOut()
+
+    // endregion
+
+    // region Partage (#87, lot 87.6) : réseau exigé, rien en file. Un refus lève [SharingRequestError].
+
+    /**
+     * Crée l'invitation de [email] (ou renouvelle son jeton) et l'envoie par e-mail : Edge Function `send-invitation`.
+     * [SentInvitation.sent] faux : l'invitation existe mais l'e-mail n'est pas parti, l'app propose le lien.
+     */
+    suspend fun sendInvitation(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): SentInvitation
+
+    /**
+     * « Copier le lien » : `create_invitation` sans e-mail. Le jeton est neuf : le lien déjà envoyé ne marche plus.
+     * Renvoie le lien construit par [InvitationLinks].
+     */
+    suspend fun invitationLink(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): String
+
+    suspend fun revokeInvitation(id: Uuid)
+
+    /** Rôle, propriétaire, membres et invitations vivantes. Accès perdu : [RemoteError.Forbidden] (`not allowed`). */
+    suspend fun listSharing(listId: Uuid): ListSharing
+
+    /** Invitations adressées à l'adresse vérifiée du compte. */
+    suspend fun myInvitations(): List<ReceivedInvitation>
+
+    /** Carte d'une invitation ouverte par son lien. Jamais pour un compte anonyme (le serveur le refuse). */
+    suspend fun previewInvitation(token: String): InvitationPreview
+
+    suspend fun acceptInvitation(token: String): InvitationAcceptance
+
+    suspend fun acceptInvitation(id: Uuid): InvitationAcceptance
+
+    suspend fun declineInvitation(id: Uuid)
+
+    suspend fun setMemberRole(
+        listId: Uuid,
+        userId: Uuid,
+        role: ListRole,
+    )
+
+    /** Retire un membre ; « Quitter la liste » : son propre compte. */
+    suspend fun removeMember(
+        listId: Uuid,
+        userId: Uuid,
+    )
+
+    /** Membres de toutes les listes lisibles (`list_members`), pour les pastilles et les marques d'auteur. */
+    suspend fun fetchListMembers(): List<ListMemberRow>
+
+    /** Prénoms de ces comptes (`profiles`, lisibles entre membres d'une même liste). */
+    suspend fun fetchProfiles(userIds: List<Uuid>): List<ProfileRow>
 
     // endregion
 

@@ -2,6 +2,7 @@ package fr.parcourses.core.data.repository
 
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
+import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
@@ -23,19 +24,34 @@ sealed class RepositoryException(
         val id: String,
     ) : RepositoryException("Cet article est déjà coché.")
 
+    /**
+     * Lecteur d'une liste partagée (#87, Q5) : ni saisie, ni coche, ni suppression d'article, ni coche de visite. La
+     * RLS refuserait l'écriture ; elle est arrêtée ici avant d'entrer dans la file.
+     */
+    class ReadOnly(
+        val id: String,
+    ) : RepositoryException("Cette liste est en lecture seule.")
+
     /** Une coche ne s'ajoute pas à une visite déjà close. */
     class VisitClosed(
         val id: String,
     ) : RepositoryException("Cette visite est déjà terminée.")
 }
 
-/** Une liste avec ses compteurs, telle qu'affichée sur l'écran Listes. */
+/**
+ * Une liste avec ses compteurs, telle qu'affichée sur l'écran Listes. [role] : mon rôle ; [sharedWith] : prénoms des
+ * autres personnes de la liste (propriétaire d'abord), vide si elle n'est pas partagée (#87, lot 87.6).
+ */
 data class ListSummary(
     val id: String,
     val name: String,
     val remaining: Int,
     val total: Int,
-)
+    val role: ListRole = ListRole.Owner,
+    val sharedWith: List<String?> = emptyList(),
+) {
+    val isShared: Boolean get() = sharedWith.isNotEmpty()
+}
 
 /**
  * Listes et articles. Les lectures sont des `Flow` Room (source de vérité de l'UI) ; les écritures passent par la

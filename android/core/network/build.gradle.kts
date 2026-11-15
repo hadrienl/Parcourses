@@ -27,9 +27,12 @@ tasks.withType<Test>().configureEach {
 }
 
 dependencies {
+    // Rôle sur une liste (#87, lot 87.6), commun à la base, au réseau et aux écrans.
+    api(project(":core:model"))
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.androidx.datastore)
     implementation(libs.tink.android)

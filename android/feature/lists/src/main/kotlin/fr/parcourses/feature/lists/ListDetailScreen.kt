@@ -1,6 +1,8 @@
 package fr.parcourses.feature.lists
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -25,6 +28,7 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AssistChip
@@ -35,6 +39,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
@@ -45,6 +51,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,10 +77,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.designsystem.AisleLine
+import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
 import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.MemberAvatar
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -87,6 +98,8 @@ import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
+import fr.parcourses.core.model.ListRole
+import kotlinx.coroutines.launch
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -95,6 +108,7 @@ fun ListDetailRoute(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onStartShopping: ((listId: String) -> Unit)? = null,
+    onShare: ((listId: String) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ListDetailScreen(
@@ -108,6 +122,8 @@ fun ListDetailRoute(
         onDismissError = viewModel::dismissError,
         modifier = modifier,
         onStartShopping = onStartShopping?.let { start -> { start(viewModel.listId.value) } },
+        onShare = onShare?.let { share -> { share(viewModel.listId.value) } },
+        onAcknowledge = viewModel::acknowledge,
     )
 }
 
@@ -129,48 +145,124 @@ fun ListDetailScreen(
     onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
     onStartShopping: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onAcknowledge: (AccessChange) -> Unit = {},
 ) {
     val colors = Ticket.colors
+    val sharing = state.sharing
+    val capabilities = sharing.capabilities
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // « Lecture seule : cette liste ne se modifie pas ici. » une seule fois par ouverture.
+    var readOnlyHinted by rememberSaveable { mutableStateOf(false) }
+    val readOnlyText = stringResource(R.string.ro_tap)
+    val onReadOnlyTap = {
+        if (!readOnlyHinted) {
+            readOnlyHinted = true
+            scope.launch { snackbar.showSnackbar(readOnlyText) }
+        }
+    }
+    val upgrade = sharing.notice as? AccessChange.Upgraded
+    val upgradeText = upgrade?.let { stringResource(R.string.ro_upgrade, ownerName(it.ownerName)) }
+    LaunchedEffect(upgrade) {
+        if (upgrade != null && upgradeText != null) {
+            onAcknowledge(upgrade)
+            snackbar.showSnackbar(upgradeText)
+        }
+    }
+    val removed = (sharing.notice as? AccessChange.Removed)?.takeIf { state.isMissing }
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.desk),
-                title = { Text(state.name) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.detail_back),
-                        )
-                    }
-                },
-            )
+            DetailTopBar(state, onBack, onShare.takeIf { !state.isMissing })
         },
-        bottomBar = {
-            if (!state.isMissing) {
-                Dock(
-                    suggestions = state.suggestions,
-                    input = input,
-                    onSubmit = onSubmit,
-                    onSuggestion = onSuggestion,
-                    focusOnStart = state.isLoaded && state.isEmpty,
-                    onStartShopping = onStartShopping.takeIf { !state.isEmpty },
-                )
-            }
-        },
+        bottomBar = { DetailBottomBar(state, input, onSubmit, onSuggestion, onStartShopping) },
     ) { padding ->
         TicketSheet(Modifier.padding(padding)) {
-            when {
-                state.isMissing -> Placeholder(R.string.detail_missing_title, R.string.detail_missing_body)
-                state.isLoaded && state.isEmpty -> Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
-                else -> Sections(state.sections, onToggle, onDelete)
-            }
+            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap)
+            DetailContent(state, removed, actions, onAcknowledge, onBack)
         }
     }
     state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
+
+/** Bas de l'écran : la saisie et « Courses », ou la note d'un lecteur ; rien pour une liste disparue. */
+@Composable
+private fun DetailBottomBar(
+    state: ListDetailUiState,
+    input: TextFieldState,
+    onSubmit: () -> Unit,
+    onSuggestion: (ItemSuggestion) -> Unit,
+    onStartShopping: (() -> Unit)?,
+) {
+    val capabilities = state.sharing.capabilities
+    when {
+        state.isMissing -> {
+            Unit
+        }
+
+        !capabilities.canEditItems -> {
+            ReadOnlyNote(state.sharing.ownerName, Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+        }
+
+        else -> {
+            Dock(
+                suggestions = state.suggestions,
+                input = input,
+                onSubmit = onSubmit,
+                onSuggestion = onSuggestion,
+                focusOnStart = state.isLoaded && state.isEmpty,
+                onStartShopping = onStartShopping.takeIf { !state.isEmpty && capabilities.canShop },
+            )
+        }
+    }
+}
+
+/** Le ticket : liste retirée, introuvable, vide, ou ses rayons sous les bandeaux du partage. */
+@Composable
+private fun DetailContent(
+    state: ListDetailUiState,
+    removed: AccessChange.Removed?,
+    actions: ItemActions,
+    onAcknowledge: (AccessChange) -> Unit,
+    onBack: () -> Unit,
+) {
+    when {
+        removed != null -> {
+            RemovedState(removed) {
+                onAcknowledge(removed)
+                onBack()
+            }
+        }
+
+        state.isMissing -> {
+            Placeholder(R.string.detail_missing_title, R.string.detail_missing_body)
+        }
+
+        else -> {
+            Column(Modifier.fillMaxSize()) {
+                SharingBanners(state.sharing, onAcknowledge)
+                Box(Modifier.weight(1f)) {
+                    if (state.isLoaded && state.isEmpty) {
+                        Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
+                    } else {
+                        Sections(state.sections, actions, lastChange = state.sharing.lastChange)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. */
+private class ItemActions(
+    val readOnly: Boolean,
+    val onToggle: (ItemRow) -> Unit,
+    val onDelete: (ItemRow) -> Unit,
+    val onReadOnlyTap: () -> Unit,
+)
 
 @Composable
 private fun Placeholder(
@@ -201,8 +293,8 @@ private fun Placeholder(
 @Composable
 private fun Sections(
     sections: List<ItemSection>,
-    onToggle: (ItemRow) -> Unit,
-    onDelete: (ItemRow) -> Unit,
+    actions: ItemActions,
+    lastChange: LastChange?,
 ) {
     val total = sections.sumOf { it.items.size }
     val count = pluralStringResource(R.plurals.detail_item_count, total, total)
@@ -221,6 +313,9 @@ private fun Sections(
                 modifier = Modifier.clearAndSetSemantics { contentDescription = count },
             )
         }
+        if (lastChange != null) {
+            item(key = "last-change", contentType = "meta") { LastChangeLine(lastChange) }
+        }
         var index = 0
         sections.forEach { section ->
             val (top, bottom) = segments[index++]
@@ -230,12 +325,17 @@ private fun Sections(
             section.items.forEach { row ->
                 val (rowTop, rowBottom) = segments[index++]
                 item(key = row.id, contentType = "item") {
-                    ItemRowView(
-                        row,
-                        ThreadPiece(rowTop, rowBottom, if (row.isChecked) Bead.Checked else Bead.Idle),
-                        onToggle = { onToggle(row) },
-                        onDelete = { onDelete(row) },
-                    )
+                    val piece = ThreadPiece(rowTop, rowBottom, if (row.isChecked) Bead.Checked else Bead.Idle)
+                    if (actions.readOnly) {
+                        ReadOnlyItemRow(row, piece, onTap = actions.onReadOnlyTap)
+                    } else {
+                        ItemRowView(
+                            row,
+                            piece,
+                            onToggle = { actions.onToggle(row) },
+                            onDelete = { actions.onDelete(row) },
+                        )
+                    }
                 }
             }
         }
@@ -277,6 +377,7 @@ private fun ItemRowView(
     val checkedText = stringResource(R.string.detail_item_checked)
     val uncheckedText = stringResource(R.string.detail_item_unchecked)
     val deleteLabel = stringResource(R.string.detail_delete_item)
+    val label = spokenLabel(row)
     Row(
         modifier =
             Modifier
@@ -285,7 +386,7 @@ private fun ItemRowView(
                 .heightIn(min = TicketDimens.rowMin)
                 .toggleable(value = row.isChecked, role = Role.Checkbox, onValueChange = { onToggle() })
                 .semantics(mergeDescendants = true) {
-                    contentDescription = row.accessibilityLabel
+                    contentDescription = label
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
                     customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
                 }.padding(start = ThreadLayout.contentStart),
@@ -303,6 +404,7 @@ private fun ItemRowView(
                     .weight(1f)
                     .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
         )
+        AuthorMark(row.authorMark)
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
         }

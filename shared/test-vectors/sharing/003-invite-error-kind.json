@@ -1,0 +1,106 @@
+{
+  "id": "003-invite-error-kind",
+  "function": "inviteErrorKind",
+  "description": "Erreur renvoyée par l'Edge Function send-invitation ({ error }) ou par la RPC create_invitation (message) → message affiché dans la feuille « Partager ». error nul : pas de réponse (hors ligne, délai).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "invalid_email",
+      "input": {
+        "error": "invalid_email"
+      },
+      "expected": "invalidEmail"
+    },
+    {
+      "name": "invalid_role",
+      "input": {
+        "error": "invalid_role"
+      },
+      "expected": "unknown"
+    },
+    {
+      "name": "self_invitation",
+      "input": {
+        "error": "self_invitation"
+      },
+      "expected": "selfInvitation"
+    },
+    {
+      "name": "already_member",
+      "input": {
+        "error": "already_member"
+      },
+      "expected": "alreadyMember"
+    },
+    {
+      "name": "list_full",
+      "input": {
+        "error": "list_full"
+      },
+      "expected": "listFull"
+    },
+    {
+      "name": "daily_limit",
+      "input": {
+        "error": "daily_limit"
+      },
+      "expected": "dailyLimit"
+    },
+    {
+      "name": "pending_limit",
+      "input": {
+        "error": "pending_limit"
+      },
+      "expected": "pendingLimit"
+    },
+    {
+      "name": "recipient_limit",
+      "input": {
+        "error": "recipient_limit"
+      },
+      "expected": "recipientLimit"
+    },
+    {
+      "name": "not allowed",
+      "input": {
+        "error": "not allowed"
+      },
+      "expected": "notAllowed"
+    },
+    {
+      "name": "unauthorized",
+      "input": {
+        "error": "unauthorized"
+      },
+      "expected": "signInRequired"
+    },
+    {
+      "name": "rpc_failed",
+      "input": {
+        "error": "rpc_failed"
+      },
+      "expected": "unknown"
+    },
+    {
+      "name": "invalid_body",
+      "input": {
+        "error": "invalid_body"
+      },
+      "expected": "unknown"
+    },
+    {
+      "name": "misconfigured",
+      "input": {
+        "error": "misconfigured"
+      },
+      "expected": "unknown"
+    },
+    {
+      "name": "sans réponse",
+      "input": {
+        "error": null
+      },
+      "expected": "offline"
+    }
+  ]
+}

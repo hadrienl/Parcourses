@@ -135,8 +135,8 @@ class FakeSupabase {
                     json("""{"id":"$userId","aud":"authenticated"}""")
                 }
 
-                path.startsWith("/rest/v1/") -> {
-                    val key = "${request.method.value} ${path.removePrefix("/rest/v1/")}"
+                path.startsWith("/functions/v1/") || path.startsWith("/rest/v1/") -> {
+                    val key = "${request.method.value} ${path.removePrefix("/rest/v1/").removePrefix("/functions/v1/")}"
                     val queue = rest[key]
                     val reply =
                         if (queue.isNullOrEmpty()) {

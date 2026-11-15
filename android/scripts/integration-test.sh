@@ -25,10 +25,12 @@ fi
 # Passerelle (A5), synchronisation complète des listes (A6), puis visite complète du mode courses (A8) : coches,
 # fin, envoi, calcul du graphe (docker exec sur la base du Supabase local) et lecture de l'instantané, puis
 # « Supprimer mes données » (#68) : compte et lignes effacés en base, rien pour le nouveau compte. Comptes e-mail
-# (#87, lot 87.5) : liaison et connexion par le code lu dans Mailpit, deux appareils d'un même compte.
+# (#87, lot 87.5) : liaison et connexion par le code lu dans Mailpit, deux appareils d'un même compte. Partage (#87,
+# lot 87.6) : deux comptes e-mail, invitation, acceptation par l'adresse puis par le lien, coche reçue par un signal
+# Realtime, rôle abaissé puis retrait.
 # Prérequis : migrations jusqu'à 87.2 (`select to_regprocedure('public.accessible_list_ids()')` non nul) et Mailpit.
 # Contre le Supabase local uniquement.
 PARCOURSES_IT_URL="$url" PARCOURSES_IT_KEY="$key" PARCOURSES_IT_MAILPIT="$mailpit" \
   ./gradlew :core:network:testDebugUnitTest --tests '*SupabaseGatewayIntegrationTest' --rerun \
-  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' --rerun \
+  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' --tests '*SharingIntegrationTest' --rerun \
   :feature:shopping:testDebugUnitTest --tests '*ShoppingIntegrationTest' --rerun "$@"

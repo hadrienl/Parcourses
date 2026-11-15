@@ -6,6 +6,7 @@ import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
+import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -24,11 +25,23 @@ class RoomListRepository(
     private val newId: () -> String = { Uuid.random().toString() },
 ) : ListRepository {
     override fun observeSummaries(): Flow<List<ListSummary>> =
-        combine(db.lists().observeActive(), db.items().observeCounts()) { lists, counts ->
+        combine(
+            db.lists().observeActive(),
+            db.items().observeCounts(),
+            db.participants().observeAll(),
+        ) { lists, counts, participants ->
             val byList = counts.associateBy { it.listId }
+            val people = participants.groupBy { it.listId }
             lists.map { list ->
                 val count = byList[list.id]
-                ListSummary(list.id, list.name, remaining = count?.remaining ?: 0, total = count?.total ?: 0)
+                ListSummary(
+                    list.id,
+                    list.name,
+                    remaining = count?.remaining ?: 0,
+                    total = count?.total ?: 0,
+                    role = list.role,
+                    sharedWith = people[list.id].orEmpty().filterNot { it.isMe }.map { it.displayName },
+                )
             }
         }
 
@@ -122,7 +135,7 @@ class RoomListRepository(
     ): ListItemEntity {
         val item =
             db.withWriteTransaction {
-                requireActiveList(listId)
+                requireEditableList(listId)
                 val created =
                     ListItemEntity(
                         id = newId(),
@@ -160,7 +173,8 @@ class RoomListRepository(
         itemId: String,
         notFoundAt: Instant?,
     ) {
-        requireWritableItem(itemId)
+        // Champ local, jamais envoyé : permis au lecteur, dont « Terminer » remet les introuvables à acheter.
+        requireLocalItem(itemId)
         db.items().setNotFound(itemId, notFoundAt)
     }
 
@@ -184,9 +198,23 @@ class RoomListRepository(
         return list
     }
 
-    private suspend fun requireWritableItem(id: String): ListItemEntity {
+    /** Liste où je peux écrire des articles : active, et pas en lecture seule. */
+    private suspend fun requireEditableList(id: String): ShoppingListEntity {
+        val list = requireActiveList(id)
+        if (list.role == ListRole.Viewer) throw RepositoryException.ReadOnly(id)
+        return list
+    }
+
+    private suspend fun requireLocalItem(id: String): ListItemEntity {
         val item = db.items().get(id) ?: throw RepositoryException.NotFound(id)
         if (db.lists().get(item.listId)?.deletedAt != null) throw RepositoryException.ListDeleted(item.listId)
+        return item
+    }
+
+    /** Article d'une liste où j'écris : comme [requireLocalItem], et pas en lecture seule. */
+    private suspend fun requireWritableItem(id: String): ListItemEntity {
+        val item = requireLocalItem(id)
+        if (db.lists().get(item.listId)?.role == ListRole.Viewer) throw RepositoryException.ReadOnly(item.listId)
         return item
     }
 }

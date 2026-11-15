@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -35,7 +36,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.MemberAvatar
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -138,6 +141,7 @@ internal fun ItemRowContent(
     val checkLabel = stringResource(R.string.shopping_action_check)
     val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
     val notFoundLabel = stringResource(R.string.shopping_action_not_found)
+    val byOther = checkedByDescription(row)
     val custom =
         if (row.isChecked) {
             listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
@@ -156,7 +160,7 @@ internal fun ItemRowContent(
                     actions.onToggle(row)
                 }.semantics(mergeDescendants = true) {
                     contentDescription = row.accessibilityLabel
-                    stateDescription = if (row.isChecked) checkedText else uncheckedText
+                    stateDescription = byOther ?: if (row.isChecked) checkedText else uncheckedText
                     customActions = custom
                 }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -171,8 +175,33 @@ internal fun ItemRowContent(
             decoration = if (row.isChecked) TextDecoration.LineThrough else null,
             modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
         )
+        CheckedByMark(row.checkedBy)
     }
 }
+
+/** Coché par un autre membre : « dans le panier, par Léa » ; `null` sinon. */
+@Composable
+private fun checkedByDescription(row: ShoppingRow): String? =
+    row.checkedBy?.let {
+        stringResource(
+            R.string.shopping_by_a11y,
+            row.checkedByName?.takeIf(String::isNotBlank) ?: stringResource(R.string.shopping_someone),
+        )
+    }
+
+/** Initiale de qui a coché, décorative : sa valeur passe dans l'état lu de la ligne. */
+@Composable
+private fun CheckedByMark(mark: String?) {
+    if (mark == null) return
+    MemberAvatar(
+        mark,
+        size = AvatarSize.mark,
+        outlined = true,
+        modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_CHECKED_BY),
+    )
+}
+
+internal const val TAG_CHECKED_BY = "shopping-checked-by"
 
 @Composable
 internal fun NotFoundRow(

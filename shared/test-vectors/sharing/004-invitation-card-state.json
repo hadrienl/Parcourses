@@ -1,0 +1,64 @@
+{
+  "id": "004-invitation-card-state",
+  "function": "invitationCardState",
+  "description": "État de la carte « Invitation reçue » d'après preview_invitation (status, email_matches). Adresse différente : on peut accepter, après avertissement (Q4).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "en attente, même adresse",
+      "input": {
+        "status": "pending",
+        "emailMatches": true
+      },
+      "expected": "acceptable"
+    },
+    {
+      "name": "en attente, autre adresse",
+      "input": {
+        "status": "pending",
+        "emailMatches": false
+      },
+      "expected": "otherAddress"
+    },
+    {
+      "name": "déjà membre",
+      "input": {
+        "status": "member",
+        "emailMatches": true
+      },
+      "expected": "alreadyMember"
+    },
+    {
+      "name": "déjà utilisée",
+      "input": {
+        "status": "used",
+        "emailMatches": false
+      },
+      "expected": "used"
+    },
+    {
+      "name": "expirée, refusée ou annulée",
+      "input": {
+        "status": "expired",
+        "emailMatches": true
+      },
+      "expected": "expired"
+    },
+    {
+      "name": "jeton inconnu",
+      "input": {
+        "status": "invalid",
+        "emailMatches": false
+      },
+      "expected": "invalid"
+    },
+    {
+      "name": "trop d'essais",
+      "input": {
+        "status": "rate_limited",
+        "emailMatches": false
+      },
+      "expected": "rateLimited"
+    }
+  ]
+}

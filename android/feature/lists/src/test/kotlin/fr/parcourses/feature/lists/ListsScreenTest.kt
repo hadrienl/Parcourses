@@ -206,8 +206,9 @@ class ListsScreenTest {
         rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
         rule.onNodeWithTag(TAG_SESSION_BANNER).assertDoesNotExist()
 
+        // « Se connecter » en haut, et sous les listes l'invitation reçue par un anonyme (#87) : le bouton du haut.
         account = ListsAccountUi(canSignIn = true, onSignIn = { signIns++ })
-        rule.onNodeWithText("Se connecter").performClick()
+        rule.onNodeWithTag(TAG_SIGN_IN).performClick()
         assertEquals(1, signIns)
 
         // Compte e-mail sans session : bandeau, reconnexion, ou compte anonyme après confirmation.

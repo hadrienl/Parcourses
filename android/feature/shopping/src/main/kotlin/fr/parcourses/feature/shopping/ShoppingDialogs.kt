@@ -88,3 +88,31 @@ internal fun ErrorDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.shopping_error_ok)) } },
     )
 }
+
+/**
+ * Accès retiré pendant les courses (#87 §1.5, maquette §6) : ni fermable par l'extérieur ni par Retour. « Terminer »
+ * clôt la visite avec ses coches, qui restent les miennes, et mène au résumé.
+ */
+@Composable
+internal fun AccessLostDialog(onFinish: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = {},
+        properties =
+            androidx.compose.ui.window.DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
+        title = { Text(stringResource(R.string.shopping_access_lost_title)) },
+        text = { Text(stringResource(R.string.shopping_access_lost_body)) },
+        confirmButton = {
+            TextButton(
+                onClick = onFinish,
+                modifier = Modifier.heightIn(min = 48.dp).testTag(TAG_ACCESS_LOST_FINISH),
+            ) { Text(stringResource(R.string.shopping_finish)) }
+        },
+        modifier = Modifier.testTag(TAG_ACCESS_LOST),
+    )
+}
+
+internal const val TAG_ACCESS_LOST = "shopping-access-lost"
+internal const val TAG_ACCESS_LOST_FINISH = "shopping-access-lost-finish"

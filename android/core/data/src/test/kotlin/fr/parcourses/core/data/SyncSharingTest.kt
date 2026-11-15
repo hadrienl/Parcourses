@@ -9,6 +9,7 @@ import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
@@ -149,6 +150,8 @@ class SyncSharingTest : DataTest() {
     fun aPatchWithoutRowAndWithoutTombstoneReloadsTheList() =
         runBlocking {
             val (listId, itemId) = pulled(owner = Uuid.random())
+            // Éditeur de la liste d'un autre (lecteur par défaut tant que les membres n'ont pas dit mon rôle).
+            db.lists().setRole(listId, ListRole.Editor)
             val local = repository.addItem(listId, "beurre", "beurre", null, null, "dairy", now)
             repository.setChecked(itemId, now, now)
             gateway.rowTouched = { false }
