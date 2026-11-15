@@ -70,4 +70,9 @@
     <string name="live_permission_text">Parcourses peut afficher le prochain article et ce qu\'il reste à prendre dans une notification, sur l\'écran verrouillé, et vous laisser le cocher de là. Sans autorisation, le mode courses fonctionne tout pareil.</string>
     <string name="live_permission_allow">Continuer</string>
     <string name="live_permission_later">Pas maintenant</string>
+    <!-- Liste partagée (#87, lot 87.6) -->
+    <string name="shopping_by_a11y">dans le panier, par %1$s</string>
+    <string name="shopping_someone">un autre membre</string>
+    <string name="shopping_access_lost_title">Vous n’avez plus accès à cette liste</string>
+    <string name="shopping_access_lost_body">Les courses s’arrêtent ici. Vos coches comptent quand même pour le trajet du magasin.</string>
 </resources>

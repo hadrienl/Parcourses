@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -60,6 +61,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sharing.SharingDecisions
+import fr.parcourses.core.designsystem.MemberStack
+import fr.parcourses.core.designsystem.SharingBadge
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketSheet
@@ -74,6 +79,7 @@ fun ListsRoute(
     onAbout: (() -> Unit)? = null,
     aboutNeedsAttention: Boolean = false,
     account: ListsAccountUi = ListsAccountUi(),
+    invitations: ListsInvitationsUi = ListsInvitationsUi(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ListsScreen(
@@ -87,8 +93,19 @@ fun ListsRoute(
         onAbout = onAbout,
         aboutNeedsAttention = aboutNeedsAttention,
         account = account,
+        invitations = invitations,
+        onLeave = viewModel::leave,
     )
 }
+
+/** Invitations reçues, vues de « Mes listes » (#87, lot 87.6). */
+@Immutable
+data class ListsInvitationsUi(
+    val state: InvitationsUiState = InvitationsUiState(),
+    val onAccept: (fr.parcourses.core.network.dto.ReceivedInvitation) -> Unit = {},
+    val onDecline: (fr.parcourses.core.network.dto.ReceivedInvitation) -> Unit = {},
+    val onOpenAll: () -> Unit = {},
+)
 
 /** Dialogue ouvert sur l'écran Listes. */
 private sealed interface ListDialog {
@@ -101,6 +118,11 @@ private sealed interface ListDialog {
     data class Delete(
         val list: ListSummary,
     ) : ListDialog
+
+    /** « Quitter la liste » d'un membre (#87). */
+    data class Leave(
+        val list: ListSummary,
+    ) : ListDialog
 }
 
 private val ListDialogSaver =
@@ -111,6 +133,7 @@ private val ListDialogSaver =
                 ListDialog.Create -> listOf("create")
                 is ListDialog.Rename -> listOf("rename") + dialog.list.toSaved()
                 is ListDialog.Delete -> listOf("delete") + dialog.list.toSaved()
+                is ListDialog.Leave -> listOf("leave") + dialog.list.toSaved()
             }
         },
         restore = { saved ->
@@ -118,25 +141,31 @@ private val ListDialogSaver =
                 "create" -> ListDialog.Create
                 "rename" -> ListDialog.Rename(saved.toList())
                 "delete" -> ListDialog.Delete(saved.toList())
+                "leave" -> ListDialog.Leave(saved.toList())
                 else -> null
             }
         },
     )
 
-private fun ListSummary.toSaved(): List<Any?> = listOf(id, name, remaining, total)
+private fun ListSummary.toSaved(): List<Any?> = listOf(id, name, remaining, total, role.wireName, ArrayList(sharedWith))
 
 // Une liste sauvegardée : le type du dialogue, puis ses quatre champs.
 private const val SAVED_ID = 1
 private const val SAVED_NAME = 2
 private const val SAVED_REMAINING = 3
 private const val SAVED_TOTAL = 4
+private const val SAVED_ROLE = 5
+private const val SAVED_SHARED_WITH = 6
 
+@Suppress("UNCHECKED_CAST") // écrit par `toSaved` juste au-dessus
 private fun List<Any?>.toList(): ListSummary =
     ListSummary(
         this[SAVED_ID] as String,
         this[SAVED_NAME] as String,
         this[SAVED_REMAINING] as Int,
         this[SAVED_TOTAL] as Int,
+        ListRole.fromWire(getOrNull(SAVED_ROLE) as? String) ?: ListRole.Owner,
+        (getOrNull(SAVED_SHARED_WITH) as? List<String?>).orEmpty(),
     )
 
 /**
@@ -156,6 +185,8 @@ fun ListsScreen(
     onAbout: (() -> Unit)? = null,
     aboutNeedsAttention: Boolean = false,
     account: ListsAccountUi = ListsAccountUi(),
+    invitations: ListsInvitationsUi = ListsInvitationsUi(),
+    onLeave: (String) -> Unit = {},
 ) {
     var dialog by rememberSaveable(stateSaver = ListDialogSaver) { mutableStateOf<ListDialog?>(null) }
     var confirmingAnonymous by rememberSaveable { mutableStateOf(false) }
@@ -165,6 +196,7 @@ fun ListsScreen(
             when (val open = dialog) {
                 is ListDialog.Rename -> open.list.id
                 is ListDialog.Delete -> open.list.id
+                is ListDialog.Leave -> open.list.id
                 else -> null
             }
         if (state.isLoaded && target != null && state.lists.none { it.id == target }) dialog = null
@@ -190,7 +222,20 @@ fun ListsScreen(
                 if (account.needsSignIn) {
                     SessionLostBanner(onReconnect = account.onSignIn, onAnonymous = { confirmingAnonymous = true })
                 }
-                ListsBody(state, onOpen, onDialog = { dialog = it })
+                ListsBody(
+                    state,
+                    onOpen,
+                    onDialog = { dialog = it },
+                    top = {
+                        InvitationsEntry(
+                            invitations.state,
+                            invitations.onAccept,
+                            invitations.onDecline,
+                            invitations.onOpenAll,
+                        )
+                    },
+                    bottom = { if (account.canSignIn) AnonymousInvitationHint(account.onSignIn) },
+                )
             }
         }
     }
@@ -210,6 +255,7 @@ fun ListsScreen(
         onCreate = onCreate,
         onRename = onRename,
         onDelete = onDelete,
+        onLeave = onLeave,
     )
     state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
@@ -252,6 +298,7 @@ private fun ListDialogs(
     onCreate: (String) -> Unit,
     onRename: (id: String, name: String) -> Unit,
     onDelete: (String) -> Unit,
+    onLeave: (String) -> Unit,
 ) {
     when (val current = dialog) {
         ListDialog.Create -> {
@@ -281,6 +328,21 @@ private fun ListDialogs(
         }
 
         is ListDialog.Delete -> {
+            if (current.list.isShared) {
+                val names = current.list.sharedWith.map { memberName(it) }
+                ConfirmDialog(
+                    title = stringResource(R.string.delete_shared_title, current.list.name),
+                    body = pluralStringResource(R.plurals.delete_shared_body, names.size, sharedNames(names)),
+                    confirm = stringResource(R.string.delete_shared_btn),
+                    dismiss = stringResource(R.string.common_cancel),
+                    onConfirm = {
+                        onClose()
+                        onDelete(current.list.id)
+                    },
+                    onDismiss = { onClose() },
+                )
+                return
+            }
             AlertDialog(
                 onDismissRequest = { onClose() },
                 title = { Text(stringResource(R.string.lists_delete_confirm)) },
@@ -301,17 +363,45 @@ private fun ListDialogs(
             )
         }
 
+        is ListDialog.Leave -> {
+            val owner = ownerName(current.list.sharedWith.firstOrNull())
+            ConfirmDialog(
+                title = stringResource(R.string.leave_title, current.list.name),
+                body = stringResource(R.string.leave_body, owner),
+                confirm = stringResource(R.string.leave_btn),
+                dismiss = stringResource(R.string.common_cancel),
+                onConfirm = {
+                    onClose()
+                    onLeave(current.list.id)
+                },
+                onDismiss = { onClose() },
+            )
+        }
+
         null -> {
             Unit
         }
     }
 }
 
+/** « Léa et Tom », « Léa, Tom et 2 autres » au-delà de trois prénoms. */
+@Composable
+private fun sharedNames(names: List<String>): String =
+    if (names.size > MAX_NAMED) {
+        stringResource(R.string.sharing_and_others, names.take(2).joinToString(", "), names.size - 2)
+    } else {
+        joinedNames(names)
+    }
+
+private const val MAX_NAMED = 3
+
 @Composable
 private fun ListsBody(
     state: ListsUiState,
     onOpen: (String) -> Unit,
     onDialog: (ListDialog) -> Unit,
+    top: @Composable () -> Unit = {},
+    bottom: @Composable () -> Unit = {},
 ) {
     when {
         !state.isLoaded -> {
@@ -319,7 +409,11 @@ private fun ListsBody(
         }
 
         state.lists.isEmpty() -> {
-            EmptyLists()
+            Column(Modifier.fillMaxSize()) {
+                top()
+                Box(Modifier.weight(1f)) { EmptyLists() }
+                bottom()
+            }
         }
 
         else -> {
@@ -328,6 +422,9 @@ private fun ListsBody(
                 onOpen = onOpen,
                 onRename = { onDialog(ListDialog.Rename(it)) },
                 onDelete = { onDialog(ListDialog.Delete(it)) },
+                onLeave = { onDialog(ListDialog.Leave(it)) },
+                top = top,
+                bottom = bottom,
             )
         }
     }
@@ -361,16 +458,27 @@ private fun ListsContent(
     onOpen: (String) -> Unit,
     onRename: (ListSummary) -> Unit,
     onDelete: (ListSummary) -> Unit,
+    onLeave: (ListSummary) -> Unit,
+    top: @Composable () -> Unit,
+    bottom: @Composable () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(TAG_LISTS),
         // Place pour le bouton flottant sous la dernière ligne.
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
+        item(key = "invitations", contentType = "invitations") { top() }
         items(lists, key = { it.id }, contentType = { "list" }) { list ->
-            ListRow(list, onOpen = { onOpen(list.id) }, onRename = { onRename(list) }, onDelete = { onDelete(list) })
+            ListRow(
+                list,
+                onOpen = { onOpen(list.id) },
+                onRename = { onRename(list) },
+                onDelete = { onDelete(list) },
+                onLeave = { onLeave(list) },
+            )
             HorizontalDivider(color = Ticket.colors.paperEdge)
         }
+        item(key = "anonymous", contentType = "hint") { bottom() }
     }
 }
 
@@ -380,9 +488,12 @@ private fun ListRow(
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onLeave: () -> Unit,
 ) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     val subtitle = subtitle(list)
+    val capabilities = SharingDecisions.roleCapabilities(list.role)
+    val rowLabel = rowLabel(list, subtitle)
     Row(
         modifier =
             Modifier
@@ -392,9 +503,15 @@ private fun ListRow(
                 .padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 8.dp)
+                .then(if (rowLabel != null) Modifier.clearAndSetSemantics { contentDescription = rowLabel } else Modifier),
+        ) {
             Text(list.name, style = TicketType.item.copy(fontWeight = FontWeight.Bold), color = Ticket.colors.ink)
             Text(subtitle, style = TicketType.meta, color = Ticket.colors.inkMuted)
+            if (list.isShared) SharingRowBadges(list)
         }
         Box {
             val actions = stringResource(R.string.lists_more_actions, list.name)
@@ -402,22 +519,68 @@ private fun ListRow(
                 Icon(Icons.Default.MoreVert, contentDescription = null)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.lists_rename)) },
-                    onClick = {
-                        menuOpen = false
-                        onRename()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.lists_delete)) },
-                    onClick = {
-                        menuOpen = false
-                        onDelete()
-                    },
-                )
+                if (capabilities.canRenameList) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.lists_rename)) },
+                        onClick = {
+                            menuOpen = false
+                            onRename()
+                        },
+                    )
+                }
+                if (capabilities.canDeleteList) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.lists_delete)) },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
+                if (capabilities.canLeave) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.lists_leave), color = Ticket.colors.destructive) },
+                        onClick = {
+                            menuOpen = false
+                            onLeave()
+                        },
+                        modifier = Modifier.testTag(TAG_LEAVE_LIST),
+                    )
+                }
             }
         }
+    }
+}
+
+/** Badge « PARTAGÉE » ou « LECTURE SEULE », puis les initiales des autres membres (décoratifs : voir [rowLabel]). */
+@Composable
+private fun SharingRowBadges(list: ListSummary) {
+    Row(
+        Modifier.padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
+    ) {
+        val readOnly = list.role == ListRole.Viewer
+        SharingBadge(
+            stringResource(if (readOnly) R.string.ro_badge else R.string.lists_badge_shared),
+            readOnly = readOnly,
+        )
+        MemberStack(avatarLabelsOf(list.sharedWith))
+    }
+}
+
+/** « Courses de la semaine, partagée avec Léa et Tom, 7 articles restants » ; `null` pour une liste à soi seul. */
+@Composable
+private fun rowLabel(
+    list: ListSummary,
+    subtitle: String,
+): String? {
+    if (!list.isShared) return null
+    val names = joinedNames(list.sharedWith.map { memberName(it) })
+    return if (list.role == ListRole.Viewer) {
+        stringResource(R.string.lists_row_readonly_a11y, list.name, ownerName(list.sharedWith.firstOrNull()), subtitle)
+    } else {
+        stringResource(R.string.lists_row_shared_a11y, list.name, names, subtitle)
     }
 }
 
@@ -437,3 +600,4 @@ internal const val TAG_LISTS = "lists"
 internal const val TAG_NAME_FIELD = "nameField"
 internal const val TAG_CONFIRM_NAME = "confirmName"
 internal const val TAG_CONFIRM_DELETE = "confirmDelete"
+internal const val TAG_LEAVE_LIST = "leaveList"

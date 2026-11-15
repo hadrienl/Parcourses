@@ -1,5 +1,21 @@
 package fr.parcourses.app
 
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import androidx.navigation3.runtime.NavKey
+import fr.parcourses.core.data.sharing.AccessChange
+import fr.parcourses.core.data.sharing.InviteErrorKind
+import fr.parcourses.core.data.sharing.SharingFailure
+import fr.parcourses.feature.lists.InvitationLinkRoute
+import fr.parcourses.feature.lists.InvitationLinkViewModel
+import fr.parcourses.feature.lists.InvitationsViewModel
+import fr.parcourses.feature.lists.ListSharingSources
+import fr.parcourses.feature.lists.ListsInvitationsUi
+import fr.parcourses.feature.lists.ReceivedInvitationsRoute
+import fr.parcourses.feature.lists.ShareListRoute
+import fr.parcourses.feature.lists.ShareListViewModel
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -89,6 +105,28 @@ fun ParcoursesNavHost(
         }
     }
 
+    // Lien d'invitation (#87) : carte de l'invitation pour un compte e-mail, connexion d'abord pour un anonyme.
+    LaunchedEffect(container) {
+        container.invitationLinkOpenings.collect {
+            if (container.accountKind.kind.value == AccountKind.Email) {
+                backStack.openInvitation()
+            } else {
+                container.afterSignIn = AfterSignIn.Invitation
+                if (backStack.lastOrNull() != Route.SignIn) backStack.add(Route.SignIn)
+            }
+        }
+    }
+
+    // Liste retirée par un autre membre pendant qu'on la regarde : son écran montre le message, puis se ferme.
+    // Liste quittée : ses écrans quittent la pile.
+    LaunchedEffect(container) {
+        container.sharingNotices.notices.collect { notices ->
+            notices.filterIsInstance<AccessChange.Removed>().forEach { removed ->
+                backStack.removeAll { it is Route.ShareList && it.listId == removed.listId }
+            }
+        }
+    }
+
     // Voile et messages de la suppression, par-dessus tous les écrans.
     AccountDeletionOverlay(
         deletion,
@@ -118,6 +156,7 @@ fun ParcoursesNavHost(
         entryProvider =
             entryProvider {
                 entry<Route.Lists> {
+                    val context = LocalContext.current
                     val model: ListsViewModel =
                         viewModel(
                             factory =
@@ -126,10 +165,20 @@ fun ParcoursesNavHost(
                                         ListsViewModel(
                                             container.lists,
                                             container.remaps,
+                                            sharing = container.sharing,
+                                            sharingError = { failure -> sharingErrorText(context, failure) },
                                         )
                                     }
                                 },
                         )
+                    val invitationsModel: InvitationsViewModel = invitationsViewModel(container)
+                    val invitations by invitationsModel.uiState.collectAsState()
+                    LaunchedEffect(invitations.openList) {
+                        invitations.openList?.let { listId ->
+                            invitationsModel.listOpened()
+                            backStack.openAcceptedList(listId)
+                        }
+                    }
                     val sessionStuck by sessionStuckFlow.collectAsState()
                     val account by container.accountSession.state.collectAsState(AccountState())
                     val unsentFlow = remember(container) { container.database.outbox().observeCount() }
@@ -141,6 +190,13 @@ fun ParcoursesNavHost(
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
                         aboutNeedsAttention = sessionStuck,
                         account = listsAccount(container, account, unsent, signOut, openSignIn),
+                        invitations =
+                            ListsInvitationsUi(
+                                state = invitations,
+                                onAccept = invitationsModel::accept,
+                                onDecline = invitationsModel::decline,
+                                onOpenAll = { if (backStack.lastOrNull() != Route.Invitations) backStack.add(Route.Invitations) },
+                            ),
                     )
                 }
                 entry<Route.About> {
@@ -194,7 +250,10 @@ fun ParcoursesNavHost(
                 }
                 entry<Route.SignIn> {
                     val link = remember { container.newAccountLink() }
-                    val close = { if (backStack.lastOrNull() == Route.SignIn) backStack.removeLastOrNull() }
+                    val close = {
+                        if (backStack.lastOrNull() == Route.SignIn) backStack.removeLastOrNull()
+                        resumeAfterSignIn(container, backStack)
+                    }
                     if (link == null) {
                         // Build sans Supabase : rien à quoi se connecter.
                         LaunchedEffect(Unit) { close() }
@@ -218,6 +277,13 @@ fun ParcoursesNavHost(
                                             categories = container.categories,
                                             analyzer = container.analyzer,
                                             remaps = container.remaps,
+                                            sharingSources =
+                                                ListSharingSources(
+                                                    participants = { container.database.participants().observe(it) },
+                                                    isOnline = container.isOnline,
+                                                    notices = container.sharingNotices.notices,
+                                                    acknowledge = container.sharingNotices::acknowledge,
+                                                ),
                                         )
                                     }
                                 },
@@ -226,6 +292,91 @@ fun ParcoursesNavHost(
                         viewModel = model,
                         onBack = { backStack.popIfTop(key.slot) },
                         onStartShopping = { listId -> backStack.openStorePicker(listId) },
+                        // Partager demande un compte e-mail : un anonyme se connecte d'abord, puis la feuille s'ouvre.
+                        onShare =
+                            { listId: String ->
+                                if (container.accountKind.kind.value == AccountKind.Email) {
+                                    backStack.openShareList(listId)
+                                } else {
+                                    container.afterSignIn = AfterSignIn.Share(listId)
+                                    openSignIn()
+                                }
+                            }.takeIf { container.gateway != null },
+                    )
+                }
+                entry<Route.ShareList>(clazzContentKey = { it.slot }) { key ->
+                    val sharing = container.sharing
+                    if (sharing == null) {
+                        LaunchedEffect(Unit) { backStack.popIfTop(key.slot) }
+                    } else {
+                        val model: ShareListViewModel =
+                            viewModel(
+                                factory =
+                                    viewModelFactory {
+                                        initializer {
+                                            val realtime = container.realtime
+                                            ShareListViewModel(
+                                                listId = key.listId,
+                                                service = sharing,
+                                                listName = container.lists.observeList(key.listId).map { it?.name },
+                                                reloads = realtime?.sharingReloads ?: emptyFlow(),
+                                                onOpenChanged = { open ->
+                                                    if (open) {
+                                                        realtime?.sharingSheetOpened(key.listId)
+                                                    } else {
+                                                        realtime?.sharingSheetClosed(key.listId)
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    },
+                            )
+                        ShareListRoute(
+                            viewModel = model,
+                            onClose = { backStack.popIfTop(key.slot) },
+                            onLeft = { backStack.closeList(key.listId) },
+                        )
+                    }
+                }
+                entry<Route.Invitations> {
+                    val model = invitationsViewModel(container)
+                    ReceivedInvitationsRoute(
+                        viewModel = model,
+                        onOpenList = { backStack.openAcceptedList(it) },
+                        onBack = { if (backStack.lastOrNull() == Route.Invitations) backStack.removeLastOrNull() },
+                    )
+                }
+                entry<Route.Invitation> {
+                    val model: InvitationLinkViewModel =
+                        viewModel(
+                            factory =
+                                viewModelFactory {
+                                    initializer {
+                                        InvitationLinkViewModel(
+                                            token = container.pendingInvitation,
+                                            service = container.sharing,
+                                            accountEmail = { container.gateway?.accountEmail() },
+                                        )
+                                    }
+                                },
+                        )
+                    val close = {
+                        container.forgetInvitation()
+                        if (backStack.lastOrNull() == Route.Invitation) backStack.removeLastOrNull()
+                    }
+                    InvitationLinkRoute(
+                        viewModel = model,
+                        onOpenList = { listId ->
+                            container.forgetInvitation()
+                            backStack.openAcceptedList(listId)
+                        },
+                        // « Changer de compte » : la connexion, puis l'invitation reprend avec le jeton gardé.
+                        onSwitchAccount = {
+                            container.afterSignIn = AfterSignIn.Invitation
+                            backStack.removeAll { it == Route.Invitation }
+                            openSignIn()
+                        },
+                        onClose = { close() },
                     )
                 }
                 entry<Route.StorePicker>(clazzContentKey = { it.slot }) { key ->
@@ -308,6 +459,52 @@ private fun listsAccount(
         onContinueWithoutAccount = container::continueWithoutAccount,
     )
 }
+
+/** Invitations reçues : relues à l'ouverture, après une connexion et sur un signal `invitations`. */
+@Composable
+private fun invitationsViewModel(container: AppContainer): InvitationsViewModel =
+    viewModel(
+        factory =
+            viewModelFactory {
+                initializer {
+                    InvitationsViewModel(
+                        service = container.sharing,
+                        isEmailAccount = container.accountKind.kind.map { it == AccountKind.Email },
+                        reloads = container.realtime?.invitationReloads ?: emptyFlow(),
+                    )
+                }
+            },
+    )
+
+/**
+ * Après « Se connecter » : l'action qu'un compte anonyme avait demandée reprend si la connexion a abouti (compte
+ * e-mail) ; sinon elle est oubliée.
+ */
+private fun resumeAfterSignIn(
+    container: AppContainer,
+    backStack: MutableList<NavKey>,
+) {
+    val pending = container.afterSignIn ?: return
+    container.afterSignIn = null
+    if (container.accountKind.kind.value != AccountKind.Email) return
+    when (pending) {
+        is AfterSignIn.Share -> backStack.openShareList(pending.listId)
+        AfterSignIn.Invitation -> if (container.pendingInvitation != null) backStack.openInvitation()
+    }
+}
+
+/** Texte d'un échec du partage hors de sa feuille (« Quitter la liste » depuis « Mes listes »). */
+private fun sharingErrorText(
+    context: Context,
+    failure: SharingFailure,
+): String =
+    context.getString(
+        when (failure.kind) {
+            InviteErrorKind.Offline -> fr.parcourses.feature.lists.R.string.share_offline
+            InviteErrorKind.SignInRequired -> fr.parcourses.feature.lists.R.string.err_sign_in
+            else -> fr.parcourses.feature.lists.R.string.share_error
+        },
+    )
 
 /** Sans Supabase, pas de session : rien à réinitialiser. */
 private val NotStuck: StateFlow<Boolean> = MutableStateFlow(false)

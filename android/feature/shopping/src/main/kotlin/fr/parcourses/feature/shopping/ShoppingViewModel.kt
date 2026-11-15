@@ -13,7 +13,11 @@ import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.core.data.sharing.AccessChange
+import fr.parcourses.core.data.sharing.SharingDecisions
+import fr.parcourses.core.data.sharing.SharingMember
 import fr.parcourses.core.database.entity.ListItemEntity
+import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.model.SortCategory
 import fr.parcourses.core.model.SortInput
 import fr.parcourses.core.model.SortItem
@@ -62,6 +66,10 @@ class ShoppingDependencies(
     val cache: GraphSnapshotCache,
     /** Live Update (#10 §9) ; `null` : aucune (tests, app sans notification). */
     val liveUpdates: LiveUpdateSink? = null,
+    /** Personnes de la liste (#87, lot 87.6) : initiale de qui a coché un article du panier. */
+    val participants: suspend (listId: String) -> List<ListParticipantEntity> = { emptyList() },
+    /** Messages d'accès : une liste retirée pendant les courses les arrête. */
+    val accessNotices: Flow<List<AccessChange>> = emptyFlow(),
 )
 
 /**
@@ -173,8 +181,22 @@ class ShoppingViewModel(
     private var highlightJob: Job? = null
     private var refreshJob: Job? = null
 
+    /** La liste n'est plus accessible : feuille « Vous n'avez plus accès à cette liste ». */
+    private var accessLost = false
+
     init {
         viewModelScope.launch { remaps.collect { remap -> lock.withLock { apply(remap) } } }
+        viewModelScope.launch {
+            deps.accessNotices.collect { notices ->
+                val lost = notices.any { it is AccessChange.Removed && it.listId == listId }
+                if (lost && !accessLost) {
+                    lock.withLock {
+                        accessLost = true
+                        publish()
+                    }
+                }
+            }
+        }
     }
 
     // region Ouverture
@@ -694,7 +716,21 @@ class ShoppingViewModel(
     private suspend fun reloadRows() {
         val items = attempt { deps.lists.items(listId) }.orEmpty()
         lastItems = items.map(::ItemView)
-        val rows = items.map { it to ShoppingRow(it.id, it.label, it.quantity, it.checkedAt != null, aisle(it)) }
+        val authors = BasketAuthors(attempt { deps.participants(listId) }.orEmpty())
+        val rows =
+            items.map {
+                val mark = if (it.checkedAt != null) authors.mark(it.updatedBy) else null
+                it to
+                    ShoppingRow(
+                        it.id,
+                        it.label,
+                        it.quantity,
+                        it.checkedAt != null,
+                        aisle(it),
+                        checkedBy = mark,
+                        checkedByName = mark?.let { _ -> authors.name(it.updatedBy) },
+                    )
+            }
         val settling = settlingIds
         toBuy =
             ordered(
@@ -941,6 +977,7 @@ class ShoppingViewModel(
                 summary = summary,
                 reorder = reorder,
                 errorMessage = errorMessage,
+                accessLost = accessLost,
             )
         }
     }
@@ -1026,6 +1063,20 @@ class ShoppingViewModel(
 }
 
 /** Ce que l'écran montre d'un article : seuls ces champs comptent pour reconnaître un changement extérieur. */
+/** Qui a coché un article d'une liste partagée (vecteur `008`) : jamais moi, seulement un autre membre connu. */
+private class BasketAuthors(
+    people: List<ListParticipantEntity>,
+) {
+    private val me = people.firstOrNull { it.isMe }?.userId.orEmpty()
+    private val shared = people.any { !it.isMe }
+    private val members = people.map { SharingMember(it.userId, it.displayName) }
+    private val names = people.associate { it.userId to it.displayName }
+
+    fun mark(updatedBy: String?): String? = SharingDecisions.itemAuthorMark(updatedBy, me, shared, members)
+
+    fun name(updatedBy: String?): String? = updatedBy?.let(names::get)
+}
+
 private data class ItemView(
     val id: String,
     val label: String,

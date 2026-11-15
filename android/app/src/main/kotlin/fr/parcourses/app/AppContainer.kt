@@ -34,6 +34,9 @@ import fr.parcourses.core.data.repository.RoomStoreRepository
 import fr.parcourses.core.data.repository.RoomVisitRepository
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
+import fr.parcourses.core.data.sharing.RealtimeSignals
+import fr.parcourses.core.data.sharing.SharingNotices
+import fr.parcourses.core.data.sharing.SharingRepository
 import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.data.sync.NetworkMonitor
@@ -49,6 +52,7 @@ import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.location.LocationProvider
 import fr.parcourses.core.location.SystemLocationProvider
 import fr.parcourses.core.network.AuthBootstrap
+import fr.parcourses.core.network.InvitationLinks
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SessionMaintenance
@@ -91,6 +95,17 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
+/** Ce qu'un compte anonyme voulait faire avant d'être invité à se connecter (#87). */
+sealed interface AfterSignIn {
+    /** « Partager » sur une liste. */
+    data class Share(
+        val listId: String,
+    ) : AfterSignIn
+
+    /** Un lien d'invitation, dont le jeton reste dans [AppContainer.pendingInvitation]. */
+    data object Invitation : AfterSignIn
+}
+
 /** Visite ouverte que l'app rouvre au lancement. */
 data class ResumableVisit(
     val listId: String,
@@ -125,7 +140,13 @@ class AppContainer(
     /** Drapeau durable `account.kind` (#87) : un compte e-mail sans session attend la reconnexion. */
     val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
 
-    private val supabase: SupabaseGateway? by lazy { config?.let { createSupabaseGateway(context, it) } }
+    /**
+     * Liens d'invitation (#87) : hôte https de la configuration de build (`parcourses.invitationHost`), vide tant que
+     * le domaine n'est pas choisi (Q2, lot 87.7) ; seul le schéma `parcourses://` est alors reconnu.
+     */
+    val invitationLinks: InvitationLinks = InvitationLinks(BuildConfig.INVITATION_HOST)
+
+    private val supabase: SupabaseGateway? by lazy { config?.let { createSupabaseGateway(context, it, invitationLinks) } }
 
     /**
      * Toute l'app passe par la garde : aucun `ensureSession` pendant une suppression du compte, et jamais de compte
@@ -139,6 +160,9 @@ class AppContainer(
     val sessionMaintenance: SessionMaintenance? get() = supabase
 
     val scheduler by lazy { WorkManagerSyncScheduler(context) }
+
+    /** Réseau observable (bandeau hors ligne d'une liste partagée). */
+    val isOnline: StateFlow<Boolean> get() = networkMonitor.onlineState
 
     private val networkMonitor by lazy { NetworkMonitor(context, onReturn = { coordinator?.requestSync(pull = true) }) }
     private val networkStarted = AtomicBoolean(false)
@@ -167,6 +191,8 @@ class AppContainer(
                                 deletionFlag.isPending || signOutFlag.isPending || switchFlag.isPending
                             },
                             accountKind = { accountKind.kind.value },
+                            // Liste retirée, accès abaissé ou remonté par un autre membre (#87, lot 87.6).
+                            onAccessChange = sharingNotices::post,
                         ),
                 )
             }
@@ -195,6 +221,9 @@ class AppContainer(
                 analyzer,
                 GraphSnapshotCache(graphs, gateway),
                 liveUpdates,
+                // Liste partagée (#87, lot 87.6) : qui a coché quoi, et l'accès perdu qui arrête les courses.
+                participants = { listId -> database.participants().get(listId) },
+                accessNotices = sharingNotices.notices,
             )
         }
 
@@ -248,7 +277,7 @@ class AppContainer(
 
         override fun sessionDidChange() {
             accountSession.forget()
-            coordinator?.sessionDidChange()
+            notifySessionChange()
         }
 
         override suspend fun suspendSync() {
@@ -375,7 +404,7 @@ class AppContainer(
                 coordinator?.start()
                 // Un échec n'empêche rien : tout est local et la file attend.
                 AuthBootstrap.signIn(remote)
-                coordinator?.sessionDidChange()
+                notifySessionChange()
             }
         }
     }
@@ -497,13 +526,14 @@ class AppContainer(
             // Base vidée : une notification reposée entre-temps part, puis les préférences. Un échec lève (doute).
             notifier.cancel()
             livePreferences.clear()
+            sharingNotices.clear()
         }
 
         override fun resumeSync() {
             liveUpdates.resume()
             // `sessionDidChange` relance le moteur (`SyncEngine.resume`) puis une passe avec descente.
             coordinator?.start()
-            coordinator?.sessionDidChange()
+            notifySessionChange()
         }
 
         override suspend fun rebuild() {
@@ -511,7 +541,7 @@ class AppContainer(
             // La nouvelle instance retire toute notification sans visite ouverte (il n'y en a plus).
             liveUpdates.reconcile()
             coordinator?.start()
-            coordinator?.sessionDidChange()
+            notifySessionChange()
         }
     }
 
@@ -527,11 +557,81 @@ class AppContainer(
             maintenanceScope.launch {
                 // Hors ligne, la connexion échoue sans bruit : la synchronisation la retentera.
                 gateway?.let { AuthBootstrap.signIn(it) }
-                coordinator?.sessionDidChange()
+                notifySessionChange()
             }
         }
         return reset
     }
+
+    /**
+     * La session a changé (connexion, déconnexion, compte recréé) : le moteur reprend avec une descente, et le canal
+     * temps réel est rouvert pour le compte de la nouvelle session.
+     */
+    private fun notifySessionChange() {
+        coordinator?.sessionDidChange()
+        realtime?.sessionChanged()
+    }
+
+    // region Partage (#87, lot 87.6)
+
+    /** Messages d'accès à montrer (liste retirée, lecture seule), en mémoire. */
+    val sharingNotices = SharingNotices()
+
+    /** Partage d'une liste : réseau exigé, rien en file ; `null` sans Supabase. */
+    val sharing: SharingRepository? by lazy {
+        gateway?.let { remote ->
+            SharingRepository(
+                remote,
+                database,
+                isOnline = { networkMonitor.isOnline },
+                // Accès gagné : la liste est descendue entièrement avant d'être ouverte.
+                pull = { engine?.drain(pull = true) },
+            )
+        }
+    }
+
+    /**
+     * Signaux temps réel (#87 §6.2) : canal `user:<uid>` d'un compte e-mail, ouvert au premier plan seulement
+     * (`ProcessLifecycleOwner`, voir [ParcoursesApp]). Un signal demande une descente ; les écrans du partage
+     * s'abonnent à ses relectures.
+     */
+    val realtime: RealtimeSignals? by lazy {
+        val source = supabase ?: return@lazy null
+        val remote = gateway ?: return@lazy null
+        RealtimeSignals(
+            source = source,
+            accountId = { remote.currentAccountId() },
+            accountKind = accountKind.kind,
+            requestPull = { coordinator?.requestSync(pull = true) },
+            scope = maintenanceScope,
+        )
+    }
+
+    /** Jeton d'une invitation ouverte par son lien : en mémoire seulement, jamais écrit sur le disque (#87 §1.3). */
+    @Volatile
+    var pendingInvitation: String? = null
+        private set
+
+    private val invitationEvents = Channel<String>(Channel.BUFFERED)
+
+    /** Liens d'invitation reçus par l'activité : un seul collecteur, la navigation. */
+    val invitationLinkOpenings: Flow<String> = invitationEvents.receiveAsFlow()
+
+    fun offerInvitation(token: String) {
+        pendingInvitation = token
+        invitationEvents.trySend(token)
+    }
+
+    /** L'invitation a été traitée (acceptée, refusée, fermée) : le jeton est oublié. */
+    fun forgetInvitation() {
+        pendingInvitation = null
+    }
+
+    /** Action demandée par un compte anonyme, reprise après la connexion (#87 §1.1) : en mémoire seulement. */
+    @Volatile
+    var afterSignIn: AfterSignIn? = null
+
+    // endregion
 
     /** Premier plan : une passe avec descente. */
     fun onForeground() {
@@ -540,7 +640,7 @@ class AppContainer(
             maintenanceScope.launch {
                 // Drapeau lu hors du fil principal ; la reprise attend une vérification de code en cours (verrou).
                 val pending = withContext(IO) { switchFlag.isPending }
-                if (pending && replayAccountSwitch()) coordinator?.sessionDidChange()
+                if (pending && replayAccountSwitch()) notifySessionChange()
             }
         }
         coordinator?.requestSync(pull = true)

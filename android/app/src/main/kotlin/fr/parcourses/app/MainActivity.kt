@@ -10,6 +10,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import fr.parcourses.feature.shopping.live.LiveUpdateLinks
 
@@ -55,6 +56,18 @@ class MainActivity : ComponentActivity() {
      */
     private fun offerLink(intent: Intent?): Boolean {
         val fromHistory = intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        // Invitation (#87) : `parcourses://invitation#<jeton>`, ou https sur l'hôte configuré (lot 87.7). Le jeton
+        // reste en mémoire ; l'intention est vidée pour qu'une recréation ne le rejoue pas.
+        val token =
+            intent
+                ?.takeIf { it.action == Intent.ACTION_VIEW && !fromHistory }
+                ?.dataString
+                ?.let { SharingDecisions.parseInvitationLink(it, container.invitationLinks.httpsHost) }
+        if (token != null) {
+            container.offerInvitation(token)
+            intent?.data = null
+            return false
+        }
         val visitId =
             intent
                 ?.takeIf { it.action == Intent.ACTION_VIEW && !fromHistory }

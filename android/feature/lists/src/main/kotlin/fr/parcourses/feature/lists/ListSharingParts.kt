@@ -27,12 +27,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
@@ -55,13 +54,11 @@ import fr.parcourses.core.designsystem.SharingBadge
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketType
-import kotlinx.coroutines.delay
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 // Partage vu de l'écran Liste (#87, lot 87.6, maquettes §1 et §7).
@@ -119,20 +116,14 @@ internal fun ago(
     }
 }
 
-/** L'heure qui avance pour « il y a… » : une mise à jour toutes les 30 s suffit. */
-@Composable
-internal fun rememberNow(clock: () -> Instant = { Clock.System.now() }): Instant {
-    var now by remember { mutableStateOf(clock()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(TICK)
-            now = clock()
-        }
-    }
-    return now
-}
+/**
+ * Horloge des « il y a… » et des échéances : celle du système, remplacée par une heure fixe dans les captures. Lue à
+ * chaque composition ; l'écran se recompose à chaque descente, ce qui suffit à garder le texte à jour.
+ */
+val LocalSharingClock = staticCompositionLocalOf<() -> Instant> { { Clock.System.now() } }
 
-private val TICK = 30.seconds
+@Composable
+internal fun rememberNow(): Instant = LocalSharingClock.current()
 
 /**
  * Bouton des membres dans la barre de la liste : les pastilles des autres membres, ou l'icône « Partager » tant que la
@@ -161,7 +152,7 @@ internal fun MembersButton(
         Modifier
             .heightIn(min = TicketDimens.touchMin)
             .sizeIn(minWidth = TicketDimens.touchMin)
-            .clip48()
+            .clip(CircleShape)
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -173,8 +164,6 @@ internal fun MembersButton(
         MemberStack(sharing.others.map { it.label })
     }
 }
-
-private fun Modifier.clip48(): Modifier = this.then(Modifier.heightIn(min = TicketDimens.touchMin))
 
 /** « Modifiée par Léa · il y a 2 min » sous le compteur, en deux lignes si le texte est agrandi. */
 @Composable

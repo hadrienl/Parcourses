@@ -23,6 +23,27 @@ sealed interface Route : NavKey {
     data object SignIn : Route
 
     /**
+     * « Partager la liste » (propriétaire) ou « Membres » (membre) de [listId] (#87, lot 87.6) : dialogue plein écran.
+     * [slot] : comme pour [ListDetail].
+     */
+    @Serializable
+    data class ShareList(
+        val listId: String,
+        val slot: String = Uuid.random().toString(),
+    ) : Route
+
+    /** « Invitations (n) » : les invitations reçues, une carte chacune. */
+    @Serializable
+    data object Invitations : Route
+
+    /**
+     * Invitation ouverte par son lien. Le jeton n'est **pas** dans la route (sauvegardée avec la pile, donc écrite sur
+     * le disque) : il reste en mémoire dans le conteneur (#87 §1.3).
+     */
+    @Serializable
+    data object Invitation : Route
+
+    /**
      * [slot] identifie l'écran, pas la liste : si la liste change d'identifiant (reprise de compte), la clé change
      * mais pas l'écran, qui garde son état et sa saisie en cours.
      */
@@ -77,6 +98,9 @@ internal val routeConfiguration =
                     subclass(Route.StorePicker::class)
                     subclass(Route.Shopping::class)
                     subclass(Route.ShoppingSummary::class)
+                    subclass(Route.ShareList::class)
+                    subclass(Route.Invitations::class)
+                    subclass(Route.Invitation::class)
                 }
             }
     }

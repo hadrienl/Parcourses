@@ -851,7 +851,7 @@ class SupabaseGateway internal constructor(
                         .collect { send(RealtimeEvent.Subscribed) }
                 }
                 launch {
-                    channel.broadcastFlow<JsonObject>(SIGNAL_EVENT).collect { payload -> send(signal(payload)) }
+                    channel.broadcastFlow<JsonObject>(SIGNAL_EVENT).collect { payload -> send(signalOf(payload)) }
                 }
                 channel.subscribe(blockUntilSubscribed = false)
                 awaitCancellation()
@@ -975,13 +975,6 @@ class SupabaseGateway internal constructor(
         /** Événement Broadcast des signaux du partage (lot 87.2). */
         const val SIGNAL_EVENT = "changed"
 
-        /** Signal `{ list_id, kind }` ; un champ manquant donne `kind` vide, traité comme une descente. */
-        fun signal(payload: JsonObject): RealtimeEvent.Changed {
-            val listId = (payload["list_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            val kind = (payload["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
-            return RealtimeEvent.Changed(listId?.let { runCatching { Uuid.parse(it) }.getOrNull() }, kind)
-        }
-
         /** Rafraîchit un peu avant l'expiration pour qu'une requête en cours ne parte pas avec un jeton périmé. */
         val REFRESH_MARGIN = 30.seconds
 
@@ -997,4 +990,11 @@ class SupabaseGateway internal constructor(
                 null
             }
     }
+}
+
+/** Signal `{ list_id, kind }` (#87 §6.2) ; un champ manquant donne `kind` vide, traité comme une descente. */
+internal fun signalOf(payload: JsonObject): RealtimeEvent.Changed {
+    val listId = (payload["list_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    val kind = (payload["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+    return RealtimeEvent.Changed(listId?.let { runCatching { Uuid.parse(it) }.getOrNull() }, kind)
 }

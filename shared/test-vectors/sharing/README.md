@@ -39,8 +39,11 @@ Les valeurs de sortie sont les noms des cas d'enum (Swift `case otherAddress` ; 
   envoyé) ; `invitationLink(listId:email:role:)` → lien (« Copier le lien » : `create_invitation` avec
   `p_send_email = false`, nouveau jeton, l'ancien lien ne marche plus) ; `revokeInvitation(id:)` ;
   `listSharing(listId:)` ; `myInvitations()` ; `previewInvitation(token:)` ; `acceptInvitation(token:)` et
-  `acceptInvitation(id:)` → `AcceptOutcome` ; `declineInvitation(id:)` ; `setMemberRole(listId:userId:role:)` ;
-  `removeMember(listId:userId:)` (« Quitter la liste » = son propre `userId`).
+  `acceptInvitation(id:)` → `InvitationAcceptance` (`status`, `listId`, `role` : la ligne de `accept_invitation` ;
+  `SharingDecisions.acceptOutcome` en tire l'`AcceptOutcome`, `listId` ouvre la liste) ; `declineInvitation(id:)` ; `setMemberRole(listId:userId:role:)` ;
+  `removeMember(listId:userId:)` (« Quitter la liste » = son propre `userId`) ;
+  `fetchListMembers()` et `fetchProfiles()` (descente : rôles et prénoms des participants, sans appeler
+  `list_sharing` liste par liste).
 - **Temps réel** : `RealtimeSignals` : un canal privé `user:<uid>` par appareil connecté avec un compte e-mail (aucun
   pour un anonyme), ouvert au premier plan et fermé en arrière-plan ; signaux regroupés sur 300 ms puis
   `signalActions` ; à la (re)connexion, une descente. Jamais de libellé dans un signal : la donnée passe par la
