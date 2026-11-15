@@ -22,6 +22,8 @@ final class AppEnvironment {
   private let graphs: any GraphRepository
   private let gateway: (any RemoteGateway)?
   private let location: any LocationProvider
+  /// Compte de l'appareil, tel que la synchro le connaît : « vous » et les marques d'auteur (#87).
+  private let accountId: () -> UUID?
   /// Une seule instance pour toutes les sessions : ses appels ActivityKit restent ordonnés.
   private let shoppingActivity: ActivityKitShoppingActivity
   /// Mode courses en cours, le temps qu'il vive : « Cocher le suivant » le prévient.
@@ -47,8 +49,12 @@ final class AppEnvironment {
       sync?.enqueued ?? {
         // Sans configuration : rien à réveiller.
       }
-    lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue)
-    visits = SwiftDataVisitRepository(context: context, onEnqueue: onEnqueue)
+    // Dernier compte connu : auteur d'une modification faite ici, avant même qu'elle parte (#87, lot 87.4).
+    let cursors = UserDefaultsSyncCursors()
+    let author: () -> UUID? = { cursors.accountId }
+    accountId = author
+    lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue, author: author)
+    visits = SwiftDataVisitRepository(context: context, onEnqueue: onEnqueue, author: author)
     products = SwiftDataProductRepository(context: context)
     stores = SwiftDataStoreRepository(context: context)
     graphs = SwiftDataGraphRepository(context: context)
@@ -152,12 +158,39 @@ final class AppEnvironment {
   #endif
 
   func makeListsModel() -> ListsModel {
-    ListsModel(lists: lists)
+    ListsModel(lists: lists, accountId: accountId)
   }
 
   func makeListDetailModel(listId: UUID) -> ListDetailModel {
     ListDetailModel(
-      listId: listId, lists: lists, products: products, categories: categories, analyzer: entryAnalyzer)
+      listId: listId, lists: lists, products: products, categories: categories, analyzer: entryAnalyzer,
+      accountId: accountId)
+  }
+
+  /// Partage (#87, lot 87.4) : invitations, liens, feuille « Partager », signaux temps réel.
+  func makeSharingCenter(account: AccountSession?) -> SharingCenter {
+    let sync = sync
+    let lists = lists
+    let accountId = accountId
+    var monitorsNetwork = true
+    #if DEBUG
+      // Tests UI : réseau imposé par le scénario.
+      if ProcessInfo.processInfo.environment["PARCOURSES_TEST_SHARING"] != nil { monitorsNetwork = false }
+    #endif
+    return SharingCenter(
+      gateway: gateway, transport: gateway as? any RealtimeTransport,
+      dependencies: SharingCenter.Dependencies(
+        isEmailAccount: { [weak account] in account?.kind == .email && account?.needsSignIn == false },
+        accountEmail: { [weak account] in account?.email },
+        synchronize: { await sync?.synchronize() },
+        requestPull: { sync?.foreground() },
+        listExists: { (try? lists.list(id: $0)) != nil },
+        forgetList: { id in
+          try? lists.forgetList(id: id)
+          NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
+        },
+        accountId: accountId),
+      monitorsNetwork: monitorsNetwork)
   }
 
   func makeStorePickerModel(onFinish: @escaping (StorePickerOutcome) -> Void) -> StorePickerModel {
@@ -206,7 +239,7 @@ final class AppEnvironment {
     let session = ShoppingSession(
       listId: listId, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
       analyzer: entryAnalyzer, cache: GraphSnapshotCache(graphs: graphs, gateway: gateway), undoDelay: undoDelay,
-      activity: shoppingActivity)
+      activity: shoppingActivity, accountId: accountId)
     currentSession = session
     return session
   }

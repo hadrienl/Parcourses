@@ -85,7 +85,8 @@ final class InvitationCardModel: Identifiable {
     case .alreadyMember: return "Vous faites déjà partie de cette liste."
     case .used: return "Cette invitation a déjà été utilisée."
     case .expired:
-      let inviter = inviterName.map { "Demandez à \($0) de vous la renvoyer." }
+      let inviter =
+        inviterName.map { "Demandez à \($0) de vous la renvoyer." }
         ?? "Demandez à la personne qui vous l'a envoyée de vous la renvoyer."
       return "Cette invitation a expiré. \(inviter)"
     case .invalid:

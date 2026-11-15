@@ -64,6 +64,7 @@ private final class SpyHistory: ListRepository {
     try base.setNotFound(itemId: itemId, notFoundAt: notFoundAt, at: date)
   }
   func deleteItem(id: UUID) throws { try base.deleteItem(id: id) }
+  func forgetList(id: UUID) throws { try base.forgetList(id: id) }
 }
 
 @MainActor

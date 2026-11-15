@@ -16,7 +16,9 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   /// Garde-fou : ces noms sont repris tels quels par Android. Un écart doit passer par `SYNC.md`.
   @Test func entityAndPropertyNamesMatchTheDesign() {
     let expected: [String: Set<String>] = [
-      "ShoppingList": ["id", "name", "createdAt", "updatedAt", "deletedAt", "syncStateRaw", "ownerId"],
+      "ShoppingList": [
+        "id", "name", "createdAt", "updatedAt", "deletedAt", "syncStateRaw", "ownerId", "roleRaw", "participantsData",
+      ],
       "ListItem": [
         "id", "listId", "label", "normalizedName", "quantity", "productId", "categoryId", "checkedAt", "notFoundAt",
         "position", "updatedAt", "syncStateRaw", "isOnServer", "updatedBy",
@@ -33,7 +35,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
         "syncStateRaw", "serverFailingSince", "changedFields",
       ],
     ]
-    let schema = Schema(versionedSchema: SchemaV4.self)
+    let schema = Schema(versionedSchema: SchemaV5.self)
     let actual = Dictionary(
       uniqueKeysWithValues: schema.entities.map { ($0.name, Set($0.storedProperties.map(\.name))) })
     #expect(actual == expected)
@@ -44,8 +46,54 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
     #expect(SchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
     #expect(SchemaV4.versionIdentifier == Schema.Version(4, 0, 0))
-    #expect(ParcoursesMigrationPlan.schemas.count == 4)
-    #expect(ParcoursesMigrationPlan.stages.count == 3)
+    #expect(SchemaV5.versionIdentifier == Schema.Version(5, 0, 0))
+    #expect(ParcoursesMigrationPlan.schemas.count == 5)
+    #expect(ParcoursesMigrationPlan.stages.count == 4)
+  }
+
+  /// Store écrit en V4 (87.3) : le rôle arrive à `owner` et les participants vides ; listes et articles sont intacts
+  /// (#87, lot 87.4). La descente suivante relira le rôle des listes d'autrui.
+  @Test func aV4StoreMigratesToV5() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "v4.store")
+    let (listId, itemId, owner) = (UUID(), UUID(), UUID())
+    do {
+      let schema = Schema(versionedSchema: SchemaV4.self)
+      let container = try ModelContainer(
+        for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
+      let context = ModelContext(container)
+      context.insert(SchemaV4.ShoppingList(id: listId, name: "Partagée", syncState: .synced, ownerId: owner))
+      context.insert(
+        SchemaV4.ListItem(
+          id: itemId, listId: listId, label: "Lait", normalizedName: "lait", categoryId: "dairy", position: 0,
+          syncState: .synced, isOnServer: true, updatedBy: owner))
+      try context.save()
+    }
+
+    let context = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+    let list = try #require(try context.fetch(FetchDescriptor<ShoppingList>()).first)
+    #expect(list.ownerId == owner)
+    #expect(list.role == .owner)
+    #expect(list.participants.isEmpty)
+    #expect(!list.isShared)
+    let item = try #require(try context.fetch(FetchDescriptor<ListItem>()).first)
+    #expect(item.id == itemId && item.updatedBy == owner && item.isOnServer)
+
+    // Le rôle et les participants sont durables : ils survivent à la réouverture du store.
+    let me = UUID()
+    list.role = .viewer
+    list.participants = [
+      ListParticipant(userId: owner, displayName: "Hadrien", role: .owner, isMe: false, joinedAt: nil),
+      ListParticipant(userId: me, displayName: "Tom", role: .viewer, isMe: true, joinedAt: t0),
+    ]
+    try context.save()
+    let reopened = ModelContext(try PersistenceStack.makeContainer(storage: .file(url)))
+    let again = try #require(try reopened.fetch(FetchDescriptor<ShoppingList>()).first)
+    #expect(again.role == .viewer)
+    #expect(again.participants.map(\.displayName) == ["Hadrien", "Tom"])
+    #expect(again.isShared)
   }
 
   /// Store écrit par une version précédente (V3) : les colonnes de 87.3 arrivent, un article accusé est marqué

@@ -67,7 +67,9 @@ extension SyncStore {
     return Dictionary(
       lists.map { list in
         let ownerName = list.participants.first { $0.role == .owner }?.displayName
-        return (list.id, SharingAccessChange(listId: list.id, listName: list.name, ownerName: ownerName, kind: .removed))
+        return (
+          list.id, SharingAccessChange(listId: list.id, listName: list.name, ownerName: ownerName, kind: .removed)
+        )
       }
     ) { first, _ in first }
   }

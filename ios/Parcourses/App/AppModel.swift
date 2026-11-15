@@ -11,6 +11,8 @@ final class AppModel {
   private(set) var deletion: AccountDeletion?
   /// Compte de l'appareil (#87), reconstruit avec l'environnement.
   private(set) var account: AccountSession?
+  /// Partage (#87, lot 87.4), reconstruit avec l'environnement.
+  private(set) var sharing: SharingCenter?
   /// Drapeau `account.deletion` trouvé au lancement : la reprise de la suppression remplace l'app jusqu'à son issue,
   /// sans synchronisation ni `ensureSession`.
   private(set) var isResumingDeletion: Bool
@@ -29,6 +31,7 @@ final class AppModel {
     deletion?.host = self
     account = current?.makeAccountSession()
     account?.host = self
+    sharing = current?.makeSharingCenter(account: account)
     // Déconnexion interrompue par un arrêt de l'app : la purge est achevée avant toute synchro, qui reste arrêtée sinon.
     if signOutFlags.isPending, account?.resumePendingSignOut() == true { current?.sync?.resume() }
     // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
@@ -83,6 +86,10 @@ extension AppModel: AccountDeletionHost {
     deletion?.host = self
     account = next?.makeAccountSession()
     account?.host = self
+    // Le canal temps réel de l'ancien compte se ferme ; le nouveau s'ouvrira au premier plan, s'il y a lieu.
+    let previousSharing = sharing
+    Task { await previousSharing?.background() }
+    sharing = next?.makeSharingCenter(account: account)
     CheckNextItemRouter.handler = next?.activityActions
     // Aucune visite ne survit à la purge : toute activité encore affichée est orpheline.
     next?.endOrphanActivities(keeping: nil)

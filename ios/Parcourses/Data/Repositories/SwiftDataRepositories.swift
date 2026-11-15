@@ -44,16 +44,20 @@ extension ModelContext {
 final class SwiftDataListRepository: ListRepository {
   private let context: ModelContext
   private let onEnqueue: () -> Void
+  private let author: () -> UUID?
 
-  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file. `author` : compte de l'appareil, posé sur
+  /// un article modifié ici (`updatedBy`), comme le serveur le fera à la réception (#87, lot 87.4).
   init(
     context: ModelContext,
     onEnqueue: @escaping () -> Void = {
       // Aucun moteur à réveiller.
-    }
+    },
+    author: @escaping () -> UUID? = { nil }
   ) {
     self.context = context
     self.onEnqueue = onEnqueue
+    self.author = author
   }
 
   func lists() throws -> [ShoppingList] {
@@ -116,7 +120,7 @@ final class SwiftDataListRepository: ListRepository {
     let item = try context.atomically {
       let item = ListItem(
         listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
-        categoryId: categoryId, position: position, updatedAt: date)
+        categoryId: categoryId, position: position, updatedAt: date, updatedBy: author())
       context.insert(item)
       try context.enqueueUpsert(of: item, at: date, changedFields: ListItemFields.all)
       return item
@@ -130,6 +134,7 @@ final class SwiftDataListRepository: ListRepository {
     try context.atomically {
       item.checkedAt = checkedAt
       item.updatedAt = date
+      item.updatedBy = author()
       item.syncState = .pending
       try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
     }
@@ -150,6 +155,22 @@ final class SwiftDataListRepository: ListRepository {
       context.delete(item)
     }
     onEnqueue()
+  }
+
+  func forgetList(id: UUID) throws {
+    try context.atomically {
+      for entry in try context.fetch(FetchDescriptor<OutboxEntry>()) {
+        let touches =
+          switch entry.kind {
+          case .upsertList, .deleteList: entry.entityId == id
+          case .upsertItem, .deleteItem: OutboxDependencies.listId(of: entry) == id
+          default: false
+          }
+        if touches { context.delete(entry) }
+      }
+      try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == id })).forEach(context.delete)
+      try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).forEach(context.delete)
+    }
   }
 
   func itemHistory() throws -> [ListItem] {
@@ -243,16 +264,19 @@ final class SwiftDataStoreRepository: StoreRepository {
 final class SwiftDataVisitRepository: VisitRepository {
   private let context: ModelContext
   private let onEnqueue: () -> Void
+  private let author: () -> UUID?
 
-  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file. `author` : voir `SwiftDataListRepository`.
   init(
     context: ModelContext,
     onEnqueue: @escaping () -> Void = {
       // Aucun moteur à réveiller.
-    }
+    },
+    author: @escaping () -> UUID? = { nil }
   ) {
     self.context = context
     self.onEnqueue = onEnqueue
+    self.author = author
   }
 
   func visit(id: UUID) throws -> Visit? {
@@ -446,6 +470,7 @@ final class SwiftDataVisitRepository: VisitRepository {
   private func write(checkedAt: Date?, to item: ListItem, at date: Date) throws {
     item.checkedAt = checkedAt
     item.updatedAt = date
+    item.updatedBy = author()
     item.syncState = .pending
     try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
   }

@@ -22,6 +22,9 @@ struct ShoppingRow: Identifiable, Equatable {
   let isChecked: Bool
   /// Rayon effectif (bio compris si le magasin en a un) : celui de la section en ordre générique.
   var aisleId = ""
+  /// Liste partagée (#87) : initiale et prénom d'un autre membre qui a modifié l'article en dernier (coché, souvent).
+  var authorMark: String?
+  var authorName: String?
 
   var accessibilityLabel: String {
     [label, quantity].compactMap(\.self).joined(separator: ", ")
@@ -105,6 +108,8 @@ final class ShoppingSession: Identifiable {
   private(set) var summary: ShoppingSummary?
   private(set) var visitId: UUID?
   private(set) var mode = SortOutput.Mode.fallback
+  /// La liste a quitté l'appareil pendant les courses (retrait, liste supprimée) : « Terminer » seulement (#87 §1.5).
+  private(set) var accessLost = false
   private var categoryLabels: [String: String] = [:]
   var input = ""
   var errorMessage: String?
@@ -125,6 +130,8 @@ final class ShoppingSession: Identifiable {
   private let preloadTimeout: Duration
   private let sendMargin: Duration
   private let activity: (any ShoppingActivityControlling)?
+  /// Mon compte : une coche d'un autre membre se reconnaît à son auteur (`updatedBy`).
+  private let accountId: () -> UUID?
   private var activityState: ShoppingActivityAttributes.ContentState?
   private var activityLastActivity: Date?
   private var isActivityStarted = false
@@ -167,9 +174,10 @@ final class ShoppingSession: Identifiable {
     cache: GraphSnapshotCache, now: @escaping () -> Date = { .now }, settleDelay: Duration = .milliseconds(600),
     undoDelay: Duration = .seconds(4), highlightDelay: Duration = .milliseconds(300),
     preloadTimeout: Duration = .seconds(3), sendMargin: Duration = .seconds(1),
-    activity: (any ShoppingActivityControlling)? = nil
+    activity: (any ShoppingActivityControlling)? = nil, accountId: @escaping () -> UUID? = { nil }
   ) {
     self.activity = activity
+    self.accountId = accountId
     self.listId = listId
     self.storeId = storeId
     self.lists = lists
@@ -683,11 +691,13 @@ final class ShoppingSession: Identifiable {
   /// Relit la liste en gardant l'ordre affiché. Une ligne juste cochée ne passe au panier qu'au tri suivant.
   private func reloadRows() {
     let items = (try? lists.items(listId: listId)) ?? []
+    let access = currentAccess()
     let rows = items.map {
       (
         item: $0,
         row: ShoppingRow(
-          id: $0.id, label: $0.label, quantity: $0.quantity, isChecked: $0.checkedAt != nil, aisleId: aisle(of: $0))
+          id: $0.id, label: $0.label, quantity: $0.quantity, isChecked: $0.checkedAt != nil, aisleId: aisle(of: $0),
+          authorMark: access.authorMark(updatedBy: $0.updatedBy), authorName: access.otherName($0.updatedBy))
       )
     }
     let settling = settlingIds
@@ -700,12 +710,61 @@ final class ShoppingSession: Identifiable {
     notFound = rows.filter { $0.item.checkedAt == nil && $0.item.notFoundAt != nil }.map(\.row)
   }
 
-  /// Après une descente : les changements venus d'ailleurs, sans toucher à une ligne en attente.
+  /// Après une descente : les changements venus d'ailleurs, sans toucher à une ligne en attente. Un article coché par
+  /// un autre membre (#87 §7) se coche à sa place, puis glisse au panier au tri suivant, sans coche de visite ici : la
+  /// visite reste celle de qui a coché.
   func syncDidChange() {
-    guard !hasUnsettledChange, summary == nil, !expired else { return }
+    guard summary == nil, !expired else { return }
+    guard (try? lists.list(id: listId)) != nil else {
+      // Liste retirée de l'appareil : les courses s'arrêtent, les coches déjà faites restent les miennes.
+      accessLost = true
+      return
+    }
+    guard !hasUnsettledChange else { return }
+    let shown = Dictionary(toBuy.map { ($0.id, $0) }) { first, _ in first }
+    let items = (try? lists.items(listId: listId)) ?? []
+    let access = currentAccess()
+    let checkedElsewhere = items.filter { $0.checkedAt != nil && shown[$0.id]?.isChecked == false }
+    let returned = items.filter { $0.checkedAt == nil && basket.contains(where: { row in row.id == $0.id }) }
+    settlingIds.formUnion(checkedElsewhere.map(\.id))
     reloadRows()
     scheduleSettle()
     publishActivity()
+    announce(
+      checked: checkedElsewhere.map { (name: access.otherName($0.updatedBy), label: $0.label) },
+      returned: returned.map { (name: access.otherName($0.updatedBy), label: $0.label) })
+  }
+
+  /// Annonces polies de la maquette : « Léa a pris Lait entier. 5 restants. », « Léa a remis Pâtes dans la liste. ».
+  private func announce(checked: [(name: String?, label: String)], returned: [(name: String?, label: String)]) {
+    var sentences: [String] = []
+    let named: [(String, String)] = checked.compactMap { entry in entry.name.map { ($0, entry.label) } }
+    if !named.isEmpty {
+      let left = remainingCount
+      let rest = left == 1 ? "1 restant." : "\(left) restants."
+      if named.count == 1, let first = named.first {
+        sentences.append("\(first.0) a pris \(first.1). \(rest)")
+      } else if Set(named.map(\.0)).count == 1, let first = named.first {
+        sentences.append("\(first.0) a pris \(named.count) articles. \(rest)")
+      } else {
+        sentences.append("\(named.count) articles pris par d'autres membres. \(rest)")
+      }
+    }
+    for entry in returned {
+      guard let name = entry.name else { continue }
+      sentences.append("\(name) a remis \(entry.label) dans la liste.")
+    }
+    guard !sentences.isEmpty else { return }
+    lastAnnouncement = sentences.joined(separator: " ")
+    ReorderAnnouncement.post(lastAnnouncement ?? "")
+  }
+
+  /// Dernière annonce d'un changement venu d'un autre membre : pour les tests.
+  private(set) var lastAnnouncement: String?
+
+  private func currentAccess() -> ListAccess {
+    guard let list = try? lists.list(id: listId) else { return ListAccess() }
+    return ListAccess(list: list, me: accountId())
   }
 
   // MARK: - Annulation

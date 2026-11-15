@@ -131,3 +131,14 @@ extension View {
     }
   }
 }
+
+extension View {
+  /// Remplace le libellé lu seulement si `label` est donné.
+  @ViewBuilder func accessibilityLabel(override label: String?) -> some View {
+    if let label {
+      accessibilityLabel(label)
+    } else {
+      self
+    }
+  }
+}

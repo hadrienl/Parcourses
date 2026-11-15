@@ -50,6 +50,8 @@ protocol ListRepository {
   func deleteItem(id: UUID) throws
   /// Articles de toutes les listes non supprimées, source de l'autocomplétion.
   func itemHistory() throws -> [ListItem]
+  /// Retire une liste de l'appareil, articles et file compris, sans rien envoyer : liste quittée (#87, lot 87.4).
+  func forgetList(id: UUID) throws
 }
 
 /// Cache local du catalogue de produits, vide tant que la descente (9.7) ne l'a pas rempli.

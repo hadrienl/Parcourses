@@ -19,9 +19,8 @@ struct RemoteContractTests {
   }()
 
   /// Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
-  /// `list_members` (#87, lot 87.2) : lue en 87.4.
   private static let tablesWithoutDTO: Set<String> = [
-    "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots", "list_members",
+    "stores", "store_edges", "store_entries", "store_stats", "store_graph_snapshots",
   ]
 
   /// Colonnes accordées à `authenticated` : `verb` vaut `insert` ou `update`, lues dans les migrations.
@@ -73,7 +72,7 @@ struct RemoteContractTests {
 
   private static let readDTOs: [any TableDTO.Type] = [
     ListRow.self, ListItemRow.self, VisitRow.self, CheckRow.self, CategoryRow.self, ProductRow.self,
-    TombstoneRow.self, ProfileRow.self,
+    TombstoneRow.self, ProfileRow.self, ListMemberRow.self,
   ]
 
   @Test func readDTOsCoverExactlyTheColumnsOfTheirTable() throws {

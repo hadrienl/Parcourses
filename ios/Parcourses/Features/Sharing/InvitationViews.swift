@@ -165,12 +165,15 @@ struct InvitationCard: View {
   }
 }
 
-/// Feuille d'une invitation ouverte par son lien (`parcourses://invitation#<jeton>`).
+/// Feuille d'une invitation ouverte par son lien (`parcourses://invitation#<jeton>`). Un compte anonyme se connecte
+/// d'abord ; le jeton attend en mémoire, puis la carte se recharge.
 struct InvitationLinkSheet: View {
   @State var model: InvitationCardModel
+  let center: SharingCenter
   let onOpen: (UUID) -> Void
-  let onSignIn: () -> Void
   @Environment(\.dismiss) private var dismiss
+  @Environment(AccountSession.self) private var account: AccountSession?
+  @State private var signIn: AccountLink?
 
   var body: some View {
     NavigationStack {
@@ -180,8 +183,9 @@ struct InvitationLinkSheet: View {
           onOpen: { listId in
             dismiss()
             onOpen(listId)
-          }, onSignIn: onSignIn, onClose: { dismiss() }, showsSectionTitle: false
+          }, onSignIn: { signIn = account?.makeLink() }, onClose: { dismiss() }, showsSectionTitle: false
         )
+        .id(model.id)
         .padding(Space.m)
       }
       .ticketBackground()
@@ -191,6 +195,15 @@ struct InvitationLinkSheet: View {
         ToolbarItem(placement: .cancellationAction) {
           Button("Fermer", systemImage: "xmark") { dismiss() }
             .accessibilityIdentifier("closeInvitationSheet")
+        }
+      }
+      .sheet(item: $signIn) { link in
+        AccountSignInView(link: link, context: .invitation) {
+          Task {
+            await account?.linkDidFinish()
+            await center.foreground()
+            await model.load()
+          }
         }
       }
     }
@@ -211,9 +224,12 @@ struct ReceivedInvitationsScreen: View {
             .id(invitation.id)
         }
         if center.invitations.isEmpty {
-          Text("Aucune invitation en attente.")
-            .foregroundStyle(Palette.inkMuted)
-            .frame(maxWidth: .infinity)
+          Text(
+            center.dependencies.accountEmail().map { "Aucune invitation n'attend \($0)." }
+              ?? "Aucune invitation en attente."
+          )
+          .foregroundStyle(Palette.inkMuted)
+          .frame(maxWidth: .infinity)
         }
       }
       .padding(Space.m)

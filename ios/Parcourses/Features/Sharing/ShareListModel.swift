@@ -155,7 +155,8 @@ final class ShareListModel: Identifiable {
     await perform(on: member.userId, offlineMessage: "Changer les accès demande une connexion.") { gateway in
       try await gateway.setMemberRole(listId: self.listId, userId: member.userId, role: role)
       self.show(
-        role == .viewer ? "\(member.name) passe en lecture seule." : "\(member.name) peut maintenant modifier la liste.")
+        role == .viewer ? "\(member.name) passe en lecture seule." : "\(member.name) peut maintenant modifier la liste."
+      )
     }
   }
 

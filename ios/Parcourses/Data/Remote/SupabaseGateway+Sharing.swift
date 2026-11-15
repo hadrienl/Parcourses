@@ -20,10 +20,12 @@ extension SupabaseGateway {
       guard (200..<300).contains(http.statusCode) else {
         // Erreur relayée par la fonction (`{ error, code }`) ; sans corps lisible, seul le statut parle.
         let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        throw SharingRequestError(error: body?["error"] as? String ?? (http.statusCode == 401 ? "unauthorized" : "rpc_failed"))
+        throw SharingRequestError(
+          error: body?["error"] as? String ?? (http.statusCode == 401 ? "unauthorized" : "rpc_failed"))
       }
       let wire = try PostgrestClient.Configuration.jsonDecoder.decode(SentInvitationWire.self, from: data)
-      return SentInvitation(invitationId: wire.invitationId, link: wire.link, sent: wire.sent, expiresAt: wire.expiresAt)
+      return SentInvitation(
+        invitationId: wire.invitationId, link: wire.link, sent: wire.sent, expiresAt: wire.expiresAt)
     }
   }
 
@@ -148,7 +150,9 @@ extension SupabaseGateway {
     case let error as PostgrestError:
       // `P0001` : message stable de la RPC (invalid_email, list_full…). `42501` : « not allowed », ou un compte sans
       // adresse confirmée (« email account required »), à qui l'on propose de se connecter.
-      if error.code == "42501" { return SharingRequestError(error: error.message == "not allowed" ? "not allowed" : "unauthorized") }
+      if error.code == "42501" {
+        return SharingRequestError(error: error.message == "not allowed" ? "not allowed" : "unauthorized")
+      }
       return SharingRequestError(error: error.code == "P0001" ? error.message : "rpc_failed")
     default:
       switch classify(error) {

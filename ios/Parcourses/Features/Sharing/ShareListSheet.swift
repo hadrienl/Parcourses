@@ -58,7 +58,8 @@ struct ShareListSheet: View {
     }
     .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
     .alert(
-      removing.map { "Retirer \($0.name) de la liste ?" } ?? "", isPresented: isPresented($removing), presenting: removing
+      removing.map { "Retirer \($0.name) de la liste ?" } ?? "", isPresented: isPresented($removing),
+      presenting: removing
     ) { member in
       Button("Annuler", role: .cancel) { removing = nil }
       Button("Retirer", role: .destructive) { Task { await model.remove(member) } }
@@ -310,7 +311,8 @@ struct ShareListSheet: View {
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(
         "\(invitation.email), \(SharingFormat.roleLabel(invitation.role).lowercased()), "
-          + SharingFormat.pendingExpiryAccessibility(invitation, now: .now))
+          + SharingFormat.pendingExpiryAccessibility(invitation, now: .now)
+      )
       .accessibilityActions {
         Button("Renvoyer") { Task { await model.resend(invitation) } }
         Button("Copier le lien") { Task { await model.copyLink(invitation) } }
@@ -372,7 +374,8 @@ struct RoleChooser: View {
         .textCase(.uppercase)
         .foregroundStyle(Palette.inkMuted)
         .accessibilityHidden(true)
-      let layout = typeSize >= .accessibility1 ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 4))
+      let layout =
+        typeSize >= .accessibility1 ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 4))
       layout {
         segment(.editor)
         segment(.viewer)

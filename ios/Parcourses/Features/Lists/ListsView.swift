@@ -4,6 +4,8 @@ import SwiftUI
 struct ListsView: View {
   @State private var model: ListsModel
   let onOpen: (UUID) -> Void
+  /// « Invitations (n) » : écran des invitations reçues.
+  let onInvitations: () -> Void
 
   @State private var isCreating = false
   @State private var renaming: ListSummary?
@@ -13,10 +15,19 @@ struct ListsView: View {
   @State private var signIn: AccountLink?
   /// Absent sans serveur : aucune entrée de connexion.
   @Environment(AccountSession.self) private var account: AccountSession?
+  @Environment(SharingCenter.self) private var sharing: SharingCenter?
+  /// Feuille « Membres » d'une liste partagée avec moi, ouverte par « Quitter la liste ».
+  @State private var members: ShareListModel?
 
-  init(model: ListsModel, onOpen: @escaping (UUID) -> Void) {
+  init(
+    model: ListsModel, onOpen: @escaping (UUID) -> Void,
+    onInvitations: @escaping () -> Void = {
+      // Sans écran d'invitations : aperçus et tests.
+    }
+  ) {
     _model = State(initialValue: model)
     self.onOpen = onOpen
+    self.onInvitations = onInvitations
   }
 
   var body: some View {
@@ -59,6 +70,12 @@ struct ListsView: View {
       // Relancé à chaque retour sur l'écran, pour des compteurs à jour.
       .task { model.load() }
       .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
+      .sheet(item: $members) { members in
+        if let sharing { ShareListSheet(model: members, center: sharing) }
+      }
+      .sharingToast(removalMessage, revision: sharing?.removedLists.count ?? 0) {
+        if let removed = sharing?.removedLists.first { sharing?.acknowledgeRemoval(removed) }
+      }
       .alert("Nouvelle liste", isPresented: $isCreating) {
         TextField("Nom de la liste", text: $nameInput)
         Button("Annuler", role: .cancel) { isCreating = false }
@@ -74,10 +91,14 @@ struct ListsView: View {
           .disabled(!ListsModel.isValid(name: nameInput))
       }
       .confirmationDialog(
-        "Supprimer cette liste et ses articles ?", isPresented: isPresented($deleting), titleVisibility: .visible,
-        presenting: deleting
+        deletionTitle, isPresented: isPresented($deleting), titleVisibility: .visible, presenting: deleting
       ) { list in
         Button("Supprimer la liste", role: .destructive) { model.delete(id: list.id) }
+      } message: { list in
+        // Liste partagée : les membres la perdent aussi (maquette, écran 3).
+        if list.access.isShared {
+          Text("\(ListAccess.sentence(list.access.others.map(\.name))) la perdront aussi. C'est définitif.")
+        }
       }
       .alert("Erreur", isPresented: errorIsPresented) {
         Button("OK", role: .cancel) { model.errorMessage = nil }
@@ -86,30 +107,96 @@ struct ListsView: View {
       }
   }
 
+  private var deletionTitle: String {
+    guard let deleting, deleting.access.isShared else { return "Supprimer cette liste et ses articles ?" }
+    return "Supprimer «\u{00A0}\(deleting.name)\u{00A0}» ?"
+  }
+
+  private var removalMessage: String? {
+    guard let removed = sharing?.removedLists.first else { return nil }
+    return "\(SharingFormat.removedTitle(removed.listName)). Elle a été retirée de cet appareil."
+  }
+
+  private var invitations: [ReceivedInvitation] { sharing?.invitations ?? [] }
+
   @ViewBuilder private var content: some View {
-    if model.lists.isEmpty {
-      EmptyState(title: "Aucune liste", systemImage: "cart", description: "Créez votre première liste de courses.")
+    if model.lists.isEmpty && invitations.isEmpty {
+      EmptyState(title: "Aucune liste", systemImage: "cart", description: emptyDescription)
     } else {
-      List(model.lists) { list in
-        Button {
-          onOpen(list.id)
-        } label: {
-          row(list)
+      List {
+        invitationsEntry
+        ForEach(model.lists) { list in
+          Button {
+            onOpen(list.id)
+          } label: {
+            row(list)
+          }
+          .buttonStyle(.plain)
+          .ticketRow()
+          .swipeActions(edge: .trailing, allowsFullSwipe: false) { actions(for: list) }
+          .contextMenu { actions(for: list) }
         }
-        .buttonStyle(.plain)
-        .ticketRow()
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) { actions(for: list) }
-        .contextMenu { actions(for: list) }
       }
       .listStyle(.plain)
     }
   }
 
+  /// Compte anonyme : l'invitation attend une connexion avec l'adresse qui l'a reçue (§1.2).
+  private var emptyDescription: String {
+    if let account, account.isAvailable, account.kind == .anonymous {
+      return
+        "Créez votre première liste de courses. Vous avez reçu une invitation ? Connectez-vous avec l'adresse qui l'a reçue."
+    }
+    return "Créez votre première liste de courses."
+  }
+
+  /// Une invitation : sa carte en tête. Plusieurs : une ligne « Invitations (n) » (maquette, écran 5).
+  @ViewBuilder private var invitationsEntry: some View {
+    if let sharing, invitations.count == 1, let invitation = invitations.first {
+      VStack(alignment: .leading, spacing: Space.xs) {
+        Text("Invitations (1)")
+          .font(TicketFont.aisle)
+          .tracking(TicketFont.aisleTracking)
+          .textCase(.uppercase)
+          .foregroundStyle(Palette.inkMuted)
+          .accessibilityAddTraits(.isHeader)
+        InvitationCard(model: sharing.makeCard(for: invitation), onOpen: onOpen, showsSectionTitle: false)
+          .id(invitation.id)
+      }
+      .padding(.vertical, Space.s)
+      .ticketRow()
+    } else if invitations.count > 1 {
+      Button(action: onInvitations) {
+        HStack {
+          Label("Invitations (\(invitations.count))", systemImage: "envelope")
+            .font(TicketFont.item.weight(.bold))
+            .foregroundStyle(Palette.ink)
+          Spacer()
+          Image(systemName: "chevron.right").foregroundStyle(Palette.inkMuted).accessibilityHidden(true)
+        }
+        .frame(minHeight: 56)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .ticketRow()
+      .accessibilityIdentifier("invitationsEntry")
+    }
+  }
+
   @ViewBuilder private func actions(for list: ListSummary) -> some View {
-    Button("Supprimer", systemImage: "trash", role: .destructive) { deleting = list }
-    Button("Renommer", systemImage: "pencil") {
-      nameInput = list.name
-      renaming = list
+    if list.access.capabilities.canDeleteList {
+      Button("Supprimer", systemImage: "trash", role: .destructive) { deleting = list }
+    }
+    if list.access.capabilities.canRenameList {
+      Button("Renommer", systemImage: "pencil") {
+        nameInput = list.name
+        renaming = list
+      }
+    }
+    if list.access.capabilities.canLeave, let sharing {
+      Button("Quitter la liste", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+        members = sharing.makeShareModel(listId: list.id, listName: list.name)
+      }
     }
   }
 
@@ -119,6 +206,13 @@ struct ListsView: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(list.name).font(TicketFont.item.weight(.bold)).foregroundStyle(Palette.ink)
           Text(list.subtitle).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
+          if let badge = list.badge {
+            HStack(spacing: Space.xs) {
+              SharingBadge(kind: badge)
+              if list.access.isShared { AvatarStack(labels: list.access.pillLabels, size: 22) }
+            }
+            .padding(.top, 4)
+          }
         }
         Spacer()
         Image(systemName: "chevron.right").foregroundStyle(Palette.inkMuted).accessibilityHidden(true)
@@ -130,6 +224,8 @@ struct ListsView: View {
     }
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
+    // Liste partagée : libellé de la maquette ; sinon le libellé combiné, inchangé.
+    .accessibilityLabel(override: list.badge == nil ? nil : list.accessibilityLabel)
   }
 
   private var createButton: some View {

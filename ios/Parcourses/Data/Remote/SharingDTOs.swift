@@ -34,7 +34,7 @@ nonisolated struct ListMemberRow: TableDTO, Equatable {
 
 /// JSON renvoyé par `list_sharing` (colonnes en snake_case).
 nonisolated struct ListSharingWire: Decodable, Sendable {
-  struct Owner: Decodable, Sendable {
+  nonisolated struct Owner: Decodable, Sendable {
     let userId: UUID
     let displayName: String?
     let isMe: Bool
@@ -46,7 +46,7 @@ nonisolated struct ListSharingWire: Decodable, Sendable {
     }
   }
 
-  struct Member: Decodable, Sendable {
+  nonisolated struct Member: Decodable, Sendable {
     let userId: UUID
     let displayName: String?
     let role: String
@@ -62,7 +62,7 @@ nonisolated struct ListSharingWire: Decodable, Sendable {
     }
   }
 
-  struct Invitation: Decodable, Sendable {
+  nonisolated struct Invitation: Decodable, Sendable {
     let id: UUID
     let email: String
     let role: String
@@ -176,9 +176,7 @@ nonisolated struct InvitationAcceptanceRow: Decodable, Sendable {
   }
 
   var model: InvitationAcceptance {
-    InvitationAcceptance(
-      outcome: SharingDecisions.acceptOutcome(status: status), listId: listId,
-      role: role.flatMap(ListRole.init(rawValue:)))
+    InvitationAcceptance(status: status, listId: listId, role: role.flatMap(ListRole.init(rawValue:)))
   }
 }
 

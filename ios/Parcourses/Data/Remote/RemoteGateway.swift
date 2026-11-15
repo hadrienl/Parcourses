@@ -278,11 +278,15 @@ nonisolated protocol RemoteGateway: Sendable {
   func fetchProfiles() async throws -> [ProfileRow]
 }
 
-/// Réponse de `accept_invitation` : la suite (vecteur `005`), et la liste rejointe pour l'ouvrir.
+/// Réponse de `accept_invitation` : son statut, la liste rejointe pour l'ouvrir, et mon rôle.
 nonisolated struct InvitationAcceptance: Sendable, Equatable {
-  let outcome: AcceptOutcome
+  /// `accepted`, `member`, `invalid`, `expired`, `used`, `rate_limited`.
+  let status: String
   let listId: UUID?
   let role: ListRole?
+
+  /// Suite donnée dans l'app (vecteur `005`).
+  var outcome: AcceptOutcome { SharingDecisions.acceptOutcome(status: status) }
 }
 
 /// Événement du canal temps réel d'un compte.

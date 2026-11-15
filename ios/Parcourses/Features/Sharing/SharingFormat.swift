@@ -84,13 +84,16 @@ enum SharingFormat {
 
   /// « Demandez à Hadrien… » ou, sans prénom connu, une tournure sans destinataire.
   static func askOwner(_ ownerName: String?) -> String {
-    guard let ownerName else { return "Lecture seule. Demandez l'accès en modification à la personne qui a partagé la liste." }
+    guard let ownerName else {
+      return "Lecture seule. Demandez l'accès en modification à la personne qui a partagé la liste."
+    }
     return "Lecture seule. Demandez à \(ownerName) l'accès en modification."
   }
 
   /// Bannière « accès abaissé » (maquette, écran 1).
   static func downgraded(ownerName: String?, dropped: Int) -> String {
-    let who = ownerName.map { "\($0) a passé votre accès en lecture seule." } ?? "Votre accès est passé en lecture seule."
+    let who =
+      ownerName.map { "\($0) a passé votre accès en lecture seule." } ?? "Votre accès est passé en lecture seule."
     guard dropped > 0 else { return who }
     let changes =
       dropped == 1

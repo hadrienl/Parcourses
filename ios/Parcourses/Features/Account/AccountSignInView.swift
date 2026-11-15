@@ -105,10 +105,12 @@ struct AccountSignInView: View {
     )
     .foregroundStyle(Palette.ink)
     if context == .invitation {
-      Label("Vous avez ouvert une invitation. Connectez-vous avec l'adresse qui l'a reçue.", systemImage: "envelope.open")
-        .font(.callout)
-        .foregroundStyle(Palette.ink)
-        .accessibilityIdentifier("signInInvitationContext")
+      Label(
+        "Vous avez ouvert une invitation. Connectez-vous avec l'adresse qui l'a reçue.", systemImage: "envelope.open"
+      )
+      .font(.callout)
+      .foregroundStyle(Palette.ink)
+      .accessibilityIdentifier("signInInvitationContext")
     }
     if link.losesPendingChangesOnSwitch {
       // Compte e-mail sans session : une autre adresse purgerait l'appareil (#87, changement de compte).

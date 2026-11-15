@@ -26,7 +26,7 @@ nonisolated struct SharingAccessChange: Sendable, Equatable {
 /// Rôles et participants d'une liste, tirés de `list_members` et `profiles` (descente) ou de `list_sharing`.
 nonisolated enum ListMemberships {
   /// Ce que la descente sait d'une liste : mon rôle et ses participants (propriétaire d'abord).
-  struct Resolved: Sendable, Equatable {
+  nonisolated struct Resolved: Sendable, Equatable {
     let role: ListRole?
     let participants: [ListParticipant]
   }
@@ -42,7 +42,8 @@ nonisolated enum ListMemberships {
     let role: ListRole? =
       ownerId == me ? .owner : rows.first { $0.userId == me }.map { ListRole(rawValue: $0.role) ?? .viewer }
     guard !rows.isEmpty else { return Resolved(role: role, participants: []) }
-    let owner = ListParticipant(userId: ownerId, displayName: names[ownerId], role: .owner, isMe: ownerId == me, joinedAt: nil)
+    let owner = ListParticipant(
+      userId: ownerId, displayName: names[ownerId], role: .owner, isMe: ownerId == me, joinedAt: nil)
     let others = rows.map {
       ListParticipant(
         userId: $0.userId, displayName: names[$0.userId], role: ListRole(rawValue: $0.role) ?? .viewer,

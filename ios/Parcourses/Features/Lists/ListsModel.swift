@@ -7,6 +7,23 @@ struct ListSummary: Identifiable, Equatable {
   let name: String
   let remaining: Int
   let total: Int
+  /// Mon rôle et les participants (#87, lot 87.4).
+  var access = ListAccess()
+
+  /// Badge de la ligne : « LECTURE SEULE » pour un lecteur, « PARTAGÉE » pour une autre liste partagée.
+  var badge: SharingBadge.Kind? {
+    if access.role == .viewer { return .readOnly }
+    return access.isShared ? .shared : nil
+  }
+
+  /// « Courses de la semaine, partagée avec Léa et Tom, 7 articles restants » (maquette, écran 1).
+  var accessibilityLabel: String {
+    var parts = [name]
+    if access.role == .viewer { parts.append("lecture seule") }
+    if access.isShared { parts.append("partagée avec \(ListAccess.sentence(access.others.map(\.name)))") }
+    parts.append(subtitle)
+    return parts.joined(separator: ", ")
+  }
 
   var subtitle: String {
     if total == 0 { return "Aucun article" }
@@ -23,10 +40,17 @@ final class ListsModel {
 
   private let repository: any ListRepository
   private let now: () -> Date
+  private let accountId: () -> UUID?
 
-  init(lists: any ListRepository, now: @escaping () -> Date = { .now }) {
+  init(lists: any ListRepository, now: @escaping () -> Date = { .now }, accountId: @escaping () -> UUID? = { nil }) {
     repository = lists
     self.now = now
+    self.accountId = accountId
+  }
+
+  /// Liste à soi, ou partagée avec moi : le menu propose Renommer et Supprimer, ou Quitter.
+  func summary(id: UUID) -> ListSummary? {
+    lists.first { $0.id == id }
   }
 
   func load() {
@@ -63,7 +87,8 @@ final class ListsModel {
   private func summary(of list: ShoppingList) throws -> ListSummary {
     let items = try repository.items(listId: list.id)
     return ListSummary(
-      id: list.id, name: list.name, remaining: items.count { $0.checkedAt == nil }, total: items.count)
+      id: list.id, name: list.name, remaining: items.count { $0.checkedAt == nil }, total: items.count,
+      access: ListAccess(list: list, me: accountId()))
   }
 
   private static func cleaned(_ name: String) -> String? {
