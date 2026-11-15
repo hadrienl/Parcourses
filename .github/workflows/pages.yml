@@ -1,0 +1,58 @@
+# Site statique parcourses.hadrien.eu (#87, lot 87.7) : page /i/ des invitations, AASA (liens universels iOS) et
+# assetlinks.json (App Links Android). Vérifié à chaque PR ; publié sur GitHub Pages à chaque push sur main.
+# Réglages du dépôt, une fois (docs/site.md) : Settings → Pages → Source « GitHub Actions », domaine personnalisé
+# parcourses.hadrien.eu, « Enforce HTTPS ».
+name: pages
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "scripts/check-site.ts"
+      - "shared/test-vectors/sharing/**"
+      - "ios/Config/Base.xcconfig"
+      - "android/app/build.gradle.kts"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.9.7
+      - name: Site conforme (CNAME, AASA, assetlinks.json, pages sans ressource distante)
+        run: deno run --allow-read scripts/check-site.ts
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          path: site/
+          include-hidden-files: true
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
