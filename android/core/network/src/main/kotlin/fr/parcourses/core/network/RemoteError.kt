@@ -89,7 +89,7 @@ sealed class RemoteError(
                 is AccountChanged, is UnknownCategory, is SecureStorageLocked,
                 -> true
 
-                is Forbidden, is Constraint, is Rejected, is AuthRequestError -> false
+                is Forbidden, is Constraint, is Rejected, is AuthRequestError, is SharingRequestError -> false
             }
 
     /** 4xx sans code : ni réessai sans fin, ni abandon immédiat. 403, 408 et 429 restent passagers. */
@@ -154,3 +154,13 @@ class AuthRequestError(
     val code: String?,
     cause: Throwable? = null,
 ) : RemoteError("auth request $status ${code.orEmpty()}", cause)
+
+/**
+ * Refus d'une action du partage (#87, lot 87.6) : [error] est le message stable de la RPC (`P0001` :
+ * `invalid_email`, `already_member`, `list_full`…) ou le champ `error` de l'Edge Function `send-invitation`. Entrée
+ * de `SharingDecisions.inviteErrorKind`. Jamais rejoué : le partage ne passe pas par la file.
+ */
+class SharingRequestError(
+    val error: String?,
+    cause: Throwable? = null,
+) : RemoteError("sharing ${error.orEmpty()}", cause)

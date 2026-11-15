@@ -94,4 +94,40 @@ class MigrationTest {
                 }
             }
         }
+
+    /**
+     * #87 (lot 87.6) : la version 3 ajoute `lists.role` (une liste déjà là est à soi : propriétaire) et la table
+     * `list_participants`, vide jusqu'à la descente suivante. Les listes et leurs articles restent intacts.
+     */
+    @Test
+    fun version2MigratesToVersion3AndEveryListIsMine() =
+        runBlocking {
+            helper.createDatabase(2).use { v2 ->
+                v2.execSQL(
+                    "INSERT INTO lists (id, name, createdAt, updatedAt, deletedAt, syncState, ownerId) " +
+                        "VALUES ('l1', 'Courses', 0, 0, NULL, 'SYNCED', 'u1')",
+                )
+                v2.execSQL(
+                    "INSERT INTO list_items (id, listId, label, normalizedName, quantity, productId, categoryId, " +
+                        "checkedAt, notFoundAt, position, updatedAt, syncState, isOnServer, updatedBy) " +
+                        "VALUES ('i1', 'l1', 'lait', 'lait', NULL, NULL, 'dairy', NULL, NULL, 0, 0, 'SYNCED', 1, 'u1')",
+                )
+            }
+
+            helper.runMigrationsAndValidate(3, DatabaseMigrations.ALL.toList()).use { v3 ->
+                v3.prepare("SELECT role, ownerId FROM lists WHERE id = 'l1'").use {
+                    assertTrue(it.step())
+                    assertEquals("Owner", it.getText(0))
+                    assertEquals("u1", it.getText(1))
+                }
+                v3.prepare("SELECT count(*) FROM list_participants").use {
+                    assertTrue(it.step())
+                    assertEquals(0L, it.getLong(0))
+                }
+                v3.prepare("SELECT label FROM list_items WHERE id = 'i1'").use {
+                    assertTrue(it.step())
+                    assertEquals("lait", it.getText(0))
+                }
+            }
+        }
 }

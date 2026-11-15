@@ -62,6 +62,13 @@ interface ShoppingListDao {
 
     @Query("DELETE FROM lists WHERE id = :id")
     suspend fun delete(id: String): Int
+
+    /** Mon rôle sur la liste (#87, lot 87.6) : sans toucher à `updatedAt` ni à l'état d'envoi, il vient du serveur. */
+    @Query("UPDATE lists SET role = :role WHERE id = :id")
+    suspend fun setRole(
+        id: String,
+        role: fr.parcourses.core.model.ListRole,
+    ): Int
 }
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
@@ -128,7 +135,11 @@ interface ListItemDao {
     @Upsert
     suspend fun upsertAll(items: List<ListItemEntity>)
 
-    @Query("UPDATE list_items SET checkedAt = :checkedAt, updatedAt = :at, syncState = :state WHERE id = :id")
+    /** Coche locale : la dernière modification devient la mienne (`updatedBy` nul : aucune marque d'auteur, #87). */
+    @Query(
+        "UPDATE list_items SET checkedAt = :checkedAt, updatedAt = :at, syncState = :state, updatedBy = NULL " +
+            "WHERE id = :id",
+    )
     suspend fun setChecked(
         id: String,
         checkedAt: Instant?,

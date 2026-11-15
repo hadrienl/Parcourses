@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Partage d'une liste (#87, lot 87.6). Textes du dictionnaire `fr` de design/sharing-v1.html, typographie comprise
+  (espaces insécables avant « : ? ! » et dans les guillemets). Aucun accord déduit d'un prénom, jamais « de + prénom ».
+-->
+<resources>
+    <!-- Rôles -->
+    <string name="role_owner">Propriétaire</string>
+    <string name="role_editor">Peut modifier</string>
+    <string name="role_viewer">Lecture seule</string>
+    <string name="role_editor_help">Ajoute, modifie et coche les articles.</string>
+    <string name="role_viewer_help">Voit la liste, sans la modifier ni faire les courses.</string>
+    <string name="sharing_you">vous</string>
+    <string name="sharing_someone">Un autre membre</string>
+    <string name="sharing_owner_fallback">Le propriétaire</string>
+    <string name="sharing_retry">Réessayer</string>
+    <string name="sharing_close">Fermer</string>
+    <string name="sharing_understood">Compris</string>
+
+    <!-- 1. Liste partagée -->
+    <string name="detail_share">Partager la liste</string>
+    <string name="detail_members_share_a11y">Membres : %1$s et vous. Partager la liste</string>
+    <string name="detail_members_view_a11y">Membres : %1$s et vous. Voir les membres</string>
+    <string name="detail_last_change">Modifiée par %1$s · %2$s</string>
+    <string name="detail_last_change_a11y">Modifiée par %1$s, %2$s</string>
+    <string name="detail_item_by_a11y">dernière modification par %1$s</string>
+    <string name="sharing_offline">Hors ligne. Vos modifications partiront au retour du réseau.</string>
+    <string name="sharing_and">%1$s et %2$s</string>
+    <plurals name="sharing_downgrade">
+        <item quantity="one">%1$s a passé votre accès en lecture seule. Votre dernière modification n’a pas été enregistrée.</item>
+        <item quantity="other">%1$s a passé votre accès en lecture seule. Vos %2$d dernières modifications n’ont pas été enregistrées.</item>
+    </plurals>
+    <string name="sharing_downgrade_plain">%1$s a passé votre accès en lecture seule.</string>
+    <string name="sharing_removed_title">« %1$s » n’est plus partagée avec vous</string>
+    <string name="sharing_removed_body">Elle a été retirée de cet appareil.</string>
+    <string name="sharing_removed_back">Retour à mes listes</string>
+
+    <!-- Temps écoulé : court à l'écran, en toutes lettres pour TalkBack. -->
+    <string name="ago_seconds">il y a %1$d s</string>
+    <string name="ago_minutes">il y a %1$d min</string>
+    <string name="ago_hours">il y a %1$d h</string>
+    <string name="ago_days">il y a %1$d j</string>
+    <plurals name="ago_seconds_a11y">
+        <item quantity="one">il y a %1$d seconde</item>
+        <item quantity="other">il y a %1$d secondes</item>
+    </plurals>
+    <plurals name="ago_minutes_a11y">
+        <item quantity="one">il y a %1$d minute</item>
+        <item quantity="other">il y a %1$d minutes</item>
+    </plurals>
+    <plurals name="ago_hours_a11y">
+        <item quantity="one">il y a %1$d heure</item>
+        <item quantity="other">il y a %1$d heures</item>
+    </plurals>
+    <plurals name="ago_days_a11y">
+        <item quantity="one">il y a %1$d jour</item>
+        <item quantity="other">il y a %1$d jours</item>
+    </plurals>
+
+    <!-- 7. Lecteur -->
+    <string name="ro_badge">Lecture seule</string>
+    <string name="ro_notice">Lecture seule. Demandez à %1$s l’accès en modification.</string>
+    <string name="ro_tap">Lecture seule : cette liste ne se modifie pas ici.</string>
+    <string name="ro_upgrade">%1$s vous a donné l’accès en modification.</string>
+    <string name="ro_title_a11y">%1$s, lecture seule, partagée par %2$s</string>
+    <string name="ro_item_in_basket">dans le panier</string>
+
+    <!-- Mes listes -->
+    <string name="lists_badge_shared">Partagée</string>
+    <string name="lists_row_shared_a11y">%1$s, partagée avec %2$s, %3$s</string>
+    <string name="lists_row_readonly_a11y">%1$s, lecture seule, partagée par %2$s, %3$s</string>
+    <string name="lists_leave">Quitter la liste</string>
+    <string name="leave_title">Quitter « %1$s » ?</string>
+    <string name="leave_body">La liste disparaîtra de vos appareils. %1$s pourra vous inviter à nouveau.</string>
+    <string name="leave_btn">Quitter</string>
+    <string name="delete_shared_title">Supprimer « %1$s » ?</string>
+    <plurals name="delete_shared_body">
+        <item quantity="one">%1$s la perdra aussi. C’est définitif.</item>
+        <item quantity="other">%1$s la perdront aussi. C’est définitif.</item>
+    </plurals>
+    <string name="delete_shared_btn">Supprimer</string>
+    <string name="sharing_and_others">%1$s et %2$d autres</string>
+
+    <!-- 2. Partager la liste -->
+    <string name="share_title">Partager la liste</string>
+    <string name="share_list_name">« %1$s »</string>
+    <string name="share_email">Adresse e-mail</string>
+    <string name="share_email_placeholder">prenom@exemple.fr</string>
+    <string name="share_role">Accès</string>
+    <string name="share_send">Envoyer l’invitation</string>
+    <string name="share_sending">Envoi…</string>
+    <string name="share_note">La personne invitée verra votre prénom. Les adresses e-mail restent privées.</string>
+    <string name="share_members">Membres (%1$d)</string>
+    <string name="share_pending">Invitations en attente (%1$d)</string>
+    <string name="share_empty">Pour l’instant, cette liste n’est qu’à vous.</string>
+    <plurals name="pending_expires_in">
+        <item quantity="one">expire dans %1$d j</item>
+        <item quantity="other">expire dans %1$d j</item>
+    </plurals>
+    <plurals name="pending_expires_in_a11y">
+        <item quantity="one">expire dans %1$d jour</item>
+        <item quantity="other">expire dans %1$d jours</item>
+    </plurals>
+    <string name="pending_expires_today">expire aujourd’hui</string>
+    <string name="pending_expired">Expirée</string>
+    <string name="pending_resend">Renvoyer</string>
+    <string name="pending_copy">Copier le lien</string>
+    <string name="pending_revoke">Annuler l’invitation</string>
+    <string name="pending_more_a11y">Actions pour l’invitation de %1$s</string>
+    <string name="pending_row_a11y">%1$s, %2$s, %3$s</string>
+    <string name="err_invalid">Cette adresse ne semble pas valide.</string>
+    <string name="err_self">C’est votre propre adresse.</string>
+    <string name="err_member">%1$s fait déjà partie de la liste.</string>
+    <string name="err_cap_list">Une liste compte au plus 10 participants, invitations en attente comprises.</string>
+    <string name="err_cap_day">Vous avez envoyé 20 invitations aujourd’hui. Réessayez demain.</string>
+    <string name="err_cap_to">Impossible d’inviter cette adresse pour le moment. Réessayez demain.</string>
+    <string name="err_cap_live">Vous avez 50 invitations en attente. Annulez-en avant d’en envoyer d’autres.</string>
+    <string name="err_sign_in">Reconnectez-vous pour synchroniser.</string>
+    <string name="share_offline">Le partage demande une connexion.</string>
+    <string name="share_error">Le partage n’a pas pu s’ouvrir. Réessayez dans un instant.</string>
+    <string name="sent_ok">Invitation envoyée à %1$s</string>
+    <string name="sent_resent">Invitation renvoyée. Le nouveau lien est valable 7 jours.</string>
+    <string name="mailfail_title">L’invitation est prête, mais l’e-mail n’est pas parti.</string>
+    <string name="mailfail_body">Envoyez le lien vous-même : il est valable 7 jours.</string>
+    <string name="mailfail_share">Partager le lien…</string>
+    <string name="copied">Lien copié. Il est valable 7 jours.</string>
+    <string name="copied_new">Nouveau lien copié, valable 7 jours. Celui de l’e-mail ne fonctionne plus.</string>
+    <string name="revoke_title">Annuler l’invitation ?</string>
+    <string name="revoke_body">Le lien envoyé à %1$s ne fonctionnera plus.</string>
+    <string name="revoke_keep">Garder</string>
+
+    <!-- 3. Membres -->
+    <string name="member_name_you">%1$s (vous)</string>
+    <string name="member_since">Membre depuis le %1$s</string>
+    <string name="member_remove">Retirer de la liste</string>
+    <string name="member_manage_a11y">%1$s, %2$s. Gérer</string>
+    <string name="member_a11y">%1$s, %2$s</string>
+    <string name="remove_title">Retirer %1$s de la liste ?</string>
+    <string name="remove_body">%1$s ne verra plus « %2$s ». Vous pourrez l’inviter à nouveau.</string>
+    <string name="remove_btn">Retirer</string>
+    <string name="role_changed_viewer">%1$s passe en lecture seule.</string>
+    <string name="role_changed_editor">%1$s peut maintenant modifier la liste.</string>
+    <string name="members_title">Membres</string>
+    <string name="members_note">Les invitations et les accès sont gérés par %1$s.</string>
+    <string name="member_offline">Changer les accès demande une connexion.</string>
+
+    <!-- 5. Invitations -->
+    <plurals name="inv_entry">
+        <item quantity="one">Invitations (%1$d)</item>
+        <item quantity="other">Invitations (%1$d)</item>
+    </plurals>
+    <string name="inv_card">%1$s vous invite à « %2$s »</string>
+    <string name="inv_card_other">%1$s vous invite à une liste de courses</string>
+    <string name="inv_sheet">Invitation</string>
+    <string name="inv_meta">%1$s · expire le %2$s</string>
+    <string name="inv_card_a11y">Invitation. %1$s. %2$s, expire le %3$s.</string>
+    <string name="inv_accept">Accepter</string>
+    <string name="inv_decline">Refuser</string>
+    <string name="inv_accepting">Ouverture de la liste…</string>
+    <string name="inv_expired">Cette invitation a expiré. Demandez à %1$s de vous la renvoyer.</string>
+    <string name="inv_used">Cette invitation a déjà été utilisée.</string>
+    <string name="inv_invalid">Cette invitation n’est plus valable. Demandez-en une nouvelle à la personne qui vous l’a envoyée.</string>
+    <string name="inv_rate_limited">Trop d’essais. Patientez une minute avant de réessayer.</string>
+    <string name="inv_other_title">Cette invitation était pour une autre adresse</string>
+    <string name="inv_other_body">Elle a été envoyée à %1$s. Votre compte : %2$s. Si vous acceptez, %3$s verra votre prénom parmi les membres.</string>
+    <string name="inv_other_accept">Accepter avec ce compte</string>
+    <string name="inv_other_switch">Changer de compte</string>
+    <string name="inv_member">Vous faites déjà partie de cette liste.</string>
+    <string name="inv_offline">Il faut du réseau pour accepter. L’invitation vous attend dans vos listes.</string>
+    <string name="inv_decline_title">Refuser l’invitation ?</string>
+    <string name="inv_decline_body">Elle disparaîtra. %1$s pourra vous en envoyer une autre.</string>
+    <string name="inv_anon_empty">Vous avez reçu une invitation ? Connectez-vous avec l’adresse qui l’a reçue.</string>
+    <string name="inv_error">L’invitation n’a pas pu être acceptée. Réessayez dans un instant.</string>
+    <string name="inv_someone">Quelqu’un</string>
+</resources>

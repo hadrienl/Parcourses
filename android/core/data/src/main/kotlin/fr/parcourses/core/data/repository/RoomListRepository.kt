@@ -24,11 +24,23 @@ class RoomListRepository(
     private val newId: () -> String = { Uuid.random().toString() },
 ) : ListRepository {
     override fun observeSummaries(): Flow<List<ListSummary>> =
-        combine(db.lists().observeActive(), db.items().observeCounts()) { lists, counts ->
+        combine(
+            db.lists().observeActive(),
+            db.items().observeCounts(),
+            db.participants().observeAll(),
+        ) { lists, counts, participants ->
             val byList = counts.associateBy { it.listId }
+            val people = participants.groupBy { it.listId }
             lists.map { list ->
                 val count = byList[list.id]
-                ListSummary(list.id, list.name, remaining = count?.remaining ?: 0, total = count?.total ?: 0)
+                ListSummary(
+                    list.id,
+                    list.name,
+                    remaining = count?.remaining ?: 0,
+                    total = count?.total ?: 0,
+                    role = list.role,
+                    sharedWith = people[list.id].orEmpty().filterNot { it.isMe }.map { it.displayName },
+                )
             }
         }
 

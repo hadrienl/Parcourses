@@ -9,6 +9,7 @@ import fr.parcourses.core.database.dao.CategoryDao
 import fr.parcourses.core.database.dao.CheckDao
 import fr.parcourses.core.database.dao.GraphSnapshotDao
 import fr.parcourses.core.database.dao.ListItemDao
+import fr.parcourses.core.database.dao.ListParticipantDao
 import fr.parcourses.core.database.dao.OutboxDao
 import fr.parcourses.core.database.dao.ProductDao
 import fr.parcourses.core.database.dao.ShoppingListDao
@@ -19,6 +20,7 @@ import fr.parcourses.core.database.entity.CategorySeedStateEntity
 import fr.parcourses.core.database.entity.CheckEntity
 import fr.parcourses.core.database.entity.GraphSnapshotEntity
 import fr.parcourses.core.database.entity.ListItemEntity
+import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.database.entity.OutboxEntryEntity
 import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
@@ -40,6 +42,7 @@ import fr.parcourses.core.database.entity.VisitEntity
         CategoryEntity::class,
         CategorySeedStateEntity::class,
         OutboxEntryEntity::class,
+        ListParticipantEntity::class,
     ],
     version = ParcoursesDatabase.VERSION,
     exportSchema = true,
@@ -66,8 +69,10 @@ abstract class ParcoursesDatabase : RoomDatabase() {
 
     abstract fun outbox(): OutboxDao
 
+    abstract fun participants(): ListParticipantDao
+
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         const val FILE_NAME = "parcourses.db"
     }
 }

@@ -30,6 +30,12 @@ data class TicketColors(
     /** Accent du thème opposé : action de la barre « Annuler », posée sur l'encre. */
     val inverseAccent: Color,
     val aisle: AisleColors,
+    /** Avertissement (autre adresse, e-mail non parti, accès abaissé) : 6,4:1 sur le papier (#87, maquettes). */
+    val caution: Color,
+    /** Fond des cartes d'avertissement : l'encre dessus à 14,5:1. */
+    val cautionFill: Color,
+    /** Bouton tonal et pastille « Renvoyer » : l'encre et l'accent dessus à 6,5:1 au moins. */
+    val accentFill: Color,
 ) {
     /** Couleur du rayon [categoryId] : trait de l'icône et anneau du nœud seulement, jamais du texte. */
     fun aisleColor(categoryId: String): Color =
@@ -75,6 +81,9 @@ val LightTicketColors =
                 hygiene = Color(0xFF8A3FA0),
                 bio = Color(0xFF4F6F12),
             ),
+        caution = Color(0xFF8A4B00),
+        cautionFill = Color(0xFFFCEBC9),
+        accentFill = Color(0xFFE3E7FA),
     )
 
 val DarkTicketColors =
@@ -100,6 +109,9 @@ val DarkTicketColors =
                 hygiene = Color(0xFFE0A3F0),
                 bio = Color(0xFFC3DC6A),
             ),
+        caution = Color(0xFFF5BF62),
+        cautionFill = Color(0xFF2E2615),
+        accentFill = Color(0xFF1E2540),
     )
 
 /**

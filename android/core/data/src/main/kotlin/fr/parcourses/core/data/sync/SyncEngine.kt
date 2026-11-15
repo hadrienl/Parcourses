@@ -8,12 +8,15 @@ import fr.parcourses.core.data.outbox.OutboxCoding
 import fr.parcourses.core.data.outbox.ServerClock
 import fr.parcourses.core.data.outbox.VisitClosePayload
 import fr.parcourses.core.data.outbox.carriesDeviceTime
+import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.syncedOnce
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
+import fr.parcourses.core.network.SharingRequestError
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListUpsert
@@ -50,6 +53,8 @@ class SyncDependencies(
     val isAccountDeletionPending: () -> Boolean = { false },
     /** Type du compte de la session (`account.kind`, #87) : retenu avec le compte des données. */
     val accountKind: () -> AccountKind = { AccountKind.Anonymous },
+    /** Accès d'une liste partagée changé par un autre membre (#87, lot 87.6) : message à montrer. */
+    val onAccessChange: (AccessChange) -> Unit = {},
 ) {
     private companion object {
         const val JITTER_MIN = 0.8
@@ -180,9 +185,10 @@ class SyncEngine(
     }
 
     /**
-     * Accès d'une liste à revoir (#87 §6.4, rôle abaissé, accès retiré) : une liste que le serveur ne laisse plus lire
-     * quitte l'appareil ; sinon ses entrées en attente sont jetées et ses articles rechargés entièrement. Le rôle,
-     * lui, sera relu avec le partage (lot 87.6).
+     * Accès d'une liste à revoir (#87 §6.4, rôle abaissé, accès retiré) : `list_sharing` est relu. Refus (`not
+     * allowed`) : la liste quitte l'appareil. Sinon le rôle et les personnes sont mis à jour, les entrées en attente de
+     * la liste sont jetées (sauf, sur une liste à soi, celles des articles jamais envoyés) et ses articles rechargés
+     * entièrement. Un passage en lecture seule est signalé ([SyncDependencies.onAccessChange]).
      */
     suspend fun refreshAccess(listId: String) {
         passLock.withLock { refreshAccessLocked(listId) }
@@ -561,16 +567,42 @@ class SyncEngine(
 
     /** Sous [passLock]. Voir [refreshAccess]. */
     private suspend fun refreshAccessLocked(listId: String) {
-        val accessible = gateway.accessibleListIds().map { it.toString() }
-        if (listId !in accessible) {
+        val list = store.list(listId)
+        val sharing =
+            try {
+                gateway.listSharing(parse(listId))
+            } catch (_: RemoteError.Forbidden) {
+                null
+            }
+        if (sharing == null) {
             store.removeLists(listOf(listId))
+            if (list != null && !isMine(list.ownerId)) notify(AccessChange.Removed(listId, list.name))
+            Log.i(TAG, "Liste retirée : accès perdu")
             return
         }
+        val change = store.applySharing(sharing)
+        var lost = 0
         // Liste à soi : ses articles jamais envoyés restent, avec leurs entrées (ils partiront ensuite).
-        val owner = store.list(listId)?.ownerId
-        val mine = owner == null || owner == cursors.accountId?.toString()
-        store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify, keepUnsent = mine)
+        val mine = sharing.role == ListRole.Owner
+        store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify, keepUnsent = mine) { lost = it }
+        val ownerName = sharing.owner.displayName
+        when {
+            sharing.role == ListRole.Viewer && (lost > 0 || change != null) -> {
+                notify(AccessChange.Downgraded(listId, ownerName, lost))
+            }
+
+            change?.from == ListRole.Viewer -> {
+                notify(AccessChange.Upgraded(listId, ownerName))
+            }
+        }
         Log.i(TAG, "Liste rechargée après un refus d'écriture")
+    }
+
+    /** `ownerId` nul : liste jamais descendue, donc à soi. */
+    private fun isMine(ownerId: String?): Boolean = ownerId == null || ownerId == cursors.accountId?.toString()
+
+    private fun notify(change: AccessChange) {
+        dependencies.onAccessChange(change)
     }
 
     private suspend fun releaseParkedIfRecovered() {
@@ -616,7 +648,7 @@ class SyncEngine(
                 handleForbidden(work)
             }
 
-            is RemoteError.Constraint, is RemoteError.Rejected, is AuthRequestError -> {
+            is RemoteError.Constraint, is RemoteError.Rejected, is AuthRequestError, is SharingRequestError -> {
                 handleRefusal(error, work, singleChecks)
             }
         }
@@ -916,17 +948,24 @@ class SyncEngine(
     @Suppress("TooGenericExceptionCaught") // port d'iOS : toute panne devient un délai (annulation relancée)
     private suspend fun pullAll(now: Instant) {
         try {
+            val me = cursors.accountId?.toString()
+            val before = store.lists().associateBy { it.id }
             // Listes disparues (supprimées ailleurs, accès retiré) et listes nouvellement accessibles (vecteur `005`).
             val plan = store.reconcile(gateway.accessibleListIds().map { it.toString() })
+            // Une liste d'un autre qui disparaît : « n'est plus partagée avec vous ».
+            plan.remove.mapNotNull(before::get).filterNot { isMine(it.ownerId) }.forEach {
+                notify(AccessChange.Removed(it.id, it.name))
+            }
             // Une liste nouvellement accessible a pu changer avant le curseur : toutes les listes sont relues.
             val lists = gateway.fetchLists(if (plan.fetchFully.isEmpty()) cursors.lists else null)
             val items = gateway.fetchItems(cursors.items)
-            val listsMerge = store.mergeLists(lists)
+            val listsMerge = store.mergeLists(lists, me)
             val itemsMerge = store.mergeItems(items, classify)
             // Ses articles aussi, sans curseur : ils ne viendraient jamais sinon.
             for (id in plan.fetchFully) store.mergeItems(gateway.fetchItems(parse(id)), classify)
             cursors.lists = later(cursors.lists, listsMerge.cursor)
             cursors.items = later(cursors.items, itemsMerge.cursor)
+            pullParticipants(me)
             pullTombstones(now)
             if (cursors.catalog?.let { now - it >= SyncRetryPolicy.catalogInterval } != false) {
                 val categories = gateway.fetchCategories()
@@ -951,6 +990,31 @@ class SyncEngine(
 
                 // N'arrête pas l'envoi : seul un nouvel essai de descente attend.
                 else -> pullBackoffUntil = now + SyncRetryPolicy.pullRetryInterval
+            }
+        }
+    }
+
+    /**
+     * Personnes des listes partagées et mon rôle (#87, lot 87.6) : compte e-mail seulement (un anonyme ne partage ni
+     * ne rejoint). Un rôle changé sur une liste déjà partagée est signalé.
+     */
+    private suspend fun pullParticipants(me: String?) {
+        if (dependencies.accountKind() != AccountKind.Email) {
+            store.replaceParticipants(emptyList(), emptyList(), me)
+            return
+        }
+        val members = gateway.fetchListMembers()
+        val people =
+            (members.map { it.userId.toString() } + store.lists().mapNotNull { it.ownerId })
+                .distinct()
+        val profiles = gateway.fetchProfiles(people.map(::parse))
+        val names = profiles.associate { it.userId.toString() to it.displayName }
+        val owners = store.lists().associate { it.id to it.ownerId }
+        for (change in store.replaceParticipants(members, profiles, me)) {
+            val ownerName = owners[change.listId]?.let(names::get)
+            when {
+                change.to == ListRole.Viewer -> notify(AccessChange.Downgraded(change.listId, ownerName, 0))
+                change.from == ListRole.Viewer -> notify(AccessChange.Upgraded(change.listId, ownerName))
             }
         }
     }

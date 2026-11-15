@@ -11,9 +11,14 @@ android {
 // Vecteurs de synchro partagés avec iOS (#87), lus directement dans shared/, sans copie.
 val syncVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/sync")
 
+// Vecteurs du partage (#87, lots 87.4 et 87.6), même règle.
+val sharingVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/sharing")
+
 tasks.withType<Test>().configureEach {
     inputs.dir(syncVectors).withPropertyName("syncVectors")
     systemProperty("parcourses.syncVectors", syncVectors.asFile.absolutePath)
+    inputs.dir(sharingVectors).withPropertyName("sharingVectors")
+    systemProperty("parcourses.sharingVectors", sharingVectors.asFile.absolutePath)
 }
 
 dependencies {

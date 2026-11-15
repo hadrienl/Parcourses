@@ -1,5 +1,27 @@
 package fr.parcourses.core.network
 
+import fr.parcourses.core.model.ListRole
+import fr.parcourses.core.network.dto.CreatedInvitation
+import fr.parcourses.core.network.dto.FunctionError
+import fr.parcourses.core.network.dto.InvitationAcceptance
+import fr.parcourses.core.network.dto.InvitationPreview
+import fr.parcourses.core.network.dto.ListMemberRow
+import fr.parcourses.core.network.dto.ListSharing
+import fr.parcourses.core.network.dto.ReceivedInvitation
+import fr.parcourses.core.network.dto.SentInvitation
+import io.github.jan.supabase.postgrest.exception.PostgrestRestException
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.broadcastFlow
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.realtime
+import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckInsert
 import fr.parcourses.core.network.dto.CheckUpload
@@ -84,8 +106,18 @@ class SupabaseGateway internal constructor(
     private val client: SupabaseClient,
     private val store: SecureStateStore,
     private val clock: Clock = Clock.System,
+    /** Liens de « Copier le lien » (#87, lot 87.6) : schéma de l'app tant qu'aucun domaine n'est configuré. */
+    private val invitationLinks: InvitationLinks = InvitationLinks(null),
+    /**
+     * Adresse des Edge Functions. Par défaut celle du projet ; les tests d'intégration visent `send-invitation`
+     * lancée avec Deno (l'image Edge Runtime manque en local).
+     */
+    functionsUrl: String? = null,
 ) : RemoteGateway,
-    SessionMaintenance {
+    SessionMaintenance,
+    RealtimeSignalSource {
+    private val functionsBase: String = (functionsUrl ?: "${client.supabaseHttpUrl}/functions/v1").trimEnd('/')
+
     private val auth: Auth get() = client.auth
     private val rest: Postgrest get() = client.postgrest
 
@@ -638,6 +670,181 @@ class SupabaseGateway internal constructor(
 
     // endregion
 
+    // region Partage (#87, lot 87.6)
+
+    override suspend fun sendInvitation(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): SentInvitation =
+        authorized {
+            val token = auth.currentAccessTokenOrNull() ?: throw RemoteError.Unauthorized(noLocalSession = true)
+            val body =
+                buildJsonObject {
+                    put("list_id", listId.toString())
+                    put("email", email)
+                    put("role", role.wireName)
+                }
+            // Hors du client PostgREST : l'Edge Function reçoit le JWT de l'utilisateur et appelle la RPC avec lui.
+            val response =
+                client.httpClient.request("$functionsBase/send-invitation") {
+                    method = HttpMethod.Post
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    contentType(ContentType.Application.Json)
+                    setBody(body.toString())
+                }
+            val text = response.bodyAsText()
+            if (!response.status.isSuccess()) {
+                val error = runCatching { RemoteJson.decodeFromString(FunctionError.serializer(), text) }.getOrNull()
+                // Passerelle ou fonction absente, sans corps lisible : erreur du serveur, réessayable à la main.
+                throw error?.error?.let { SharingRequestError(it) } ?: RemoteError.fromHttp(response.status.value)
+            }
+            RemoteJson.decodeFromString(SentInvitation.serializer(), text)
+        }
+
+    override suspend fun invitationLink(
+        listId: Uuid,
+        email: String,
+        role: ListRole,
+    ): String =
+        sharingRpc {
+            val parameters =
+                buildJsonObject {
+                    put("p_list_id", listId.toString())
+                    put("p_email", email)
+                    put("p_role", role.wireName)
+                    put("p_send_email", false)
+                }
+            val rows = decodeRpc("create_invitation", parameters, ListSerializer(CreatedInvitation.serializer()))
+            invitationLinks.link(rows.firstOrNull()?.token ?: throw RemoteError.Unexpected())
+        }
+
+    override suspend fun revokeInvitation(id: Uuid) {
+        sharingRpc { rest.rpc("revoke_invitation", buildJsonObject { put("p_invitation_id", id.toString()) }) }
+    }
+
+    override suspend fun listSharing(listId: Uuid): ListSharing =
+        sharingRpc {
+            decodeRpc("list_sharing", buildJsonObject { put("p_list_id", listId.toString()) }, ListSharing.serializer())
+        }
+
+    override suspend fun myInvitations(): List<ReceivedInvitation> =
+        sharingRpc { decodeRpc("my_invitations", buildJsonObject {}, ListSerializer(ReceivedInvitation.serializer())) }
+
+    override suspend fun previewInvitation(token: String): InvitationPreview =
+        sharingRpc {
+            decodeRpc(
+                "preview_invitation",
+                buildJsonObject { put("p_token", token) },
+                ListSerializer(InvitationPreview.serializer()),
+            ).firstOrNull() ?: InvitationPreview(status = "invalid")
+        }
+
+    override suspend fun acceptInvitation(token: String): InvitationAcceptance =
+        accept(buildJsonObject { put("p_token", token) })
+
+    override suspend fun acceptInvitation(id: Uuid): InvitationAcceptance =
+        accept(buildJsonObject { put("p_invitation_id", id.toString()) })
+
+    private suspend fun accept(parameters: JsonObject): InvitationAcceptance =
+        sharingRpc {
+            decodeRpc("accept_invitation", parameters, ListSerializer(InvitationAcceptance.serializer())).firstOrNull()
+                ?: InvitationAcceptance(status = "invalid")
+        }
+
+    override suspend fun declineInvitation(id: Uuid) {
+        sharingRpc { rest.rpc("decline_invitation", buildJsonObject { put("p_invitation_id", id.toString()) }) }
+    }
+
+    override suspend fun setMemberRole(
+        listId: Uuid,
+        userId: Uuid,
+        role: ListRole,
+    ) {
+        val parameters =
+            buildJsonObject {
+                put("p_list_id", listId.toString())
+                put("p_user_id", userId.toString())
+                put("p_role", role.wireName)
+            }
+        sharingRpc { rest.rpc("set_member_role", parameters) }
+    }
+
+    override suspend fun removeMember(
+        listId: Uuid,
+        userId: Uuid,
+    ) {
+        val parameters =
+            buildJsonObject {
+                put("p_list_id", listId.toString())
+                put("p_user_id", userId.toString())
+            }
+        sharingRpc { rest.rpc("remove_member", parameters) }
+    }
+
+    override suspend fun fetchListMembers(): List<ListMemberRow> =
+        authorized {
+            fetchAllPages(ListMemberRow.serializer()) { from, to ->
+                rest
+                    .from(ListMemberRow.spec.table)
+                    .select(Columns.raw(ListMemberRow.spec.selection)) {
+                        order("list_id", Order.ASCENDING)
+                        order("user_id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
+            }
+        }
+
+    override suspend fun fetchProfiles(userIds: List<Uuid>): List<ProfileRow> {
+        if (userIds.isEmpty()) return emptyList()
+        return authorized {
+            userIds.distinct().chunked(ID_BATCH).flatMap { batch ->
+                val data =
+                    rest
+                        .from(ProfileRow.spec.table)
+                        .select(Columns.raw(ProfileRow.spec.selection)) {
+                            filter { isIn("user_id", batch.map(Uuid::toString)) }
+                        }.data
+                RemoteJson.decodeFromString(ListSerializer(ProfileRow.serializer()), data)
+            }
+        }
+    }
+
+    /**
+     * Canal privé `user:<uid>` (#87 §6.2) : un événement à chaque (re)jonction, puis les signaux `changed`. Le canal
+     * est retiré à l'annulation, et le WebSocket se ferme avec le dernier canal.
+     */
+    override fun signals(userId: Uuid): Flow<RealtimeEvent> =
+        channelFlow {
+            val channel: RealtimeChannel = client.channel("user:$userId") { isPrivate = true }
+            try {
+                launch {
+                    channel.status
+                        .filter { it == RealtimeChannel.Status.SUBSCRIBED }
+                        .collect { send(RealtimeEvent.Subscribed) }
+                }
+                launch {
+                    channel.broadcastFlow<JsonObject>(SIGNAL_EVENT).collect { payload -> send(signal(payload)) }
+                }
+                channel.subscribe(blockUntilSubscribed = false)
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } }
+            }
+        }
+
+    /** Erreurs des RPC du partage : message stable (`P0001`) en [SharingRequestError], `42501` en `Forbidden`. */
+    private suspend fun <T> sharingRpc(operation: suspend () -> T): T =
+        authorized {
+            try {
+                operation()
+            } catch (e: PostgrestRestException) {
+                throw if (e.code == RAISED_EXCEPTION) SharingRequestError(e.error, e) else e
+            }
+        }
+
+    // endregion
+
     // region Outils
 
     private suspend fun loadCategories(): List<CategoryRow> {
@@ -734,6 +941,19 @@ class SupabaseGateway internal constructor(
 
         /** Recouvrement du curseur : deux transactions proches peuvent valider dans le désordre. */
         val CURSOR_OVERLAP = 5.seconds
+
+        /** Message `raise exception '…'` sans code : les erreurs stables du partage (`invalid_email`…). */
+        const val RAISED_EXCEPTION = "P0001"
+
+        /** Événement Broadcast des signaux du partage (lot 87.2). */
+        const val SIGNAL_EVENT = "changed"
+
+        /** Signal `{ list_id, kind }` ; un champ manquant donne `kind` vide, traité comme une descente. */
+        fun signal(payload: JsonObject): RealtimeEvent.Changed {
+            val listId = (payload["list_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val kind = (payload["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+            return RealtimeEvent.Changed(listId?.let { runCatching { Uuid.parse(it) }.getOrNull() }, kind)
+        }
 
         /** Rafraîchit un peu avant l'expiration pour qu'une requête en cours ne parte pas avec un jeton périmé. */
         val REFRESH_MARGIN = 30.seconds
