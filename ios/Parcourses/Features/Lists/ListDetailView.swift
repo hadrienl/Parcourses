@@ -269,13 +269,17 @@ struct ListDetailView: View {
     if let sharing, sharing.isAvailable {
       if model.access.isShared {
         Button(action: shareTapped) {
-          AvatarStack(labels: model.access.pillLabels)
+          BarAvatarStack(labels: model.access.pillLabels)
             .padding(.horizontal, 10)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(model.access.membersButtonLabel)
+        // Visionneuse de grand contenu (appui long), comme les boutons système de la barre.
+        .accessibilityShowsLargeContentViewer {
+          Label(model.access.membersButtonLabel, systemImage: "person.2")
+        }
         .accessibilityIdentifier("listMembers")
       } else if model.access.capabilities.canShare {
         Button("Partager la liste", systemImage: "person.badge.plus", action: shareTapped)

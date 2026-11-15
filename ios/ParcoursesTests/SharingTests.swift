@@ -921,8 +921,11 @@ private actor AccountGate {
     #expect(try size(mark, .accessibility3).width > 20)
     let avatar = MemberAvatar(label: "H", size: 36, ring: false, scalesWithText: true)
     #expect(try size(avatar, .accessibility3).width > (try size(avatar, .large)).width)
-    // Les pastilles de la barre gardent leur taille.
+    // Les pastilles de la barre gardent leur taille : deux pastilles recouvertes de 8 pt, une seule (le nombre) aux
+    // tailles d'accessibilité.
     #expect(try size(MemberAvatar(label: "L"), .accessibility3) == CGSize(width: 28, height: 28))
+    #expect(try size(BarAvatarStack(labels: ["L", "T"]), .large) == CGSize(width: 48, height: 28))
+    #expect(try size(BarAvatarStack(labels: ["L", "T"]), .accessibility3) == CGSize(width: 28, height: 28))
   }
 
   /// Relecture Android (b) : le lien copié porte le jeton. Il reste sur l'appareil et s'efface au bout d'une heure.

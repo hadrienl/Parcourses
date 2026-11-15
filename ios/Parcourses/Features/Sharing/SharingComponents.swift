@@ -50,6 +50,39 @@ struct AvatarStack: View {
   }
 }
 
+/// Pastilles de la barre d'une liste partagée, dessinées (`Canvas`) : la barre de navigation ne fait pas suivre
+/// Dynamic Type à ses éléments, et un texte de taille fixe y serait signalé par l'audit d'accessibilité, que l'audit ne
+/// sait pas situer sur iOS 18. Décoratives : le bouton porte le libellé lu (« Membres : Léa, Tom et vous… ») et
+/// montre la visionneuse de grand contenu (appui long), comme les boutons système de la barre.
+struct BarAvatarStack: View {
+  let labels: [String]
+  var size: CGFloat = 28
+  @Environment(\.dynamicTypeSize) private var typeSize
+
+  /// Aux tailles d'accessibilité, une seule pastille porte le nombre (comme `AvatarStack`).
+  private var shown: [String] {
+    typeSize >= .accessibility3 && labels.count > 1 ? ["\(labels.count)"] : labels
+  }
+
+  var body: some View {
+    let shown = shown
+    let step = size - 8
+    Canvas { context, _ in
+      for (index, label) in shown.enumerated() {
+        let circle = CGRect(x: CGFloat(index) * step, y: 0, width: size, height: size)
+        context.fill(Path(ellipseIn: circle), with: .color(Palette.paperEdge))
+        context.stroke(Path(ellipseIn: circle.insetBy(dx: 1, dy: 1)), with: .color(Palette.paper), lineWidth: 2)
+        let text = context.resolve(
+          Text(label).font(.system(size: size * 0.43, weight: .bold, design: .monospaced))
+            .foregroundStyle(Palette.ink))
+        context.draw(text, at: CGPoint(x: circle.midX, y: circle.midY))
+      }
+    }
+    .frame(width: size + CGFloat(max(shown.count - 1, 0)) * step, height: size)
+    .accessibilityHidden(true)
+  }
+}
+
 /// Marque d'auteur d'un article : initiale au trait, après la quantité (20 pt à la taille par défaut). Elle suit
 /// Dynamic Type : style de texte `caption2` pour l'initiale, cercle à l'échelle du même style. Décorative : le prénom
 /// est dans le libellé lu de la ligne.
