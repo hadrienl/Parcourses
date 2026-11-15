@@ -33,8 +33,9 @@ fun supabaseUrl(environment: String): String =
 
 fun String.asBuildConfigString() = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-// Hôte des liens d'invitation https (#87) : vide par défaut jusqu'aux App Links et à assetlinks.json du lot 87.7.
-// Aucun domaine n'est écrit en dur ; `-Pparcourses.invitationHost=<hôte>` ou ~/.gradle/gradle.properties.
+// Hôte des liens d'invitation https et des App Links (#87, lot 87.7) : `parcourses.hadrien.eu` (gradle.properties),
+// surchargeable par `-Pparcourses.invitationHost=<hôte>` ou ~/.gradle/gradle.properties. Vide : ni lien https construit
+// ou reconnu, ni App Link (l'alias du manifeste est désactivé, sans autoVerify) ; seul `parcourses://` reste.
 val invitationHost: String =
     providers
         .gradleProperty("parcourses.invitationHost")
@@ -51,6 +52,12 @@ android {
     }
     buildFeatures.buildConfig = true
     defaultConfig.buildConfigField("String", "INVITATION_HOST", invitationHost.asBuildConfigString())
+    // App Links (`InvitationAppLinks` dans le manifeste) : même hôte que BuildConfig, coupés quand il est vide.
+    defaultConfig.manifestPlaceholders +=
+        mapOf(
+            "invitationHost" to invitationHost.ifEmpty { "invitation.invalid" },
+            "invitationAppLinks" to invitationHost.isNotEmpty().toString(),
+        )
     // Captures Roborazzi (A11) : Robolectric a besoin des ressources fusionnées.
     testOptions.unitTests.isIncludeAndroidResources = true
     buildTypes {
@@ -145,6 +152,14 @@ dependencies {
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Vecteur 001 du partage (#87, lot 87.7) rejoué avec l'hôte du build : lu directement dans shared/, sans copie.
+val sharingVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/sharing")
+
+tasks.withType<Test>().configureEach {
+    inputs.dir(sharingVectors).withPropertyName("sharingVectors")
+    systemProperty("parcourses.sharingVectors", sharingVectors.asFile.absolutePath)
 }
 
 // Captures de référence (clair, sombre, 200 %) : `./gradlew :app:recordRoborazziDebug` les réécrit,

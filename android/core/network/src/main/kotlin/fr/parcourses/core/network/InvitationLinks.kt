@@ -2,8 +2,8 @@ package fr.parcourses.core.network
 
 /**
  * Liens d'invitation construits par l'app (#87, « Copier le lien »). [httpsHost] vient de la configuration de build
- * (`BuildConfig.INVITATION_HOST`, propriété Gradle `parcourses.invitationHost`) et reste **vide** par défaut jusqu'aux
- * App Links du lot 87.7 : le lien passe alors par le schéma de l'app. Aucun domaine écrit en dur.
+ * (`BuildConfig.INVITATION_HOST`, propriété Gradle `parcourses.invitationHost`, `parcourses.hadrien.eu` par défaut
+ * depuis le lot 87.7, celui des App Links). Vide, le lien passe par le schéma de l'app.
  */
 class InvitationLinks(
     httpsHost: String?,
