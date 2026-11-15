@@ -84,15 +84,18 @@ struct AccountSection: View {
         emailRows
       } else {
         Text("Connectez-vous avec votre adresse e-mail pour retrouver vos listes sur un autre appareil.")
-        Button {
-          prompts.signIn = account.makeLink()
-        } label: {
-          Label("Se connecter", systemImage: "person.crop.circle")
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .touchTarget(minHeight: TicketMetrics.rowMin)
+        // Déconnexion en attente de sa purge : seul « Réessayer » est proposé.
+        if !account.isSignOutPending {
+          Button {
+            prompts.signIn = account.makeLink()
+          } label: {
+            Label("Se connecter", systemImage: "person.crop.circle")
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .touchTarget(minHeight: TicketMetrics.rowMin)
+          }
+          .disabled(isBlocked)
+          .accessibilityIdentifier("aboutSignIn")
         }
-        .disabled(isBlocked)
-        .accessibilityIdentifier("aboutSignIn")
       }
     } header: {
       Text("Compte")
@@ -100,7 +103,7 @@ struct AccountSection: View {
   }
 
   @ViewBuilder private var emailRows: some View {
-    if account.needsSignIn {
+    if account.needsSignIn, !account.isSignOutPending {
       Text("Reconnectez-vous pour synchroniser.")
       Button {
         prompts.signIn = account.makeLink()
@@ -160,8 +163,9 @@ struct AccountSection: View {
 }
 
 extension View {
-  /// Purge de la déconnexion en échec : « Réessayer », ou « Plus tard » (elle reprendra au prochain lancement).
-  /// `isHidden` : une feuille est ouverte par-dessus, c'est elle qui présente l'alerte.
+  /// Purge de la déconnexion en échec : « Réessayer », seule issue. Reportée, elle reprendrait au lancement suivant et
+  /// effacerait un compte ouvert entre-temps. `isHidden` : une feuille est ouverte par-dessus, c'est elle qui présente
+  /// l'alerte.
   func signOutFailurePresentation(_ account: AccountSession?, isHidden: Bool = false) -> some View {
     modifier(SignOutFailurePresentation(account: account, isHidden: isHidden))
   }
@@ -175,15 +179,12 @@ private struct SignOutFailurePresentation: ViewModifier {
     content.alert("La déconnexion n'a pas abouti.", isPresented: isPresented) {
       Button("Réessayer") { Task { await account?.retrySignOut() } }
         .accessibilityIdentifier("retrySignOut")
-      Button("Plus tard", role: .cancel) { account?.postponeSignOutRetry() }
     } message: {
-      Text(
-        "Vos listes sont peut-être encore sur cet appareil. Sans nouvel essai, la déconnexion reprendra au prochain lancement."
-      )
+      Text("Vos listes sont peut-être encore sur cet appareil. Réessayez pour terminer la déconnexion.")
     }
   }
 
-  /// Les deux boutons changent l'état du compte : la fermeture de l'alerte n'a rien à écrire.
+  /// « Réessayer » change l'état du compte : la fermeture de l'alerte n'a rien à écrire.
   private var isPresented: Binding<Bool> {
     Binding(get: { account?.signOutFailed == true && !isHidden }, set: { _ in })
   }
@@ -236,7 +237,7 @@ struct SessionLostBanner: View {
   /// Les listes du compte restent sur le serveur, l'appareil repart vide (README des vecteurs).
   private var message: String {
     var sentences = [
-      "Les listes de votre compte seront retirées de cet appareil ; elles restent dans votre compte. Vous repartirez sans compte, avec un appareil vide."
+      "Les listes de votre compte seront retirées de cet appareil, mais restent dans votre compte. Vous repartirez avec un compte anonyme vide."
     ]
     if losesChanges { sentences.append("Les modifications pas encore envoyées seront perdues.") }
     return sentences.joined(separator: " ")
