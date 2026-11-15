@@ -14,6 +14,8 @@ import fr.parcourses.core.data.account.AccountSession
 import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.AccountSignOutFlag
 import fr.parcourses.core.data.account.AccountSwitchFlag
+import fr.parcourses.core.data.account.AccountSwitchReplay
+import fr.parcourses.core.data.account.ContinueWithoutAccount
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
@@ -80,6 +82,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
@@ -235,6 +238,7 @@ class AppContainer(
                 LinkHost(),
                 isOnline = { networkMonitor.isOnline },
                 switchFlag = switchFlag,
+                accountLock = accountLock,
             )
         }
 
@@ -257,6 +261,9 @@ class AppContainer(
         override suspend fun dataAccount(): Uuid? = withContext(IO) { cursors.accountId }
 
         override suspend fun pendingChanges(): Int = database.outbox().all().size
+
+        override suspend fun adoptDataAccount(account: Uuid) =
+            withContext(IO) { cursors.adopt(account, AccountKind.Email) }
 
         override suspend fun purgeLocalData() {
             val host = DeletionHost()
@@ -363,10 +370,8 @@ class AppContainer(
             // Une Live Update restée d'un lancement précédent ne survit que si sa visite est encore ouverte.
             liveUpdates.reconcile()
             gateway?.let { remote ->
-                withContext(IO) {
-                    inferAccountKind(remote)
-                    replayAccountSwitch(remote)
-                }
+                withContext(IO) { inferAccountKind(remote) }
+                replayAccountSwitch()
                 coordinator?.start()
                 // Un échec n'empêche rien : tout est local et la file attend.
                 AuthBootstrap.signIn(remote)
@@ -427,24 +432,8 @@ class AppContainer(
     fun continueWithoutAccount() {
         val remote = gateway ?: return
         maintenanceScope.launch {
-            val host = DeletionHost()
-            try {
-                host.suspendSync()
-                host.endShopping()
-                // Purge d'abord (`account.kind` compris) : rien du compte e-mail ne part vers le compte anonyme.
-                purge.run()
-                host.clearLocalState()
-                // Dernier compte connu oublié : le compte anonyme neuf est adopté sans reprise.
-                remote.signOutLocally()
-                accountSession.forget()
-                AuthBootstrap.signIn(remote)
-                host.rebuild()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: RemoteError) {
-                Log.w(TAG, "Compte anonyme non créé : ${e.message}")
-                host.resumeSync()
-            }
+            // Toute panne (purge, SQLite, réseau) reprend la synchronisation, sans planter ce scope.
+            ContinueWithoutAccount(remote, purge, DeletionHost(), forget = accountSession::forget).run()
         }
     }
 
@@ -455,36 +444,22 @@ class AppContainer(
         if (email != null) accountKind.write(AccountKind.Email)
     }
 
-    /**
-     * Changement de compte e-mail interrompu (drapeau `account.switch`) : session d'un autre compte que celui des
-     * données = purge rejouée, aucune reprise ; même compte = drapeau effacé. Session illisible : le drapeau reste, la
-     * synchronisation aussi arrêtée jusqu'à la prochaine connexion.
-     */
-    @Suppress("TooGenericExceptionCaught") // Toute panne garde le drapeau : rien ne part vers le mauvais compte.
-    internal suspend fun replayAccountSwitch(remote: RemoteGateway): Boolean {
-        if (!switchFlag.isPending) return true
-        return try {
-            val session = remote.sessionAccountId()
-            // Session anonyme (le code n'a jamais été accepté) : rien à adopter, le drapeau part seul.
-            val emailSession = remote.accountEmail() != null
-            if (emailSession && session != cursors.accountId) {
+    /** Verrou de compte : reprise d'un changement de compte et vérification d'un code ne se chevauchent jamais. */
+    private val accountLock = Mutex()
+
+    /** Reprise d'un changement de compte e-mail interrompu (`account.switch`) : voir [AccountSwitchReplay]. */
+    private val switchReplay: AccountSwitchReplay? by lazy {
+        gateway?.let { remote ->
+            AccountSwitchReplay(remote, switchFlag, cursors, accountKind, accountLock) {
                 withTimeoutOrNull(LIVE_UPDATE_BUDGET) { liveUpdates.endAll().await() }
                 purge.run()
                 livePreferences.clear()
-                accountKind.write(AccountKind.Email)
-                remote.acknowledgeAccount(session)
-                Log.i(TAG, "Changement de compte e-mail repris au lancement")
             }
-            switchFlag.clear()
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Signalé dans le journal ; nouvel essai au retour au premier plan, synchro arrêtée d'ici là.
-            Log.w(TAG, "Changement de compte non repris : ${e.javaClass.simpleName}")
-            false
         }
     }
+
+    /** Vrai si plus rien n'est à reprendre. Lit et écrit le disque : jamais sur le fil principal. */
+    internal suspend fun replayAccountSwitch(): Boolean = withContext(IO) { switchReplay?.run() ?: true }
 
     /** Build sans Supabase : la suppression ne purge que l'appareil (§5.7). */
     val isLocalOnly: Boolean get() = config == null
@@ -561,10 +536,11 @@ class AppContainer(
     /** Premier plan : une passe avec descente. */
     fun onForeground() {
         // Changement de compte e-mail pas encore repris (session illisible au lancement) : nouvel essai.
-        val remote = gateway
-        if (remote != null && switchFlag.isPending) {
+        if (gateway != null) {
             maintenanceScope.launch {
-                if (withContext(IO) { replayAccountSwitch(remote) }) coordinator?.sessionDidChange()
+                // Drapeau lu hors du fil principal ; la reprise attend une vérification de code en cours (verrou).
+                val pending = withContext(IO) { switchFlag.isPending }
+                if (pending && replayAccountSwitch()) coordinator?.sessionDidChange()
             }
         }
         coordinator?.requestSync(pull = true)

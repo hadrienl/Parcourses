@@ -78,6 +78,11 @@ class AccountLinkTest : DataTest() {
 
             override suspend fun pendingChanges(): Int = db.outbox().pendingCount()
 
+            override suspend fun adoptDataAccount(account: Uuid) {
+                syncSteps += "adopt"
+                cursors.adopt(account, AccountKind.Email)
+            }
+
             override suspend fun purgeLocalData() {
                 syncSteps += "purge"
                 if (purgeFailures-- > 0) error("base verrouillée")
@@ -405,7 +410,8 @@ class AccountLinkTest : DataTest() {
             assertTrue(db.lists().getAll().isEmpty())
             assertEquals(AccountKind.Email, kind.kind.value)
             assertEquals(listOf(accountB), gateway.acknowledged.takeLast(1))
-            assertEquals(listOf("suspend", "purge", "resume"), syncSteps)
+            // Compte des données écrit tout de suite après la purge, avant toute passe (suites de la relecture, 3).
+            assertEquals(listOf("suspend", "purge", "adopt", "resume"), syncSteps)
             engine.drain(pull = true)
             assertEquals(saved, gateway.callsOf("saveList").size)
             assertEquals(accountB, cursors.accountId)
@@ -533,7 +539,7 @@ class AccountLinkTest : DataTest() {
 
             assertEquals(AccountLinkPhase.Done, link.state.value.phase)
             assertFalse(switch.isPending)
-            assertEquals(listOf("suspend", "purge", "purge", "resume"), syncSteps)
+            assertEquals(listOf("suspend", "purge", "purge", "adopt", "resume"), syncSteps)
             assertTrue(db.lists().getAll().isEmpty())
         }
 

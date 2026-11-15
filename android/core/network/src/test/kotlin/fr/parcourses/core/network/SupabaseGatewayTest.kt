@@ -661,4 +661,40 @@ class SupabaseGatewayTest {
         }
 
     // endregion
+
+    /** Suites de la relecture (#87) : le rafraîchissement du jeton anonyme est fait au mieux. */
+    @Test
+    fun aFailedRefreshOfTheAnonymousTokenNeverFailsAValidCode() =
+        runBlocking<Unit> {
+            // Horloge à 55 min : le jeton expire dans moins de 10 min, il faut le rafraîchir avant de le garder.
+            val later =
+                object : kotlin.time.Clock {
+                    override fun now() =
+                        kotlin.time.Clock.System
+                            .now() + kotlin.time.Duration.parse("55m")
+                }
+            val local = GatewayHarness(clock = later)
+            try {
+                local.gateway.ensureSession()
+                local.server.failRefresh = true
+                local.server.verifiedUserId = "bbbbbbbb-0000-4000-8000-000000000002"
+                local.server.email = "lea@exemple.fr"
+                val verified = local.gateway.verifyCode("lea@exemple.fr", "123456", EmailCodePurpose.SignIn)
+                assertEquals(Uuid.parse("bbbbbbbb-0000-4000-8000-000000000002"), verified.accountId)
+                assertNull(verified.previousAnonymousToken)
+            } finally {
+                local.close()
+            }
+        }
+
+    /** Compte de la session lu sur l'appareil, sans réseau ; `null` sans session. */
+    @Test
+    fun theStoredSessionAccountIsReadWithoutTheNetwork() =
+        runBlocking<Unit> {
+            assertNull(gateway.storedSessionAccountId())
+            val id = gateway.ensureSession()
+            val before = server.requests.size
+            assertEquals(id, gateway.storedSessionAccountId())
+            assertEquals(before, server.requests.size)
+        }
 }

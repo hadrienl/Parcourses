@@ -47,6 +47,12 @@ interface RemoteGateway {
      */
     suspend fun sessionAccountId(): Uuid
 
+    /**
+     * Compte de la session enregistrée, lu sur l'appareil **sans rafraîchissement ni réseau** ; `null` sans session.
+     * [RemoteError.SecureStorageLocked] si le stockage chiffré est illisible.
+     */
+    suspend fun storedSessionAccountId(): Uuid?
+
     /** Les données locales ont été réidentifiées pour [id] : il devient le dernier compte connu. */
     suspend fun acknowledgeAccount(id: Uuid)
 

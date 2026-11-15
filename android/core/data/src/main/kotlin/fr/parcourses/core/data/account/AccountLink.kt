@@ -107,6 +107,12 @@ interface AccountLinkHost {
     /** Compte auquel appartiennent les données de l'appareil (`SyncCursors.accountId`), `null` s'il est inconnu. */
     suspend fun dataAccount(): Uuid?
 
+    /**
+     * Données de l'appareil rattachées à [account] (`SyncCursors.adopt`, écrit tout de suite) après la purge d'un
+     * changement de compte e-mail.
+     */
+    suspend fun adoptDataAccount(account: Uuid)
+
     /** Entrées de file pas encore envoyées. */
     suspend fun pendingChanges(): Int
 
@@ -133,6 +139,8 @@ class AccountLink(
     private val host: AccountLinkHost,
     private val isOnline: () -> Boolean,
     private val switchFlag: AccountSwitchFlag = InMemoryAccountSwitchFlag(),
+    /** Verrou de compte commun avec `AccountSwitchReplay` (lancement, premier plan) : jamais en même temps. */
+    private val accountLock: Mutex = Mutex(),
     private val now: () -> Instant = { Clock.System.now() },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -190,7 +198,7 @@ class AccountLink(
      */
     suspend fun verify(code: String) =
         withContext(NonCancellable) {
-            lock.withLock { verifyLocked(code) }
+            accountLock.withLock { lock.withLock { verifyLocked(code) } }
         }
 
     @Suppress("ReturnCount", "CyclomaticComplexMethod") // Une garde par cas : code, réseau, étape, refus, purge.
@@ -242,11 +250,16 @@ class AccountLink(
     /** « Réessayer » après une purge inachevée d'un changement de compte e-mail. */
     suspend fun retryMerge() =
         withContext(NonCancellable) {
-            lock.withLock {
-                val switch = pendingSwitch ?: return@withLock
-                current.update { it.copy(busy = true, error = null) }
-                if (replaceDeviceData(switch.first.accountId)) completeSwitch() else failMerge()
+            accountLock.withLock {
+                retryMergeLocked()
             }
+        }
+
+    private suspend fun retryMergeLocked() =
+        lock.withLock {
+            val switch = pendingSwitch ?: return@withLock
+            current.update { it.copy(busy = true, error = null) }
+            if (replaceDeviceData(switch.first.accountId)) completeSwitch() else failMerge()
         }
 
     /** Purge faite : drapeau effacé, synchronisation reprise, puis fin du déroulé. */
@@ -270,6 +283,7 @@ class AccountLink(
             host.purgeLocalData()
             // La purge efface `account.kind` : c'est toujours un compte e-mail.
             io { kind.write(AccountKind.Email) }
+            host.adoptDataAccount(account)
             gateway.acknowledgeAccount(account)
             Log.i(TAG, "Autre compte e-mail : données de l'appareil remplacées")
             true

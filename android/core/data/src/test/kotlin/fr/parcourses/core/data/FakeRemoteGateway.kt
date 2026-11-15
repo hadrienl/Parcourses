@@ -148,6 +148,8 @@ class FakeRemoteGateway(
         }
     }
 
+    override suspend fun storedSessionAccountId(): Uuid? = if (hasSession) account else null
+
     override suspend fun sessionAccountId(): Uuid = account.also { enter("sessionAccountId") }.also { requireSession() }
 
     private fun requireSession() {
