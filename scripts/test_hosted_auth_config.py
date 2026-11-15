@@ -64,6 +64,14 @@ class DesiredTest(unittest.TestCase):
             self.assertNotIn("ConfirmationURL", content, name)
             self.assertNotIn("{{ .Token }}", want[f"mailer_subjects_{name}"], f"code dans l'objet : {name}")
 
+    def test_inscriptions_et_confirmations_dans_le_bon_sens(self):
+        want = hac.desired(CONFIG)
+        self.assertIs(want["disable_signup"], False)
+        self.assertIs(want["mailer_autoconfirm"], False)
+        self.assertIs(want["external_email_enabled"], True)
+        self.assertIs(want["external_anonymous_users_enabled"], True)
+        self.assertIs(want["mailer_secure_email_change_enabled"], True)
+
     def test_hook_before_user_created(self):
         want = hac.desired(CONFIG)
         self.assertIs(want["hook_before_user_created_enabled"], True)
@@ -83,6 +91,56 @@ class DesiredTest(unittest.TestCase):
         config["auth"]["email"]["template"]["recovery"]["content_path"] = "../../etc/hosts"
         with self.assertRaises(ValueError):
             hac.desired(config)
+
+
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class RequestTest(unittest.TestCase):
+    """`_request` avec urlopen simulé : URL, en-têtes, erreurs, et jamais le jeton à l'écran."""
+
+    def call(self, effect):
+        seen = []
+
+        def urlopen(req, timeout):
+            seen.append(req)
+            if isinstance(effect, BaseException):
+                raise effect
+            return FakeResponse(effect)
+
+        err = io.StringIO()
+        with mock.patch.object(hac.urllib.request, "urlopen", urlopen), contextlib.redirect_stderr(err):
+            try:
+                result = hac._request("GET", "ref", "jeton-secret")
+                code = 0
+            except SystemExit as exit_:
+                result, code = None, exit_.code
+        return result, code, err.getvalue(), seen
+
+    def test_succes(self):
+        result, code, _, seen = self.call(b'{"mailer_otp_length": 6}')
+        self.assertEqual((result, code), ({"mailer_otp_length": 6}, 0))
+        self.assertEqual(seen[0].full_url, "https://api.supabase.com/v1/projects/ref/config/auth")
+        self.assertEqual(seen[0].get_header("Authorization"), "Bearer jeton-secret")
+
+    def test_erreurs_http_sortie_2_sans_le_jeton(self):
+        for status in (401, 429, 500):
+            error = hac.urllib.error.HTTPError("u", status, "x", None, io.BytesIO(b'{"message":"refus"}'))
+            _, code, err, _ = self.call(error)
+            self.assertEqual(code, 2, status)
+            self.assertIn(str(status), err)
+            self.assertNotIn("jeton-secret", err)
+
+    def test_reponse_illisible_ou_pas_un_objet(self):
+        for body in (b"<html>", b"[1, 2]"):
+            _, code, err, _ = self.call(body)
+            self.assertEqual(code, 2, body)
+            self.assertNotIn("jeton-secret", err)
 
 
 class CheckApplyTest(unittest.TestCase):

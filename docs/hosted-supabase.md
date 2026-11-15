@@ -19,9 +19,9 @@ scripts/hosted-auth-config.py --apply    # pousse les seuls écarts, puis relit 
 scripts/hosted-auth-config.py --plan     # réglages voulus, sans réseau
 ```
 
-Le script est idempotent : un second `--apply` ne pousse rien. Il ne lit dans `config.toml` qu'une liste blanche de
-réglages (table `PUSHED` du script), plus les objets et modèles `magic_link`, `confirmation`, `email_change` et
-`recovery` :
+Le script demande Python 3.11 ou plus (`tomllib`) et est idempotent : un second `--apply` ne pousse rien. Il ne lit
+dans `config.toml` qu'une liste blanche de réglages (table `PUSHED` du script), plus les objets et modèles
+`magic_link`, `confirmation`, `email_change` et `recovery` :
 
 | Hébergé (API de gestion) | Dépôt (`config.toml`) |
 | --- | --- |
@@ -42,8 +42,12 @@ Les tests du script tournent en CI (`supabase`), sans réseau : `python3 scripts
 
 1. `supabase db push` : migrations, dont la fonction du hook (`accounts.before_user_created`), qui doit exister avant
    que le hook soit activé.
-2. `scripts/hosted-auth-config.py --apply`.
-3. Edge Functions : `supabase functions deploy send-invitation`, avec ses secrets (`RESEND_API_KEY`,
+2. SMTP Resend (tableau de bord, *Authentication → SMTP*, ou API de gestion avec les secrets) : le SMTP par défaut de
+   l'hébergé n'envoie qu'aux membres de l'organisation, avec un quota très bas. Pas dans le script : il porte des secrets.
+3. `scripts/hosted-auth-config.py --apply`.
+4. Edge Functions : `supabase functions deploy send-invitation`, avec ses secrets (`RESEND_API_KEY`,
    `INVITATION_FROM`, plus tard `INVITATION_BASE_URL`).
-4. Vérifier : `scripts/hosted-auth-config.py` doit répondre « à jour », et une connexion de test doit recevoir un code à
-   6 chiffres sans lien.
+5. Vérifier : `scripts/hosted-auth-config.py` doit répondre « à jour » (la relecture porte sur la configuration
+   enregistrée ; l'Auth redémarre ensuite en quelques instants), puis lier une adresse à un compte anonyme depuis l'app
+   (« Se connecter ») : l'e-mail doit porter un code à 6 chiffres, sans lien. Une connexion directe avec une adresse
+   inconnue est refusée par le hook `before_user_created`, c'est voulu.

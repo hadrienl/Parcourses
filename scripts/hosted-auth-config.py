@@ -15,16 +15,23 @@ Usage (depuis la racine du dépôt) :
   scripts/hosted-auth-config.py --plan                                                   # réglages voulus, sans réseau
 
 Le jeton (https://supabase.com/dashboard/account/tokens) n'est jamais affiché. Codes de sortie : 0 à jour (ou appliqué
-et relu conforme), 1 écarts trouvés en --check ou relecture non conforme, 2 erreur d'usage ou d'API.
+et relu conforme), 1 écarts trouvés en --check ou relecture non conforme, 2 erreur d'usage ou d'API (après un
+--apply, relancer : le PATCH a pu passer avant une erreur de relecture). Python 3.11 ou plus.
 """
 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
-import tomllib
+
+if sys.version_info < (3, 11):  # tomllib
+    print("Python 3.11 ou plus est requis (tomllib).", file=sys.stderr)
+    sys.exit(2)
+
+import tomllib  # noqa: E402
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -112,7 +119,7 @@ def _request(method: str, ref: str, token: str, body: dict[str, Any] | None = No
         req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8") or "{}")
+            payload = json.loads(resp.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as err:
         detail = err.read().decode("utf-8", "replace")[:300]
         print(f"API de gestion : {method} {err.code} {detail}", file=sys.stderr)
@@ -120,6 +127,13 @@ def _request(method: str, ref: str, token: str, body: dict[str, Any] | None = No
     except urllib.error.URLError as err:
         print(f"API de gestion injoignable : {err.reason}", file=sys.stderr)
         raise SystemExit(2) from None
+    except (http.client.HTTPException, json.JSONDecodeError, UnicodeDecodeError, TimeoutError) as err:
+        print(f"API de gestion : {method}, réponse illisible ({type(err).__name__})", file=sys.stderr)
+        raise SystemExit(2) from None
+    if not isinstance(payload, dict):
+        print(f"API de gestion : {method}, réponse inattendue (pas un objet JSON)", file=sys.stderr)
+        raise SystemExit(2)
+    return payload
 
 
 def main(argv: list[str]) -> int:
