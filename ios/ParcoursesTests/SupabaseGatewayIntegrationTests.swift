@@ -1307,6 +1307,13 @@ struct SharingIntegrationTests {
 
     // Temps réel : Léa écoute son canal, Hadrien coche, le signal arrive et la descente apporte la coche.
     let stream = await member.remote.userSignals(userId: memberId)
+    // Garde : sans signal en 20 s, le canal se ferme et son flux se termine. Le test échoue au lieu d'attendre sans fin.
+    let remote = member.remote
+    let watchdog = Task {
+      try await Task.sleep(for: .seconds(20))
+      await remote.closeUserSignals()
+    }
+    defer { watchdog.cancel() }
     var iterator = stream.makeAsyncIterator()
     #expect(await iterator.next() == .subscribed)
     try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
