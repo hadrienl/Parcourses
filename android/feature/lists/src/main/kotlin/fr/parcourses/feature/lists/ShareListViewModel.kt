@@ -71,9 +71,17 @@ data class ShareListUiState(
     val clip: String? = null,
     /** La personne a quitté la liste : l'écran se ferme, la liste aussi. */
     val left: Boolean = false,
+    /** Mon rôle sur l'appareil (`lists.role`), le seul connu tant que `list_sharing` n'est pas lue. */
+    val localRole: ListRole? = null,
 ) {
     /** Propriétaire : « Partager la liste » ; sinon la feuille « Membres », en lecture. */
     val isOwner: Boolean get() = sharing?.role == ListRole.Owner
+
+    /**
+     * Formulaire d'invitation et titre « Partager la liste » : le rôle lu par `list_sharing`, sinon le rôle local
+     * (jamais « propriétaire » par défaut : un membre hors ligne voit « Membres »).
+     */
+    val showsOwnerSheet: Boolean get() = (sharing?.role ?: localRole) == ListRole.Owner
     val members: List<ListParticipant> get() = sharing?.participants.orEmpty()
     val invitations: List<PendingInvitation> get() = sharing?.invitations.orEmpty()
 }
@@ -87,6 +95,8 @@ class ShareListViewModel(
     private val listId: String,
     private val service: SharingService,
     listName: Flow<String?> = emptyFlow(),
+    /** Mon rôle local sur la liste (`lists.role`). */
+    localRole: Flow<ListRole?> = emptyFlow(),
     /** Signaux temps réel : relire `list_sharing` (feuille ouverte). */
     reloads: Flow<Set<String>> = emptyFlow(),
     /** La feuille est ouverte (pour `RealtimeSignals.sharingSheetOpened`) ; appelé avec `false` à la fermeture. */
@@ -101,6 +111,7 @@ class ShareListViewModel(
     init {
         onOpenChanged(true)
         viewModelScope.launch { listName.collect { name -> state.update { it.copy(listName = name.orEmpty()) } } }
+        viewModelScope.launch { localRole.collect { role -> state.update { it.copy(localRole = role) } } }
         viewModelScope.launch { reloads.collect { ids -> if (listId in ids) reload(quiet = true) } }
         reload()
     }

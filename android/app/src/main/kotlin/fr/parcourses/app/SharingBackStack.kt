@@ -29,11 +29,15 @@ internal fun MutableList<NavKey>.closeList(listId: String) {
  * Une liste à ouvrir après une invitation acceptée : au-dessus de « Mes listes », les écrans d'invitation retirés.
  */
 internal fun MutableList<NavKey>.openAcceptedList(listId: String) {
-    removeAll { it == Route.Invitation || it == Route.Invitations }
+    removeAll { it is Route.Invitation || it == Route.Invitations }
     if (none { it is Route.ListDetail && it.listId == listId }) add(Route.ListDetail(listId))
 }
 
-/** Ouvre l'invitation d'un lien, une seule fois ; une connexion en cours la fera ouvrir à sa fin. */
+/**
+ * Ouvre l'invitation du dernier lien reçu : l'écran d'un lien précédent quitte la pile, un écran neuf lit le nouveau
+ * jeton. Une connexion en cours la fera ouvrir à sa fin.
+ */
 internal fun MutableList<NavKey>.openInvitation() {
-    if (lastOrNull() != Route.Invitation) add(Route.Invitation)
+    removeAll { it is Route.Invitation }
+    add(Route.Invitation())
 }

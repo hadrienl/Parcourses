@@ -52,6 +52,28 @@ class SharingViewModelsTest : ListsTest() {
     }
 
     @Test
+    fun beforeListSharingAnswersTheSheetFollowsTheLocalRole() {
+        service.failure = InviteErrorKind.Offline
+        val model =
+            tracked {
+                ShareListViewModel(
+                    listId = service.listId.toString(),
+                    service = service,
+                    localRole = flowOf(ListRole.Editor),
+                )
+            }
+        // Hors ligne, `list_sharing` illisible : un membre voit « Membres », pas le formulaire d'invitation.
+        val state = model.uiState.await { it.load == ShareLoad.Offline && it.localRole != null }
+        assertFalse(state.showsOwnerSheet)
+
+        val owner =
+            tracked {
+                ShareListViewModel(service.listId.toString(), service, localRole = flowOf(ListRole.Owner))
+            }
+        assertTrue(owner.uiState.await { it.localRole != null }.showsOwnerSheet)
+    }
+
+    @Test
     fun anInvalidAddressNeverLeavesTheDevice() {
         val model = shareModel()
         model.uiState.await { it.load == ShareLoad.Loaded }
@@ -264,8 +286,23 @@ class SharingViewModelsTest : ListsTest() {
         val state = model.uiState.await { !it.loading }
         assertEquals(InvitationCardState.OtherAddress, state.card)
         assertEquals("tom@exemple.fr", state.accountEmail)
+        // L'avertissement d'abord : rien n'est accepté tant que la personne n'a pas confirmé.
+        assertTrue(service.calls.none { it.startsWith("accept") })
+        assertNull(state.openList)
         model.accept()
         assertEquals(service.listId.toString(), model.uiState.await { it.openList != null }.openList)
+    }
+
+    @Test
+    fun anUnreadableSessionDoesNotBreakTheInvitation() {
+        service.preview =
+            InvitationPreview(status = "pending", inviterName = "Hadrien", role = ListRole.Editor, emailMatches = false)
+        // Trousseau verrouillé : l'adresse du compte est illisible, l'avertissement s'affiche sans elle.
+        val model = tracked { InvitationLinkViewModel("t".repeat(43), service) { error("SecureStorageLocked") } }
+        val state = model.uiState.await { !it.loading }
+        assertEquals(InvitationCardState.OtherAddress, state.card)
+        assertNull(state.accountEmail)
+        assertNull(state.error)
     }
 
     @Test
@@ -355,6 +392,12 @@ class SharingViewModelsTest : ListsTest() {
         assertFalse(state.sharing.capabilities.canShop)
         assertTrue(state.sharing.isOffline)
         assertEquals("Hadrien", state.sharing.ownerName)
+
+        // Une saisie qui partirait quand même est refusée par le dépôt : rien n'est ajouté, l'erreur est montrée.
+        model.input.setTextAndPlaceCursorAtEnd("beurre")
+        model.submit()
+        assertEquals("Cette liste est en lecture seule.", model.uiState.await { it.errorDetail != null }.errorDetail)
+        assertTrue(runBlocking { lists.items(list.id) }.isEmpty())
     }
 
     @Test

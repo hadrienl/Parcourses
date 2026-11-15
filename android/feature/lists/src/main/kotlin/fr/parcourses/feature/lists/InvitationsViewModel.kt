@@ -182,9 +182,10 @@ class InvitationLinkViewModel(
             try {
                 val preview = remote.previewInvitation(token)
                 val card = SharingDecisions.invitationCardState(preview.status, preview.emailMatches == true)
-                state.update {
-                    it.copy(loading = false, preview = preview, card = card, accountEmail = accountEmail())
-                }
+                // Adresse du compte, pour l'avertissement seulement : une session illisible (trousseau verrouillé) ne
+                // doit pas faire tomber l'écran.
+                val email = runCatching { accountEmail() }.getOrNull()
+                state.update { it.copy(loading = false, preview = preview, card = card, accountEmail = email) }
                 // Déjà membre : acceptation idempotente, la liste s'ouvre.
                 if (card == InvitationCardState.AlreadyMember) accept()
             } catch (e: SharingFailure) {

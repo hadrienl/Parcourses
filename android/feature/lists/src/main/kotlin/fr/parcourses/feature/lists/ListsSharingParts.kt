@@ -33,6 +33,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,6 +44,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.data.sharing.RoleCapabilities
 import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.designsystem.MemberStack
@@ -70,6 +74,9 @@ import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketSheet
 import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.model.ListRole
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 
 // « Mes listes », partie partage (#87, lot 87.6) : badges, initiales, menu d'une liste, confirmations.
 
@@ -209,3 +216,27 @@ internal fun rowLabel(
         stringResource(R.string.lists_row_shared_a11y, list.name, names, subtitle)
     }
 }
+
+/**
+ * Liste retirée vue de « Mes listes » (maquette `removedlists`) : la ligne a disparu, « … n'est plus partagée avec
+ * vous » reste [REMOVED_MESSAGE], puis le message est acquitté. Rend l'hôte du message, pour le `Scaffold`.
+ */
+@Composable
+internal fun removedListMessage(
+    notice: AccessChange.Removed?,
+    onShown: (AccessChange.Removed) -> Unit,
+): SnackbarHostState {
+    val host = remember { SnackbarHostState() }
+    val text = notice?.let { stringResource(R.string.sharing_removed_title, it.listName) }
+    LaunchedEffect(notice) {
+        if (notice == null || text == null) return@LaunchedEffect
+        val shown = launch { host.showSnackbar(text, duration = SnackbarDuration.Indefinite) }
+        delay(REMOVED_MESSAGE)
+        shown.cancel()
+        onShown(notice)
+    }
+    return host
+}
+
+/** Durée du message d'une liste retirée, vu de « Mes listes » (maquette : 4 s). */
+internal val REMOVED_MESSAGE = 4.seconds

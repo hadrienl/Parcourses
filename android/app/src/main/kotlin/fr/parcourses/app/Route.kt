@@ -38,10 +38,13 @@ sealed interface Route : NavKey {
 
     /**
      * Invitation ouverte par son lien. Le jeton n'est **pas** dans la route (sauvegardée avec la pile, donc écrite sur
-     * le disque) : il reste en mémoire dans le conteneur (#87 §1.3).
+     * le disque) : il reste en mémoire dans le conteneur (#87 §1.3). [slot] : un par ouverture du lien, donc un
+     * modèle neuf qui lit le jeton du moment ; un second lien remplace le premier.
      */
     @Serializable
-    data object Invitation : Route
+    data class Invitation(
+        val slot: String = Uuid.random().toString(),
+    ) : Route
 
     /**
      * [slot] identifie l'écran, pas la liste : si la liste change d'identifiant (reprise de compte), la clé change

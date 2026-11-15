@@ -1,7 +1,10 @@
 package fr.parcourses.feature.lists
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.Intent
+import android.os.Build
+import android.os.PersistableBundle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -113,7 +116,7 @@ fun ShareListRoute(
     val clipboard = LocalClipboard.current
     LaunchedEffect(state.clip) {
         state.clip?.let { link ->
-            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Parcourses", link)))
+            clipboard.setClipEntry(ClipEntry(sensitiveClip(link)))
             viewModel.clipConsumed()
         }
     }
@@ -139,6 +142,21 @@ fun ShareListRoute(
             ),
     )
 }
+
+/**
+ * Lien d'invitation pour le presse-papiers, marqué sensible : il donne accès à la liste, Android 13+ ne l'affiche
+ * pas dans l'aperçu du presse-papiers (clé littérale avant l'API 33, comme le recommande la documentation).
+ */
+internal fun sensitiveClip(link: String): ClipData =
+    ClipData.newPlainText("Parcourses", link).apply {
+        val key =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ClipDescription.EXTRA_IS_SENSITIVE
+            } else {
+                "android.content.extra.IS_SENSITIVE"
+            }
+        description.extras = PersistableBundle().apply { putBoolean(key, true) }
+    }
 
 /** Ce que la feuille demande à son modèle. */
 class ShareListActions(
@@ -179,7 +197,7 @@ fun ShareListScreen(
         }
     }
     var sheet by remember { mutableStateOf<ShareSheet?>(null) }
-    val owner = state.load != ShareLoad.Loaded || state.isOwner
+    val owner = state.showsOwnerSheet
     Scaffold(
         modifier = modifier,
         containerColor = colors.paper,

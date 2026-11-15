@@ -180,6 +180,7 @@ fun ParcoursesNavHost(
                             backStack.openAcceptedList(listId)
                         }
                     }
+                    val notices by container.sharingNotices.notices.collectAsState()
                     val sessionStuck by sessionStuckFlow.collectAsState()
                     val account by container.accountSession.state.collectAsState(AccountState())
                     val unsentFlow = remember(container) { container.database.outbox().observeCount() }
@@ -203,6 +204,8 @@ fun ParcoursesNavHost(
                                         backStack.add(Route.Invitations)
                                     }
                                 },
+                                removed = notices.firstNotNullOfOrNull { it as? AccessChange.Removed },
+                                onRemovedShown = container.sharingNotices::acknowledge,
                             ),
                     )
                 }
@@ -326,6 +329,7 @@ fun ParcoursesNavHost(
                                                 listId = key.listId,
                                                 service = sharing,
                                                 listName = container.lists.observeList(key.listId).map { it?.name },
+                                                localRole = container.lists.observeList(key.listId).map { it?.role },
                                                 reloads = realtime?.sharingReloads ?: emptyFlow(),
                                                 onOpenChanged = { open ->
                                                     if (open) {
@@ -353,7 +357,8 @@ fun ParcoursesNavHost(
                         onBack = { if (backStack.lastOrNull() == Route.Invitations) backStack.removeLastOrNull() },
                     )
                 }
-                entry<Route.Invitation> {
+                // Une entrée (et un modèle) par ouverture de lien : un second lien remplace le premier.
+                entry<Route.Invitation>(clazzContentKey = { it.slot }) {
                     val model: InvitationLinkViewModel =
                         viewModel(
                             factory =
@@ -369,7 +374,7 @@ fun ParcoursesNavHost(
                         )
                     val close = {
                         container.forgetInvitation()
-                        if (backStack.lastOrNull() == Route.Invitation) backStack.removeLastOrNull()
+                        if (backStack.lastOrNull() is Route.Invitation) backStack.removeLastOrNull()
                     }
                     InvitationLinkRoute(
                         viewModel = model,
@@ -380,7 +385,7 @@ fun ParcoursesNavHost(
                         // « Changer de compte » : la connexion, puis l'invitation reprend avec le jeton gardé.
                         onSwitchAccount = {
                             container.afterSignIn = AfterSignIn.Invitation
-                            backStack.removeAll { it == Route.Invitation }
+                            backStack.removeAll { it is Route.Invitation }
                             openSignIn()
                         },
                         onClose = { close() },

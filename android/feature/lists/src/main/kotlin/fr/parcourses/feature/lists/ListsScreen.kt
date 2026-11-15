@@ -33,6 +33,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,6 +44,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.designsystem.MemberStack
 import fr.parcourses.core.designsystem.SharingBadge
@@ -98,13 +102,18 @@ fun ListsRoute(
     )
 }
 
-/** Invitations reçues, vues de « Mes listes » (#87, lot 87.6). */
+/**
+ * Partage vu de « Mes listes » (#87, lot 87.6) : invitations reçues, et [removed], une liste qui n'est plus partagée
+ * avec moi (message bref, puis [onRemovedShown]).
+ */
 @Immutable
 data class ListsInvitationsUi(
     val state: InvitationsUiState = InvitationsUiState(),
     val onAccept: (fr.parcourses.core.network.dto.ReceivedInvitation) -> Unit = {},
     val onDecline: (fr.parcourses.core.network.dto.ReceivedInvitation) -> Unit = {},
     val onOpenAll: () -> Unit = {},
+    val removed: AccessChange.Removed? = null,
+    val onRemovedShown: (AccessChange.Removed) -> Unit = {},
 )
 
 /** Dialogue ouvert sur l'écran Listes. */
@@ -206,9 +215,11 @@ fun ListsScreen(
         if (state.isLoaded && target != null && state.lists.none { it.id == target }) dialog = null
     }
     val colors = Ticket.colors
+    val snackbar = removedListMessage(invitations.removed, invitations.onRemovedShown)
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = { ListsTopBar(onAbout, aboutNeedsAttention, account.onSignIn.takeIf { account.canSignIn }) },
         floatingActionButton = {
             ExtendedFloatingActionButton(

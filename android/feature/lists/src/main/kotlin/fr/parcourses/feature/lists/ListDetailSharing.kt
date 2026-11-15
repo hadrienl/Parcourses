@@ -2,6 +2,7 @@ package fr.parcourses.feature.lists
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -255,7 +256,8 @@ internal fun RemovedState(
             style = MaterialTheme.typography.headlineSmall,
             color = Ticket.colors.ink,
             textAlign = TextAlign.Center,
-            modifier = Modifier.focusRequester(focus).semantics { heading() },
+            // Focusable : sans cible de focus, la demande échoue et TalkBack ne va pas au titre.
+            modifier = Modifier.semantics { heading() }.focusRequester(focus).focusable(),
         )
         Text(
             stringResource(R.string.sharing_removed_body),

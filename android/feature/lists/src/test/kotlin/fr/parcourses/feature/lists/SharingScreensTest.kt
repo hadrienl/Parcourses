@@ -1,8 +1,10 @@
 package fr.parcourses.feature.lists
 
+import android.content.ClipDescription
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -229,5 +231,47 @@ class SharingScreensTest {
         rule.onNodeWithTag(TAG_REMOVED_BACK).performClick()
         assertEquals(1, backs)
         assertEquals(listOf("ack"), calls)
+    }
+
+    @Test
+    fun theRemovedScreenPutsTheFocusOnItsTitle() {
+        rule.setContent {
+            ParcoursesTheme { RemovedState(AccessChange.Removed(service.listId.toString(), "Courses")) {} }
+        }
+        // Titre focusable, focus demandé à l'affichage : TalkBack y va d'abord.
+        rule.onNodeWithText("«\u00A0Courses\u00A0» n’est plus partagée avec vous").assertIsFocused()
+    }
+
+    @Test
+    fun aListRemovedSeenFromMyListsShowsAMessageForFourSecondsThenAcknowledges() {
+        val notice = AccessChange.Removed(service.listId.toString(), "Courses")
+        val acknowledged = mutableListOf<AccessChange>()
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            ParcoursesTheme {
+                ListsScreen(
+                    state = ListsUiState(isLoaded = true),
+                    onOpen = {},
+                    onCreate = {},
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onDismissError = {},
+                    invitations = ListsInvitationsUi(removed = notice, onRemovedShown = { acknowledged += it }),
+                )
+            }
+        }
+        rule.mainClock.advanceTimeBy(1_000)
+        rule.onNodeWithText("«\u00A0Courses\u00A0» n’est plus partagée avec vous").assertExists()
+        assertTrue(acknowledged.isEmpty())
+
+        rule.mainClock.advanceTimeBy(3_500)
+        assertEquals(listOf<AccessChange>(notice), acknowledged)
+    }
+
+    @Test
+    fun theCopiedLinkIsMarkedSensitive() {
+        val clip = sensitiveClip("parcourses://invitation#jeton")
+        assertEquals("parcourses://invitation#jeton", clip.getItemAt(0).text)
+        assertTrue(clip.description.extras.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE))
     }
 }
