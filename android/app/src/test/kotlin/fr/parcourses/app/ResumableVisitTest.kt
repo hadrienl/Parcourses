@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.repository.CheckSubject
+import fr.parcourses.core.data.sync.SharedPreferencesSyncCursors
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import org.robolectric.annotation.Config
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.uuid.Uuid
 
 /**
  * Reprise au lancement (`AppContainer.resumableVisit`), testée directement (#54, A9) : une visite périmée est
@@ -103,6 +105,28 @@ class ResumableVisitTest {
             assertNull(container.resumableVisit())
             assertNotNull(container.visits.visit(visitId)?.endedAt)
             assertNull(container.visits.openVisit())
+        }
+
+    @Test
+    fun aVisitOfMyOwnListIsResumedRightAfterTheVersion3Migration() =
+        runBlocking {
+            val (listId, visitId, _) = visitWithAMissingItem(lastCheckAgo = 1.minutes)
+            // Migration 2→3 : ma liste descendue est passée en lecture seule jusqu'à la réparation du lancement.
+            val me = Uuid.random()
+            SharedPreferencesSyncCursors(RuntimeEnvironment.getApplication()).accountId = me
+            val list = checkNotNull(container.database.lists().get(listId))
+            container.database.lists().upsert(list.copy(ownerId = me.toString(), role = ListRole.Viewer))
+
+            // La reprise attend la réparation : la visite n'est pas abandonnée.
+            assertEquals(ResumableVisit(listId, store, visitId), container.resumableVisit())
+            assertEquals(
+                ListRole.Owner,
+                container.database
+                    .lists()
+                    .get(listId)
+                    ?.role,
+            )
+            assertNull(container.visits.visit(visitId)?.endedAt)
         }
 
     @Test

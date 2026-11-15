@@ -229,15 +229,22 @@ class RealtimeSignalsTest {
             echoes = setOf(list.toString())
 
             source.events.emit(changed("items"))
+            source.events.emit(changed("items"))
             advanceTimeBy(400)
             assertEquals(0, pulls)
+            // Un vrai changement d'un autre membre a pu s'y cacher : une seule descente à la fin de la fenêtre.
+            advanceTimeBy(2_000)
+            assertEquals(1, pulls)
+            advanceTimeBy(5_000)
+            assertEquals(1, pulls)
 
-            // Un autre type de signal, ou une autre liste, passe.
+            // Un autre type de signal, ou une autre liste, passe tout de suite.
+            echoes = emptySet()
             source.events.emit(changed("members"))
             advanceTimeBy(400)
-            assertEquals(1, pulls)
+            assertEquals(2, pulls)
             source.events.emit(changed("items", Uuid.random()))
             advanceTimeBy(400)
-            assertEquals(2, pulls)
+            assertEquals(3, pulls)
         }
 }

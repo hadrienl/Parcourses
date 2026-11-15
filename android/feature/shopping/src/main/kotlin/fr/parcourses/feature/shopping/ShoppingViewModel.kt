@@ -71,6 +71,8 @@ class ShoppingDependencies(
     val participants: suspend (listId: String) -> List<ListParticipantEntity> = { emptyList() },
     /** Messages d'accès : une liste retirée pendant les courses les arrête. */
     val accessNotices: Flow<List<AccessChange>> = emptyFlow(),
+    /** Rôles réparés au lancement (#87) : attendu avant d'ouvrir la visite et de lire le rôle de la liste. */
+    val rolesReady: suspend () -> Unit = {},
 )
 
 /**
@@ -194,6 +196,7 @@ class ShoppingViewModel(
         }
         // Rôle abaissé en lecture seule pendant les courses (#87, Q5) : un lecteur ne coche plus, fin des courses.
         viewModelScope.launch {
+            deps.rolesReady()
             listIdFlow
                 .flatMapLatest { deps.lists.observeList(it) }
                 .collect { list -> if (list?.role == ListRole.Viewer) loseAccess() }
@@ -205,6 +208,8 @@ class ShoppingViewModel(
         if (accessLost) return
         lock.withLock {
             accessLost = true
+            // Plus de courses : la Live Update part tout de suite (et « Cocher le suivant » avec elle).
+            visitId?.let { deps.liveUpdates?.end(it) }
             publish()
         }
     }
@@ -222,6 +227,7 @@ class ShoppingViewModel(
     }
 
     private suspend fun open() {
+        deps.rolesReady()
         // Reprise d'une visite encore active (même liste, même magasin) : son début compte, avant tout tri.
         val resumed = storeId?.let { resumableVisit(it) }
         visitId = resumed?.id
@@ -1000,7 +1006,7 @@ class ShoppingViewModel(
     private fun publishLive(displayed: List<ShoppingRow>) {
         val sink = deps.liveUpdates
         val visit = visitId
-        val over = expired || summary != null
+        val over = expired || summary != null || accessLost
         if (sink == null || visit == null || over) return
         val indices = aisleIndices()
         val state =

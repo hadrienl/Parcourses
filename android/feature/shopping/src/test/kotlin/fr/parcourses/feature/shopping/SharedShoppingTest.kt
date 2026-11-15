@@ -5,6 +5,7 @@ import fr.parcourses.core.data.repository.RoomCategoryRepository
 import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.model.ListRole
+import fr.parcourses.feature.shopping.live.RecordingSink
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -22,6 +23,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SharedShoppingTest : ShoppingTest() {
     private val notices = MutableStateFlow<List<AccessChange>>(emptyList())
+    private val live = RecordingSink()
 
     private fun sharedModel(listId: String) =
         tracked {
@@ -43,6 +45,7 @@ class SharedShoppingTest : ShoppingTest() {
                             )
                         },
                         accessNotices = notices,
+                        liveUpdates = live,
                     ),
                 now = clock,
                 computation = main,
@@ -119,6 +122,17 @@ class SharedShoppingTest : ShoppingTest() {
             db.lists().setRole(listId, ListRole.Viewer)
             runCurrent()
             assertTrue(model.uiState.value.accessLost)
+            // La Live Update part tout de suite, et rien ne la republie.
+            val visitId =
+                checkNotNull(
+                    db
+                        .visits()
+                        .getAll()
+                        .single()
+                        .id,
+                )
+            assertEquals(listOf(visitId), live.ended)
+            val published = live.published.size
 
             // Une coche partie quand même (double appui, écran en retard) est refusée par le dépôt.
             model.toggle(state.row("lait"))
@@ -131,6 +145,7 @@ class SharedShoppingTest : ShoppingTest() {
                     .first { it.label == "lait" }
                     .checkedAt,
             )
+            assertEquals(published, live.published.size)
 
             // « Terminer » clôt la visite.
             model.finish(true)

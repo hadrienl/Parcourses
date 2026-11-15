@@ -72,10 +72,12 @@ import fr.parcourses.feature.storepicker.LocationPermissionMemory
 import fr.parcourses.feature.storepicker.SharedPreferencesLocationPermissionMemory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -235,6 +237,7 @@ class AppContainer(
                 // Liste partagée (#87, lot 87.6) : qui a coché quoi, et l'accès perdu qui arrête les courses.
                 participants = { listId -> database.participants().get(listId) },
                 accessNotices = sharingNotices.notices,
+                rolesReady = ::awaitRolesRepaired,
             )
         }
 
@@ -386,6 +389,8 @@ class AppContainer(
         // Suppression interrompue : la visite va être effacée, elle n'est pas rouverte (ni abandonnée vers le serveur).
         // Le drapeau est lu sur le disque : jamais sur le fil principal, d'où vient la reprise au lancement.
         val pending = withContext(IO) { deletionFlag.isPending }
+        // Rôles d'avant la version 3 réparés d'abord : une de mes listes n'est pas prise pour une liste en lecture.
+        awaitRolesRepaired()
         val visit = (if (pending) null else visits.openVisit()) ?: return null
         val now = Clock.System.now()
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
@@ -412,7 +417,7 @@ class AppContainer(
         }
         scope.launch {
             categories.seedIfNeeded()
-            repairRoles()
+            awaitRolesRepaired()
             if (gateway != null) startNetworkMonitor()
             if (accountDeletion.resumeAtLaunch()) return@launch
             // Déconnexion interrompue (#87) : la purge reprend, voile affiché.
@@ -430,11 +435,22 @@ class AppContainer(
         }
     }
 
-    /** Rôles d'une base d'avant la version 3 (#87) : mes listes à moi, celles des autres en lecture seule. */
-    private suspend fun repairRoles() {
-        val me = withContext(IO) { cursors.accountId } ?: return
-        database.lists().repairRoles(me.toString())
+    /**
+     * Rôles d'une base d'avant la version 3 (#87) : mes listes à moi, celles des autres en lecture seule. Une fois par
+     * processus ; la reprise d'une visite et le mode courses l'attendent. Un échec n'empêche rien : la descente
+     * suivante dira les rôles.
+     */
+    private val rolesRepair: Deferred<Unit> by lazy {
+        maintenanceScope.async {
+            runCatching {
+                val me = withContext(IO) { cursors.accountId } ?: return@runCatching
+                database.lists().repairRoles(me.toString())
+            }.onFailure { if (it is CancellationException) throw it }
+            Unit
+        }
     }
+
+    suspend fun awaitRolesRepaired() = rolesRepair.await()
 
     private fun startNetworkMonitor() {
         if (networkStarted.compareAndSet(false, true)) networkMonitor.start()

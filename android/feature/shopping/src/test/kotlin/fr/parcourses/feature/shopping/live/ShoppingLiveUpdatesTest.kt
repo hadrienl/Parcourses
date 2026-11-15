@@ -192,6 +192,22 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             assertTrue(log.entries.any { "lecture seule" in it })
         }
 
+    /** Liste passée en lecture seule (#87, Q5) : la notification part au prochain affichage, même sans action. */
+    @Test
+    fun aReadOnlyListTakesItsNotificationAway() =
+        runTest(main) {
+            val (_, state) = shopping()
+            val live = controller()
+            live.publish(state)
+            runCurrent()
+
+            db.lists().setRole(state.listId, ListRole.Viewer)
+            live.publish(state.copy(pending = state.pending.drop(1)))
+            runCurrent()
+
+            assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+        }
+
     @Test
     fun aClosedVisitTakesItsNotificationAway() =
         runTest(main) {

@@ -19,6 +19,7 @@ import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SharingRequestError
 import fr.parcourses.core.network.dto.ListItemFields
+import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ListUpsert
@@ -201,8 +202,14 @@ class SyncEngine(
 
     override suspend fun applySharing(sharing: ListSharing) {
         passLock.withLock {
+            val listId = sharing.listId.toString()
+            // Abaissement : les articles du serveur sont lus avant d'écrire le rôle. Une panne réseau ne laisse pas un
+            // rôle « lecteur » sans entrées jetées ni message : l'abaissement sera revu à la lecture suivante.
+            val downgrade =
+                sharing.role == ListRole.Viewer && store.list(listId)?.role?.let { it != ListRole.Viewer } == true
+            val rows = if (downgrade) gateway.fetchItems(sharing.listId) else null
             val change = store.applySharing(sharing) ?: return@withLock
-            roleChanged(change, sharing.owner.displayName)
+            roleChanged(change, sharing.owner.displayName, serverItems = rows)
         }
     }
 
@@ -448,8 +455,9 @@ class SyncEngine(
         try {
             while (currentCoroutineContext().isActive) {
                 val work = store.nextWork(dependencies.now(), singleChecks) ?: return sent
-                val itemsOf = itemListOf(work)
                 try {
+                    // Décodé ici : une charge illisible finit en `Rejected("payload")`, sans bloquer la file.
+                    val itemsOf = itemListOf(work)
                     // Avant et après l'envoi : l'écho du signal `items` peut arriver avant la réponse.
                     itemsOf?.let(dependencies.onItemsSent)
                     send(work)
@@ -657,12 +665,14 @@ class SyncEngine(
         ownerName: String?,
         alreadyDropped: Int = 0,
         reloaded: Boolean = false,
+        serverItems: List<ListItemRow>? = null,
     ) {
         when {
             change.to == ListRole.Viewer -> {
                 var dropped = alreadyDropped
                 if (!reloaded && change.from != ListRole.Viewer) {
-                    store.replaceItems(change.listId, gateway.fetchItems(parse(change.listId)), classify) {
+                    val rows = serverItems ?: gateway.fetchItems(parse(change.listId))
+                    store.replaceItems(change.listId, rows, classify) {
                         dropped += it
                     }
                 }

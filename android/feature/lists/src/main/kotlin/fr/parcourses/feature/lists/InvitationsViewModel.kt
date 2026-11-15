@@ -12,6 +12,7 @@ import fr.parcourses.core.data.sharing.SharingService
 import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ReceivedInvitation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -184,7 +185,10 @@ class InvitationLinkViewModel(
                 val card = SharingDecisions.invitationCardState(preview.status, preview.emailMatches == true)
                 // Adresse du compte, pour l'avertissement seulement : une session illisible (trousseau verrouillé) ne
                 // doit pas faire tomber l'écran.
-                val email = runCatching { accountEmail() }.getOrNull()
+                val email =
+                    runCatching { accountEmail() }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrNull()
                 state.update { it.copy(loading = false, preview = preview, card = card, accountEmail = email) }
                 // Déjà membre : acceptation idempotente, la liste s'ouvre.
                 if (card == InvitationCardState.AlreadyMember) accept()

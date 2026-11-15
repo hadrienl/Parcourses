@@ -306,6 +306,23 @@ class SharingViewModelsTest : ListsTest() {
     }
 
     @Test
+    fun aCancelledAccountReadIsNotSwallowed() {
+        service.preview =
+            InvitationPreview(status = "pending", inviterName = "Hadrien", role = ListRole.Editor, emailMatches = false)
+        // Écran fermé pendant la lecture de l'adresse : l'annulation remonte, rien n'est publié après elle.
+        val model =
+            tracked {
+                InvitationLinkViewModel(
+                    "t".repeat(43),
+                    service,
+                ) { throw kotlinx.coroutines.CancellationException("fermé") }
+            }
+        val state = model.uiState.value
+        assertTrue(state.loading)
+        assertNull(state.preview)
+    }
+
+    @Test
     fun anExpiredLinkSaysSo() {
         service.preview = InvitationPreview(status = "expired", inviterName = "Hadrien")
         val model = tracked { InvitationLinkViewModel("t".repeat(43), service) }

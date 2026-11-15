@@ -399,14 +399,17 @@ class ShoppingLiveUpdates(
     }
 
     /**
-     * Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée, ou
-     * liste supprimée).
+     * Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée, liste
+     * supprimée, ou passée en lecture seule : un lecteur ne fait pas les courses, #87 Q5).
      */
     private suspend fun lastActivityIfLive(state: ShoppingLiveState): Instant? {
-        val visit = visits.visit(state.visitId)?.takeIf { lists.list(state.listId) != null }
+        val visit =
+            visits.visit(state.visitId)?.takeIf {
+                lists.list(state.listId)?.let { list -> list.role != ListRole.Viewer } == true
+            }
         val last = visit?.let { visits.lastActivity(it.id) ?: it.startedAt }
         when {
-            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close ou sans liste")
+            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close, sans liste ou lue")
             last == null || now() - last >= timings.expiry -> log.info("Live Update retirée : visite périmée (45 min)")
             else -> return last
         }

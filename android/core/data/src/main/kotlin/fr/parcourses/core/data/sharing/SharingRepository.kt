@@ -112,9 +112,10 @@ class SharingRepository(
 
     /** `list_sharing`, appliquée aussi à la base : personnes et rôle à jour pour la liste ouverte. */
     override suspend fun listSharing(listId: String): ListSharing =
-        call { it.listSharing(Uuid.parse(listId)) }.also { sharing ->
+        call { remote ->
             // Abaissement vu par la feuille : même traitement qu'à la descente (entrées jetées, un seul message).
-            access()?.applySharing(sharing) ?: store.applySharing(sharing)
+            // Dans `call` : une panne du rechargement de la liste devient un `SharingFailure`, jamais un plantage.
+            remote.listSharing(Uuid.parse(listId)).also { access()?.applySharing(it) ?: store.applySharing(it) }
         }
 
     override suspend fun myInvitations(): List<ReceivedInvitation> = call { it.myInvitations() }

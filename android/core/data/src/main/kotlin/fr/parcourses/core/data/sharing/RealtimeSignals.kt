@@ -49,6 +49,8 @@ class RealtimeSignals(
     private val retryDelay: Duration = RETRY_DELAY,
     /** Envoi d'articles en cours ou récent vers cette liste ([RecentSends]) : son signal `items` est un écho. */
     private val isEcho: (String) -> Boolean = { false },
+    /** Fenêtre de l'écho : un signal ignoré est rattrapé par une descente à sa fin. */
+    private val echoWindow: Duration = RecentSends.ECHO_WINDOW,
 ) {
     private val isForeground = MutableStateFlow(false)
     private val session = MutableStateFlow(0)
@@ -61,6 +63,9 @@ class RealtimeSignals(
     private val pendingActions = mutableSetOf<SignalAction>()
     private val pendingSheets = mutableSetOf<String>()
     private var flushJob: Job? = null
+
+    /** Descente programmée à la fin de la fenêtre d'écho, une à la fois. */
+    private var echoPullJob: Job? = null
 
     /** Vrai tant que le canal est joint : pour les tests et le diagnostic, jamais pour décider d'un envoi. */
     val isConnected: StateFlow<Boolean> = connected.asStateFlow()
@@ -128,6 +133,8 @@ class RealtimeSignals(
         lock.withLock {
             flushJob?.cancel()
             flushJob = null
+            echoPullJob?.cancel()
+            echoPullJob = null
             pendingActions.clear()
             pendingSheets.clear()
         }
@@ -143,14 +150,26 @@ class RealtimeSignals(
 
             is RealtimeEvent.Changed -> {
                 val listId = event.listId?.toString()
-                // Écho de mes propres envois : rien de neuf à descendre.
-                if (event.kind == ITEMS && listId != null && isEcho(listId)) return
+                // Écho probable de mes propres envois : pas de descente tout de suite. Un vrai changement d'un autre
+                // membre a pu arriver dans la fenêtre : une seule descente le rattrape à sa fin.
+                if (event.kind == ITEMS && listId != null && isEcho(listId)) return pullAfterEchoWindow()
                 val sheets = openSheets.value.keys
                 // Signal d'invitation sans liste : vaut pour toute feuille ouverte.
                 val open = if (listId == null) sheets.isNotEmpty() else listId in sheets
                 val targets = if (listId == null) sheets else setOf(listId)
                 enqueue(SharingDecisions.signalActions(event.kind, open), targets.takeIf { open })
             }
+        }
+    }
+
+    private suspend fun pullAfterEchoWindow() {
+        lock.withLock {
+            if (echoPullJob?.isActive == true) return
+            echoPullJob =
+                scope.launch {
+                    delay(echoWindow)
+                    enqueue(listOf(SignalAction.Pull), null)
+                }
         }
     }
 

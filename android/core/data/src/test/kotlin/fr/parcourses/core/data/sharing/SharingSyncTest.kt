@@ -7,6 +7,7 @@ import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncDependencies
 import fr.parcourses.core.data.sync.SyncEngine
+import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.SharingRequestError
@@ -120,6 +121,47 @@ class SharingSyncTest : DataTest() {
             // La descente suivante voit le même rôle : pas de seconde bannière.
             engine.drain(pull = true)
             assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun aDowngradeSeenByTheSheetSurvivesANetworkCutWithASingleNotice() =
+        runBlocking {
+            val (listId, itemId) = sharedList(ListRole.Editor)
+            repository.setChecked(itemId, now, now)
+            gateway.roles[Uuid.parse(listId)] = ListRole.Viewer
+            gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Viewer) }
+            // La feuille lit l'abaissement, puis le réseau coupe pendant le rechargement de la liste.
+            gateway.failNext("fetchItemsOfList", RemoteError.Network())
+
+            assertEquals(InviteErrorKind.Offline, failure { sharing.listSharing(listId) })
+            // Rien d'écrit à moitié : rôle, entrée et message attendent la lecture suivante.
+            assertEquals(ListRole.Editor, db.lists().get(listId)?.role)
+            assertEquals(1, db.outbox().all().size)
+            assertTrue(changes.isEmpty())
+
+            sharing.listSharing(listId)
+            engine.drain(pull = true)
+            assertEquals(ListRole.Viewer, db.lists().get(listId)?.role)
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(listOf(AccessChange.Downgraded(listId, "Hadrien", 1)), changes)
+        }
+
+    @Test
+    fun anUnreadableItemEntryIsRejectedWithoutBlockingTheQueue() =
+        runBlocking {
+            val (listId, itemId) = sharedList(ListRole.Editor)
+            repository.setChecked(itemId, now, now)
+            val entry = db.outbox().all().single()
+            db.outbox().setPayload(entry.id, "{".encodeToByteArray())
+            repository.addItem(listId, "beurre", "beurre", null, null, "dairy", now)
+
+            engine.drain()
+
+            // Charge illisible : rejetée (« payload »), l'article suivant part quand même.
+            assertTrue(gateway.callsOf("insertItem").isNotEmpty())
+            val left = db.outbox().all()
+            assertEquals(listOf(itemId), left.map { it.entityId })
+            assertEquals(SyncState.FAILED, left.single().syncState)
         }
 
     @Test
