@@ -51,6 +51,9 @@ export function buildVectors(): Map<string, string> {
           `${g.id} « ${c.input} » : ${r.category_id} (${r.matched_keyword}), attendu ${c.c}`,
         );
       }
+      if (c.m !== undefined && r.match !== c.m) {
+        errors.push(`${g.id} « ${c.input} » : match ${r.match}, attendu ${c.m}`);
+      }
       if (c.o !== undefined && r.organic !== c.o) {
         errors.push(`${g.id} « ${c.input} » : organic ${r.organic}, attendu ${c.o}`);
       }
