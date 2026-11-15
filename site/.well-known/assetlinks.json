@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "fr.parcourses.app",
+      "sha256_cert_fingerprints": [
+        "7A:79:5C:01:95:2D:92:A7:59:C7:6B:0A:70:5C:B0:D4:64:9E:76:F7:D7:C4:A7:E6:12:4A:37:D1:51:04:CA:F0"
+      ]
+    }
+  }
+]

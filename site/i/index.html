@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Invitation Parcourses</title>
+  <link rel="stylesheet" href="/assets.css">
+  <script src="/i/invitation.js" defer></script>
+</head>
+<body>
+  <!-- Page /i/ (#87 §5, lot 87.7) : statique, sans appel réseau. Le jeton est dans le fragment (#…) : il n'est jamais
+       envoyé à l'hébergeur ni écrit dans ses journaux. App installée : le lien universel (AASA) ou l'App Link
+       (assetlinks.json) ouvre l'app sans passer par cette page. -->
+  <main>
+    <p class="brand">Parcourses</p>
+    <div id="invitation">
+      <h1>Une invitation vous attend</h1>
+      <a id="open" class="button primary" href="parcourses://invitation" hidden>Déjà installée ? Ouvrir dans l'app</a>
+      <ol>
+        <li>Installez Parcourses.
+          <div class="stores">
+            <span class="button store" aria-disabled="true">App Store (bientôt)</span>
+            <span class="button store" aria-disabled="true">Google Play (bientôt)</span>
+          </div>
+        </li>
+        <li>Connectez-vous avec l'adresse qui a reçu l'e-mail d'invitation.</li>
+        <li>L'invitation apparaît dans vos listes : acceptez-la.</li>
+      </ol>
+    </div>
+    <div id="broken" class="broken" hidden>
+      <h1>Lien incomplet</h1>
+      <p>Ce lien est incomplet. Ouvrez-le depuis l'e-mail d'invitation, ou copiez-le en entier.</p>
+    </div>
+    <noscript><p class="note">Sans JavaScript, ouvrez l'app puis l'écran Invitations : l'invitation y attend votre adresse.</p></noscript>
+  </main>
+</body>
+</html>
