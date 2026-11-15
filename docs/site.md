@@ -10,7 +10,8 @@ déjà vers `hadrienl.github.io`. Le site sert trois choses :
 | `/.well-known/assetlinks.json` | App Links Android : `fr.parcourses.app` et les empreintes SHA-256 des certificats de signature. |
 
 `scripts/check-site.ts` vérifie le site à chaque PR (workflow `pages`) :
-- le CNAME et le fichier `.nojekyll` (sans lui, Pages ne publie pas `.well-known/`) ;
+- le CNAME, et `.nojekyll` (utile seulement si le site était un jour publié depuis une branche : publié par Actions,
+  Jekyll ne tourne pas, et c'est `include-hidden-files` de l'artefact qui fait publier `.well-known/`) ;
 - la forme de l'AASA et de `assetlinks.json`, et leur accord avec `APP_BUNDLE_ID` et `applicationId` ;
 - aucune ressource distante, avec une CSP `default-src 'none'` ;
 - la règle du jeton, comparée au vecteur `shared/test-vectors/sharing/001`.
@@ -33,7 +34,10 @@ Ces réglages sont à faire dans le dépôt GitHub, par son propriétaire :
 ## Empreintes Android
 
 `assetlinks.json` ne contient pour l'instant que l'empreinte du certificat de **debug** de la machine de
-développement : la release est encore signée avec la clé de debug (voir `android/app/build.gradle.kts`). Quand
+développement : la release est encore signée avec la clé de debug (voir `android/app/build.gradle.kts`). Cette clé a un mot de passe
+connu : si `~/.android/debug.keystore` fuyait, une autre app `fr.parcourses.app` signée avec elle ouvrirait les liens
+`/i/`. Les builds d'une autre machine ou de la CI, eux, ne sont pas vérifiés. Il faut donc passer à la clé d'upload
+Play dès que possible, puis retirer l'empreinte de debug. Quand
 l'app passera sur Google Play, il faudra ajouter l'empreinte de la **clé de signature de l'app**. On la trouve dans
 *Play Console → Intégrité de l'app → Signature de l'app*. On peut garder l'empreinte de debug pour les builds locaux.
 
@@ -57,14 +61,19 @@ CLI doit être connectée (`supabase login` ou `SUPABASE_ACCESS_TOKEN`). Le scri
 
 - `RESEND_API_KEY` ;
 - `INVITATION_FROM`, par défaut `Parcourses <noreply@parcourses.hadrien.eu>` ;
-- `INVITATION_BASE_URL=https://parcourses.hadrien.eu/i/`, **seulement si la page répond déjà**. Sinon, les liens
-  restent en `parcourses://invitation#<jeton>`.
+- `INVITATION_BASE_URL=https://parcourses.hadrien.eu/i/`, **seulement si la page répond déjà**. Si elle ne répond
+  pas, la valeur en place ne change pas. `--scheme-links` la retire, et les liens repassent en
+  `parcourses://invitation#<jeton>`.
 
 Il déploie la fonction avec `--no-verify-jwt`, puis vérifie qu'elle répond 405 à un GET et 401 à un POST sans JWT.
 Les secrets ne sont ni affichés ni passés en argument : ils transitent par un fichier temporaire en mode 600.
 
 Le domaine d'envoi `parcourses.hadrien.eu` doit être vérifié chez Resend (SPF, DKIM), comme pour le SMTP de l'Auth
-(`docs/hosted-supabase.md`).
+(`docs/hosted-supabase.md`). Laisser le **suivi des clics de Resend désactivé** : il réécrirait le lien, et le jeton
+qu'il porte dans son fragment.
+
+La page `/i/` retire le jeton de l'adresse affichée et de l'historique du navigateur (`history.replaceState`) dès
+qu'elle l'a lu. Elle masque « Ouvrir dans l'app » tant que le JavaScript n'a pas trouvé de jeton valide.
 
 ## Apps
 

@@ -18,7 +18,7 @@ if (read("CNAME").trim() !== DOMAIN) fail(`CNAME doit contenir ${DOMAIN}`);
 try {
   Deno.statSync(SITE + ".nojekyll");
 } catch {
-  fail(".nojekyll absent : Pages ne publierait pas .well-known/");
+  fail(".nojekyll absent : il évite Jekyll si le site est un jour publié depuis une branche");
 }
 
 // AASA.
@@ -65,17 +65,25 @@ for (const path of ["index.html", "i/index.html", "i/invitation.js", "assets.css
   }
 }
 
-// Jeton de /i/ : même règle que le vecteur 001 (43 caractères base64url).
-const pattern = /\/\^\[A-Za-z0-9_-\]\{43\}\$\//.exec(read("i/invitation.js"));
-if (!pattern) fail("i/invitation.js : règle du jeton /^[A-Za-z0-9_-]{43}$/ introuvable");
-const vectors = JSON.parse(Deno.readTextFileSync("shared/test-vectors/sharing/001-parse-invitation-link.json"));
-const rule = /^[A-Za-z0-9_-]{43}$/;
-for (const c of vectors.cases as { name: string; input: { url: string }; expected: string | null }[]) {
-  const url = c.input.url;
-  if (!url.startsWith("parcourses://invitation")) continue;
-  const fragment = url.includes("#") ? url.slice(url.indexOf("#") + 1) : "";
-  const token = url.startsWith("parcourses://invitation#") && rule.test(fragment) ? fragment : null;
-  if (token !== c.expected) fail(`règle du jeton et vecteur 001 en désaccord : ${c.name}`);
+// Jeton de /i/ : la règle de la page, extraite de invitation.js, appliquée au fragment de chaque cas du vecteur 001.
+// La page ne voit que son fragment : un jeton attendu doit y passer, et un fragment refusé ne doit jamais donner de
+// jeton. Les cas refusés pour l'hôte, le schéma ou le chemin ne concernent pas la page.
+const source = /\/(\^\[A-Za-z0-9_-\]\{43\}\$)\/\.test\(token\)/.exec(read("i/invitation.js"));
+if (!source) {
+  fail("i/invitation.js : règle du jeton /^[A-Za-z0-9_-]{43}$/.test(token) introuvable");
+} else {
+  const pageRule = new RegExp(source[1]);
+  const vectors = JSON.parse(Deno.readTextFileSync("shared/test-vectors/sharing/001-parse-invitation-link.json"));
+  for (const c of vectors.cases as { name: string; input: { url: string }; expected: string | null }[]) {
+    const fragment = c.input.url.includes("#") ? c.input.url.slice(c.input.url.indexOf("#") + 1) : "";
+    if (c.expected !== null && !(pageRule.test(fragment) && fragment === c.expected)) {
+      fail(`page /i/ : jeton refusé à tort (${c.name})`);
+    }
+    if (c.expected === null && c.input.url.includes("#") && !pageRule.test(fragment)) continue;
+  }
+  for (const bad of ["", "abc", "A".repeat(42), "A".repeat(44), "A".repeat(42) + "=", "A".repeat(42) + "+"]) {
+    if (pageRule.test(bad)) fail(`page /i/ : fragment invalide accepté (${JSON.stringify(bad)})`);
+  }
 }
 
 if (errors.length) {

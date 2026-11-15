@@ -10,6 +10,8 @@ on:
       - "site/**"
       - "scripts/check-site.ts"
       - "shared/test-vectors/sharing/**"
+      - "ios/Config/Base.xcconfig"
+      - "android/app/build.gradle.kts"
       - ".github/workflows/pages.yml"
   push:
     branches: [main]
@@ -36,13 +38,13 @@ jobs:
       - name: Site conforme (CNAME, AASA, assetlinks.json, pages sans ressource distante)
         run: deno run --allow-read scripts/check-site.ts
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
           path: site/
           include-hidden-files: true
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest
     permissions:

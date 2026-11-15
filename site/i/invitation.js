@@ -4,6 +4,10 @@
 "use strict";
 (function () {
   var token = window.location.hash.replace(/^#/, "");
+  // Le jeton ne reste pas dans l'adresse affichée ni dans l'historique du navigateur (synchronisé).
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState(null, "", window.location.pathname);
+  }
   var valid = /^[A-Za-z0-9_-]{43}$/.test(token);
   var open = document.getElementById("open");
   if (valid) {
