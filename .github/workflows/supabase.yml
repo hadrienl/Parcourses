@@ -73,6 +73,9 @@ jobs:
       - name: Migration des catégories conforme à shared/categories
         run: deno run --allow-read scripts/check-categories.ts
 
+      - name: Réglages Auth de l'hébergé tirés de config.toml (sans réseau)
+        run: python3 scripts/test_hosted_auth_config.py
+
       - name: Catalogue de départ conforme à shared/catalog et au classifieur
         run: deno run --allow-read scripts/check-starter-catalog.ts
 
