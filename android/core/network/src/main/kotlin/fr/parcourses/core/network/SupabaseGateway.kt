@@ -151,6 +151,19 @@ class SupabaseGateway internal constructor(
 
     override suspend fun sessionAccountId(): Uuid = mapped { existingSessionUser() }
 
+    override suspend fun storedSessionAccount(): StoredSessionAccount? =
+        mapped {
+            // Lecture directe : `loadFromStorage` importerait la session avec rafraîchissement automatique, et
+            // `currentSessionOrNull` resterait nul pendant un rafraîchissement d'arrière-plan.
+            val session = store.read().session ?: return@mapped null
+            // Session sans utilisateur : rien ne permet de conclure, l'appelant garde son drapeau.
+            val user = session.user ?: throw RemoteError.Unexpected()
+            StoredSessionAccount(
+                Uuid.parse(user.id),
+                user.email?.takeIf { it.isNotBlank() && user.isAnonymous != true },
+            )
+        }
+
     override suspend fun acknowledgeAccount(id: Uuid) {
         mapped { store.update { it.copy(lastAccountId = id.toString()) } }
     }
@@ -225,8 +238,7 @@ class SupabaseGateway internal constructor(
                 val previous = auth.currentUserOrNull()
                 // `currentAccessTokenOrNull` ne regarde pas l'échéance (supabase-kt 3.8) : un jeton bientôt expiré est
                 // d'abord rafraîchi, pour que `deleteAccount` le reçoive valable.
-                if (previous?.isAnonymous == true) refreshIfExpiring(KEPT_TOKEN_MARGIN)
-                val previousToken = auth.currentAccessTokenOrNull().takeIf { previous?.isAnonymous == true }
+                val previousToken = if (previous?.isAnonymous == true) keptAnonymousToken() else null
                 val type =
                     when (purpose) {
                         EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
@@ -289,6 +301,21 @@ class SupabaseGateway internal constructor(
             }
         }
     }
+
+    /**
+     * Jeton de l'anonyme quitté, rafraîchi au mieux s'il expire bientôt. Un échec ne fait jamais échouer un code
+     * valable : jeton nul, l'ancien compte partira avec la purge des inactifs (#68).
+     */
+    @Suppress("TooGenericExceptionCaught") // Au mieux : toute panne donne un jeton nul.
+    private suspend fun keptAnonymousToken(): String? =
+        try {
+            refreshIfExpiring(KEPT_TOKEN_MARGIN)
+            auth.currentAccessTokenOrNull()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
 
     /** Un refus de GoTrue devient [AuthRequestError] (statut et code) ; le reste (réseau…) est classé par `mapped`. */
     private suspend fun <T> authRequest(request: suspend () -> T): T =

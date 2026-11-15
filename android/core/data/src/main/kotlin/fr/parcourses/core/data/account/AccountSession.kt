@@ -142,7 +142,7 @@ class AccountSignOut(
      * [abandon].
      */
     @Suppress("TooGenericExceptionCaught") // Un envoi impossible n'empêche pas de compter ce qui reste.
-    suspend fun prepare(): Int =
+    suspend fun prepare(): Int? =
         lock.withLock {
             try {
                 flush()
@@ -152,11 +152,23 @@ class AccountSignOut(
                 Log.i(TAG, "Envoi avant déconnexion impossible : ${e.javaClass.simpleName}")
             }
             host.suspendSync()
-            unsent()
+            try {
+                unsent()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Base illisible : pas de confirmation, la synchronisation reprend (`null`).
+                Log.w(TAG, "Modifications restantes non comptées : ${e.javaClass.simpleName}")
+                host.resumeSync()
+                null
+            }
         }
 
-    /** Confirmation fermée : la synchronisation reprend. */
-    fun abandon() = host.resumeSync()
+    /**
+     * Confirmation fermée : la synchronisation reprend. Sous le même verrou que [prepare] : un Retour pendant l'envoi
+     * attend la fin de la préparation, sinon la reprise passerait avant l'arrêt et la synchro resterait arrêtée.
+     */
+    suspend fun abandon() = lock.withLock { host.resumeSync() }
 
     /** Après confirmation, ou « Réessayer » si le drapeau est déjà posé. */
     @Suppress("TooGenericExceptionCaught", "ReturnCount") // Toute panne locale reprend la synchronisation.
