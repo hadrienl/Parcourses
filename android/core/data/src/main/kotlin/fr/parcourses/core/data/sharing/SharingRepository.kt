@@ -22,14 +22,9 @@ class SharingFailure(
     cause: Throwable? = null,
 ) : Exception(kind.wireName, cause)
 
-/** Issue d'une acceptation : [listId] est la liste à ouvrir quand [AcceptOutcome.opensList]. */
-data class AcceptResult(
-    val outcome: AcceptOutcome,
-    val listId: String?,
-)
-
 /**
- * Actions du partage vues par les écrans (feuille « Partager », invitations) : une doublure les remplace dans les tests.
+ * Actions du partage vues par les écrans (feuille « Partager », invitations) : une doublure les remplace dans les
+ * tests.
  * Un échec lève [SharingFailure].
  */
 @Suppress("TooManyFunctions")
@@ -54,9 +49,9 @@ interface SharingService {
 
     suspend fun previewInvitation(token: String): InvitationPreview
 
-    suspend fun acceptInvitation(token: String): AcceptResult
+    suspend fun acceptInvitation(token: String): InvitationAcceptance
 
-    suspend fun acceptInvitation(id: Uuid): AcceptResult
+    suspend fun acceptInvitation(id: Uuid): InvitationAcceptance
 
     suspend fun declineInvitation(id: Uuid)
 
@@ -118,10 +113,11 @@ class SharingRepository(
     override suspend fun previewInvitation(token: String): InvitationPreview = call { it.previewInvitation(token) }
 
     /** Par le lien (toute adresse confirmée, après avertissement). Liste accessible : descendue avant d'être rendue. */
-    override suspend fun acceptInvitation(token: String): AcceptResult = accepted(call { it.acceptInvitation(token) })
+    override suspend fun acceptInvitation(token: String): InvitationAcceptance =
+        accepted(call { it.acceptInvitation(token) })
 
     /** Invitation retrouvée par l'adresse (`my_invitations`). */
-    override suspend fun acceptInvitation(id: Uuid): AcceptResult = accepted(call { it.acceptInvitation(id) })
+    override suspend fun acceptInvitation(id: Uuid): InvitationAcceptance = accepted(call { it.acceptInvitation(id) })
 
     override suspend fun declineInvitation(id: Uuid) = call { it.declineInvitation(id) }
 
@@ -143,18 +139,22 @@ class SharingRepository(
         store.removeLists(listOf(listId))
     }
 
-    private suspend fun accepted(acceptance: InvitationAcceptance): AcceptResult {
-        val outcome = SharingDecisions.acceptOutcome(acceptance.status)
-        val listId = acceptance.listId?.toString()
+    /**
+     * Réponse de `accept_invitation` telle quelle (même nom qu'iOS) ; une liste devenue accessible est descendue
+     * d'abord.
+     */
+    private suspend fun accepted(acceptance: InvitationAcceptance): InvitationAcceptance {
         // Accès gagné : la liste est téléchargée entièrement (descente) avant d'être ouverte.
-        if (outcome.opensList) runCatching { pull() }.onFailure { if (it is CancellationException) throw it }
-        return AcceptResult(outcome, listId.takeIf { outcome.opensList })
+        if (SharingDecisions.acceptOutcome(acceptance.status).opensList) {
+            runCatching { pull() }.onFailure { if (it is CancellationException) throw it }
+        }
+        return acceptance
     }
 
     @Suppress("TooGenericExceptionCaught") // toute panne devient un message de la maquette ; l'annulation est relancée
     private suspend fun <T> call(operation: suspend (RemoteGateway) -> T): T {
-        val remote = gateway ?: throw SharingFailure(InviteErrorKind.Offline)
-        if (!isOnline()) throw SharingFailure(InviteErrorKind.Offline)
+        // Sans Supabase ou hors ligne : rien ne part, rien n'est mis en file.
+        val remote = gateway?.takeIf { isOnline() } ?: throw SharingFailure(InviteErrorKind.Offline)
         return try {
             operation(remote)
         } catch (e: CancellationException) {

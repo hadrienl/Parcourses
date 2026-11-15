@@ -143,7 +143,8 @@ private class Authors(
 
 /** Libellés des pastilles : initiale, deux lettres quand deux personnes ont la même. */
 internal fun avatarLabelsOf(names: List<String?>): List<String> =
-    fr.parcourses.core.designsystem.avatarLabels(names, SharingDecisions::memberInitial)
+    fr.parcourses.core.designsystem
+        .avatarLabels(names, SharingDecisions::memberInitial)
 
 @Immutable
 data class ListDetailUiState(

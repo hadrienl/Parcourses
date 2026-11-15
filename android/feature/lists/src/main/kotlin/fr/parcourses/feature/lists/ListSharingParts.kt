@@ -27,8 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,7 +74,8 @@ internal fun joinedNames(names: List<String>): String =
 
 /** Prénom affiché d'un membre ; sans prénom, « Un autre membre ». */
 @Composable
-internal fun memberName(name: String?): String = name?.takeIf { it.isNotBlank() } ?: stringResource(R.string.sharing_someone)
+internal fun memberName(name: String?): String =
+    name?.takeIf { it.isNotBlank() } ?: stringResource(R.string.sharing_someone)
 
 /** Prénom du propriétaire ; sans prénom, « Le propriétaire ». */
 @Composable
@@ -207,7 +208,11 @@ internal fun OfflineBanner(
                 text,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Ticket.colors.ink,
-                modifier = Modifier.padding(start = TicketDimens.spaceXs).semantics { liveRegion = LiveRegionMode.Polite },
+                modifier =
+                    Modifier
+                        .padding(
+                            start = TicketDimens.spaceXs,
+                        ).semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
     }
@@ -293,46 +298,6 @@ internal fun ReadOnlyNote(
             color = colors.ink,
             modifier = Modifier.padding(start = TicketDimens.spaceS),
         )
-    }
-}
-
-/** La liste n'est plus partagée avec moi : état plein écran, focus sur le titre, retour à « Mes listes ». */
-@Composable
-internal fun RemovedState(
-    notice: AccessChange.Removed,
-    onBack: () -> Unit,
-) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(notice) { runCatching { focus.requestFocus() } }
-    Column(
-        Modifier.fillMaxSize().padding(32.dp).testTag(TAG_REMOVED),
-        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.Outlined.Lock,
-            contentDescription = null,
-            tint = Ticket.colors.inkMuted,
-            modifier = Modifier.size(56.dp).border(2.dp, Ticket.colors.inkMuted, CircleShape).padding(14.dp),
-        )
-        Text(
-            stringResource(R.string.sharing_removed_title, notice.listName),
-            style = MaterialTheme.typography.headlineSmall,
-            color = Ticket.colors.ink,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.focusRequester(focus).semantics { heading() },
-        )
-        Text(
-            stringResource(R.string.sharing_removed_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Ticket.colors.inkMuted,
-            textAlign = TextAlign.Center,
-        )
-        Button(
-            onClick = onBack,
-            colors = ButtonDefaults.buttonColors(containerColor = Ticket.colors.accent, contentColor = Ticket.colors.onAccent),
-            modifier = Modifier.fillMaxWidth().heightIn(min = TicketDimens.primaryAction).testTag(TAG_REMOVED_BACK),
-        ) { Text(stringResource(R.string.sharing_removed_back)) }
     }
 }
 

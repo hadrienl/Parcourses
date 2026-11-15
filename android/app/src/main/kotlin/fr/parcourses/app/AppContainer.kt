@@ -146,7 +146,15 @@ class AppContainer(
      */
     val invitationLinks: InvitationLinks = InvitationLinks(BuildConfig.INVITATION_HOST)
 
-    private val supabase: SupabaseGateway? by lazy { config?.let { createSupabaseGateway(context, it, invitationLinks) } }
+    private val supabase: SupabaseGateway? by lazy {
+        config?.let {
+            createSupabaseGateway(
+                context,
+                it,
+                invitationLinks,
+            )
+        }
+    }
 
     /**
      * Toute l'app passe par la garde : aucun `ensureSession` pendant une suppression du compte, et jamais de compte

@@ -21,7 +21,8 @@ import kotlin.uuid.Uuid
 
 /** Rôle en texte (`owner`, `editor`, `viewer`). Un rôle inconnu de cette version est lu comme le plus restreint. */
 internal object ListRoleSerializer : KSerializer<ListRole> {
-    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("fr.parcourses.ListRole", PrimitiveKind.STRING)
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("fr.parcourses.ListRole", PrimitiveKind.STRING)
 
     override fun deserialize(decoder: Decoder): ListRole = ListRole.fromWire(decoder.decodeString()) ?: ListRole.Viewer
 

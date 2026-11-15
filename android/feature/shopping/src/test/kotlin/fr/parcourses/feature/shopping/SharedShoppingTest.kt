@@ -82,7 +82,11 @@ class SharedShoppingTest : ShoppingTest() {
             model.toggle(state.row("lait"))
             runCurrent()
             after(SETTLE_MS)
-            assertNull(model.uiState.value.basket.single().checkedBy)
+            assertNull(
+                model.uiState.value.basket
+                    .single()
+                    .checkedBy,
+            )
             assertEquals(1, db.checks().getAll().size)
         }
 

@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import fr.parcourses.core.data.repository.ListSummary
+import fr.parcourses.core.data.sharing.InvitationCardState
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.InvitationPreview
@@ -37,7 +38,6 @@ import fr.parcourses.feature.lists.ShareListActions
 import fr.parcourses.feature.lists.ShareListScreen
 import fr.parcourses.feature.lists.ShareListUiState
 import fr.parcourses.feature.lists.ShareLoad
-import fr.parcourses.core.data.sharing.InvitationCardState
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -156,7 +156,15 @@ class SharingScreenshotTest {
             invitations =
                 listOf(
                     PendingInvitation(Uuid.random(), "c.martin@exemple.fr", ListRole.Editor, now, now + 7.days),
-                    PendingInvitation(Uuid.random(), "zoe@exemple.fr", ListRole.Viewer, now - 8.days, now - 1.days, 1, true),
+                    PendingInvitation(
+                        Uuid.random(),
+                        "zoe@exemple.fr",
+                        ListRole.Viewer,
+                        now - 8.days,
+                        now - 1.days,
+                        1,
+                        true,
+                    ),
                 ),
         )
 
@@ -164,7 +172,14 @@ class SharingScreenshotTest {
         ShareListUiState(listName = "Courses de la semaine", load = ShareLoad.Loaded, sharing = sharing)
 
     private val invitation =
-        ReceivedInvitation(Uuid.random(), Uuid.random(), "Courses de la semaine", "Hadrien", ListRole.Editor, now + 7.days)
+        ReceivedInvitation(
+            Uuid.random(),
+            Uuid.random(),
+            "Courses de la semaine",
+            "Hadrien",
+            ListRole.Editor,
+            now + 7.days,
+        )
 
     private val lists =
         ListsUiState(
@@ -193,7 +208,10 @@ class SharingScreenshotTest {
     fun sharedListLarge() = capture("sharing-list-200", fontScale = 2f) { Shared() }
 
     @Test
-    fun sharedListOffline() = capture("sharing-list-offline") { Shared(shared.copy(sharing = shared.sharing.copy(isOffline = true))) }
+    fun sharedListOffline() =
+        capture("sharing-list-offline") {
+            Shared(shared.copy(sharing = shared.sharing.copy(isOffline = true)))
+        }
 
     @Test
     fun readOnlyLight() = capture("sharing-read-only-light") { Shared(readOnly) }
@@ -217,7 +235,10 @@ class SharingScreenshotTest {
     fun shareLarge() = capture("sharing-share-200", fontScale = 2f) { Share() }
 
     @Test
-    fun shareMembers() = capture("sharing-members-dark", dark = true) { Share(share.copy(sharing = sharing.copy(role = ListRole.Editor, invitations = emptyList()))) }
+    fun shareMembers() =
+        capture("sharing-members-dark", dark = true) {
+            Share(share.copy(sharing = sharing.copy(role = ListRole.Editor, invitations = emptyList())))
+        }
 
     @Composable
     private fun ListsWithInvitation() =

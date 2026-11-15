@@ -109,7 +109,14 @@ class SharingScreensTest {
     @Test
     fun theInvitationCardAcceptsAndConfirmsTheRefusal() {
         val invitation =
-            ReceivedInvitation(Uuid.random(), Uuid.random(), "Courses de la semaine", "Hadrien", ListRole.Editor, service.now)
+            ReceivedInvitation(
+                Uuid.random(),
+                Uuid.random(),
+                "Courses de la semaine",
+                "Hadrien",
+                ListRole.Editor,
+                service.now,
+            )
         rule.setContent {
             ParcoursesTheme {
                 InvitationsEntry(
@@ -147,7 +154,8 @@ class SharingScreensTest {
     @Test
     fun aViewerCannotCheckNorAddNorShop() {
         val milk = ItemRow("1", "Lait entier", "2", "dairy", "lait entier", isChecked = false)
-        val cheese = ItemRow("2", "Comté", "200 g", "dairy", "comte", isChecked = true, authorMark = "L", authorName = "Léa")
+        val cheese =
+            ItemRow("2", "Comté", "200 g", "dairy", "comte", isChecked = true, authorMark = "L", authorName = "Léa")
         val toggled = mutableListOf<String>()
         rule.setContent {
             ParcoursesTheme {
@@ -196,7 +204,12 @@ class SharingScreensTest {
         rule.setContent {
             ParcoursesTheme {
                 ListDetailScreen(
-                    state = ListDetailUiState(isLoaded = true, isMissing = true, sharing = ListSharingUi(notice = removed)),
+                    state =
+                        ListDetailUiState(
+                            isLoaded = true,
+                            isMissing = true,
+                            sharing = ListSharingUi(notice = removed),
+                        ),
                     input = TextFieldState(),
                     onSubmit = {},
                     onSuggestion = {},

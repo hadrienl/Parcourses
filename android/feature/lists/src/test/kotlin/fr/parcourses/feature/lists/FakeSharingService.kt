@@ -1,11 +1,10 @@
 package fr.parcourses.feature.lists
 
-import fr.parcourses.core.data.sharing.AcceptOutcome
-import fr.parcourses.core.data.sharing.AcceptResult
 import fr.parcourses.core.data.sharing.InviteErrorKind
 import fr.parcourses.core.data.sharing.SharingFailure
 import fr.parcourses.core.data.sharing.SharingService
 import fr.parcourses.core.model.ListRole
+import fr.parcourses.core.network.dto.InvitationAcceptance
 import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ListParticipant
 import fr.parcourses.core.network.dto.ListSharing
@@ -38,7 +37,7 @@ class FakeSharingService : SharingService {
     var sent: SentInvitation = SentInvitation(Uuid.random(), "parcourses://invitation#token", sent = true, now)
     var received: List<ReceivedInvitation> = emptyList()
     var preview: InvitationPreview = InvitationPreview(status = "invalid")
-    var acceptance: AcceptResult = AcceptResult(AcceptOutcome.Joined, listId.toString())
+    var acceptance: InvitationAcceptance = InvitationAcceptance("accepted", listId, ListRole.Editor)
 
     /** Prochain échec, consommé par l'appel suivant. */
     var failure: InviteErrorKind? = null
@@ -87,12 +86,12 @@ class FakeSharingService : SharingService {
         return preview
     }
 
-    override suspend fun acceptInvitation(token: String): AcceptResult {
+    override suspend fun acceptInvitation(token: String): InvitationAcceptance {
         enter("acceptToken")
         return acceptance
     }
 
-    override suspend fun acceptInvitation(id: Uuid): AcceptResult {
+    override suspend fun acceptInvitation(id: Uuid): InvitationAcceptance {
         enter("accept:$id")
         return acceptance
     }

@@ -147,7 +147,9 @@ object SharingDecisions {
             "unauthorized" to InviteErrorKind.SignInRequired,
         )
 
-    /** Vecteur `003` : [error] de l'Edge Function ou message de la RPC ; `null` : pas de réponse (hors ligne, délai). */
+    /**
+     * Vecteur `003` : [error] de l'Edge Function ou message de la RPC ; `null` : pas de réponse (hors ligne, délai).
+     */
     fun inviteErrorKind(error: String?): InviteErrorKind =
         if (error == null) InviteErrorKind.Offline else inviteErrors[error] ?: InviteErrorKind.Unknown
 
@@ -209,9 +211,8 @@ object SharingDecisions {
         me: String,
         shared: Boolean,
         members: List<SharingMember>,
-    ): String? {
-        if (!shared || updatedBy == null || updatedBy == me) return null
-        val author = members.firstOrNull { it.userId == updatedBy } ?: return null
-        return memberInitial(author.displayName)
-    }
+    ): String? =
+        members
+            .firstOrNull { shared && updatedBy != null && updatedBy != me && it.userId == updatedBy }
+            ?.let { memberInitial(it.displayName) }
 }

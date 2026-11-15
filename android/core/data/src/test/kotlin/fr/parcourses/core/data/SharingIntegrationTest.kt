@@ -187,10 +187,22 @@ class SharingIntegrationTest {
             assertEquals("Partagée 87.6", invitation.listName)
             assertEquals("Hadrien IT", invitation.inviterName)
             val accepted = member.sharing.acceptInvitation(invitation.id)
-            assertEquals(AcceptOutcome.Joined, accepted.outcome)
-            assertEquals(list.id, accepted.listId)
-            assertEquals(ListRole.Editor, member.db.lists().get(list.id)?.role)
-            assertEquals("lait", member.db.items().get(milk.id)?.label)
+            assertEquals(AcceptOutcome.Joined, SharingDecisions.acceptOutcome(accepted.status))
+            assertEquals(list.id, accepted.listId?.toString())
+            assertEquals(
+                ListRole.Editor,
+                member.db
+                    .lists()
+                    .get(list.id)
+                    ?.role,
+            )
+            assertEquals(
+                "lait",
+                member.db
+                    .items()
+                    .get(milk.id)
+                    ?.label,
+            )
             assertEquals(
                 listOf("Hadrien IT", "Léa IT"),
                 member.db
@@ -216,7 +228,12 @@ class SharingIntegrationTest {
             member.engine.drain()
             withTimeout(15.seconds) { while (pulls.get() == connectedPulls) delay(100) }
             owner.engine.drain(pull = true)
-            assertNotNull(owner.db.items().get(milk.id)?.checkedAt)
+            assertNotNull(
+                owner.db
+                    .items()
+                    .get(milk.id)
+                    ?.checkedAt,
+            )
             // La dernière modification est celle de l'invitée : son initiale sur l'article, chez le propriétaire.
             assertEquals(
                 member.gateway.currentAccountId().toString(),
@@ -230,22 +247,50 @@ class SharingIntegrationTest {
             // Seconde liste, acceptée par le lien.
             val second = owner.lists.createList("Par lien 87.6", Clock.System.now())
             owner.engine.drain()
-            val token = checkNotNull(SharingDecisions.parseInvitationLink(owner.sharing.invitationLink(second.id, memberEmail, ListRole.Viewer), null))
+            val token =
+                checkNotNull(
+                    SharingDecisions.parseInvitationLink(
+                        owner.sharing.invitationLink(second.id, memberEmail, ListRole.Viewer),
+                        null,
+                    ),
+                )
             val preview = member.sharing.previewInvitation(token)
             assertEquals("pending", preview.status)
             assertEquals(true, preview.emailMatches)
             val byLink = member.sharing.acceptInvitation(token)
-            assertEquals(AcceptOutcome.Joined, byLink.outcome)
-            assertEquals(ListRole.Viewer, member.db.lists().get(second.id)?.role)
+            assertEquals(AcceptOutcome.Joined, SharingDecisions.acceptOutcome(byLink.status))
+            assertEquals(
+                ListRole.Viewer,
+                member.db
+                    .lists()
+                    .get(second.id)
+                    ?.role,
+            )
 
             // Rôle abaissé : la modification de l'invitée est jetée, la liste passe en lecture seule.
             val memberId = member.gateway.currentAccountId().toString()
             owner.sharing.setMemberRole(list.id, memberId, ListRole.Viewer)
             member.lists.setChecked(milk.id, null, Clock.System.now())
             member.engine.drain()
-            assertEquals(ListRole.Viewer, member.db.lists().get(list.id)?.role)
-            assertTrue(member.db.outbox().all().isEmpty())
-            assertNotNull(member.db.items().get(milk.id)?.checkedAt)
+            assertEquals(
+                ListRole.Viewer,
+                member.db
+                    .lists()
+                    .get(list.id)
+                    ?.role,
+            )
+            assertTrue(
+                member.db
+                    .outbox()
+                    .all()
+                    .isEmpty(),
+            )
+            assertNotNull(
+                member.db
+                    .items()
+                    .get(milk.id)
+                    ?.checkedAt,
+            )
             assertTrue(member.changes.any { it is AccessChange.Downgraded && it.listId == list.id })
 
             // Retrait : la liste quitte l'appareil de l'invitée, avec le message.

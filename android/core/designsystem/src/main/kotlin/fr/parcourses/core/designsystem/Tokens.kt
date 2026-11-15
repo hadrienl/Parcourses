@@ -210,4 +210,11 @@ object TicketDimens {
     val ticketMargin = 12.dp
 }
 
+/** Tailles des avatars du partage (#87) : barre et lignes de liste, listes de membres, marque d'auteur. */
+object AvatarSize {
+    val stack = 28.dp
+    val member = 36.dp
+    val mark = 20.dp
+}
+
 val LocalTicketColors = staticCompositionLocalOf { LightTicketColors }

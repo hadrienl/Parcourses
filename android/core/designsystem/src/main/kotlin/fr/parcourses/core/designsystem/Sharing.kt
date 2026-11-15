@@ -26,13 +26,6 @@ import androidx.compose.ui.unit.sp
 
 // Partage d'une liste (#87, maquettes `design/sharing-v1.html`, §0) : avatars d'initiale, pastilles empilées, badges.
 
-/** Tailles des avatars : barre et lignes de liste, listes de membres, marque d'auteur. */
-object AvatarSize {
-    val stack = 28.dp
-    val member = 36.dp
-    val mark = 20.dp
-}
-
 /**
  * Avatar d'initiale : lettre mono 700 sur `paperEdge`, anneau couleur papier pour séparer les pastilles empilées. Pas
  * de couleur par membre. [outlined] : marque d'auteur, au trait `inkMuted`. Décoratif : l'appelant porte le libellé.

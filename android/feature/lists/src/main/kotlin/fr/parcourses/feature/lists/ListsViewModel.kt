@@ -34,11 +34,11 @@ data class ListsUiState(
 class ListsViewModel(
     private val repository: ListRepository,
     remaps: Flow<IdentifierRemap> = emptyFlow(),
-    private val now: () -> Instant = { Clock.System.now() },
     /** Partage (#87) : « Quitter la liste ». `null` sans Supabase. */
     private val sharing: SharingService? = null,
     /** Texte d'un échec du partage (hors ligne…), traduit par l'écran. */
     private val sharingError: (SharingFailure) -> String = { it.kind.wireName },
+    private val now: () -> Instant = { Clock.System.now() },
 ) : ViewModel() {
     private val errorDetail = MutableStateFlow<String?>(null)
 

@@ -78,14 +78,12 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
-import fr.parcourses.core.designsystem.AvatarSize
-import fr.parcourses.core.designsystem.MemberAvatar
-import fr.parcourses.core.model.ListRole
-import kotlinx.coroutines.launch
 import fr.parcourses.core.designsystem.AisleLine
+import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
 import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.MemberAvatar
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -100,6 +98,8 @@ import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
+import fr.parcourses.core.model.ListRole
+import kotlinx.coroutines.launch
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -178,70 +178,82 @@ fun ListDetailScreen(
         topBar = {
             DetailTopBar(state, onBack, onShare.takeIf { !state.isMissing })
         },
-        bottomBar = {
-            when {
-                state.isMissing -> {
-                    Unit
-                }
-
-                !capabilities.canEditItems -> {
-                    ReadOnlyNote(
-                        sharing.ownerName,
-                        Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                    )
-                }
-
-                else -> {
-                    Dock(
-                        suggestions = state.suggestions,
-                        input = input,
-                        onSubmit = onSubmit,
-                        onSuggestion = onSuggestion,
-                        focusOnStart = state.isLoaded && state.isEmpty,
-                        onStartShopping = onStartShopping.takeIf { !state.isEmpty && capabilities.canShop },
-                    )
-                }
-            }
-        },
+        bottomBar = { DetailBottomBar(state, input, onSubmit, onSuggestion, onStartShopping) },
     ) { padding ->
         TicketSheet(Modifier.padding(padding)) {
-            when {
-                removed != null -> {
-                    RemovedState(removed) {
-                        onAcknowledge(removed)
-                        onBack()
-                    }
-                }
+            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap)
+            DetailContent(state, removed, actions, onAcknowledge, onBack)
+        }
+    }
+    state.errorDetail?.let { ErrorDialog(it, onDismissError) }
+}
 
-                state.isMissing -> {
-                    Placeholder(R.string.detail_missing_title, R.string.detail_missing_body)
-                }
+/** Bas de l'écran : la saisie et « Courses », ou la note d'un lecteur ; rien pour une liste disparue. */
+@Composable
+private fun DetailBottomBar(
+    state: ListDetailUiState,
+    input: TextFieldState,
+    onSubmit: () -> Unit,
+    onSuggestion: (ItemSuggestion) -> Unit,
+    onStartShopping: (() -> Unit)?,
+) {
+    val capabilities = state.sharing.capabilities
+    when {
+        state.isMissing -> {
+            Unit
+        }
 
-                else -> {
-                    Column(Modifier.fillMaxSize()) {
-                        SharingBanners(sharing, onAcknowledge)
-                        Box(Modifier.weight(1f)) {
-                            if (state.isLoaded && state.isEmpty) {
-                                Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
-                            } else {
-                                Sections(
-                                    state.sections,
-                                    ItemActions(
-                                        readOnly = !capabilities.canEditItems,
-                                        onToggle = onToggle,
-                                        onDelete = onDelete,
-                                        onReadOnlyTap = onReadOnlyTap,
-                                    ),
-                                    lastChange = sharing.lastChange,
-                                )
-                            }
-                        }
+        !capabilities.canEditItems -> {
+            ReadOnlyNote(state.sharing.ownerName, Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+        }
+
+        else -> {
+            Dock(
+                suggestions = state.suggestions,
+                input = input,
+                onSubmit = onSubmit,
+                onSuggestion = onSuggestion,
+                focusOnStart = state.isLoaded && state.isEmpty,
+                onStartShopping = onStartShopping.takeIf { !state.isEmpty && capabilities.canShop },
+            )
+        }
+    }
+}
+
+/** Le ticket : liste retirée, introuvable, vide, ou ses rayons sous les bandeaux du partage. */
+@Composable
+private fun DetailContent(
+    state: ListDetailUiState,
+    removed: AccessChange.Removed?,
+    actions: ItemActions,
+    onAcknowledge: (AccessChange) -> Unit,
+    onBack: () -> Unit,
+) {
+    when {
+        removed != null -> {
+            RemovedState(removed) {
+                onAcknowledge(removed)
+                onBack()
+            }
+        }
+
+        state.isMissing -> {
+            Placeholder(R.string.detail_missing_title, R.string.detail_missing_body)
+        }
+
+        else -> {
+            Column(Modifier.fillMaxSize()) {
+                SharingBanners(state.sharing, onAcknowledge)
+                Box(Modifier.weight(1f)) {
+                    if (state.isLoaded && state.isEmpty) {
+                        Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
+                    } else {
+                        Sections(state.sections, actions, lastChange = state.sharing.lastChange)
                     }
                 }
             }
         }
     }
-    state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
 
 /** Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. */
@@ -251,52 +263,6 @@ private class ItemActions(
     val onDelete: (ItemRow) -> Unit,
     val onReadOnlyTap: () -> Unit,
 )
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DetailTopBar(
-    state: ListDetailUiState,
-    onBack: () -> Unit,
-    onShare: (() -> Unit)?,
-) {
-    val sharing = state.sharing
-    val readOnlyTitle =
-        stringResource(R.string.ro_title_a11y, state.name, ownerName(sharing.ownerName))
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
-        title = {
-            Text(
-                state.name,
-                modifier =
-                    if (sharing.role == ListRole.Viewer) {
-                        Modifier.semantics { contentDescription = readOnlyTitle }
-                    } else {
-                        Modifier
-                    },
-            )
-        },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.detail_back),
-                )
-            }
-        },
-        actions = { if (onShare != null) MembersButton(sharing, onShare) },
-    )
-}
-
-/** Badge de lecture seule, accès abaissé, hors ligne : au-dessus des articles. */
-@Composable
-private fun SharingBanners(
-    sharing: ListSharingUi,
-    onAcknowledge: (AccessChange) -> Unit,
-) {
-    if (sharing.role == ListRole.Viewer) ReadOnlyBadge()
-    (sharing.notice as? AccessChange.Downgraded)?.let { notice -> DowngradeBanner(notice) { onAcknowledge(notice) } }
-    if (sharing.isOffline) OfflineBanner(stringResource(R.string.sharing_offline))
-}
 
 @Composable
 private fun Placeholder(
@@ -442,64 +408,6 @@ private fun ItemRowView(
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
         }
-    }
-}
-
-/** « Beurre doux, 1, dernière modification par Léa » : l'auteur passe dans le libellé, la marque est décorative. */
-@Composable
-private fun spokenLabel(row: ItemRow): String =
-    row.authorMark?.let {
-        row.accessibilityLabel + ", " + stringResource(R.string.detail_item_by_a11y, memberName(row.authorName))
-    } ?: row.accessibilityLabel
-
-/** Initiale du dernier auteur, après la quantité : avatar de 20 dp au trait, non tactile. */
-@Composable
-private fun AuthorMark(mark: String?) {
-    if (mark == null) return
-    MemberAvatar(
-        mark,
-        size = AvatarSize.mark,
-        outlined = true,
-        modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_AUTHOR),
-    )
-}
-
-/**
- * Ligne d'un lecteur (§7) : ni case ni corbeille. Un article coché est barré avec une coche ; un appui rappelle
- * seulement que la liste ne se modifie pas ici. Pas de rôle « case à cocher » pour TalkBack.
- */
-@Composable
-private fun ReadOnlyItemRow(
-    row: ItemRow,
-    piece: ThreadPiece,
-    onTap: () -> Unit,
-) {
-    val colors = Ticket.colors
-    val basket = stringResource(R.string.ro_item_in_basket)
-    val label = spokenLabel(row).let { if (row.isChecked) "$it, $basket" else it }
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .thread(piece, ThreadStyle.Solid)
-                .heightIn(min = TicketDimens.rowMin)
-                .clickable(onClick = onTap)
-                .clearAndSetSemantics { contentDescription = label }
-                .padding(start = ThreadLayout.contentStart, end = TicketDimens.spaceM),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(TicketDimens.checkBox), contentAlignment = Alignment.Center) {
-            if (row.isChecked) Icon(Icons.Default.Check, contentDescription = null, tint = colors.checked)
-        }
-        ItemLine(
-            name = row.label,
-            quantity = row.quantity,
-            style = TicketType.item,
-            color = if (row.isChecked) colors.checked else colors.ink,
-            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
-        )
-        AuthorMark(row.authorMark)
     }
 }
 

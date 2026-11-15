@@ -162,7 +162,8 @@ class SharingSyncTest : DataTest() {
 
             val result = sharing.acceptInvitation(Uuid.random())
 
-            assertEquals(AcceptResult(AcceptOutcome.Joined, listId.toString()), result)
+            assertEquals(AcceptOutcome.Joined, SharingDecisions.acceptOutcome(result.status))
+            assertEquals(listId, result.listId)
             assertEquals("chips", db.items().get(itemId.toString())?.label)
             assertEquals(ListRole.Editor, db.lists().get(listId.toString())?.role)
         }
@@ -171,7 +172,7 @@ class SharingSyncTest : DataTest() {
     fun anExpiredInvitationOpensNothing() =
         runBlocking {
             gateway.acceptance = InvitationAcceptance("expired")
-            assertEquals(AcceptResult(AcceptOutcome.Expired, null), sharing.acceptInvitation("t".repeat(43)))
+            assertEquals("expired", sharing.acceptInvitation("t".repeat(43)).status)
             assertTrue(gateway.callsOf("fetchLists").isEmpty())
         }
 
@@ -180,18 +181,30 @@ class SharingSyncTest : DataTest() {
         runBlocking {
             val listId = Uuid.random().toString()
             gateway.failNext("sendInvitation", SharingRequestError("already_member"))
-            assertEquals(InviteErrorKind.AlreadyMember, failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) })
+            assertEquals(
+                InviteErrorKind.AlreadyMember,
+                failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) },
+            )
 
             gateway.failNext("sendInvitation", RemoteError.Network())
-            assertEquals(InviteErrorKind.Offline, failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) })
+            assertEquals(
+                InviteErrorKind.Offline,
+                failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) },
+            )
 
             gateway.failNext("sendInvitation", RemoteError.Forbidden())
-            assertEquals(InviteErrorKind.NotAllowed, failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) })
+            assertEquals(
+                InviteErrorKind.NotAllowed,
+                failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) },
+            )
 
             // Hors ligne : rien ne part, rien n'est mis en file.
             online = false
             gateway.calls.clear()
-            assertEquals(InviteErrorKind.Offline, failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) })
+            assertEquals(
+                InviteErrorKind.Offline,
+                failure { sharing.sendInvitation(listId, "lea@x.fr", ListRole.Editor) },
+            )
             assertTrue(gateway.calls.isEmpty())
             assertTrue(db.outbox().all().isEmpty())
         }
@@ -216,7 +229,8 @@ class SharingSyncTest : DataTest() {
         runBlocking {
             val (listId, _) = sharedList()
             val tom = Uuid.random()
-            gateway.listMembers = gateway.listMembers + ListMemberRow(Uuid.parse(listId), tom, ListRole.Viewer, owner, now, now)
+            gateway.listMembers =
+                gateway.listMembers + ListMemberRow(Uuid.parse(listId), tom, ListRole.Viewer, owner, now, now)
             gateway.profiles = gateway.profiles + ProfileRow(tom, "Tom", now, now)
 
             val result = sharing.listSharing(listId)

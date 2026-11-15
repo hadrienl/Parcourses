@@ -3,12 +3,11 @@ package fr.parcourses.feature.lists
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.sharing.AccessChange
-import fr.parcourses.core.data.sharing.AcceptOutcome
-import fr.parcourses.core.data.sharing.AcceptResult
 import fr.parcourses.core.data.sharing.InvitationCardState
 import fr.parcourses.core.data.sharing.InviteErrorKind
 import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.model.ListRole
+import fr.parcourses.core.network.dto.InvitationAcceptance
 import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.SentInvitation
@@ -109,7 +108,11 @@ class SharingViewModelsTest : ListsTest() {
     @Test
     fun copyingAPendingLinkMakesANewToken() {
         val model = shareModel()
-        val invitation = model.uiState.await { it.load == ShareLoad.Loaded }.invitations.single()
+        val invitation =
+            model.uiState
+                .await { it.load == ShareLoad.Loaded }
+                .invitations
+                .single()
         model.copyLink(invitation)
         val state = model.uiState.await { it.clip != null }
         assertEquals("parcourses://invitation#fresh", state.clip)
@@ -121,9 +124,16 @@ class SharingViewModelsTest : ListsTest() {
     @Test
     fun changingAnAccessIsConfirmedAndOfflineIsSaid() {
         val model = shareModel()
-        val lea = model.uiState.await { it.load == ShareLoad.Loaded }.members.last()
+        val lea =
+            model.uiState
+                .await { it.load == ShareLoad.Loaded }
+                .members
+                .last()
         model.setRole(lea, ListRole.Viewer)
-        assertEquals(ShareMessage.RoleChanged("Léa", ListRole.Viewer), model.uiState.await { it.message != null }.message)
+        assertEquals(
+            ShareMessage.RoleChanged("Léa", ListRole.Viewer),
+            model.uiState.await { it.message != null }.message,
+        )
         assertTrue(service.calls.contains("role:${lea.userId}:viewer"))
         model.messageShown()
 
@@ -161,7 +171,12 @@ class SharingViewModelsTest : ListsTest() {
             val before = service.calls.count { it == "listSharing" }
             service.sharing = service.sharing.copy(invitations = emptyList())
             reloads.emit(setOf(service.listId.toString()))
-            assertTrue(model.uiState.await { it.invitations.isEmpty() }.invitations.isEmpty())
+            assertTrue(
+                model.uiState
+                    .await { it.invitations.isEmpty() }
+                    .invitations
+                    .isEmpty(),
+            )
             assertEquals(before + 1, service.calls.count { it == "listSharing" })
         }
 
@@ -170,14 +185,24 @@ class SharingViewModelsTest : ListsTest() {
     // region Invitations
 
     private val invitation =
-        ReceivedInvitation(Uuid.random(), Uuid.random(), "Courses de la semaine", "Hadrien", ListRole.Editor, service.now)
+        ReceivedInvitation(
+            Uuid.random(),
+            Uuid.random(),
+            "Courses de la semaine",
+            "Hadrien",
+            ListRole.Editor,
+            service.now,
+        )
 
     @Test
     fun invitationsAreReadForAnEmailAccountOnly() {
         service.received = listOf(invitation)
         val email = MutableStateFlow(false)
         val model = tracked { InvitationsViewModel(service, email) }
-        assertTrue(model.uiState.value.invitations.isEmpty())
+        assertTrue(
+            model.uiState.value.invitations
+                .isEmpty(),
+        )
         assertTrue(service.calls.isEmpty())
         email.value = true
         assertEquals(listOf(invitation), model.uiState.await { it.invitations.isNotEmpty() }.invitations)
@@ -186,7 +211,7 @@ class SharingViewModelsTest : ListsTest() {
     @Test
     fun acceptingOpensTheList() {
         service.received = listOf(invitation)
-        service.acceptance = AcceptResult(AcceptOutcome.Joined, invitation.listId.toString())
+        service.acceptance = InvitationAcceptance("accepted", invitation.listId, ListRole.Editor)
         val model = tracked { InvitationsViewModel(service, flowOf(true)) }
         model.uiState.await { it.invitations.isNotEmpty() }
         model.accept(invitation)
@@ -216,7 +241,12 @@ class SharingViewModelsTest : ListsTest() {
         val model = tracked { InvitationsViewModel(service, flowOf(true)) }
         model.uiState.await { it.invitations.isNotEmpty() }
         model.decline(invitation)
-        assertTrue(model.uiState.await { it.invitations.isEmpty() }.invitations.isEmpty())
+        assertTrue(
+            model.uiState
+                .await { it.invitations.isEmpty() }
+                .invitations
+                .isEmpty(),
+        )
         assertTrue(service.calls.contains("decline:${invitation.id}"))
     }
 
@@ -277,8 +307,12 @@ class SharingViewModelsTest : ListsTest() {
             ListDetailViewModel(
                 listId = listId,
                 lists = lists,
-                products = fr.parcourses.core.data.repository.RoomProductRepository(db),
-                categories = fr.parcourses.core.data.repository.RoomCategoryRepository(db),
+                products =
+                    fr.parcourses.core.data.repository
+                        .RoomProductRepository(db),
+                categories =
+                    fr.parcourses.core.data.repository
+                        .RoomCategoryRepository(db),
                 analyzer = analyzer,
                 now = { clock },
                 computation = kotlinx.coroutines.Dispatchers.Unconfined,
@@ -299,7 +333,11 @@ class SharingViewModelsTest : ListsTest() {
         runBlocking { db.items().upsert(checkNotNull(db.items().get(item.id)).copy(updatedBy = OWNER)) }
         val model = sharedDetail(list.id, ListRole.Editor)
         val state = model.uiState.await { it.sections.isNotEmpty() && it.sharing.isShared }
-        val row = state.sections.single().items.single()
+        val row =
+            state.sections
+                .single()
+                .items
+                .single()
         assertEquals("H", row.authorMark)
         assertEquals("Hadrien", row.authorName)
         assertEquals("Hadrien", state.sharing.lastChange?.authorName)
@@ -323,8 +361,14 @@ class SharingViewModelsTest : ListsTest() {
     fun theAccessNoticeOfTheListIsShown() {
         val list = runBlocking { lists.createList("Courses", clock) }
         val notice = AccessChange.Downgraded(list.id, "Hadrien", 2)
-        val model = sharedDetail(list.id, ListRole.Viewer, notices = listOf(AccessChange.Removed("autre", "Autre"), notice))
-        assertEquals(notice, model.uiState.await { it.sharing.notice != null }.sharing.notice)
+        val model =
+            sharedDetail(list.id, ListRole.Viewer, notices = listOf(AccessChange.Removed("autre", "Autre"), notice))
+        assertEquals(
+            notice,
+            model.uiState
+                .await { it.sharing.notice != null }
+                .sharing.notice,
+        )
     }
 
     // endregion

@@ -344,7 +344,12 @@ class FakeRemoteGateway(
 
     /** Réponses programmées des invitations. */
     var sentInvitation: (Uuid, String, ListRole) -> SentInvitation = { _, _, _ ->
-        SentInvitation(Uuid.random(), "parcourses://invitation#${"a".repeat(TOKEN_LENGTH)}", true, Instant.DISTANT_FUTURE)
+        SentInvitation(
+            Uuid.random(),
+            "parcourses://invitation#${"a".repeat(TOKEN_LENGTH)}",
+            true,
+            Instant.DISTANT_FUTURE,
+        )
     }
     var receivedInvitations: List<ReceivedInvitation> = emptyList()
     var preview: InvitationPreview = InvitationPreview(status = "invalid")
@@ -389,7 +394,8 @@ class FakeRemoteGateway(
 
     override suspend fun myInvitations(): List<ReceivedInvitation> = receivedInvitations.also { enter("myInvitations") }
 
-    override suspend fun previewInvitation(token: String): InvitationPreview = preview.also { enter("previewInvitation") }
+    override suspend fun previewInvitation(token: String): InvitationPreview =
+        preview.also { enter("previewInvitation") }
 
     override suspend fun acceptInvitation(token: String): InvitationAcceptance =
         acceptance.also { enter("acceptInvitation", "token") }

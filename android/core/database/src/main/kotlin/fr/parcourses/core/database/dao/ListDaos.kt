@@ -12,6 +12,7 @@ import fr.parcourses.core.database.entity.SyncState
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
+@Suppress("TooManyFunctions")
 @Dao
 interface ShoppingListDao {
     /** Listes non supprimées, la plus récemment modifiée d'abord. */

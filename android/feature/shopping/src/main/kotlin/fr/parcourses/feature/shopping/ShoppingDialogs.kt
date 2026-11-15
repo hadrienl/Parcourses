@@ -97,7 +97,11 @@ internal fun ErrorDialog(
 internal fun AccessLostDialog(onFinish: () -> Unit) {
     AlertDialog(
         onDismissRequest = {},
-        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        properties =
+            androidx.compose.ui.window.DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+            ),
         title = { Text(stringResource(R.string.shopping_access_lost_title)) },
         text = { Text(stringResource(R.string.shopping_access_lost_body)) },
         confirmButton = {

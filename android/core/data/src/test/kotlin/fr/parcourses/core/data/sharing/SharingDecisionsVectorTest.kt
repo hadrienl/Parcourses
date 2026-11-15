@@ -66,7 +66,9 @@ class SharingDecisionsVectorTest {
                 val actions = SharingDecisions.signalActions(input.str("kind"), input.bool("sharingSheetOpen"))
                 JsonArray(actions.map { JsonPrimitive(it.wireName) })
             },
-            "memberInitial" to { input -> JsonPrimitive(SharingDecisions.memberInitial(input.optional("displayName"))) },
+            "memberInitial" to { input ->
+                JsonPrimitive(SharingDecisions.memberInitial(input.optional("displayName")))
+            },
             "itemAuthorMark" to { input ->
                 val members =
                     input.getValue("members").jsonArray.map {

@@ -26,8 +26,7 @@ class SharingGatewayTest {
     @After
     fun tearDown() = harness.close()
 
-    private fun body(request: HttpRequestData) =
-        Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+    private fun body(request: HttpRequestData) = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
 
     private suspend fun refusal(block: suspend () -> Unit): RemoteError {
         try {

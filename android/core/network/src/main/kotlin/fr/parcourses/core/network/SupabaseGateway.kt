@@ -1,46 +1,33 @@
 package fr.parcourses.core.network
 
 import fr.parcourses.core.model.ListRole
-import fr.parcourses.core.network.dto.CreatedInvitation
-import fr.parcourses.core.network.dto.FunctionError
-import fr.parcourses.core.network.dto.InvitationAcceptance
-import fr.parcourses.core.network.dto.InvitationPreview
-import fr.parcourses.core.network.dto.ListMemberRow
-import fr.parcourses.core.network.dto.ListSharing
-import fr.parcourses.core.network.dto.ReceivedInvitation
-import fr.parcourses.core.network.dto.SentInvitation
-import io.github.jan.supabase.postgrest.exception.PostgrestRestException
-import io.github.jan.supabase.realtime.RealtimeChannel
-import io.github.jan.supabase.realtime.broadcastFlow
-import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.realtime
-import io.ktor.client.statement.bodyAsText
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckInsert
 import fr.parcourses.core.network.dto.CheckUpload
+import fr.parcourses.core.network.dto.CreatedInvitation
 import fr.parcourses.core.network.dto.EmailCodePurpose
+import fr.parcourses.core.network.dto.FunctionError
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
 import fr.parcourses.core.network.dto.IdRow
+import fr.parcourses.core.network.dto.InvitationAcceptance
+import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
+import fr.parcourses.core.network.dto.ListMemberRow
 import fr.parcourses.core.network.dto.ListPatch
 import fr.parcourses.core.network.dto.ListRow
+import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.NearbyStoreRow
 import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.ProductRow
 import fr.parcourses.core.network.dto.ProfilePatch
 import fr.parcourses.core.network.dto.ProfileRow
+import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
+import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TableSpec
 import fr.parcourses.core.network.dto.TombstoneRow
@@ -58,20 +45,33 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.exception.AuthRestException
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.exception.PostgrestRestException
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.broadcastFlow
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.realtime
 import io.ktor.client.request.header
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -101,7 +101,7 @@ internal val RemoteJson: Json =
  * Seul type de l'app qui parle à supabase-kt. Aucune opération ne crée de compte, sauf [ensureSession].
  * [deleteAccount] et [signOutLocally] servent à « Supprimer mes données » (#68).
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass") // seul type qui parle à supabase-kt : une méthode par appel
 class SupabaseGateway internal constructor(
     private val client: SupabaseClient,
     private val store: SecureStateStore,

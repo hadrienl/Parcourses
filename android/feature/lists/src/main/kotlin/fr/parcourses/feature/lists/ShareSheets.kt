@@ -76,60 +76,68 @@ internal fun ShareSheets(
 
         is ShareSheet.Pending -> {
             state.invitations.firstOrNull { it.id.toString() == sheet.id }?.let { invitation ->
-                PendingSheet(
-                    invitation = invitation,
-                    onResend = {
-                        close()
-                        actions.onResend(invitation)
-                    },
-                    onCopy = {
-                        close()
-                        actions.onCopy(invitation)
-                    },
-                    onRevoke = { onSheet(ShareSheet.ConfirmRevoke(sheet.id)) },
-                    onDismiss = close,
-                )
+                PendingSheet(invitation, actions, onSheet)
             }
         }
 
-        is ShareSheet.ConfirmRemove -> {
-            state.members.firstOrNull { it.userId.toString() == sheet.userId }?.let { member ->
-                val name = memberName(member.displayName)
-                ConfirmDialog(
-                    title = stringResource(R.string.remove_title, name),
-                    body = stringResource(R.string.remove_body, name, state.listName),
-                    confirm = stringResource(R.string.remove_btn),
-                    dismiss = stringResource(R.string.common_cancel),
-                    onConfirm = {
-                        close()
-                        actions.onRemove(member)
-                    },
-                    onDismiss = close,
-                )
-            }
+        is ShareSheet.ConfirmRemove, is ShareSheet.ConfirmRevoke, ShareSheet.ConfirmLeave -> {
+            ShareConfirmation(state, sheet, actions, close)
         }
 
-        is ShareSheet.ConfirmRevoke -> {
-            state.invitations.firstOrNull { it.id.toString() == sheet.id }?.let { invitation ->
-                ConfirmDialog(
-                    title = stringResource(R.string.revoke_title),
-                    body = stringResource(R.string.revoke_body, invitation.email),
-                    confirm = stringResource(R.string.pending_revoke),
-                    dismiss = stringResource(R.string.revoke_keep),
-                    onConfirm = {
-                        close()
-                        actions.onRevoke(invitation)
-                    },
-                    onDismiss = close,
-                )
-            }
+        null -> {
+            Unit
+        }
+    }
+}
+
+/** Confirmations destructives de la feuille : retirer un membre, annuler une invitation, quitter la liste. */
+@Composable
+private fun ShareConfirmation(
+    state: ShareListUiState,
+    sheet: ShareSheet,
+    actions: ShareListActions,
+    close: () -> Unit,
+) {
+    val member =
+        (sheet as? ShareSheet.ConfirmRemove)?.let { s ->
+            state.members.firstOrNull { it.userId.toString() == s.userId }
+        }
+    val invitation =
+        (sheet as? ShareSheet.ConfirmRevoke)?.let { s -> state.invitations.firstOrNull { it.id.toString() == s.id } }
+    when {
+        member != null -> {
+            val name = memberName(member.displayName)
+            ConfirmDialog(
+                title = stringResource(R.string.remove_title, name),
+                body = stringResource(R.string.remove_body, name, state.listName),
+                confirm = stringResource(R.string.remove_btn),
+                dismiss = stringResource(R.string.common_cancel),
+                onConfirm = {
+                    close()
+                    actions.onRemove(member)
+                },
+                onDismiss = close,
+            )
         }
 
-        ShareSheet.ConfirmLeave -> {
-            val owner = ownerName(state.sharing?.owner?.displayName)
+        invitation != null -> {
+            ConfirmDialog(
+                title = stringResource(R.string.revoke_title),
+                body = stringResource(R.string.revoke_body, invitation.email),
+                confirm = stringResource(R.string.pending_revoke),
+                dismiss = stringResource(R.string.revoke_keep),
+                onConfirm = {
+                    close()
+                    actions.onRevoke(invitation)
+                },
+                onDismiss = close,
+            )
+        }
+
+        sheet == ShareSheet.ConfirmLeave -> {
             ConfirmDialog(
                 title = stringResource(R.string.leave_title, state.listName),
-                body = stringResource(R.string.leave_body, owner),
+                body = stringResource(R.string.leave_body, ownerName(state.sharing?.owner?.displayName)),
                 confirm = stringResource(R.string.leave_btn),
                 dismiss = stringResource(R.string.common_cancel),
                 onConfirm = {
@@ -138,10 +146,6 @@ internal fun ShareSheets(
                 },
                 onDismiss = close,
             )
-        }
-
-        null -> {
-            Unit
         }
     }
 }
@@ -187,7 +191,13 @@ private fun MemberSheet(
         modifier = Modifier.testTag(TAG_MEMBER_SHEET),
     ) {
         Column(Modifier.padding(horizontal = TicketDimens.spaceM).padding(bottom = TicketDimens.spaceL)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.semantics(mergeDescendants = true) { heading() }) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier.semantics(mergeDescendants = true) {
+                        heading()
+                    },
+            ) {
                 MemberAvatar(SharingDecisions.memberInitial(member.displayName), size = AvatarSize.member)
                 Column(Modifier.padding(start = TicketDimens.spaceS)) {
                     Text(name, style = TicketType.item.copy(fontWeight = FontWeight.Bold), color = Ticket.colors.ink)
@@ -201,8 +211,16 @@ private fun MemberSheet(
                 }
             }
             Column(Modifier.selectableGroup().padding(vertical = TicketDimens.spaceXs)) {
-                RoleOption(ListRole.Editor, R.string.role_editor_help, member.role == ListRole.Editor) { onRole(ListRole.Editor) }
-                RoleOption(ListRole.Viewer, R.string.role_viewer_help, member.role == ListRole.Viewer) { onRole(ListRole.Viewer) }
+                RoleOption(
+                    ListRole.Editor,
+                    R.string.role_editor_help,
+                    member.role == ListRole.Editor,
+                ) { onRole(ListRole.Editor) }
+                RoleOption(
+                    ListRole.Viewer,
+                    R.string.role_viewer_help,
+                    member.role == ListRole.Viewer,
+                ) { onRole(ListRole.Viewer) }
             }
             SheetAction(
                 Icons.AutoMirrored.Filled.ExitToApp,
@@ -243,11 +261,19 @@ private fun RoleOption(
 @Composable
 private fun PendingSheet(
     invitation: PendingInvitation,
-    onResend: () -> Unit,
-    onCopy: () -> Unit,
-    onRevoke: () -> Unit,
-    onDismiss: () -> Unit,
+    actions: ShareListActions,
+    onSheet: (ShareSheet?) -> Unit,
 ) {
+    val onDismiss = { onSheet(null) }
+    val onResend = {
+        onSheet(null)
+        actions.onResend(invitation)
+    }
+    val onCopy = {
+        onSheet(null)
+        actions.onCopy(invitation)
+    }
+    val onRevoke = { onSheet(ShareSheet.ConfirmRevoke(invitation.id.toString())) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = isLargeText()),

@@ -16,21 +16,20 @@ import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.database.entity.syncedOnce
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.CategoryMap
 import fr.parcourses.core.network.dto.CategoryRow
-import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.ListItemRow
+import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListMemberRow
+import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ProfileRow
-import fr.parcourses.core.network.dto.ListItemUpsert
-import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Duration
 import kotlin.time.Instant
 
-/** Ce qu'il faut savoir d'un article pour le créer localement à la descente. */
 /** Mon rôle sur une liste a changé (#87, lot 87.6). */
 data class RoleChange(
     val listId: String,
@@ -38,6 +37,7 @@ data class RoleChange(
     val to: ListRole,
 )
 
+/** Ce qu'il faut savoir d'un article pour le créer localement à la descente. */
 data class PulledItemClassification(
     val normalizedName: String,
     val categoryId: String,
@@ -66,7 +66,7 @@ class PullMerge {
  * Accès Room de la synchronisation. N'alloue jamais de `sequence` : les entrées ne sont ajoutées que par
  * `OutboxQueue`, dans la transaction de l'écriture qu'elles accompagnent.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass") // une méthode par opération de la file et de la descente
 class SyncStore(
     private val db: ParcoursesDatabase,
 ) {
@@ -358,7 +358,14 @@ class SyncStore(
                                 SyncState.SYNCED,
                                 ownerId = row.ownerId.toString(),
                                 // Liste d'un autre : lecture seule jusqu'à ce que les membres disent mon rôle.
-                                role = if (me == null || row.ownerId.toString() == me) ListRole.Owner else ListRole.Viewer,
+                                role =
+                                    if (me == null ||
+                                        row.ownerId.toString() == me
+                                    ) {
+                                        ListRole.Owner
+                                    } else {
+                                        ListRole.Viewer
+                                    },
                             ),
                         )
                         merge.changed = true
@@ -636,9 +643,10 @@ class SyncStore(
     suspend fun lists(): List<ShoppingListEntity> = db.lists().getAll()
 
     /**
-     * Membres de toutes les listes (#87, lot 87.6), à la descente : les personnes de chaque liste partagée (propriétaire
-     * compris) remplacent celles de l'appareil, et mon rôle est relu. Une liste jamais descendue reste à soi, sans
-     * personne. Renvoie les rôles changés des listes déjà connues comme partagées (pas l'arrivée d'une liste).
+     * Membres de toutes les listes (#87, lot 87.6), à la descente : les personnes de chaque liste partagée
+     * (propriétaire compris) remplacent celles de l'appareil, et mon rôle est relu. Une liste jamais descendue reste à
+     * soi, sans personne. Renvoie les rôles changés des listes déjà connues comme partagées (pas l'arrivée d'une
+     * liste).
      */
     suspend fun replaceParticipants(
         members: List<ListMemberRow>,
@@ -648,7 +656,13 @@ class SyncStore(
         db.withWriteTransaction {
             val names = profiles.associate { it.userId.toString() to it.displayName }
             val byList = members.groupBy { it.listId.toString() }
-            val known = db.participants().all().filter { it.isMe }.map { it.listId }.toSet()
+            val known =
+                db
+                    .participants()
+                    .all()
+                    .filter { it.isMe }
+                    .map { it.listId }
+                    .toSet()
             val rows = mutableListOf<ListParticipantEntity>()
             val changes = mutableListOf<RoleChange>()
             for (list in db.lists().getAll()) {
@@ -658,11 +672,19 @@ class SyncStore(
                     rows += ListParticipantEntity(list.id, owner, names[owner], ListRole.Owner, owner == me)
                     listMembers.forEach { member ->
                         val user = member.userId.toString()
-                        rows += ListParticipantEntity(list.id, user, names[user], member.role, user == me, member.createdAt)
+                        rows +=
+                            ListParticipantEntity(list.id, user, names[user], member.role, user == me, member.createdAt)
                     }
                 }
                 if (me == null) continue
-                val role = if (owner == me) ListRole.Owner else listMembers.firstOrNull { it.userId.toString() == me }?.role
+                val role =
+                    if (owner ==
+                        me
+                    ) {
+                        ListRole.Owner
+                    } else {
+                        listMembers.firstOrNull { it.userId.toString() == me }?.role
+                    }
                 if (role != null && role != list.role) {
                     db.lists().setRole(list.id, role)
                     if (list.id in known) changes += RoleChange(list.id, list.role, role)
@@ -683,7 +705,14 @@ class SyncStore(
             if (shared) {
                 db.participants().upsertAll(
                     sharing.participants.map {
-                        ListParticipantEntity(listId, it.userId.toString(), it.displayName, it.role, it.isMe, it.joinedAt)
+                        ListParticipantEntity(
+                            listId,
+                            it.userId.toString(),
+                            it.displayName,
+                            it.role,
+                            it.isMe,
+                            it.joinedAt,
+                        )
                     },
                 )
             }

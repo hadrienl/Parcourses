@@ -1,41 +1,39 @@
 package fr.parcourses.app
 
 import android.content.Context
-import androidx.compose.ui.platform.LocalContext
-import androidx.navigation3.runtime.NavKey
-import fr.parcourses.core.data.sharing.AccessChange
-import fr.parcourses.core.data.sharing.InviteErrorKind
-import fr.parcourses.core.data.sharing.SharingFailure
-import fr.parcourses.feature.lists.InvitationLinkRoute
-import fr.parcourses.feature.lists.InvitationLinkViewModel
-import fr.parcourses.feature.lists.InvitationsViewModel
-import fr.parcourses.feature.lists.ListSharingSources
-import fr.parcourses.feature.lists.ListsInvitationsUi
-import fr.parcourses.feature.lists.ReceivedInvitationsRoute
-import fr.parcourses.feature.lists.ShareListRoute
-import fr.parcourses.feature.lists.ShareListViewModel
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import fr.parcourses.core.data.account.AccountState
+import fr.parcourses.core.data.sharing.AccessChange
+import fr.parcourses.core.data.sharing.InviteErrorKind
+import fr.parcourses.core.data.sharing.SharingFailure
 import fr.parcourses.core.data.sync.AccountKind
+import fr.parcourses.feature.lists.InvitationLinkRoute
+import fr.parcourses.feature.lists.InvitationLinkViewModel
+import fr.parcourses.feature.lists.InvitationsViewModel
 import fr.parcourses.feature.lists.ListDetailRoute
 import fr.parcourses.feature.lists.ListDetailViewModel
+import fr.parcourses.feature.lists.ListSharingSources
 import fr.parcourses.feature.lists.ListsAccountUi
+import fr.parcourses.feature.lists.ListsInvitationsUi
 import fr.parcourses.feature.lists.ListsRoute
 import fr.parcourses.feature.lists.ListsViewModel
+import fr.parcourses.feature.lists.ReceivedInvitationsRoute
+import fr.parcourses.feature.lists.ShareListRoute
+import fr.parcourses.feature.lists.ShareListViewModel
 import fr.parcourses.feature.shopping.ShoppingRoute
 import fr.parcourses.feature.shopping.ShoppingSummaryRoute
 import fr.parcourses.feature.shopping.ShoppingViewModel
@@ -44,12 +42,15 @@ import fr.parcourses.feature.storepicker.StorePickerRoute
 import fr.parcourses.feature.storepicker.StorePickerViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 
 /**
  * Une seule activité, une pile de routes, un ViewModel par entrée. [coldStart] : l'activité démarre sans état
  * sauvegardé (ni recréation ni restauration après la mort du processus).
  */
-@Suppress("LongMethod")
+// Une entrée par route : la longueur et les branches viennent de la table des écrans, pas d'une logique imbriquée.
+@Suppress("LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun ParcoursesNavHost(
     container: AppContainer,
@@ -195,7 +196,13 @@ fun ParcoursesNavHost(
                                 state = invitations,
                                 onAccept = invitationsModel::accept,
                                 onDecline = invitationsModel::decline,
-                                onOpenAll = { if (backStack.lastOrNull() != Route.Invitations) backStack.add(Route.Invitations) },
+                                onOpenAll = {
+                                    if (backStack.lastOrNull() !=
+                                        Route.Invitations
+                                    ) {
+                                        backStack.add(Route.Invitations)
+                                    }
+                                },
                             ),
                     )
                 }

@@ -113,13 +113,26 @@ class ShareListViewModel(
 
     fun selectRole(role: ListRole) = state.update { it.copy(role = role) }
 
-    fun emailEdited() = state.update { if (it.emailError != null) it.copy(emailError = null, refusedEmail = null) else it }
+    fun emailEdited() =
+        state.update {
+            if (it.emailError !=
+                null
+            ) {
+                it.copy(emailError = null, refusedEmail = null)
+            } else {
+                it
+            }
+        }
 
     /** Contrôle local de la forme, puis `send-invitation`. La feuille reste ouverte pour inviter quelqu'un d'autre. */
     fun send() {
         val current = state.value
         if (current.isSending) return
-        val address = email.text.toString().trim().lowercase(Locale.ROOT)
+        val address =
+            email.text
+                .toString()
+                .trim()
+                .lowercase(Locale.ROOT)
         if (!isValidEmail(address)) {
             state.update { it.copy(emailError = InviteErrorKind.InvalidEmail, refusedEmail = address) }
             return
@@ -168,7 +181,10 @@ class ShareListViewModel(
         state.update { it.copy(clip = link, message = ShareMessage.Copied(fresh = false)) }
     }
 
-    fun revoke(invitation: PendingInvitation) = act(invitation.id.toString()) { service.revokeInvitation(invitation.id.toString()) }
+    fun revoke(invitation: PendingInvitation) =
+        act(invitation.id.toString()) {
+            service.revokeInvitation(invitation.id.toString())
+        }
 
     fun setRole(
         member: ListParticipant,
@@ -181,7 +197,10 @@ class ShareListViewModel(
         }
     }
 
-    fun remove(member: ListParticipant) = act(member.userId.toString()) { service.removeMember(listId, member.userId.toString()) }
+    fun remove(member: ListParticipant) =
+        act(member.userId.toString()) {
+            service.removeMember(listId, member.userId.toString())
+        }
 
     /** « Quitter la liste » : la liste disparaît de l'appareil, l'écran se ferme. */
     fun leave() =

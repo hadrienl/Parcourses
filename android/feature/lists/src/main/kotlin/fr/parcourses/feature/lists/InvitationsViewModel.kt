@@ -9,6 +9,7 @@ import fr.parcourses.core.data.sharing.InviteErrorKind
 import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.data.sharing.SharingFailure
 import fr.parcourses.core.data.sharing.SharingService
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.InvitationPreview
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,16 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.time.Instant
+
+/** Ce qu'une carte d'invitation montre, qu'elle vienne de `my_invitations` ou d'un lien. */
+data class InvitationCardContent(
+    val inviterName: String?,
+    /** `null` : nom de la liste caché (autre adresse). */
+    val listName: String?,
+    val role: ListRole?,
+    val expiresAt: Instant?,
+)
 
 /** Erreur d'une acceptation, montrée sous la carte ; les boutons restent actifs. */
 enum class InvitationError { Offline, Failed }
@@ -82,13 +93,14 @@ class InvitationsViewModel(
         state.update { it.copy(accepting = id, error = null) }
         viewModelScope.launch {
             try {
-                val result = remote.acceptInvitation(invitation.id)
+                val acceptance = remote.acceptInvitation(invitation.id)
+                val outcome = SharingDecisions.acceptOutcome(acceptance.status)
                 state.update { current ->
                     current.copy(
                         accepting = null,
                         invitations = current.invitations.filterNot { it.id == invitation.id },
-                        openList = result.listId,
-                        outcome = result.outcome.takeUnless { it.opensList },
+                        openList = acceptance.listId?.toString()?.takeIf { outcome.opensList },
+                        outcome = outcome.takeUnless { it.opensList },
                     )
                 }
             } catch (e: SharingFailure) {
@@ -104,7 +116,15 @@ class InvitationsViewModel(
         viewModelScope.launch {
             try {
                 remote.declineInvitation(invitation.id)
-                state.update { current -> current.copy(invitations = current.invitations.filterNot { it.id == invitation.id }) }
+                state.update { current ->
+                    current.copy(
+                        invitations =
+                            current.invitations.filterNot {
+                                it.id ==
+                                    invitation.id
+                            },
+                    )
+                }
             } catch (e: SharingFailure) {
                 val error = if (e.kind == InviteErrorKind.Offline) InvitationError.Offline else InvitationError.Failed
                 state.update { it.copy(error = invitation.id.toString() to error) }
@@ -175,15 +195,16 @@ class InvitationLinkViewModel(
     }
 
     fun accept() {
-        val remote = service ?: return
-        val link = token ?: return
-        if (state.value.accepting) return
+        val remote = service
+        val link = token
+        if (remote == null || link == null || state.value.accepting) return
         state.update { it.copy(accepting = true, error = null) }
         viewModelScope.launch {
             try {
-                val result = remote.acceptInvitation(link)
+                val acceptance = remote.acceptInvitation(link)
+                val outcome = SharingDecisions.acceptOutcome(acceptance.status)
                 val card =
-                    when (result.outcome) {
+                    when (outcome) {
                         AcceptOutcome.Used -> InvitationCardState.Used
                         AcceptOutcome.Expired -> InvitationCardState.Expired
                         AcceptOutcome.Invalid -> InvitationCardState.Invalid
@@ -191,7 +212,12 @@ class InvitationLinkViewModel(
                         AcceptOutcome.Joined, AcceptOutcome.AlreadyMember -> state.value.card
                     }
                 state.update {
-                    it.copy(accepting = false, card = card, outcome = result.outcome, openList = result.listId)
+                    it.copy(
+                        accepting = false,
+                        card = card,
+                        outcome = outcome,
+                        openList = acceptance.listId?.toString()?.takeIf { outcome.opensList },
+                    )
                 }
             } catch (e: SharingFailure) {
                 val error = if (e.kind == InviteErrorKind.Offline) InvitationError.Offline else InvitationError.Failed

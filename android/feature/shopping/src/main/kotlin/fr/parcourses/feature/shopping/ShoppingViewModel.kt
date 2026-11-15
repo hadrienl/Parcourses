@@ -12,10 +12,10 @@ import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
-import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.data.sharing.SharingMember
+import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.model.SortCategory
@@ -1062,7 +1062,6 @@ class ShoppingViewModel(
     }
 }
 
-/** Ce que l'écran montre d'un article : seuls ces champs comptent pour reconnaître un changement extérieur. */
 /** Qui a coché un article d'une liste partagée (vecteur `008`) : jamais moi, seulement un autre membre connu. */
 private class BasketAuthors(
     people: List<ListParticipantEntity>,
@@ -1077,6 +1076,7 @@ private class BasketAuthors(
     fun name(updatedBy: String?): String? = updatedBy?.let(names::get)
 }
 
+/** Ce que l'écran montre d'un article : seuls ces champs comptent pour reconnaître un changement extérieur. */
 private data class ItemView(
     val id: String,
     val label: String,

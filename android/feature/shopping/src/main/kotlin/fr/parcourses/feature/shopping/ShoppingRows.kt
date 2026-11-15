@@ -141,14 +141,7 @@ internal fun ItemRowContent(
     val checkLabel = stringResource(R.string.shopping_action_check)
     val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
     val notFoundLabel = stringResource(R.string.shopping_action_not_found)
-    // Coché par un autre membre : « dans le panier, par Léa », l'initiale est décorative.
-    val byOther =
-        row.checkedBy?.let {
-            stringResource(
-                R.string.shopping_by_a11y,
-                row.checkedByName?.takeIf(String::isNotBlank) ?: stringResource(R.string.shopping_someone),
-            )
-        }
+    val byOther = checkedByDescription(row)
     val custom =
         if (row.isChecked) {
             listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
@@ -182,15 +175,30 @@ internal fun ItemRowContent(
             decoration = if (row.isChecked) TextDecoration.LineThrough else null,
             modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
         )
-        row.checkedBy?.let {
-            MemberAvatar(
-                it,
-                size = AvatarSize.mark,
-                outlined = true,
-                modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_CHECKED_BY),
-            )
-        }
+        CheckedByMark(row.checkedBy)
     }
+}
+
+/** Coché par un autre membre : « dans le panier, par Léa » ; `null` sinon. */
+@Composable
+private fun checkedByDescription(row: ShoppingRow): String? =
+    row.checkedBy?.let {
+        stringResource(
+            R.string.shopping_by_a11y,
+            row.checkedByName?.takeIf(String::isNotBlank) ?: stringResource(R.string.shopping_someone),
+        )
+    }
+
+/** Initiale de qui a coché, décorative : sa valeur passe dans l'état lu de la ligne. */
+@Composable
+private fun CheckedByMark(mark: String?) {
+    if (mark == null) return
+    MemberAvatar(
+        mark,
+        size = AvatarSize.mark,
+        outlined = true,
+        modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_CHECKED_BY),
+    )
 }
 
 internal const val TAG_CHECKED_BY = "shopping-checked-by"
