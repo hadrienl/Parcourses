@@ -46,9 +46,10 @@ final class AppModel {
     if await account.resumePendingSwitch() { sync?.resume() }
   }
 
-  /// Retour au premier plan : un rejeu de changement de compte en échec est retenté, puis le compte relu.
+  /// Retour au premier plan : un changement de compte encore dû (rejeu en échec, ou purge restée en attente après un
+  /// code vérifié) est rejoué, puis le compte relu.
   func foreground() async {
-    if account?.switchResumeFailed == true { await resumePendingSwitch() }
+    if await account?.replayPendingSwitch() == true { sync?.resume() }
     await account?.refresh()
   }
 

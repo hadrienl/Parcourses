@@ -32,6 +32,7 @@ actor AccountGateway: RemoteGateway {
   func setEmail(_ value: String?) { email = value }
   func setLocalSession(_ value: UUID?) { localSession = value }
   func setSessionReadFailure(_ error: (any Error)?) { sessionReadFailure = error }
+  func setSignOutFailure(_ error: (any Error)?) { signOutFailure = error }
   func setEmailFailsWithoutSession(_ value: Bool) { emailFailsWithoutSession = value }
 
   func linkEmail(_ email: String) async throws {
@@ -731,6 +732,58 @@ private final class SignOutHost: AccountDeletionHost {
     #expect(setup.session.makeLink() != nil)
   }
 
+  /// Connexion de A vers B : la purge échoue, puis la déconnexion de secours aussi. Le drapeau reste posé sans que le
+  /// rejeu de lancement ait échoué : le retour au premier plan rejoue quand même le changement, et la synchro repart.
+  @Test func aSwitchHeldForPurgeAfterAVerifiedCodeIsReplayedInTheForeground() async throws {
+    struct SeedFailure: Error {}
+    let defaults = try #require(UserDefaults(suiteName: "tests.account.\(UUID().uuidString)"))
+    let kinds = UserDefaultsAccountKindStore(defaults: defaults)
+    kinds.save(.email)
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    _ = try SwiftDataListRepository(context: container.mainContext).createList(name: "De A", at: .now)
+    let gateway = AccountGateway()
+    let accountB = UUID()
+    await gateway.setLocalSession(accountB)
+    await gateway.setEmail("b@exemple.fr")
+    await gateway.setVerified(VerifiedCode(accountId: accountB, previousAnonymousToken: nil))
+    await gateway.setSignOutFailure(RemoteError.keychainLocked)
+    let fails = Counter()
+    fails.value = 1
+    let purge = LocalDataPurge(
+      container: container, keychain: MemorySecureStore(), defaults: defaults,
+      urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0),
+      seedSource: {
+        if fails.value > 0 {
+          fails.value -= 1
+          throw SeedFailure()
+        }
+        return try CategorySeed.bundled()
+      })
+    let cursors = UserDefaultsSyncCursors(defaults: defaults)
+    cursors.accountId = UUID()
+    cursors.accountKind = .email
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: defaults)
+    let session = AccountSession(
+      gateway: gateway, kinds: kinds, purge: purge,
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults), switchFlags: flags, cursors: cursors,
+      dependencies: AccountSession.Dependencies(
+        link: AccountLink.Dependencies(previousAccountId: { cursors.accountId })))
+    let link = try #require(session.makeLink())
+    link.email = "b@exemple.fr"
+    await link.requestCode()
+    await link.verify(code: "123456")
+    #expect(link.error == .unknown)
+    #expect(flags.isPending)
+    #expect(!session.switchResumeFailed)
+    #expect(session.hasPendingSwitch)
+    #expect(await session.replayPendingSwitch())
+    #expect(!flags.isPending)
+    #expect(try ModelContext(container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    #expect(cursors.accountId == accountB)
+    // Plus rien de dû : le retour suivant ne rejoue rien.
+    #expect(await session.replayPendingSwitch() == false)
+  }
+
   /// Arrêt de l'app après la pose du drapeau : la purge est faite au lancement suivant.
   @Test func anInterruptedSignOutIsFinishedAtLaunch() async throws {
     let setup = try makeSetup(kind: .email)
@@ -813,14 +866,18 @@ private final class SignOutHost: AccountDeletionHost {
       signOutFlags: signOut, switchFlags: switching, cursors: MemorySyncCursors())
     #expect(runtime.isHeldForPurge)
     runtime.resume()
-    await runtime.resumeAndWait()
     runtime.sessionDidChange()
+    await runtime.resumeAndWait()
+    // Les reprises lancées en tâche ont eu le temps d'arriver au moteur : il reste suspendu.
+    for _ in 0..<5 { await Task.yield() }
+    #expect(await runtime.isEngineSuspended)
     await runtime.synchronize()
     #expect(await gateway.calls.isEmpty)
     // Drapeau effacé par la purge : la reprise passe.
     signOut.clear()
     switching.clear()
     await runtime.resumeAndWait()
+    #expect(await !runtime.isEngineSuspended)
     await runtime.synchronize()
     #expect(await !gateway.calls.isEmpty)
     await runtime.stop()

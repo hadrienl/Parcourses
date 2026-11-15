@@ -225,6 +225,14 @@ final class AccountSession {
   /// Drapeau `account.switch` posé : le rejeu est dû.
   var hasPendingSwitch: Bool { switchFlags.isPending }
 
+  /// Retour au premier plan : rejoue le changement de compte tant que le drapeau est posé, quelle qu'en soit la cause
+  /// (rejeu de lancement en échec, ou purge d'une connexion en échec suivie d'une déconnexion en échec). Vrai si un
+  /// rejeu vient d'aboutir : la synchro peut reprendre. Attend une vérification de code en cours (même file).
+  func replayPendingSwitch() async -> Bool {
+    guard hasPendingSwitch else { return false }
+    return await resumePendingSwitch()
+  }
+
   private func finishPendingSwitch() async -> Bool {
     guard let gateway, switchFlags.isPending else { return true }
     do {

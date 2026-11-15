@@ -41,6 +41,11 @@ final class SyncRuntime {
       suspended: deletionFlags.isDeletionPending || signOutFlags.isPending || switchFlags.isPending)
   }
 
+  /// Moteur suspendu (né suspendu, ou `suspend()`) : aucune passe ne démarre.
+  var isEngineSuspended: Bool {
+    get async { await engine.isSuspended }
+  }
+
   /// Dernier état connu du réseau, optimiste avant le premier.
   var isOnline: Bool { monitor.isOnline }
 
