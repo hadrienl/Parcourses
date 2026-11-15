@@ -2,7 +2,9 @@ package fr.parcourses.core.network
 
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
+import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListRow
@@ -12,6 +14,8 @@ import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
+import fr.parcourses.core.network.dto.TombstoneRow
+import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Instant
@@ -55,6 +59,55 @@ interface RemoteGateway {
     suspend fun deleteAccount()
 
     /**
+     * Supprime le compte du jeton [accessToken], gardé en mémoire avant une connexion à un autre compte (#87 §2.3,
+     * règle 3) : l'ancien compte anonyme, une fois ses données reprises par le nouveau. Sans rafraîchissement ni
+     * contrôle de la session courante. Un échec est sans conséquence (purge des inactifs à 365 jours, #68).
+     */
+    suspend fun deleteAccount(accessToken: String)
+
+    // region Comptes e-mail (#87, lot 87.5)
+
+    /**
+     * Demande un code pour lier [email] au compte anonyme de la session (`updateUser({ email })`). Exige une session
+     * du dernier compte connu. Un refus lève [AuthRequestError] (`422 email_exists` : adresse prise, vecteur `010`).
+     */
+    suspend fun linkEmail(email: String)
+
+    /**
+     * Demande un code de connexion au compte existant de [email] (`signInWithOtp`, sans création de compte). Un refus
+     * lève [AuthRequestError] (`otp_disabled` : aucun compte pour cette adresse).
+     */
+    suspend fun signInWithEmail(email: String)
+
+    /**
+     * Vérifie le code reçu et adopte la session qu'il ouvre : le même compte pour [EmailCodePurpose.Link], celui de
+     * l'adresse pour [EmailCodePurpose.SignIn] (la synchronisation reprend alors les données, `AccountRekey`). Le jeton
+     * d'un compte anonyme quitté est gardé **avant** la vérification. Code faux ou expiré : [AuthRequestError].
+     */
+    suspend fun verifyCode(
+        email: String,
+        code: String,
+        purpose: EmailCodePurpose,
+    ): VerifiedCode
+
+    /** Écrit le prénom du compte e-mail (`profiles.display_name`), affiché aux membres de ses listes partagées. */
+    suspend fun setDisplayName(name: String)
+
+    /** Prénom du compte de la session, `null` s'il n'en a pas. */
+    suspend fun displayName(): String?
+
+    /** Adresse e-mail de la session, lue localement ; `null` pour un compte anonyme ou sans session. */
+    suspend fun accountEmail(): String?
+
+    /**
+     * Déconnexion : révoque la session sur le serveur quand il répond (`/logout`, portée locale), puis vide la session
+     * et le dernier compte connu comme [signOutLocally]. Hors ligne, la session est quand même vidée sur l'appareil.
+     */
+    suspend fun signOut()
+
+    // endregion
+
+    /**
      * Déconnexion locale, **sans appel au serveur** : la session du SDK, la session enregistrée et le dernier compte
      * connu sont vidés. Le prochain [ensureSession] adopte alors un nouveau compte sans le signaler comme un
      * changement (aucune réidentification). Le jeu de clés et la clé du Keystore restent.
@@ -69,9 +122,24 @@ interface RemoteGateway {
 
     suspend fun deleteList(id: Uuid)
 
-    suspend fun saveItem(item: ListItemUpsert)
+    /**
+     * Insertion complète d'un article jamais accusé par le serveur, idempotente (`on conflict do nothing`). `false` si
+     * rien n'a été inséré (l'article existait déjà, réponse d'un envoi précédent perdue, ou il est enterré) :
+     * l'appelant enchaîne alors une mise à jour de ses champs.
+     */
+    suspend fun insertItem(item: ListItemUpsert): Boolean
 
-    suspend fun deleteItem(id: Uuid)
+    /**
+     * Met à jour les seuls champs [fields] (#87 §6.4), sans jamais insérer. `false` si aucune ligne n'a été touchée :
+     * article supprimé ailleurs, ou accès perdu (la RLS filtre sans erreur) ; `fetchTombstones(ids)` tranche.
+     */
+    suspend fun updateItem(
+        id: Uuid,
+        fields: ListItemFields,
+    ): Boolean
+
+    /** `false` si aucune ligne n'a été supprimée (même ambiguïté que [updateItem]). */
+    suspend fun deleteItem(id: Uuid): Boolean
 
     suspend fun createVisit(visit: VisitInsert)
 
@@ -89,6 +157,21 @@ interface RemoteGateway {
     suspend fun fetchLists(updatedAfter: Instant?): List<ListRow>
 
     suspend fun fetchItems(updatedAfter: Instant?): List<ListItemRow>
+
+    /** Tous les articles d'une liste, sans curseur : liste nouvellement accessible, ou rechargée (`refreshAccess`). */
+    suspend fun fetchItems(listId: Uuid): List<ListItemRow>
+
+    /** Identifiants des articles d'une liste (réconciliation complète des suppressions, vecteur `007`). */
+    suspend fun fetchItemIds(listId: Uuid): List<Uuid>
+
+    /** Listes lisibles par le compte (RPC `accessible_list_ids`, vecteur `005`). */
+    suspend fun accessibleListIds(): List<Uuid>
+
+    /** Pierres tombales depuis [after] (recouvrement de quelques secondes, comme les autres curseurs). */
+    suspend fun fetchTombstones(after: Instant?): List<TombstoneRow>
+
+    /** Pierres tombales de ces articles : lève le doute après une mise à jour sans ligne (vecteur `003`). */
+    suspend fun fetchTombstones(ids: List<Uuid>): List<TombstoneRow>
 
     suspend fun fetchCategories(): List<CategoryRow>
 

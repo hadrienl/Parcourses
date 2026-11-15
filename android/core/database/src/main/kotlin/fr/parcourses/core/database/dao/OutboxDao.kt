@@ -7,6 +7,7 @@ import androidx.room3.Transaction
 import fr.parcourses.core.database.entity.OutboxEntryEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
+import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
@@ -61,6 +62,10 @@ abstract class OutboxDao {
 
     @Query("SELECT COUNT(*) FROM outbox WHERE syncState = 'PENDING'")
     abstract suspend fun pendingCount(): Int
+
+    /** Entrées encore là, `PENDING` et `FAILED` : modifications pas encore arrivées au serveur. */
+    @Query("SELECT COUNT(*) FROM outbox")
+    abstract fun observeCount(): Flow<Int>
 
     @Query("DELETE FROM outbox WHERE id = :id")
     abstract suspend fun delete(id: String): Int
@@ -125,7 +130,8 @@ abstract class OutboxDao {
      * Remplace les entrées en attente de cette entité pour ces natures par une seule, dans une transaction.
      * La nouvelle entrée reprend la plus petite `sequence` retirée (sinon une liste renommée passerait derrière
      * ses articles) et le plus ancien départ de panne `serverFailingSince` (sinon chaque retouche relancerait le
-     * délai de grâce). Sans entrée à remplacer, elle est ajoutée en fin de file.
+     * délai de grâce). Sans entrée à remplacer, elle est ajoutée en fin de file. [changedFields] : voir
+     * [OutboxEntryEntity.changedFields] ; l'appelant y a déjà uni ceux de l'entrée remplacée.
      */
     @Transaction
     open suspend fun replacePending(
@@ -135,6 +141,7 @@ abstract class OutboxDao {
         payload: ByteArray,
         at: Instant,
         replacing: Set<OutboxKind> = setOf(kind),
+        changedFields: String? = null,
     ): OutboxEntryEntity {
         val doomed = pendingFor(entityId).filter { it.kind() in replacing }
         doomed.forEach { delete(it.id) }
@@ -148,8 +155,13 @@ abstract class OutboxDao {
                 createdAt = at,
                 nextAttemptAt = at,
                 serverFailingSince = doomed.mapNotNull { it.serverFailingSince }.minOrNull(),
+                changedFields = changedFields,
             )
         insert(entry)
         return entry
     }
+
+    /** Toutes les entrées d'une entité, abandonnées comprises : une suppression venue d'ailleurs les emporte. */
+    @Query("DELETE FROM outbox WHERE entityId = :entityId")
+    abstract suspend fun deleteAllFor(entityId: String): Int
 }

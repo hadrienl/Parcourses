@@ -1,6 +1,7 @@
 package fr.parcourses.core.data.repository
 
 import androidx.room3.withWriteTransaction
+import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.ListItemEntity
@@ -150,7 +151,7 @@ class RoomListRepository(
         db.withWriteTransaction {
             requireWritableItem(itemId)
             db.items().setChecked(itemId, checkedAt, at)
-            queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at)
+            queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at, listOf(ItemFields.CHECKED_AT))
         }
         onEnqueue()
     }
@@ -169,7 +170,7 @@ class RoomListRepository(
     ) {
         db.withWriteTransaction {
             val item = requireWritableItem(id)
-            queue.enqueueDeletion(ofItem = id, listId = item.listId, at = at)
+            queue.enqueueDeletion(ofItem = id, listId = item.listId, at = at, isOnServer = item.isOnServer)
             db.items().delete(id)
         }
         onEnqueue()

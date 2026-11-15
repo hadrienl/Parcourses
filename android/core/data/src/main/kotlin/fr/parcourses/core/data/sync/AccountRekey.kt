@@ -14,10 +14,22 @@ data class IdentifierRemap(
     operator fun get(id: String): String = identifiers[id] ?: id
 }
 
+/** Résultat d'une reprise : les nouveaux identifiants, et le nombre de listes renvoyées au nouveau compte. */
+data class AccountRekeyResult(
+    val remap: IdentifierRemap,
+    val resentLists: Int,
+)
+
 /**
- * Reprise après perte de session : le nouveau compte anonyme ne voit aucune ligne de l'ancien, et un même
- * identifiant y serait ignoré en silence (`on conflict do nothing`). Tout change donc d'identifiant, et tout repart
- * sauf les visites reçues et closes (elles seraient réapprises dans le graphe partagé).
+ * Reprise après un changement de compte (session perdue, connexion à un compte e-mail existant) : le nouveau compte
+ * ne voit aucune ligne de l'ancien, et un même identifiant y serait ignoré en silence (`on conflict do nothing`).
+ * Tout change donc d'identifiant, et tout repart sauf les visites reçues et closes (elles seraient réapprises dans le
+ * graphe partagé).
+ *
+ * Sort de chaque liste (#87 §2.3, vecteur `008`, [SyncDecisions.rekeyPlan]) : une liste d'un autre propriétaire est
+ * retirée de l'appareil sans être renvoyée (la descente la ramènera si le nouveau compte en est membre) ; une liste
+ * vide jamais modifiée aussi. Un article dont le produit n'est pas dans le cache du catalogue publié part sans produit
+ * (#69 : un produit privé de l'ancien compte a pu être purgé, `23503`) ; il sera résolu à nouveau.
  *
  * Une seule transaction : tout ou rien. Rejouable : tant que le compte n'est pas acquitté
  * (`RemoteGateway.acknowledgeAccount`), aucun envoi n'a lieu et ces identifiants n'existent nulle part ;
@@ -28,9 +40,17 @@ class AccountRekey(
     private val queue: OutboxQueue = OutboxQueue(db.outbox()),
     private val newId: () -> String = { Uuid.random().toString() },
 ) {
+    /** [previousAccountId] : compte auquel appartenaient les données locales (`SyncCursors.accountId`). */
     @Suppress("LongMethod", "CyclomaticComplexMethod")
-    suspend fun run(now: Instant): IdentifierRemap =
+    suspend fun run(
+        now: Instant,
+        previousAccountId: String? = null,
+        previousWasEmail: Boolean = false,
+    ): AccountRekeyResult =
         db.withWriteTransaction {
+            // Ancien compte e-mail : ses données restent sous lui, sur le serveur ; rien ne part vers le nouveau
+            // compte, tout quitte l'appareil (#87). Seul un ancien compte anonyme est repris.
+            if (previousWasEmail) return@withWriteTransaction dropEverything()
             val visits = db.visits().getAll()
             val received =
                 visits
@@ -55,15 +75,31 @@ class AccountRekey(
 
             val lists = db.lists().getAll()
             val items = db.items().getAll()
-            // Liste supprimée par l'utilisateur : sa suppression s'achève ici, elle ne doit pas réapparaître.
-            val deleted = lists.filter { it.deletedAt != null }.map { it.id }.toSet()
+            val counts = items.groupingBy { it.listId }.eachCount()
+            val plans =
+                lists.associate { list ->
+                    val state =
+                        RekeyListState(
+                            ownerId = list.ownerId,
+                            deleted = list.deletedAt != null,
+                            itemCount = counts[list.id] ?: 0,
+                            createdAt = list.createdAt,
+                            updatedAt = list.updatedAt,
+                        )
+                    // Sans ancien compte connu, une liste au propriétaire connu n'est pas renvoyée (même règle qu'iOS).
+                    list.id to SyncDecisions.rekeyPlan(previousAccountId.orEmpty(), state)
+                }
+            // Supprimée par l'utilisateur (sa suppression s'achève), d'un autre propriétaire, ou vide jamais modifiée :
+            // retirée de l'appareil avec ses articles, jamais renvoyée.
+            val deleted = plans.filterValues { it != RekeyPlan.Resend }.keys
             items.filter { it.listId in deleted }.forEach { db.items().delete(it.id) }
             deleted.forEach { db.lists().delete(it) }
 
             val alive = mutableSetOf<String>()
-            for (list in lists.filter { it.deletedAt == null }) {
+            for (list in lists.filter { it.id !in deleted }) {
                 db.lists().delete(list.id)
-                val moved = list.copy(id = fresh(list.id), syncState = SyncState.PENDING)
+                // Renvoyée au nouveau compte, qui en devient le propriétaire.
+                val moved = list.copy(id = fresh(list.id), syncState = SyncState.PENDING, ownerId = null)
                 db.lists().upsert(moved)
                 alive += moved.id
                 queue.enqueueUpsert(moved, now)
@@ -74,10 +110,19 @@ class AccountRekey(
                 val listId = identifiers[item.listId]
                 if (listId == null) {
                     // Orphelin : sans liste à envoyer, le serveur le refuserait. Il reste en local, sans entrée.
-                    db.items().upsert(item.copy(id = newId, syncState = SyncState.FAILED))
+                    db.items().upsert(item.copy(id = newId, syncState = SyncState.FAILED, isOnServer = false))
                     continue
                 }
-                val moved = item.copy(id = newId, listId = listId, syncState = SyncState.PENDING)
+                // Produit absent du catalogue publié : retiré, l'article sera résolu à nouveau pour le nouveau compte.
+                val productId = item.productId?.takeIf { db.products().get(it) != null }
+                val moved =
+                    item.copy(
+                        id = newId,
+                        listId = listId,
+                        productId = productId,
+                        syncState = SyncState.PENDING,
+                        isOnServer = false,
+                    )
                 db.items().upsert(moved)
                 queue.enqueueUpsert(moved, now)
             }
@@ -113,6 +158,15 @@ class AccountRekey(
                 // Après les coches : la RLS refuse toute coche sur une visite close.
                 if (resend) moved.endedAt?.let { queue.enqueueClosure(moved.id, it, now) }
             }
-            IdentifierRemap(identifiers.toMap())
+            AccountRekeyResult(IdentifierRemap(identifiers.toMap()), resentLists = alive.size)
         }
+
+    private suspend fun dropEverything(): AccountRekeyResult {
+        db.outbox().all().forEach { db.outbox().delete(it.id) }
+        db.checks().getAll().forEach { db.checks().delete(it.id) }
+        db.visits().getAll().forEach { db.visits().delete(it.id) }
+        db.items().getAll().forEach { db.items().delete(it.id) }
+        db.lists().getAll().forEach { db.lists().delete(it.id) }
+        return AccountRekeyResult(IdentifierRemap(emptyMap()), resentLists = 0)
+    }
 }

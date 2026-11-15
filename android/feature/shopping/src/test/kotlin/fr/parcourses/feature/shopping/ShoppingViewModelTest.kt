@@ -521,7 +521,7 @@ class ShoppingViewModelTest : ShoppingTest() {
                     ?.checkId,
             )
 
-            val remap = AccountRekey(db).run(clock())
+            val remap = AccountRekey(db).run(clock()).remap
             model.performUndo()
             runCurrent()
             // Ni erreur ni coche perdue : l'annulation attend la correspondance.

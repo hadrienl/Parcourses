@@ -12,6 +12,18 @@ interface SyncCursors {
     var items: Instant?
     var catalog: Instant?
 
+    /**
+     * Dernière pierre tombale lue (#87, heure du serveur). `null` : réconciliation complète des articles (premier
+     * passage, reprise de compte), comme un curseur de plus de 29 jours (vecteur `007`).
+     */
+    var tombstones: Instant?
+
+    /**
+     * Type du compte de [accountId] (#87) : un ancien compte e-mail n'est jamais repris par un autre compte, ses
+     * données quittent l'appareil. `null` (installation d'avant #87) : anonyme.
+     */
+    var accountKind: AccountKind?
+
     /** Oublie tous les curseurs, compte compris (suppression du compte, #68). Écrit avant de rendre la main. */
     fun clear()
 }
@@ -22,12 +34,16 @@ class InMemorySyncCursors : SyncCursors {
     override var lists: Instant? = null
     override var items: Instant? = null
     override var catalog: Instant? = null
+    override var tombstones: Instant? = null
+    override var accountKind: AccountKind? = null
 
     override fun clear() {
         accountId = null
         lists = null
         items = null
         catalog = null
+        tombstones = null
+        accountKind = null
     }
 }
 
@@ -53,6 +69,14 @@ class SharedPreferencesSyncCursors(
         get() = read(CATALOG)
         set(value) = write(CATALOG, value)
 
+    override var tombstones: Instant?
+        get() = read(TOMBSTONES)
+        set(value) = write(TOMBSTONES, value)
+
+    override var accountKind: AccountKind?
+        get() = AccountKind.fromWireName(prefs.getString(ACCOUNT_KIND, null))
+        set(value) = prefs.edit().putString(ACCOUNT_KIND, value?.wireName).apply()
+
     override fun clear() {
         // `commit` : le drapeau de suppression n'est effacé qu'après, il ne doit pas survivre à des curseurs perdus.
         check(prefs.edit().clear().commit()) { "Curseurs non effacés" }
@@ -74,5 +98,7 @@ class SharedPreferencesSyncCursors(
         const val LISTS = "sync.cursor.lists"
         const val ITEMS = "sync.cursor.items"
         const val CATALOG = "sync.cursor.catalog"
+        const val TOMBSTONES = "sync.cursor.tombstones"
+        const val ACCOUNT_KIND = "sync.cursor.accountKind"
     }
 }

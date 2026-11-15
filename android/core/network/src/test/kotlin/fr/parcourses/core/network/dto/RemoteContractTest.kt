@@ -38,11 +38,20 @@ class RemoteContractTest {
     }
 
     private val readSpecs: List<TableSpec<*>> =
-        listOf(ListRow.spec, ListItemRow.spec, VisitRow.spec, CheckRow.spec, CategoryRow.spec, ProductRow.spec)
+        listOf(
+            ListRow.spec,
+            ListItemRow.spec,
+            VisitRow.spec,
+            CheckRow.spec,
+            CategoryRow.spec,
+            ProductRow.spec,
+            TombstoneRow.spec,
+            ProfileRow.spec,
+        )
 
     /**
-     * Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur. `profiles` et
-     * `list_item_tombstones` (#87, lot 87.1) : lues à partir du lot Android 87.5. `list_members` (87.2) : lue en 87.6.
+     * Tables que l'app ne lit pas directement : magasins par RPC, graphe écrit et servi par le serveur.
+     * `list_members` (#87, lot 87.2) : lue avec le partage, lot Android 87.6.
      */
     private val tablesWithoutDto =
         setOf(
@@ -51,20 +60,15 @@ class RemoteContractTest {
             "store_entries",
             "store_stats",
             "store_graph_snapshots",
-            "profiles",
-            "list_item_tombstones",
             "list_members",
         )
 
     /**
      * Colonnes internes au calcul du graphe (#11) et au catalogue (#69), que l'app ne lit pas. Toute autre colonne doit
      * avoir son DTO. `products.published_at` : la RLS ne renvoie que des produits publiés.
-     * `updated_by` (#87, lot 87.1) : lue à partir du lot Android 87.5.
      */
     private val serverOnlyColumns =
         mapOf(
-            "lists" to setOf("updated_by"),
-            "list_items" to setOf("updated_by"),
             "products" to setOf("published_at"),
             "visits" to
                 setOf(
@@ -144,11 +148,27 @@ class RemoteContractTest {
             value: T,
         ) = RemoteJson.encodeToJsonElement(serializer, value).jsonObject.keys
         assertEquals(granted("update", "lists"), keysOf(ListPatch.serializer(), ListPatch("n")))
-        assertEquals(
-            granted("update", "list_items"),
-            keysOf(ListItemPatch.serializer(), ListItemPatch(id, null, "l", null, null)),
-        )
+        assertEquals(granted("update", "list_items"), ListItemFields.ALL.toSet())
+        assertEquals(ListItemFields.ALL.sorted(), ListItemFields.ALL)
+        val all = ListItemFields(ListItemUpsert(id, id, null, "l", null, null), ListItemFields.ALL)
+        assertEquals(granted("update", "list_items"), all.toJson().keys)
         assertEquals(granted("update", "visits"), keysOf(VisitClose.serializer(), VisitClose(now)))
+        assertEquals(granted("update", "profiles"), keysOf(ProfilePatch.serializer(), ProfilePatch("Léa")))
+        assertEquals(granted("insert", "profiles"), keysOf(ProfilePatch.serializer(), ProfilePatch("Léa")))
+    }
+
+    /** #87 §6.4 : seuls les champs modifiés partent, `null` explicites compris (une coche retirée vide la colonne). */
+    @Test
+    fun itemFieldsEncodeOnlyTheChangedColumns() {
+        val values = ListItemUpsert(id, id, null, "Lait", "2", null)
+        val json = ListItemFields(values, listOf(ListItemFields.CHECKED_AT)).toJson()
+        assertEquals(setOf("checked_at"), json.keys)
+        assertEquals(JsonNull, json["checked_at"])
+        val two = ListItemFields(values, listOf(ListItemFields.LABEL, ListItemFields.QUANTITY)).toJson()
+        assertEquals("Lait", two["label"]!!.jsonPrimitive.content)
+        assertEquals("2", two["quantity"]!!.jsonPrimitive.content)
+        assertTrue(runCatching { ListItemFields(values, listOf("id")) }.isFailure)
+        assertTrue(runCatching { ListItemFields(values, emptyList()) }.isFailure)
     }
 
     @Test
@@ -198,6 +218,7 @@ class RemoteContractTest {
         assertEquals(returned("nearby_stores"), columns(NearbyStoreRow.serializer()))
         assertEquals(returned("search_stores"), columns(StoreSearchRow.serializer()))
         assertEquals(returned("resolve_products").toSet(), columns(ResolvedProductRow.serializer()).toSet())
+        assertEquals(returned("accessible_list_ids"), columns(IdRow.serializer()))
     }
 
     private fun <T : Any> encode(
@@ -229,9 +250,26 @@ class RemoteContractTest {
         val item =
             decode(
                 ListItemRow.serializer(),
-                """{"id":"$u","list_id":"$u","product_id":null,"label":"Lait","quantity":null,"checked_at":"$d","created_at":"$d","updated_at":"$d"}""",
+                """{"id":"$u","list_id":"$u","product_id":null,"label":"Lait","quantity":null,"checked_at":"$d","created_at":"$d","updated_at":"$d","updated_by":"$u"}""",
             )
         assertTrue(item.checkedAt != null && item.quantity == null)
+        assertEquals(Uuid.parse(u), item.updatedBy)
+        // `updated_by` nul : le compte qui a modifié l'article a été supprimé (#68).
+        val orphan =
+            decode(
+                ListItemRow.serializer(),
+                """{"id":"$u","list_id":"$u","product_id":null,"label":"Lait","quantity":null,"checked_at":null,"created_at":"$d","updated_at":"$d","updated_by":null}""",
+            )
+        assertNull(orphan.updatedBy)
+        val tombstone =
+            decode(TombstoneRow.serializer(), """{"id":"$u","list_id":"$u","deleted_at":"$d"}""")
+        assertEquals(Instant.parse("2026-10-31T10:00:00.123456Z"), tombstone.deletedAt)
+        val profile =
+            decode(
+                ProfileRow.serializer(),
+                """{"user_id":"$u","display_name":"Léa","created_at":"$d","updated_at":"$d"}""",
+            )
+        assertEquals("Léa", profile.displayName)
         val visit =
             decode(
                 VisitRow.serializer(),

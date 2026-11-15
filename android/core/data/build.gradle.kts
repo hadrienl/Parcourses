@@ -8,6 +8,14 @@ android {
     testOptions.unitTests.isIncludeAndroidResources = true
 }
 
+// Vecteurs de synchro partagés avec iOS (#87), lus directement dans shared/, sans copie.
+val syncVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/sync")
+
+tasks.withType<Test>().configureEach {
+    inputs.dir(syncVectors).withPropertyName("syncVectors")
+    systemProperty("parcourses.syncVectors", syncVectors.asFile.absolutePath)
+}
+
 dependencies {
     api(project(":core:database"))
     api(project(":core:network"))

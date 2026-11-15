@@ -164,6 +164,13 @@ interface ListItemDao {
 
     @Query("DELETE FROM list_items WHERE listId = :listId")
     suspend fun deleteByList(listId: String): Int
+
+    /** L'envoi de l'article est accusé : un changement suivant ne part plus qu'en mise à jour (#87). */
+    @Query("UPDATE list_items SET isOnServer = 1 WHERE id = :id")
+    suspend fun markOnServer(id: String): Int
+
+    @Query("SELECT id FROM list_items")
+    suspend fun allIds(): List<String>
 }
 
 @Dao

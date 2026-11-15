@@ -52,7 +52,7 @@ class ListSyncWorkerTest : DataTest() {
         }
     }
 
-    private val gateway = FakeRemoteGateway()
+    private val gateway = fakeGateway()
     private val scheduler = RecordingScheduler()
     private val engine by lazy { SyncEngine(gateway, db, InMemorySyncCursors(), classify, dependencies) }
 

@@ -23,6 +23,7 @@ object ParcoursesDatabaseFactory {
             .databaseBuilder(context.applicationContext, ParcoursesDatabase::class.java, name)
             .setDriver(driver)
             .setQueryCoroutineContext(queryDispatcher)
+            .addMigrations(*DatabaseMigrations.ALL)
             .build()
 
     /** Base en mémoire, pour les tests. */

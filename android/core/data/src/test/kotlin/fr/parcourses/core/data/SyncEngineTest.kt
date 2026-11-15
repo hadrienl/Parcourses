@@ -33,12 +33,16 @@ import kotlin.uuid.Uuid
 @RunWith(AndroidJUnit4::class)
 @Suppress("LargeClass")
 class SyncEngineTest : DataTest() {
-    private val gateway = FakeRemoteGateway()
+    private val gateway = fakeGateway()
     private val cursors = InMemorySyncCursors()
     private val engine by lazy { SyncEngine(gateway, db, cursors, classify, dependencies) }
     private val repository by lazy { RoomListRepository(db) }
 
     private suspend fun entries() = db.outbox().all()
+
+    /** Liste renommée après sa création : la reprise de compte la renvoie (une liste vide intacte ne l'est pas, #87). */
+    private suspend fun modifiedList() =
+        repository.createList("Courses", now - 1.minutes).also { repository.renameList(it.id, "Courses", now) }
 
     /** Entrées différées d'une heure : elles restent en file, donc leurs lignes serveur sont sautées. */
     private suspend fun holdQueue() = db.outbox().pending().forEach { db.outbox().setNextAttempt(it.id, now + 1.hours) }
@@ -54,8 +58,8 @@ class SyncEngineTest : DataTest() {
 
             assertNull(engine.drain())
 
-            val sends = gateway.calls.filter { it.startsWith("save") }
-            assertEquals(listOf("saveList:${list.id}", "saveItem:${milk.id}", "saveItem:${bread.id}"), sends)
+            val sends = gateway.calls.filter { it.startsWith("saveList") || it.startsWith("insertItem") }
+            assertEquals(listOf("saveList:${list.id}", "insertItem:${milk.id}", "insertItem:${bread.id}"), sends)
             // La résolution des produits passe avant l'envoi (SYNC.md).
             assertTrue(gateway.calls.indexOf("resolveProducts") < gateway.calls.indexOfFirst { it.startsWith("save") })
             assertTrue(entries().isEmpty())
@@ -106,7 +110,7 @@ class SyncEngineTest : DataTest() {
             val list = insertList()
             val item = insertItem(list.id)
             repository.setChecked(item.id, null, now)
-            gateway.failNext("saveItem", RemoteError.Forbidden())
+            gateway.failNext("insertItem", RemoteError.Forbidden())
 
             val wake = engine.drain()
 
@@ -131,7 +135,7 @@ class SyncEngineTest : DataTest() {
             val list = insertList(state = SyncState.SYNCED)
             val item = insertItem(list.id)
             repository.setChecked(item.id, null, now)
-            gateway.failNext("saveItem", RemoteError.Forbidden())
+            gateway.failNext("insertItem", RemoteError.Forbidden())
 
             engine.drain()
 
@@ -148,14 +152,14 @@ class SyncEngineTest : DataTest() {
             val list = insertList(state = SyncState.SYNCED)
             val item = insertItem(list.id)
             repository.setChecked(item.id, null, now)
-            gateway.failNext("saveItem", RemoteError.DependencyMissing("23503"), times = 50)
+            gateway.failNext("insertItem", RemoteError.DependencyMissing("23503"), times = 50)
 
             repeat(10) {
                 engine.drain()
                 advance(10.minutes)
             }
 
-            assertEquals(8, gateway.callsOf("saveItem").size)
+            assertEquals(8, gateway.callsOf("insertItem").size)
             val entry = entries().single()
             assertEquals(SyncState.FAILED, entry.syncState)
             assertEquals(7, entry.attempts)
@@ -169,11 +173,11 @@ class SyncEngineTest : DataTest() {
             val second = insertItem(list.id, position = 1)
             repository.setChecked(first.id, null, now)
             repository.setChecked(second.id, null, now)
-            gateway.failNext("saveItem:${first.id}", RemoteError.Server("500"), times = 3)
+            gateway.failNext("insertItem:${first.id}", RemoteError.Server("500"), times = 3)
 
             engine.drain()
             // Dans le délai de grâce : toute la file attend, rien n'est mis de côté.
-            assertEquals(1, gateway.callsOf("saveItem").size)
+            assertEquals(1, gateway.callsOf("insertItem").size)
             assertEquals(2, entries().size)
 
             advance(4.hours + 1.minutes)
@@ -185,7 +189,7 @@ class SyncEngineTest : DataTest() {
             assertEquals(0, parked.attempts)
             assertEquals(now + 6.hours, parked.nextAttemptAt)
             // Le succès de la seconde prouve la reprise : la ligne mise de côté repart une fois, échoue, retourne de côté.
-            val sends = gateway.callsOf("saveItem").map { it.substringAfter(':') }
+            val sends = gateway.callsOf("insertItem").map { it.substringAfter(':') }
             assertEquals(listOf(first.id, first.id, second.id, first.id), sends)
         }
 
@@ -492,7 +496,7 @@ class SyncEngineTest : DataTest() {
     @Test
     fun anInterruptionBetweenTheRekeyAndTheAcknowledgementReplaysTheRecovery() =
         runBlocking {
-            repository.createList("Courses", now)
+            modifiedList()
             cursors.accountId = Uuid.random()
             gateway.beforeCall = { if (it == "acknowledgeAccount") throw CancellationException("annulé") }
 
@@ -512,7 +516,7 @@ class SyncEngineTest : DataTest() {
     @Test
     fun aLockedSecureStorageIsADelayAndNeverTouchesTheData() =
         runBlocking {
-            val list = repository.createList("Courses", now)
+            val list = modifiedList()
             cursors.accountId = Uuid.random()
             gateway.failNext("sessionAccountId", RemoteError.SecureStorageLocked())
 
@@ -534,7 +538,7 @@ class SyncEngineTest : DataTest() {
     @Test
     fun aScreenOpenedAfterARekeyStillReceivesTheMappingAndRekeysChain() =
         runBlocking {
-            val list = repository.createList("Courses", now)
+            val list = modifiedList()
             engine.drain()
             repeat(2) {
                 gateway.account = Uuid.random()
@@ -594,7 +598,7 @@ class SyncEngineTest : DataTest() {
             engine.drain()
             assertEquals(1, gateway.callsOf("resolveProducts").size)
             assertEquals(1, gateway.callsOf("saveList").size)
-            assertEquals(1, gateway.callsOf("saveItem").size)
+            assertEquals(1, gateway.callsOf("insertItem").size)
             assertTrue(entries().isEmpty())
 
             advance(4.minutes)

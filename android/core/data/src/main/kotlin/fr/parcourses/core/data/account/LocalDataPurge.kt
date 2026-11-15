@@ -12,7 +12,8 @@ import fr.parcourses.core.database.ParcoursesDatabase
  *   compacte le fichier (`VACUUM`), puis vide le journal WAL (`wal_checkpoint(TRUNCATE)`) : les lignes effacées ne
  *   restent ni dans les pages libres ni dans le journal ;
  * - puis le nouvel amorçage des catégories (le voile « Suppression… » cache l'instant sans référentiel) ;
- * - les curseurs de synchronisation (`sync_cursors`, compte compris).
+ * - les curseurs de synchronisation (`sync_cursors`, compte compris) ;
+ * - le drapeau `account.kind` (#87) : l'appareil repart avec un compte anonyme ; et `account.switch`.
  *
  * La session et le dernier compte connu sont vidés ensuite par `RemoteGateway.signOutLocally` ; la Live Update et
  * ses préférences, par l'app avant la suppression. Rejouable sans dommage : une base déjà vide le reste.
@@ -21,6 +22,8 @@ class LocalDataPurge(
     private val db: ParcoursesDatabase,
     private val cursors: SyncCursors,
     private val seed: () -> CategorySeed = CategorySeed::bundled,
+    private val accountKind: AccountKindFlag? = null,
+    private val switchFlag: AccountSwitchFlag? = null,
 ) {
     suspend fun run() {
         // Hors de toute transaction : dans une transaction, Room 3 saute le `VACUUM`.
@@ -28,6 +31,9 @@ class LocalDataPurge(
         db.useWriterConnection { connection -> connection.usePrepared(WAL_TRUNCATE) { it.step() } }
         db.categories().seedIfNeeded(seed())
         cursors.clear()
+        accountKind?.clear()
+        // Plus rien à reprendre : un changement de compte en attente n'a plus d'objet.
+        switchFlag?.clear()
     }
 
     private companion object {

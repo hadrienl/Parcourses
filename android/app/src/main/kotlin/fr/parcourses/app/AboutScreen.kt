@@ -34,7 +34,8 @@ import fr.parcourses.core.designsystem.TicketType
  * enregistre et pourquoi, la police embarquée et la version. Mêmes textes qu'iOS.
  *
  * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement). La section
- * « Vos données » (#68), sous « Confidentialité », propose de tout supprimer.
+ * « Compte » (#87) montre l'adresse et le prénom, ou propose de se connecter. La section « Vos données » (#68), sous
+ * « Confidentialité », propose de tout supprimer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +47,8 @@ fun AboutScreen(
     sessionResetActions: SessionResetActions = SessionResetActions(),
     accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
     accountDeletionActions: AccountDeletionActions = AccountDeletionActions(),
+    account: AccountUiState = AccountUiState(),
+    accountActions: AccountActions = AccountActions(),
 ) {
     val colors = Ticket.colors
     Scaffold(
@@ -75,6 +78,9 @@ fun AboutScreen(
                     Section(stringResource(R.string.about_session_title)) {
                         SessionResetContent(sessionReset, sessionResetActions)
                     }
+                }
+                if (account.visible) {
+                    Section(stringResource(R.string.account_title)) { AccountContent(account, accountActions) }
                 }
                 Section(stringResource(R.string.about_data_title)) {
                     Paragraph(stringResource(R.string.about_data_body))

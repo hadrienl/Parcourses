@@ -4,6 +4,13 @@ import android.content.Context
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.account.AccountLink
+import fr.parcourses.core.data.account.AccountLinkHost
+import fr.parcourses.core.data.account.AccountLinkOutcome
+import fr.parcourses.core.data.account.AccountLinkPhase
+import fr.parcourses.core.data.account.InMemoryAccountKindFlag
+import fr.parcourses.core.data.outbox.ItemFields
+import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncEngine
@@ -14,12 +21,15 @@ import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.createInMemorySupabaseGateway
+import fr.parcourses.core.network.dto.EmailCodePurpose
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -29,6 +39,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 /**
  * Synchronisation complète contre le Supabase LOCAL uniquement (`scripts/integration-test.sh`) : ignorée sinon, CI
@@ -64,6 +76,7 @@ class SyncIntegrationTest {
         val gateway: RemoteGateway,
         val engine: SyncEngine,
         val lists: RoomListRepository,
+        val cursors: InMemorySyncCursors,
     )
 
     private fun device(gateway: RemoteGateway): Device {
@@ -75,8 +88,9 @@ class SyncIntegrationTest {
                     AndroidSQLiteDriver(),
                 ).also { databases += it }
         runBlocking { db.categories().seedIfNeeded(CategorySeed.bundled()) }
-        val engine = SyncEngine(gateway, db, InMemorySyncCursors(), classify)
-        return Device(db, gateway, engine, RoomListRepository(db))
+        val cursors = InMemorySyncCursors()
+        val engine = SyncEngine(gateway, db, cursors, classify)
+        return Device(db, gateway, engine, RoomListRepository(db), cursors)
     }
 
     @Test
@@ -149,6 +163,134 @@ class SyncIntegrationTest {
                     .get(milk.id)
                     ?.checkedAt,
             )
+        }
+
+    private fun link(device: Device): AccountLink =
+        AccountLink(
+            device.gateway,
+            InMemoryAccountKindFlag(),
+            object : AccountLinkHost {
+                override suspend fun adoptAccount(expected: Uuid): Int? = device.engine.adoptSessionAccount(expected)
+
+                override fun sessionDidChange() = Unit
+
+                override suspend fun suspendSync() = device.engine.suspend()
+
+                override fun resumeSync() = device.engine.resume()
+
+                override suspend fun dataAccount(): Uuid? = device.cursors.accountId
+
+                override suspend fun pendingChanges(): Int = device.db.outbox().pendingCount()
+
+                override suspend fun purgeLocalData() = error("pas de changement de compte e-mail ici")
+            },
+            isOnline = { true },
+        )
+
+    /**
+     * #87 (lot 87.5), deux appareils d'un même compte e-mail : le téléphone lie une adresse par le code lu dans
+     * Mailpit (même compte) ; la tablette, anonyme avec sa propre liste, demande la même adresse (`email_exists`), se
+     * connecte par code et ajoute sa liste au compte. Ensuite deux champs modifiés chacun de son côté sont gardés tous
+     * les deux, et une suppression faite sur le téléphone quitte la tablette par sa pierre tombale.
+     */
+    @Test
+    fun twoDevicesOfOneEmailAccountKeepEachFieldAndPropagateDeletions() =
+        runBlocking<Unit> {
+            assumeTrue("Mailpit non configuré", Mailpit.isConfigured)
+            val email = Mailpit.address("sync")
+            val phoneGateway = createInMemorySupabaseGateway(config!!)
+            val account = phoneGateway.ensureSession()
+            val phone = device(phoneGateway)
+            val now = Clock.System.now()
+            val list = phone.lists.createList("Partagée IT", now)
+            val milk = phone.lists.addItem(list.id, "lait", "lait", "1", null, "dairy", now)
+            val bread = phone.lists.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            phone.engine.drain()
+
+            // Liaison : même compte, rien à reprendre.
+            val phoneLink = link(phone)
+            var since = java.time.Instant.now()
+            phoneLink.requestCode(email, "Léa IT")
+            assertEquals(EmailCodePurpose.Link, phoneLink.state.value.purpose)
+            phoneLink.verify(Mailpit.code(email, since))
+            assertEquals(AccountLinkOutcome.Linked, phoneLink.state.value.outcome)
+            assertEquals(account, phoneGateway.currentAccountId())
+            assertEquals("Léa IT", phoneGateway.displayName())
+
+            // Tablette : anonyme, sa liste, puis l'adresse déjà prise.
+            val tabletGateway = createInMemorySupabaseGateway(config)
+            val anonymous = tabletGateway.ensureSession()
+            val tablet = device(tabletGateway)
+            val own = tablet.lists.createList("Tablette IT", Clock.System.now())
+            tablet.lists.addItem(own.id, "riz", "riz", null, null, "savory-grocery", Clock.System.now())
+            tablet.engine.drain()
+            val tabletLink = link(tablet)
+            // `max_frequency` local de 1 s entre deux codes : les demandes sont espacées de 2 s.
+            delay(2.seconds)
+            since = java.time.Instant.now()
+            tabletLink.requestCode(email, "Autre")
+            assertEquals(EmailCodePurpose.SignIn, tabletLink.state.value.purpose)
+            tabletLink.verify(Mailpit.code(email, since))
+            // Le prénom du compte existant est gardé ; la liste de la tablette est ajoutée au compte.
+            assertEquals(AccountLinkOutcome.SignedIn("Léa IT", addedLists = 1), tabletLink.state.value.outcome)
+            assertNotEquals(anonymous, account)
+
+            tablet.engine.drain(pull = true)
+            phone.engine.drain(pull = true)
+            val names = setOf("Partagée IT", "Tablette IT")
+            assertEquals(
+                names,
+                phone.db
+                    .lists()
+                    .getAll()
+                    .map { it.name }
+                    .toSet(),
+            )
+            assertEquals(
+                names,
+                tablet.db
+                    .lists()
+                    .getAll()
+                    .map { it.name }
+                    .toSet(),
+            )
+            assertEquals(
+                account.toString(),
+                tablet.db
+                    .lists()
+                    .get(list.id)
+                    ?.ownerId,
+            )
+
+            // Deux champs du même article, un par appareil : les deux gagnent.
+            phone.lists.setChecked(milk.id, Clock.System.now(), Clock.System.now())
+            val onTablet = checkNotNull(tablet.db.items().get(milk.id))
+            assertTrue(onTablet.isOnServer)
+            tablet.db.items().upsert(onTablet.copy(quantity = "3", syncState = SyncState.PENDING))
+            OutboxQueue(tablet.db.outbox()).enqueueUpsert(
+                checkNotNull(tablet.db.items().get(milk.id)),
+                Clock.System.now(),
+                listOf(ItemFields.QUANTITY),
+            )
+            phone.engine.drain()
+            tablet.engine.drain()
+            phone.engine.drain(pull = true)
+            tablet.engine.drain(pull = true)
+            for (device in listOf(phone, tablet)) {
+                val item = checkNotNull(device.db.items().get(milk.id))
+                assertNotNull(item.checkedAt)
+                assertEquals("3", item.quantity)
+            }
+
+            // Suppression sur le téléphone : la tablette l'apprend par la pierre tombale.
+            phone.lists.deleteItem(bread.id, Clock.System.now())
+            phone.engine.drain()
+            assertNotNull(tablet.db.items().get(bread.id))
+            tablet.engine.drain(pull = true)
+            assertNull(tablet.db.items().get(bread.id))
+            assertNotNull(tablet.db.items().get(milk.id))
+
+            phoneGateway.deleteAccount()
         }
 
     @Test

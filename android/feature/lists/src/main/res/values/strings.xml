@@ -17,6 +17,15 @@
     <string name="lists_more_actions">Actions pour %1$s</string>
     <string name="lists_subtitle_empty">Aucun article</string>
     <string name="lists_subtitle_done">Tout est coché</string>
+    <!-- Compte (#87) : entrée d'un compte anonyme, session perdue d'un compte e-mail -->
+    <string name="lists_sign_in">Se connecter</string>
+    <string name="lists_session_lost">Reconnectez-vous pour synchroniser.</string>
+    <string name="lists_session_reconnect">Se reconnecter</string>
+    <string name="lists_session_anonymous">Continuer sans compte</string>
+    <string name="lists_anonymous_title">Continuer sans compte ?</string>
+    <string name="lists_anonymous_body">Les listes de votre compte seront retirées de cet appareil, mais restent dans votre compte. Vous repartirez avec un compte anonyme vide.</string>
+    <string name="lists_anonymous_unsent">Les modifications pas encore envoyées seront perdues.</string>
+    <string name="lists_anonymous_action">Continuer sans compte</string>
     <plurals name="lists_subtitle_remaining">
         <item quantity="one">%1$d article restant</item>
         <item quantity="other">%1$d articles restants</item>

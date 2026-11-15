@@ -2,11 +2,14 @@
 
 package fr.parcourses.core.network.dto
 
+import fr.parcourses.core.network.RemoteJson
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 import kotlinx.serialization.descriptors.elementNames
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -26,6 +29,7 @@ internal class TableSpec<T : Any>(
 
 // region Lecture
 
+/** `updated_by` : dernier compte qui a modifié la liste, posé par le serveur (#87, nul après sa suppression). */
 @Serializable
 data class ListRow(
     val id: Uuid,
@@ -33,6 +37,7 @@ data class ListRow(
     val name: String,
     @SerialName("created_at") val createdAt: Instant,
     @SerialName("updated_at") val updatedAt: Instant,
+    @SerialName("updated_by") val updatedBy: Uuid? = null,
 ) {
     companion object {
         internal val spec = TableSpec("lists", serializer())
@@ -49,9 +54,36 @@ data class ListItemRow(
     @SerialName("checked_at") val checkedAt: Instant?,
     @SerialName("created_at") val createdAt: Instant,
     @SerialName("updated_at") val updatedAt: Instant,
+    /** Dernier compte qui a modifié l'article (#87), posé par le serveur. */
+    @SerialName("updated_by") val updatedBy: Uuid? = null,
 ) {
     companion object {
         internal val spec = TableSpec("list_items", serializer())
+    }
+}
+
+/** Pierre tombale d'un article supprimé (#87, lot 87.1), gardée 30 jours par le serveur. */
+@Serializable
+data class TombstoneRow(
+    val id: Uuid,
+    @SerialName("list_id") val listId: Uuid,
+    @SerialName("deleted_at") val deletedAt: Instant,
+) {
+    companion object {
+        internal val spec = TableSpec("list_item_tombstones", serializer())
+    }
+}
+
+/** Prénom affiché aux membres des listes partagées (#87). Une ligne par compte e-mail. */
+@Serializable
+data class ProfileRow(
+    @SerialName("user_id") val userId: Uuid,
+    @SerialName("display_name") val displayName: String,
+    @SerialName("created_at") val createdAt: Instant,
+    @SerialName("updated_at") val updatedAt: Instant,
+) {
+    companion object {
+        internal val spec = TableSpec("profiles", serializer())
     }
 }
 
@@ -218,13 +250,51 @@ internal data class ListPatch(
     val name: String,
 )
 
+/**
+ * Champs d'un article à mettre à jour (#87 §6.4, même nom qu'iOS) : [columns] sont des noms de colonnes serveur, leurs
+ * valeurs viennent de [values]. Seuls ces champs partent : la coche d'un autre appareil n'est pas écrasée par un
+ * changement de quantité.
+ */
+class ListItemFields(
+    val values: ListItemUpsert,
+    val columns: List<String>,
+) {
+    init {
+        require(columns.isNotEmpty()) { "aucun champ" }
+        require(columns.all { it in ALL }) { "champ non modifiable" }
+    }
+
+    /** Corps du `PATCH` : uniquement [columns], `null` explicites compris. */
+    internal fun toJson(): JsonObject {
+        val all = RemoteJson.encodeToJsonElement(ListItemUpsert.serializer(), values).jsonObject
+        return JsonObject(columns.associateWith { all.getValue(it) })
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is ListItemFields && columns == other.columns && values == other.values
+
+    override fun hashCode(): Int = 31 * columns.hashCode() + values.hashCode()
+
+    override fun toString(): String = "ListItemFields($columns)"
+
+    companion object {
+        const val CHECKED_AT = "checked_at"
+        const val LABEL = "label"
+        const val LIST_ID = "list_id"
+        const val PRODUCT_ID = "product_id"
+        const val QUANTITY = "quantity"
+
+        /**
+         * Colonnes accordées en mise à jour à `authenticated` (contrôlé par le test de contrat), triées : celles d'un
+         * article créé et d'une entrée d'avant la version 2 de la base.
+         */
+        val ALL: List<String> = listOf(CHECKED_AT, LABEL, LIST_ID, PRODUCT_ID, QUANTITY)
+    }
+}
+
 @Serializable
-internal data class ListItemPatch(
-    @SerialName("list_id") val listId: Uuid,
-    @SerialName("product_id") val productId: Uuid?,
-    val label: String,
-    val quantity: String?,
-    @SerialName("checked_at") val checkedAt: Instant?,
+internal data class ProfilePatch(
+    @SerialName("display_name") val displayName: String,
 )
 
 @Serializable

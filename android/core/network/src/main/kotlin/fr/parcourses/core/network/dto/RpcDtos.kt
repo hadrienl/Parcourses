@@ -12,6 +12,12 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.uuid.Uuid
 
+/** Ligne réduite à son identifiant : RPC `accessible_list_ids`, identifiants des articles d'une liste. */
+@Serializable
+internal data class IdRow(
+    val id: Uuid,
+)
+
 /** Ligne de la RPC `nearby_stores`, hors contrat `tables.json` (ce n'est pas une table). */
 @Serializable
 data class NearbyStoreRow(

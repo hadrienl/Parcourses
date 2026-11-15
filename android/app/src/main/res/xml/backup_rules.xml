@@ -4,4 +4,6 @@
     <exclude domain="file" path="datastore/" />
     <exclude domain="sharedpref" path="parcourses_tink_keyset.xml" />
     <exclude domain="sharedpref" path="account_deletion.xml" />
+    <exclude domain="sharedpref" path="account_sign_out.xml" />
+    <exclude domain="sharedpref" path="account_switch.xml" />
 </full-backup-content>

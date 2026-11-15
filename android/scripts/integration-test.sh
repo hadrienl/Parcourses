@@ -7,19 +7,28 @@ status=$(cd .. && supabase status -o env 2>/dev/null)
 value() { sed -n "s/^$1=\"\(.*\)\"$/\1/p" <<<"$status"; }
 url=$(value API_URL)
 key=$(value PUBLISHABLE_KEY)
+mailpit=$(value MAILPIT_URL)
+mailpit=${mailpit:-$(value INBUCKET_URL)}
 
 if [[ "$url" != "http://127.0.0.1:56321" || -z "$key" ]]; then
   echo "Supabase local introuvable (attendu sur 127.0.0.1:56321) : lancer supabase start." >&2
   exit 1
 fi
 
-# --rerun : les variables d'environnement ne sont pas des entrées de la tâche de test.
+if [[ -z "$mailpit" ]]; then
+  echo "Mailpit absent de supabase status : démarrer la pile sans exclure mailpit." >&2
+  exit 1
+fi
+
+# --rerun : les variables d'environnement ne sont pas des entrées de la tâche de test. Il ne vaut que pour la tâche
+# qui le précède : une option par tâche, sinon les deux premières suites sont sautées si elles sont à jour.
 # Passerelle (A5), synchronisation complète des listes (A6), puis visite complète du mode courses (A8) : coches,
 # fin, envoi, calcul du graphe (docker exec sur la base du Supabase local) et lecture de l'instantané, puis
-# « Supprimer mes données » (#68) : compte et lignes effacés en base, rien pour le nouveau compte.
-# Prérequis : la migration 68.1 (`select to_regprocedure('public.delete_my_account()')` non nul).
+# « Supprimer mes données » (#68) : compte et lignes effacés en base, rien pour le nouveau compte. Comptes e-mail
+# (#87, lot 87.5) : liaison et connexion par le code lu dans Mailpit, deux appareils d'un même compte.
+# Prérequis : migrations jusqu'à 87.2 (`select to_regprocedure('public.accessible_list_ids()')` non nul) et Mailpit.
 # Contre le Supabase local uniquement.
-PARCOURSES_IT_URL="$url" PARCOURSES_IT_KEY="$key" \
-  ./gradlew :core:network:testDebugUnitTest --tests '*SupabaseGatewayIntegrationTest' \
-  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' \
+PARCOURSES_IT_URL="$url" PARCOURSES_IT_KEY="$key" PARCOURSES_IT_MAILPIT="$mailpit" \
+  ./gradlew :core:network:testDebugUnitTest --tests '*SupabaseGatewayIntegrationTest' --rerun \
+  :core:data:testDebugUnitTest --tests '*SyncIntegrationTest' --rerun \
   :feature:shopping:testDebugUnitTest --tests '*ShoppingIntegrationTest' --rerun "$@"
