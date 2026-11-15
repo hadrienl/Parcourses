@@ -50,15 +50,19 @@ struct AvatarStack: View {
   }
 }
 
-/// Marque d'auteur d'un article : initiale de 20 pt au trait, après la quantité. Décorative.
+/// Marque d'auteur d'un article : initiale au trait, après la quantité (20 pt à la taille par défaut). Elle suit
+/// Dynamic Type : style de texte `caption2` pour l'initiale, cercle à l'échelle du même style. Décorative : le prénom
+/// est dans le libellé lu de la ligne.
 struct AuthorMark: View {
   let initial: String
+  @ScaledMetric(relativeTo: .caption2) private var side: CGFloat = 20
 
   var body: some View {
     Text(initial)
-      .font(.system(size: 9, weight: .bold, design: .monospaced))
+      .font(.system(.caption2, design: .monospaced).weight(.bold))
       .foregroundStyle(Palette.inkMuted)
-      .frame(width: 20, height: 20)
+      .lineLimit(1)
+      .frame(width: side, height: side)
       .overlay { Circle().strokeBorder(Palette.inkMuted, lineWidth: 1) }
       .accessibilityHidden(true)
   }

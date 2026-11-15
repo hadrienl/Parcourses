@@ -25,6 +25,7 @@ struct ParcoursesApp: App {
       switch phase {
       case .active:
         app.sync?.foreground()
+        app.sharing?.scenePhaseChanged(isActive: true)
         Task {
           await app.foreground()
           // Canal temps réel et invitations, une fois le compte relu (#87, lot 87.4).
@@ -32,6 +33,8 @@ struct ParcoursesApp: App {
         }
       case .background:
         let sharing = app.sharing
+        // Drapeau posé tout de suite : une ouverture qui attend encore le compte ne rouvre pas le canal.
+        sharing?.scenePhaseChanged(isActive: false)
         Task { await sharing?.background() }
         guard let sync = app.sync else { break }
         sync.enteredBackground()

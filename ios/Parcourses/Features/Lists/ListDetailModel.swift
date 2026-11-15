@@ -47,8 +47,10 @@ final class ListDetailModel {
   private(set) var isMissing = false
   /// Mon rôle et les participants (#87, lot 87.4).
   private(set) var access = ListAccess()
-  /// Liste partagée avec moi, puis retirée de l'appareil (retrait, départ, suppression par le propriétaire).
+  /// Liste partagée avec moi, puis retirée de l'appareil par un autre (retrait, suppression par le propriétaire).
   private(set) var wasRemoved = false
+  /// Liste quittée ici (« Quitter la liste ») : l'écran revient à Mes listes, sans message.
+  private(set) var didLeave = false
   /// Dernière modification d'un autre membre : « Modifiée par Léa · il y a 2 min ».
   private(set) var lastChange: (name: String, date: Date)?
   var input = ""
@@ -65,12 +67,16 @@ final class ListDetailModel {
   private var index = ItemSuggestionIndex(history: [], products: [], normalizeFallback: { $0 })
   private var pendingNames: Set<String> = []
   private let accountId: () -> UUID?
+  /// Liste quittée volontairement ici (« Quitter la liste »).
+  private let wasLeft: (UUID) -> Bool
 
   init(
     listId: UUID, lists: any ListRepository, products: any ProductRepository, categories: any CategoryRepository,
-    analyzer: EntryAnalyzer, now: @escaping () -> Date = { .now }, accountId: @escaping () -> UUID? = { nil }
+    analyzer: EntryAnalyzer, now: @escaping () -> Date = { .now }, accountId: @escaping () -> UUID? = { nil },
+    wasLeft: @escaping (UUID) -> Bool = { _ in false }
   ) {
     self.accountId = accountId
+    self.wasLeft = wasLeft
     self.listId = listId
     self.lists = lists
     self.products = products
@@ -95,8 +101,11 @@ final class ListDetailModel {
     perform {
       categories = try categoryRepository.categories().map { ($0.id, $0.label) }
       let list = try lists.list(id: listId)
-      // Une liste partagée avec moi qui disparaît a été retirée : la maquette l'annonce en plein écran.
-      if list == nil, isLoaded, access.role != .owner { wasRemoved = true }
+      // Une liste partagée avec moi qui disparaît a été retirée : la maquette l'annonce en plein écran. Quittée par moi,
+      // l'écran revient simplement à Mes listes.
+      if list == nil, isLoaded, access.role != .owner {
+        if wasLeft(listId) { didLeave = true } else { wasRemoved = true }
+      }
       name = list?.name ?? name
       isMissing = list == nil
       if let list { access = ListAccess(list: list, me: accountId()) }

@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import UIKit
 
 /// Feuille « Partager la liste » du propriétaire, et « Membres » d'un membre (#87 §9.2, §9.3). Tout passe par le réseau,
 /// rien en file.
@@ -43,7 +42,8 @@ final class ShareListModel: Identifiable {
   private(set) var didLeave = false
 
   @ObservationIgnored private weak var center: SharingCenter?
-  @ObservationIgnored var copy: (String) -> Void = { UIPasteboard.general.string = $0 }
+  /// Lien copié en local seulement, avec une expiration : il porte le jeton.
+  @ObservationIgnored var copy: (String) -> Void = { SensitivePasteboard.copy($0) }
   @ObservationIgnored var now: () -> Date = { .now }
 
   init(listId: UUID, listName: String, center: SharingCenter) {

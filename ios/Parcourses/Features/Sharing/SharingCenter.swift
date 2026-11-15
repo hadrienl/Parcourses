@@ -32,6 +32,8 @@ final class SharingCenter {
     }
     /// Mon compte, pour les marques d'auteur et « vous ».
     var accountId: () -> UUID? = { nil }
+    /// Signal `items` qui n'est que l'écho de ma dernière écriture (#87 §6.6).
+    var isEcho: (RealtimeSignal) -> Bool = { _ in false }
   }
 
   /// Invitations adressées à mon adresse (`my_invitations`), la plus récente d'abord.
@@ -72,7 +74,7 @@ final class SharingCenter {
         isSharingSheetOpen: { [weak self] listId in listId != nil && self?.openSheetListId == listId },
         pull: dependencies.requestPull,
         reloadInvitations: { [weak self] in Task { await self?.loadInvitations() } },
-        reloadSharing: { [weak self] _ in self?.sharingRevision += 1 }))
+        reloadSharing: { [weak self] _ in self?.sharingRevision += 1 }, isEcho: dependencies.isEcho))
     if monitorsNetwork {
       network = NetworkWatcher { [weak self] online in
         Task { @MainActor in self?.isOnline = online }
@@ -100,6 +102,11 @@ final class SharingCenter {
 
   func background() async {
     await signals?.background()
+  }
+
+  /// Changement de phase de la scène, posé sans attendre : un canal ne s'ouvre pas en arrière-plan (#87 §6.6).
+  func scenePhaseChanged(isActive: Bool) {
+    if isActive { signals?.enteredForeground() } else { signals?.enteredBackground() }
   }
 
   // MARK: - Invitations reçues

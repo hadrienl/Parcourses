@@ -28,6 +28,9 @@ final class AppEnvironment {
   private let shoppingActivity: ActivityKitShoppingActivity
   /// Mode courses en cours, le temps qu'il vive : « Cocher le suivant » le prévient.
   private weak var currentSession: ShoppingSession?
+  private let echoes: RecentItemWrites
+  /// « Quitter la liste » : l'écran Liste revient à Mes listes sans annoncer un retrait.
+  private let departures = ListDepartures()
   /// « Cocher le suivant » de la Live Activity, branché sur `CheckNextItemRouter` au lancement.
   private(set) lazy var activityActions = ShoppingActivityActions(
     lists: lists, visits: visits, stores: stores, categories: categories, analyzer: entryAnalyzer,
@@ -43,7 +46,10 @@ final class AppEnvironment {
     self.gateway = gateway
     location = SystemLocationProvider()
     let context = container.mainContext
-    let sync = try gateway.map { try SyncRuntime(gateway: $0, container: container) }
+    // Écho temps réel de mes propres envois d'articles, ignoré par les signaux (#87 §6.6).
+    let echoes = RecentItemWrites()
+    self.echoes = echoes
+    let sync = try gateway.map { try SyncRuntime(gateway: $0, container: container, echoes: echoes) }
     self.sync = sync
     let onEnqueue: () -> Void =
       sync?.enqueued ?? {
@@ -62,6 +68,9 @@ final class AppEnvironment {
     try categories.seedIfNeeded()
     self.categories = categories
     entryAnalyzer = try EntryAnalyzer()
+    // Listes d'autrui passées `owner` par la migration V4→V5 : lecture seule jusqu'à la descente (#87, lot 87.4).
+    // Un échec ne bloque pas le lancement : la descente pose le rôle de toute façon.
+    _ = try? ListRoleRepair.apply(in: context, me: cursors.accountId)
   }
 
   /// Environnement neuf sur le même store, après une suppression de compte : modèles d'écran, moteur de
@@ -165,7 +174,7 @@ final class AppEnvironment {
   func makeListDetailModel(listId: UUID) -> ListDetailModel {
     ListDetailModel(
       listId: listId, lists: lists, products: products, categories: categories, analyzer: entryAnalyzer,
-      accountId: accountId)
+      accountId: accountId, wasLeft: { [departures] in departures.contains($0) })
   }
 
   /// Partage (#87, lot 87.4) : invitations, liens, feuille « Partager », signaux temps réel.
@@ -173,6 +182,8 @@ final class AppEnvironment {
     let sync = sync
     let lists = lists
     let accountId = accountId
+    let echoes = echoes
+    let departures = departures
     var monitorsNetwork = true
     #if DEBUG
       // Tests UI : réseau imposé par le scénario.
@@ -187,10 +198,12 @@ final class AppEnvironment {
         requestPull: { sync?.foreground() },
         listExists: { (try? lists.list(id: $0)) != nil },
         forgetList: { id in
+          // Noté avant l'oubli : l'écran Liste, rechargé par la notification, sait que c'est un départ.
+          departures.record(id)
           try? lists.forgetList(id: id)
           NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
         },
-        accountId: accountId),
+        accountId: accountId, isEcho: { echoes.isEcho($0) }),
       monitorsNetwork: monitorsNetwork)
   }
 
@@ -202,13 +215,16 @@ final class AppEnvironment {
   /// depuis plus de 45 min : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
   /// aucune et n'est jamais partie, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien
   /// n'est rouvert, comme sur Android. Une visite redevenue active entre la lecture et l'abandon reste ouverte.
+  /// Liste passée en lecture seule (#87, Q5) : abandonnée comme une liste disparue, un lecteur ne fait pas de courses.
   func resumeShopping(now: Date = .now) async -> ShoppingSession? {
     guard let visit = try? visits.openVisit() else { return nil }
     let last = (try? visits.lastActivity(visitId: visit.id)) ?? visit.startedAt
-    let listExists = (try? lists.list(id: visit.listId)) != nil
-    guard listExists, now.timeIntervalSince(last) < ShoppingSession.expiry else {
-      // Liste disparue : abandon sans condition. Sinon seulement si la visite est encore périmée à l'écriture.
-      _ = try? visits.abandonVisit(id: visit.id, at: now, staleAfter: listExists ? ShoppingSession.expiry : 0)
+    let list = try? lists.list(id: visit.listId)
+    let canShop = list.map { SharingDecisions.roleCapabilities($0.role).canShop } ?? false
+    guard canShop, now.timeIntervalSince(last) < ShoppingSession.expiry else {
+      // Liste disparue ou en lecture seule : abandon sans condition. Sinon seulement si la visite est encore périmée
+      // à l'écriture.
+      _ = try? visits.abandonVisit(id: visit.id, at: now, staleAfter: canShop ? ShoppingSession.expiry : 0)
       return nil
     }
     let session = makeSession(listId: visit.listId, storeId: visit.storeId)

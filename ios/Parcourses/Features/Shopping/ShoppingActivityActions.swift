@@ -60,10 +60,11 @@ final class ShoppingActivityActions: CheckNextItemHandling {
     }
     // Visite close, sans liste ou périmée : l'activité n'a plus rien à suivre et part, comme la Live Update
     // Android (`lastActivityIfLive`), au lieu de garder un bouton sans effet.
+    // Liste passée en lecture seule (#87, Q5) : un lecteur ne coche pas, l'activité part aussi.
     guard let visit = try? visits.visit(id: visitId), visit.endedAt == nil,
-      (try? lists.list(id: visit.listId)) != nil
+      let list = try? lists.list(id: visit.listId), SharingDecisions.roleCapabilities(list.role).canShop
     else {
-      Self.log.info("« Cocher le suivant » ignoré : visite close ou sans liste, activité retirée")
+      Self.log.info("« Cocher le suivant » ignoré : visite close, sans liste ou en lecture seule, activité retirée")
       activity.endAll(except: nil)
       return false
     }

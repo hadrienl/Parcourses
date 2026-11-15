@@ -9,6 +9,8 @@ enum RepositoryError: Error, Equatable {
   case visitClosed(UUID)
   /// Un article déjà coché ne l'est pas une seconde fois (double appui, Live Activity et écran au même instant).
   case alreadyChecked(UUID)
+  /// Liste en lecture seule (#87, rôle `viewer`) : ni saisie, ni coche, ni visite (Q5). Le serveur refuserait aussi.
+  case readOnly(UUID)
 }
 
 extension RepositoryError: LocalizedError {
@@ -18,6 +20,7 @@ extension RepositoryError: LocalizedError {
     case .listDeleted: "Cette liste a été supprimée."
     case .visitClosed: "Cette visite est déjà terminée."
     case .alreadyChecked: "Cet article est déjà coché."
+    case .readOnly: "Cette liste est en lecture seule."
     }
   }
 }

@@ -185,6 +185,11 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     await harness.gateway.setPull(
       lists: [serverList(listId, owner: UUID(), name: "Partagée", at: t0)],
       items: [serverItem(kept, listId: listId, label: "Pain", at: t0)])
+    // Éditeur sur cet appareil : l'ajout part, c'est le serveur qui le refuse (lecteur, l'appareil le refuserait).
+    let me = await harness.gateway.account
+    await harness.gateway.setMembers([
+      ListMemberRow(listId: listId, userId: me, role: "editor", createdAt: t0, updatedAt: t0)
+    ])
     await harness.engine.drain(pull: true)
     #expect(try harness.fresh(ShoppingList.self).first?.ownerId != nil)
     await harness.gateway.setRefusedLists([listId])

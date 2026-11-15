@@ -42,6 +42,8 @@ actor SupabaseGateway: RemoteGateway {
   var signalChannel: RealtimeChannelV2?
   /// Tâche qui relaie les événements de ce canal.
   var signalRelay: Task<Void, Never>?
+  /// Flux rendu à `RealtimeSignals`, terminé à la fermeture.
+  var signalContinuation: AsyncStream<RealtimeEvent>.Continuation?
 
   init(
     configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore(),

@@ -117,6 +117,8 @@ struct ListDetailView: View {
       model.load()
       inputIsFocused = model.isEmpty && !model.isMissing && model.access.capabilities.canEditItems
     }
+    // « Quitter la liste » : retour à Mes listes (la feuille se ferme d'elle-même).
+    .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
     .onChange(of: accessChange) { _, change in
       // Accès changé : annonce de la bannière, puis focus sur le badge « Lecture seule » (maquette, écran 1).
       guard let change else { return }

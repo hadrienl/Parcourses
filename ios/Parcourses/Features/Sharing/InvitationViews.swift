@@ -224,12 +224,15 @@ struct ReceivedInvitationsScreen: View {
             .id(invitation.id)
         }
         if center.invitations.isEmpty {
-          Text(
-            center.dependencies.accountEmail().map { "Aucune invitation n'attend \($0)." }
-              ?? "Aucune invitation en attente."
-          )
-          .foregroundStyle(Palette.inkMuted)
-          .frame(maxWidth: .infinity)
+          let none = SharingFormat.noInvitation(email: center.dependencies.accountEmail())
+          VStack(alignment: .leading, spacing: Space.xs) {
+            Text(none.title).font(.body.weight(.bold)).foregroundStyle(Palette.ink)
+            Text(none.body).foregroundStyle(Palette.inkMuted)
+          }
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityElement(children: .combine)
+          .accessibilityIdentifier("noInvitation")
         }
       }
       .padding(Space.m)

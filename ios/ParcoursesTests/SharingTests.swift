@@ -2,7 +2,9 @@ import Domain
 import Foundation
 import Supabase
 import SwiftData
+import SwiftUI
 import Testing
+import UIKit
 
 @testable import Parcourses
 
@@ -373,15 +375,109 @@ private final class SignalProbe {
     let (listId, itemId, me) = try await sharedList(harness, role: "editor")
     let recorder = AccessChangeRecorder(listId: listId)
     defer { recorder.stop() }
+    // Coche faite ici, encore en file au moment de la descente (envoi pas encore dû) ; le rôle baisse ailleurs.
+    try harness.lists.setChecked(itemId: itemId, checkedAt: t0, at: t0)
+    let entry = try #require(try harness.entries().first { $0.entityId == itemId })
+    entry.nextAttemptAt = t0.addingTimeInterval(86_400)
+    try harness.context.save()
     await harness.gateway.setMembers(
       [ListMemberRow(listId: listId, userId: me, role: "viewer", createdAt: t0, updatedAt: t0)],
       profiles: [ProfileRow(userId: hadrien, displayName: "Hadrien", createdAt: t0, updatedAt: t0)])
     harness.clock.advance(120)
     await harness.engine.drain(pull: true)
     #expect(try list(harness, listId)?.role == .viewer)
-    #expect(recorder.changes.map(\.kind) == [.downgraded(droppedChanges: 0)])
+    #expect(recorder.changes.map(\.kind) == [.downgraded(droppedChanges: 1)])
     #expect(recorder.changes.first?.ownerName == "Hadrien")
-    #expect(try harness.fresh(ListItem.self).contains { $0.id == itemId })
+    // L'écriture jetée n'est jamais partie, la file est vide, l'article reprend la valeur du serveur.
+    #expect(try harness.fresh(OutboxEntry.self).isEmpty)
+    #expect(await !harness.gateway.calls.contains("updateItem"))
+    #expect(try harness.fresh(ListItem.self).first { $0.id == itemId }?.checkedAt == nil)
+  }
+
+  /// Relecture de #100 : une descente coupée entre l'arrivée de la liste et la lecture des membres la laisse en lecture
+  /// seule, jamais en propriétaire. La descente suivante pose le vrai rôle, sans message.
+  @Test func aPullCutAfterTheListArrivesLeavesItReadOnly() async throws {
+    let harness = try SyncHarness()
+    let me = await harness.gateway.account
+    let listId = UUID()
+    let recorder = AccessChangeRecorder(listId: listId)
+    defer { recorder.stop() }
+    await harness.gateway.setPull(
+      lists: [ListRow(id: listId, ownerId: hadrien, name: "Courses de la semaine", createdAt: t0, updatedAt: t0)])
+    await harness.gateway.setMembers(
+      [ListMemberRow(listId: listId, userId: me, role: "editor", createdAt: t0, updatedAt: t0)],
+      profiles: [ProfileRow(userId: hadrien, displayName: "Hadrien", createdAt: t0, updatedAt: t0)])
+    await harness.gateway.failAlways("fetchListMembers", with: .network)
+    await harness.engine.drain(pull: true)
+    let arrived = try #require(try list(harness, listId))
+    #expect(arrived.role == .viewer)
+    #expect(!SharingDecisions.roleCapabilities(arrived.role).canShare)
+
+    await harness.gateway.failAlways("fetchListMembers", with: nil)
+    harness.clock.advance(SyncRetryPolicy.pullRetryInterval + 1)
+    await harness.engine.drain(pull: true)
+    #expect(try list(harness, listId)?.role == .editor)
+    #expect(recorder.changes.isEmpty)
+  }
+
+  /// Relecture Android de #87 (a) : après la migration V4→V5, une liste d'un autre compte déjà sur l'appareil passe en
+  /// lecture seule au lancement ; les miennes, et celles dont les participants sont lus, ne bougent pas.
+  @Test func theLaunchRepairMakesForeignListsReadOnly() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let foreign = ShoppingList(name: "De Hadrien", syncState: .synced, ownerId: hadrien)
+    let mine = ShoppingList(name: "À moi", syncState: .synced, ownerId: lea)
+    let local = ShoppingList(name: "Jamais envoyée")
+    let known = ShoppingList(
+      name: "Rôle déjà lu", syncState: .synced, ownerId: hadrien, role: .editor,
+      participants: [ListParticipant(userId: hadrien, displayName: "Hadrien", role: .owner, isMe: false, joinedAt: nil)]
+    )
+    [foreign, mine, local, known].forEach(context.insert)
+    try context.save()
+
+    #expect(try ListRoleRepair.apply(in: context, me: nil) == 0)
+    #expect(try ListRoleRepair.apply(in: context, me: lea) == 1)
+    #expect(foreign.role == .viewer)
+    #expect(mine.role == .owner && local.role == .owner && known.role == .editor)
+    #expect(try ListRoleRepair.apply(in: context, me: lea) == 0)
+  }
+
+  /// Relecture de #100, bloquant 1 : aucune écriture partagée sur une liste en lecture seule, par aucun dépôt.
+  @Test func repositoriesRefuseWritesOnAReadOnlyList() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let lists = SwiftDataListRepository(context: context)
+    let visits = SwiftDataVisitRepository(context: context)
+    let list = try lists.createList(name: "Partagée", at: t0)
+    let milk = try lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    let visit = try visits.startVisit(storeId: UUID(), listId: list.id, listWasSorted: false, at: t0)
+    list.role = .viewer
+    try context.save()
+    let entries = try context.fetchCount(FetchDescriptor<OutboxEntry>())
+
+    let readOnly = RepositoryError.readOnly(list.id)
+    #expect(throws: readOnly) {
+      _ = try lists.addItem(
+        listId: list.id, label: "Pain", normalizedName: "pain", quantity: nil, productId: nil, categoryId: "bakery",
+        at: t0)
+    }
+    #expect(throws: readOnly) { try lists.setChecked(itemId: milk.id, checkedAt: t0, at: t0) }
+    #expect(throws: readOnly) { try lists.deleteItem(id: milk.id) }
+    #expect(throws: readOnly) { try lists.renameList(id: list.id, name: "Autre", at: t0) }
+    #expect(throws: readOnly) { try lists.deleteList(id: list.id, at: t0) }
+    #expect(throws: readOnly) {
+      _ = try visits.checkItem(
+        visitId: visit.id, itemId: milk.id, subject: .category("dairy"), checkedAt: t0, sendAfter: 0)
+    }
+    #expect(throws: readOnly) {
+      _ = try visits.addCheck(visitId: visit.id, itemId: milk.id, subject: .category("dairy"), checkedAt: t0)
+    }
+    // Champ local, rien ne part : les introuvables restent réglables (fin des courses).
+    try lists.setNotFound(itemId: milk.id, notFoundAt: t0, at: t0)
+    #expect(try context.fetchCount(FetchDescriptor<OutboxEntry>()) == entries)
+    #expect(milk.checkedAt == nil)
   }
 
   /// Vecteur `003` sans pierre tombale, liste d'autrui : `refreshAccess` relit `list_sharing`. Lecteur : l'entrée part,
@@ -597,6 +693,248 @@ private final class SignalProbe {
     // La liste quitte l'appareil (retrait) : les courses s'arrêtent.
     try lists.forgetList(id: list.id)
     session.syncDidChange()
-    #expect(session.accessLost)
+    #expect(session.accessEnd == .removed)
+  }
+
+  /// Relecture de #100, bloquant 1 : Léa fait les courses quand son rôle passe lecteur. Les courses s'arrêtent
+  /// (« Terminer » seulement), plus aucune coche ne s'écrit, et « Terminer » clôt la visite avec les coches déjà faites.
+  @Test func aMemberLoweredToViewerWhileShoppingCanOnlyFinish() async throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let lists = SwiftDataListRepository(context: context, author: { lea })
+    let visits = SwiftDataVisitRepository(context: context, author: { lea })
+    let stores = SwiftDataStoreRepository(context: context)
+    let categories = SwiftDataCategoryRepository(context: context)
+    try categories.seedIfNeeded()
+    let list = try lists.createList(name: "Courses de la semaine", at: t0)
+    list.ownerId = hadrien
+    list.role = .editor
+    list.participants = [
+      ListParticipant(userId: hadrien, displayName: "Hadrien", role: .owner, isMe: false, joinedAt: nil),
+      ListParticipant(userId: lea, displayName: "Léa", role: .editor, isMe: true, joinedAt: t0),
+    ]
+    try context.save()
+    for (label, category) in [("Lait", "dairy"), ("Pain", "bakery")] {
+      _ = try lists.addItem(
+        listId: list.id, label: label, normalizedName: label.lowercased(), quantity: nil, productId: nil,
+        categoryId: category, at: t0)
+    }
+    let storeId = UUID()
+    try stores.upsertStore(
+      id: storeId, name: "Leclerc", chain: nil, address: nil, lastDistanceM: nil, organicAisle: false)
+    let session = ShoppingSession(
+      listId: list.id, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
+      analyzer: try EntryAnalyzer(),
+      cache: GraphSnapshotCache(graphs: SwiftDataGraphRepository(context: context), gateway: nil),
+      settleDelay: .milliseconds(1), highlightDelay: .milliseconds(1), accountId: { lea })
+    await session.start()
+    let visitId = try #require(session.visitId)
+    session.toggle(try #require(session.toBuy.first))
+    await session.waitUntilSettled()
+    #expect(try visits.checks(visitId: visitId).count == 1)
+
+    // Rôle abaissé par la descente.
+    list.role = .viewer
+    try context.save()
+    session.syncDidChange()
+    #expect(session.accessEnd == .readOnly(ownerName: "Hadrien"))
+    #expect(SharingFormat.downgradedTitle(ownerName: "Hadrien") == "Hadrien a passé votre accès en lecture seule.")
+    // Un toucher passé sous la feuille ne coche rien.
+    session.toggle(try #require(session.toBuy.first { !$0.isChecked }))
+    #expect(try visits.checks(visitId: visitId).count == 1)
+
+    session.finish(keepRemaining: true)
+    #expect(session.summary?.checkedCount == 1)
+    #expect(try visits.visit(id: visitId)?.endedAt != nil)
+  }
+}
+
+// MARK: - Relecture de #100
+
+/// Compte qui ne se lit qu'à la demande du test : une ouverture du canal reste suspendue sur `accountId`.
+private actor AccountGate {
+  private var waiters: [CheckedContinuation<UUID?, Never>] = []
+  var waiting: Int { waiters.count }
+
+  func wait() async -> UUID? {
+    await withCheckedContinuation { waiters.append($0) }
+  }
+
+  func release(_ id: UUID?) {
+    for waiter in waiters { waiter.resume(returning: id) }
+    waiters = []
+  }
+}
+
+@MainActor
+@Suite(.serialized) struct SharingReviewTests {
+  private func gated(_ transport: FakeTransport, gate: AccountGate) -> RealtimeSignals {
+    RealtimeSignals(
+      transport: transport,
+      dependencies: RealtimeSignals.Dependencies(accountId: { await gate.wait() }, isEmailAccount: { true }))
+  }
+
+  /// Mineur 3 : l'app passe en arrière-plan pendant que le compte est relu ; le canal ne s'ouvre pas après coup.
+  @Test func goingToTheBackgroundWhileTheAccountIsReadOpensNoChannel() async {
+    let transport = FakeTransport()
+    let gate = AccountGate()
+    let signals = gated(transport, gate: gate)
+    let opening = Task { await signals.foreground() }
+    await eventually { await gate.waiting == 1 }
+    signals.enteredBackground()
+    await gate.release(lea)
+    await opening.value
+    #expect(!signals.isOpen)
+    #expect(await transport.opened.isEmpty)
+    // Retour au premier plan : le canal s'ouvre de nouveau.
+    signals.enteredForeground()
+    let reopening = Task { await signals.foreground() }
+    await eventually { await gate.waiting == 1 }
+    await gate.release(lea)
+    await reopening.value
+    #expect(signals.isOpen)
+    #expect(await transport.opened == [lea])
+    await signals.background()
+  }
+
+  /// Mineur 3 : deux ouvertures concurrentes (premier plan et compte relu) n'ouvrent qu'une écoute.
+  @Test func concurrentForegroundsOpenASingleListener() async {
+    let transport = FakeTransport()
+    let gate = AccountGate()
+    let signals = gated(transport, gate: gate)
+    let first = Task { await signals.foreground() }
+    let second = Task { await signals.foreground() }
+    await eventually { await gate.waiting == 2 }
+    await gate.release(lea)
+    await first.value
+    await second.value
+    #expect(signals.isOpen)
+    await eventually { await transport.opened.count == 1 }
+    #expect(await transport.opened == [lea])
+    await signals.background()
+    #expect(await transport.closes == 1)
+  }
+
+  /// Relecture Android (c) : l'écho de ma propre écriture ne déclenche pas de descente ; un autre signal, si.
+  @Test func theEchoOfMyOwnWriteIsIgnored() {
+    let writes = RecentItemWrites()
+    let list = UUID()
+    let mine = RealtimeSignal(listId: list, kind: "items")
+    writes.record(listId: list, at: t0)
+    #expect(writes.isEcho(mine, at: t0.addingTimeInterval(1)))
+    #expect(!writes.isEcho(mine, at: t0.addingTimeInterval(RecentItemWrites.echoWindow + 0.5)))
+    #expect(!writes.isEcho(RealtimeSignal(listId: UUID(), kind: "items"), at: t0.addingTimeInterval(1)))
+    #expect(!writes.isEcho(RealtimeSignal(listId: list, kind: "members"), at: t0.addingTimeInterval(1)))
+
+    let probe = SignalProbe()
+    let signals = RealtimeSignals(
+      transport: nil,
+      dependencies: RealtimeSignals.Dependencies(
+        pull: { probe.pulls += 1 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
+        isEcho: { writes.isEcho($0, at: t0.addingTimeInterval(1)) }))
+    signals.handle(.signal(mine))
+    signals.flush()
+    #expect(probe.pulls == 0)
+    signals.handle(.signal(RealtimeSignal(listId: UUID(), kind: "items")))
+    signals.flush()
+    #expect(probe.pulls == 1)
+  }
+
+  /// Relecture Android (c) : un article accepté par le serveur est noté pour son écho, par liste.
+  @Test func aSentItemIsRecordedForItsEcho() async throws {
+    let harness = try SyncHarness()
+    let writes = RecentItemWrites()
+    let clock = harness.clock
+    let engine = SyncEngine(
+      gateway: harness.gateway, container: harness.container, cursors: harness.cursors,
+      classify: { PulledItemClassification(normalizedName: $0.lowercased(), categoryId: "other") },
+      dependencies: SyncEngine.Dependencies(
+        now: { clock.now }, jitter: { 1 }, isOnline: { true },
+        sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
+        itemSent: { writes.record(listId: $0) }))
+    let list = try harness.lists.createList(name: "Semaine", at: t0)
+    let other = UUID()
+    _ = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await engine.drain()
+    #expect(writes.isEcho(RealtimeSignal(listId: list.id, kind: "items")))
+    #expect(!writes.isEcho(RealtimeSignal(listId: other, kind: "items")))
+  }
+
+  /// Mineur 5 : « Quitter la liste » depuis l'écran Liste revient à Mes listes, sans l'écran « n'est plus partagée
+  /// avec vous », réservé à un retrait décidé par le propriétaire.
+  @Test func leavingFromTheListScreenGoesBackWithoutTheRemovalMessage() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let lists = SwiftDataListRepository(context: context)
+    let categories = SwiftDataCategoryRepository(context: context)
+    try categories.seedIfNeeded()
+    let analyzer = try EntryAnalyzer()
+    let departures = ListDepartures()
+    func screen(_ listId: UUID) -> ListDetailModel {
+      let model = ListDetailModel(
+        listId: listId, lists: lists, products: SwiftDataProductRepository(context: context), categories: categories,
+        analyzer: analyzer, accountId: { lea }, wasLeft: { departures.contains($0) })
+      model.load()
+      return model
+    }
+    func sharedList(_ name: String) throws -> ShoppingList {
+      let list = ShoppingList(name: name, syncState: .synced, ownerId: hadrien, role: .viewer)
+      context.insert(list)
+      try context.save()
+      return list
+    }
+
+    let left = try sharedList("Quittée")
+    let leaving = screen(left.id)
+    departures.record(left.id)
+    try lists.forgetList(id: left.id)
+    leaving.load()
+    #expect(leaving.didLeave)
+    #expect(!leaving.wasRemoved)
+
+    let removed = try sharedList("Retirée")
+    let removing = screen(removed.id)
+    try lists.forgetList(id: removed.id)
+    removing.load()
+    #expect(removing.wasRemoved)
+    #expect(!removing.didLeave)
+  }
+
+  /// Mineur 6 : aucune invitation en attente, les deux phrases de la maquette (`inv.none`, `inv.none.body`).
+  @Test func noInvitationTexts() {
+    let none = SharingFormat.noInvitation(email: "lea@exemple.fr")
+    #expect(none.title == "Aucune invitation n'attend lea@exemple.fr.")
+    #expect(none.body == "Celle que vous avez reçue vise peut-être une autre adresse : ouvrez le lien de l'e-mail.")
+    #expect(SharingFormat.noInvitation(email: nil).title == "Aucune invitation en attente.")
+  }
+
+  /// Mineur 7 : la marque d'auteur et l'avatar de la carte d'invitation grandissent avec Dynamic Type.
+  @Test func authorMarkAndInvitationAvatarFollowDynamicType() throws {
+    func size(_ view: some View, _ typeSize: DynamicTypeSize) throws -> CGSize {
+      let renderer = ImageRenderer(content: view.environment(\.dynamicTypeSize, typeSize))
+      return try #require(renderer.uiImage).size
+    }
+    let mark = AuthorMark(initial: "L")
+    #expect(try size(mark, .large) == CGSize(width: 20, height: 20))
+    #expect(try size(mark, .accessibility3).width > 20)
+    let avatar = MemberAvatar(label: "H", size: 36, ring: false, scalesWithText: true)
+    #expect(try size(avatar, .accessibility3).width > (try size(avatar, .large)).width)
+    // Les pastilles de la barre gardent leur taille.
+    #expect(try size(MemberAvatar(label: "L"), .accessibility3) == CGSize(width: 28, height: 28))
+  }
+
+  /// Relecture Android (b) : le lien copié porte le jeton. Il reste sur l'appareil et s'efface au bout d'une heure.
+  @Test func theCopiedLinkIsLocalAndExpires() throws {
+    let options = SensitivePasteboard.options(now: t0)
+    #expect(options[.localOnly] as? Bool == true)
+    #expect(options[.expirationDate] as? Date == t0.addingTimeInterval(3600))
+    let name = UIPasteboard.Name("app.parcourses.tests.\(UUID().uuidString)")
+    let pasteboard = try #require(UIPasteboard(name: name, create: true))
+    defer { UIPasteboard.remove(withName: name) }
+    let link = "parcourses://invitation#\(UITestSharingGateway.token)"
+    SensitivePasteboard.copy(link, to: pasteboard, now: .now)
+    #expect(pasteboard.string == link)
   }
 }

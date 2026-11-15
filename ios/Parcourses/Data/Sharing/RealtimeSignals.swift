@@ -24,6 +24,8 @@ final class RealtimeSignals {
       // Sans feuille « Partager ».
     }
     var sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// Écho de ma propre écriture (`RecentItemWrites`) : ignoré, la donnée est déjà là.
+    var isEcho: (RealtimeSignal) -> Bool = { _ in false }
   }
 
   /// Regroupement des signaux (§6.2).
@@ -42,6 +44,12 @@ final class RealtimeSignals {
   /// Fermeture en cours : une ouverture attend qu'elle soit finie.
   private var closing: Task<Void, Never>?
 
+  /// L'app est au premier plan : posé sans attendre par la scène (`enteredForeground`, `enteredBackground`) et relu
+  /// après chaque `await` d'une ouverture, pour qu'un canal ne s'ouvre jamais en arrière-plan.
+  private(set) var isInForeground = true
+  /// Ouverture en cours : une plus récente (ou une fermeture) l'emporte, la précédente s'arrête au prochain `await`.
+  private var generation = 0
+
   /// Canal ouvert (ou en cours d'ouverture) pour ce compte.
   var isOpen: Bool { listener != nil }
 
@@ -53,13 +61,20 @@ final class RealtimeSignals {
   /// Premier plan, ou compte relu (connexion, liaison) : ouvre le canal s'il y a lieu. Sans effet s'il est ouvert pour
   /// le même compte ; un autre compte le rouvre.
   func foreground() async {
+    generation += 1
+    let current = generation
+    guard isInForeground else { return }
     guard let transport, dependencies.isEmailAccount(), let userId = await dependencies.accountId() else {
-      await background()
+      if isWanted(current) { await close() }
       return
     }
+    guard isWanted(current) else { return }
     if listener != nil, openedFor == userId { return }
-    await background()
+    await close()
     await closing?.value
+    guard isWanted(current) else { return }
+    // Jamais deux écoutes : celle d'avant est annulée avant d'être remplacée.
+    listener?.cancel()
     openedFor = userId
     listener = Task { [weak self] in
       while !Task.isCancelled {
@@ -73,8 +88,31 @@ final class RealtimeSignals {
     }
   }
 
-  /// Arrière-plan, déconnexion, compte anonyme : le canal se ferme. Les signaux déjà reçus partent tout de suite.
+  /// Encore au premier plan, et aucune ouverture ni fermeture plus récente que `current` ?
+  private func isWanted(_ current: Int) -> Bool {
+    isInForeground && generation == current
+  }
+
+  /// Scène active : les ouvertures sont de nouveau permises. Appelé sans attendre, avant `foreground()`.
+  func enteredForeground() {
+    isInForeground = true
+  }
+
+  /// Scène en arrière-plan : toute ouverture en cours s'arrête à son prochain `await`. Appelé sans attendre.
+  func enteredBackground() {
+    isInForeground = false
+    generation += 1
+  }
+
+  /// Arrière-plan : le canal se ferme, et aucune ouverture en cours ne le rouvre.
   func background() async {
+    enteredBackground()
+    await close()
+  }
+
+  /// Déconnexion, compte anonyme, changement de compte : le canal se ferme. Les signaux déjà reçus partent tout de
+  /// suite.
+  private func close() async {
     guard let listener else { return }
     listener.cancel()
     self.listener = nil
@@ -93,6 +131,7 @@ final class RealtimeSignals {
       // (Re)connexion : une descente rattrape ce qui a pu être manqué.
       dependencies.pull()
     case .signal(let signal):
+      guard !dependencies.isEcho(signal) else { return }
       pending.append(signal)
       guard flushTask == nil else { return }
       let sleep = dependencies.sleep

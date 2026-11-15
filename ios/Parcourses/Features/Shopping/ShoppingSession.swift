@@ -108,8 +108,17 @@ final class ShoppingSession: Identifiable {
   private(set) var summary: ShoppingSummary?
   private(set) var visitId: UUID?
   private(set) var mode = SortOutput.Mode.fallback
-  /// La liste a quitté l'appareil pendant les courses (retrait, liste supprimée) : « Terminer » seulement (#87 §1.5).
-  private(set) var accessLost = false
+  /// Pourquoi les courses s'arrêtent d'office (#87 §1.5) : « Terminer » seulement.
+  enum AccessEnd: Equatable {
+    /// La liste a quitté l'appareil (retrait, liste supprimée).
+    case removed
+    /// Mon rôle est passé lecteur : ni coche ni visite (Q5). `ownerName` : prénom du propriétaire, s'il est connu.
+    case readOnly(ownerName: String?)
+  }
+
+  /// Accès perdu ou rôle abaissé pendant les courses : « Terminer » seulement.
+  private(set) var accessEnd: AccessEnd?
+  var accessLost: Bool { accessEnd != nil }
   private var categoryLabels: [String: String] = [:]
   var input = ""
   var errorMessage: String?
@@ -715,15 +724,20 @@ final class ShoppingSession: Identifiable {
   /// visite reste celle de qui a coché.
   func syncDidChange() {
     guard summary == nil, !expired else { return }
-    guard (try? lists.list(id: listId)) != nil else {
+    guard let list = try? lists.list(id: listId) else {
       // Liste retirée de l'appareil : les courses s'arrêtent, les coches déjà faites restent les miennes.
-      accessLost = true
+      accessEnd = .removed
+      return
+    }
+    let access = ListAccess(list: list, me: accountId())
+    guard access.capabilities.canShop else {
+      // Passé lecteur : plus aucune coche ni visite (Q5) ; celles déjà faites restent.
+      accessEnd = .readOnly(ownerName: access.ownerName)
       return
     }
     guard !hasUnsettledChange else { return }
     let shown = Dictionary(toBuy.map { ($0.id, $0) }) { first, _ in first }
     let items = (try? lists.items(listId: listId)) ?? []
-    let access = currentAccess()
     let checkedElsewhere = items.filter { $0.checkedAt != nil && shown[$0.id]?.isChecked == false }
     let inBasket = Set(basket.map(\.id))
     let returned = items.filter { $0.checkedAt == nil && inBasket.contains($0.id) }

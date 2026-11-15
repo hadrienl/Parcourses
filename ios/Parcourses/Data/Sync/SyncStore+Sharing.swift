@@ -15,8 +15,9 @@ extension SyncStore {
       guard let ownerId = list.ownerId else { continue }
       let resolved = ListMemberships.resolve(
         listId: list.id, ownerId: ownerId, me: me, members: members, names: names)
-      // Liste qui vient d'arriver (aucun participant encore lu) : son rôle se pose sans message.
-      let isNew = list.participantsData == nil && list.roleRaw == ListRole.owner.rawValue && ownerId != me
+      // Liste d'autrui qui vient d'arriver (aucun participant encore lu, insérée en lecture seule par `merge(lists:)`
+      // ou par la réparation au lancement) : son rôle se pose sans message.
+      let isNew = list.participantsData == nil && ownerId != me
       if resolved.participants != list.participants {
         list.participants = resolved.participants
         changed = true

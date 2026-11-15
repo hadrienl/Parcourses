@@ -74,6 +74,10 @@ actor SyncEngine {
     var jitter: @Sendable () -> Double = { Double.random(in: 0.8...1.2) }
     var isOnline: @Sendable () -> Bool = { true }
     var sleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    /// Écriture d'un article acceptée par le serveur, sur cette liste : son écho temps réel sera ignoré (#87 §6.6).
+    var itemSent: @Sendable (UUID) -> Void = { _ in
+      // Sans temps réel.
+    }
   }
 
   private static let logger = Logger(subsystem: "app.parcourses", category: "sync")
@@ -496,10 +500,17 @@ actor SyncEngine {
     case .deleteList:
       try await gateway.deleteList(id: work.entityId)
     case .upsertItem:
-      return try await sendItem(work)
+      let outcome = try await sendItem(work)
+      if case .sent = outcome, let row = try? OutboxCoding.decode(ListItemUpsert.self, from: work.payloads[0]) {
+        dependencies.itemSent(row.listId)
+      }
+      return outcome
     case .deleteItem:
       let payload = try? OutboxCoding.decode(ItemDeletionPayload.self, from: work.payloads[0])
-      if try await gateway.deleteItem(id: work.entityId) { return .sent }
+      if try await gateway.deleteItem(id: work.entityId) {
+        if let listId = payload?.listId { dependencies.itemSent(listId) }
+        return .sent
+      }
       // Jamais accusé, ou entrée écrite avant 87.3 : il n'y avait peut-être rien à supprimer, ce n'est pas un refus.
       guard payload?.isOnServer == true, let listId = payload?.listId else { return .sent }
       return .untouched(listId: listId)
@@ -875,7 +886,7 @@ actor SyncEngine {
       let fetchFully = reconciliation.decision.fetchFully
       let lists = try await gateway.fetchLists(updatedAfter: fetchFully.isEmpty ? cursors.lists : nil)
       let items = try await gateway.fetchItems(updatedAfter: cursors.items)
-      let listsMerge = try await store.merge(lists: lists)
+      let listsMerge = try await store.merge(lists: lists, me: cursors.accountId)
       let itemsMerge = try await store.merge(items: items, classify: classify)
       var dataChanged = reconciliation.changed || listsMerge.changed || itemsMerge.changed
       for listId in fetchFully {

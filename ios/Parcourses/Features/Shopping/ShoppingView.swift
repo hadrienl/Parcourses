@@ -138,7 +138,7 @@ struct ShoppingView: View {
     }
     // Liste retirée pendant les courses : feuille non fermable, « Terminer » clôt la visite (#87 §1.5).
     .sheet(isPresented: accessLostIsPresented) {
-      AccessLostSheet { session.finish(keepRemaining: true) }
+      AccessLostSheet(end: session.accessEnd ?? .removed) { session.finish(keepRemaining: true) }
         .presentationDetents([.medium])
         .presentationBackground(Palette.paper)
         .interactiveDismissDisabled()
@@ -471,14 +471,23 @@ struct ShoppingView: View {
 }
 
 /// « 2 articles non cochés : les garder pour la prochaine fois ? » (#6)
-/// Accès retiré pendant les courses (maquette, écran 6) : le titre prend le focus, « Terminer » clôt la visite.
+/// Accès retiré ou passé en lecture seule pendant les courses (maquette, écran 6) : le titre prend le focus,
+/// « Terminer » clôt la visite.
 private struct AccessLostSheet: View {
+  let end: ShoppingSession.AccessEnd
   let onFinish: () -> Void
   @AccessibilityFocusState private var titleFocused: Bool
 
+  private var title: String {
+    switch end {
+    case .removed: "Vous n'avez plus accès à cette liste"
+    case .readOnly(let ownerName): SharingFormat.downgradedTitle(ownerName: ownerName)
+    }
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Space.m) {
-      Text("Vous n'avez plus accès à cette liste")
+      Text(title)
         .font(.title2.weight(.bold))
         .foregroundStyle(Palette.ink)
         .accessibilityAddTraits(.isHeader)

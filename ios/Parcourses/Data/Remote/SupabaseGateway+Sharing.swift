@@ -200,6 +200,7 @@ extension SupabaseGateway: RealtimeTransport {
       }
     }
     signalRelay = relay
+    signalContinuation = continuation
     continuation.onTermination = { _ in relay.cancel() }
     return stream
   }
@@ -207,6 +208,9 @@ extension SupabaseGateway: RealtimeTransport {
   func closeUserSignals() async {
     signalRelay?.cancel()
     signalRelay = nil
+    // Flux terminé : l'écoute de `RealtimeSignals` sort de sa boucle au lieu d'attendre un événement qui ne viendra plus.
+    signalContinuation?.finish()
+    signalContinuation = nil
     guard let channel = signalChannel else { return }
     signalChannel = nil
     // Dernier canal retiré : le client ferme aussi le WebSocket.

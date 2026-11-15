@@ -1982,6 +1982,20 @@ extension Harness {
     #expect(calls.contains(.end("b", immediate: true)))
   }
 
+  /// #87 (relecture de #100) : la liste est passée en lecture seule pendant que l'app était fermée. La visite n'est pas
+  /// reprise : elle est close à sa dernière coche, un lecteur ne fait pas de courses (Q5).
+  @Test func aVisitOnAListNowReadOnlyIsAbandonedAtLaunch() async throws {
+    let (environment, harness) = try environment()
+    let lastCheck = t0.addingTimeInterval(300)
+    let visit = try harness.visitElsewhere(checkedAt: lastCheck)
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(400))
+    #expect(session == nil)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
+  }
+
   @Test func aVisitWhoseListIsGoneIsClosedAtItsLastCheck() async throws {
     let (environment, harness) = try environment()
     let lastCheck = t0.addingTimeInterval(300)
@@ -2125,6 +2139,22 @@ extension Harness {
     #expect(try harness.visits.checks(visitId: visit).isEmpty)
     #expect(activity.states.last?.nextItemId == bread)
     #expect(activity.states.last?.remaining == 1)
+  }
+
+  /// #87 (relecture de #100) : liste passée en lecture seule pendant les courses. « Cocher le suivant » ne coche rien,
+  /// et l'activité part.
+  @Test func aListNowReadOnlyRefusesCheckNext() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let activity = RecordingActivity()
+    activity.restored[visit] = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+
+    await actions(harness, activity: activity).checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).isEmpty)
+    #expect(try harness.item(milk).checkedAt == nil)
+    #expect(activity.endAllKeeping == [nil])
   }
 
   @Test func aStaleClosedOrUnknownVisitIsLeftAlone() async throws {

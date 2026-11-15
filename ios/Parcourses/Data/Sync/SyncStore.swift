@@ -258,7 +258,10 @@ actor SyncStore {
 
   /// La ligne serveur s'applique dès qu'aucune entrée n'attend pour cet id : le local partira sinon ensuite
   /// (#9 §5.4). Aucune comparaison de dates : horloge du serveur et de l'appareil ne se comparent pas.
-  func merge(lists rows: [ListRow]) throws -> PullMerge {
+  /// `me` : compte des données. Une liste d'un autre arrive en lecture seule ; `applyMemberships` pose ensuite le vrai
+  /// rôle, sans message. Une descente coupée entre les deux ne laisse donc jamais une liste d'autrui en propriétaire.
+  /// Sans compte connu, la liste est à soi (comme avant le partage).
+  func merge(lists rows: [ListRow], me: UUID?) throws -> PullMerge {
     let pending = try pendingEntityIds()
     var merge = PullMerge()
     for row in rows {
@@ -283,7 +286,7 @@ actor SyncStore {
         modelContext.insert(
           ShoppingList(
             id: row.id, name: row.name, createdAt: row.createdAt, updatedAt: row.updatedAt, syncState: .synced,
-            ownerId: row.ownerId))
+            ownerId: row.ownerId, role: me.map { row.ownerId == $0 } ?? true ? .owner : .viewer))
         merge.changed = true
       }
     }

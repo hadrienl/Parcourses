@@ -90,10 +90,23 @@ enum SharingFormat {
     return "Lecture seule. Demandez à \(ownerName) l'accès en modification."
   }
 
+  /// Aucune invitation en attente (`inv.none`, `inv.none.body`) : l'adresse du compte, puis le conseil d'ouvrir le
+  /// lien de l'e-mail, l'invitation visant peut-être une autre adresse.
+  static func noInvitation(email: String?) -> (title: String, body: String) {
+    (
+      email.map { "Aucune invitation n'attend \($0)." } ?? "Aucune invitation en attente.",
+      "Celle que vous avez reçue vise peut-être une autre adresse : ouvrez le lien de l'e-mail."
+    )
+  }
+
+  /// « Hadrien a passé votre accès en lecture seule. » (`downgrade.plain`) : titre de la feuille du mode courses.
+  static func downgradedTitle(ownerName: String?) -> String {
+    ownerName.map { "\($0) a passé votre accès en lecture seule." } ?? "Votre accès est passé en lecture seule."
+  }
+
   /// Bannière « accès abaissé » (maquette, écran 1).
   static func downgraded(ownerName: String?, dropped: Int) -> String {
-    let who =
-      ownerName.map { "\($0) a passé votre accès en lecture seule." } ?? "Votre accès est passé en lecture seule."
+    let who = downgradedTitle(ownerName: ownerName)
     guard dropped > 0 else { return who }
     let changes =
       dropped == 1
