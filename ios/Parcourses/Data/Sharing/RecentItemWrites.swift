@@ -17,11 +17,17 @@ nonisolated final class RecentItemWrites: Sendable {
 
   /// Signal `items` de cette liste reçu dans les 2 s qui suivent un envoi réussi : l'écho de mon écriture.
   func isEcho(_ signal: RealtimeSignal, at date: Date = .now) -> Bool {
-    guard signal.kind == "items", let listId = signal.listId else { return false }
+    echoDelay(signal, at: date) != nil
+  }
+
+  /// Temps restant de la fenêtre de l'écho, `nil` si le signal n'en est pas un. Un vrai signal d'un autre membre peut
+  /// arriver dans cette fenêtre : la descente part à sa fin.
+  func echoDelay(_ signal: RealtimeSignal, at date: Date = .now) -> TimeInterval? {
+    guard signal.kind == "items", let listId = signal.listId else { return nil }
     return sent.withLock { sent in
-      guard let last = sent[listId] else { return false }
+      guard let last = sent[listId] else { return nil }
       let elapsed = date.timeIntervalSince(last)
-      return elapsed >= 0 && elapsed < Self.echoWindow
+      return elapsed >= 0 && elapsed < Self.echoWindow ? Self.echoWindow - elapsed : nil
     }
   }
 }

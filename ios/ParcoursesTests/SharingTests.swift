@@ -831,13 +831,97 @@ private actor AccountGate {
       transport: nil,
       dependencies: RealtimeSignals.Dependencies(
         pull: { probe.pulls += 1 }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
-        isEcho: { writes.isEcho($0, at: t0.addingTimeInterval(1)) }))
+        echoDelay: { writes.echoDelay($0, at: t0.addingTimeInterval(1)) }))
     signals.handle(.signal(mine))
     signals.flush()
     #expect(probe.pulls == 0)
     signals.handle(.signal(RealtimeSignal(listId: UUID(), kind: "items")))
     signals.flush()
     #expect(probe.pulls == 1)
+  }
+
+  /// Contre-relecture de #101 (1) : un vrai signal d'un autre membre peut arriver dans la fenêtre d'un écho. Une seule
+  /// descente part à la fin de la fenêtre, jamais repoussée par les échos suivants ; à la fermeture du canal, elle part
+  /// aussitôt.
+  @Test func anEchoDefersOnePullToTheEndOfItsWindow() async {
+    let writes = RecentItemWrites()
+    let list = UUID()
+    writes.record(listId: list, at: t0)
+    #expect(writes.echoDelay(RealtimeSignal(listId: list, kind: "items"), at: t0.addingTimeInterval(0.5)) == 1.5)
+    let probe = SignalProbe()
+    var waits: [Duration] = []
+    let signals = RealtimeSignals(
+      transport: nil,
+      dependencies: RealtimeSignals.Dependencies(
+        pull: { probe.pulls += 1 }, sleep: { waits.append($0) },
+        echoDelay: { writes.echoDelay($0, at: t0.addingTimeInterval(0.5)) }))
+    signals.handle(.signal(RealtimeSignal(listId: list, kind: "items")))
+    signals.handle(.signal(RealtimeSignal(listId: list, kind: "items")))
+    #expect(probe.pulls == 0)
+    await eventually { probe.pulls == 1 }
+    #expect(probe.pulls == 1)
+    #expect(waits == [.milliseconds(1500)])
+
+    // Fermeture avant la fin de la fenêtre : la descente reportée part tout de suite.
+    let held = RealtimeSignals(
+      transport: FakeTransport(),
+      dependencies: RealtimeSignals.Dependencies(
+        accountId: { lea }, isEmailAccount: { true }, pull: { probe.pulls += 1 },
+        sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
+        echoDelay: { writes.echoDelay($0, at: t0.addingTimeInterval(0.5)) }))
+    await held.foreground()
+    held.handle(.signal(RealtimeSignal(listId: list, kind: "items")))
+    await held.background()
+    #expect(probe.pulls == 2)
+  }
+
+  /// Contre-relecture de #101 (3) : feuille « Partager » ouverte pendant un abaissement, réseau coupé. L'erreur est
+  /// captée : la feuille montre l'état hors ligne, rien ne remonte.
+  @Test func theShareSheetOpenedOfflineShowsTheOfflineState() async {
+    let gateway = ScriptedSyncGateway()
+    await gateway.failAlways("listSharing", with: .network)
+    let center = SharingCenter(
+      gateway: gateway, transport: nil,
+      dependencies: SharingCenter.Dependencies(isEmailAccount: { true }), monitorsNetwork: false)
+    let model = center.makeShareModel(listId: UUID(), listName: "Courses de la semaine")
+    await model.load()
+    #expect(model.state == .offline)
+    #expect(model.sharing == nil)
+  }
+
+  /// Contre-relecture de #101 (3), côté synchro : un refus (0 ligne) pendant un abaissement, puis le réseau coupé au
+  /// moment de relire `list_sharing`. La passe s'arrête sans erreur, l'écriture reste en file, et la passe suivante
+  /// tranche.
+  @Test func aRefreshCutByTheNetworkKeepsTheWriteForTheNextPass() async throws {
+    let harness = try SyncHarness()
+    let me = await harness.gateway.account
+    let listId = UUID()
+    let itemId = UUID()
+    await harness.gateway.setPull(
+      lists: [ListRow(id: listId, ownerId: hadrien, name: "Partagée", createdAt: t0, updatedAt: t0)],
+      items: [
+        ListItemRow(
+          id: itemId, listId: listId, productId: nil, label: "Lait", quantity: nil, checkedAt: nil, createdAt: t0,
+          updatedAt: t0, updatedBy: hadrien)
+      ])
+    await harness.gateway.setMembers([
+      ListMemberRow(listId: listId, userId: me, role: "editor", createdAt: t0, updatedAt: t0)
+    ])
+    await harness.engine.drain(pull: true)
+    await harness.gateway.setReadOnlyItems([itemId])
+    await harness.gateway.failAlways("listSharing", with: .network)
+    try harness.lists.setChecked(itemId: itemId, checkedAt: t0, at: t0)
+    await harness.engine.drain()
+    #expect(try harness.fresh(OutboxEntry.self).contains { $0.entityId == itemId })
+
+    await harness.gateway.failAlways("listSharing", with: nil)
+    await harness.gateway.setMembers([
+      ListMemberRow(listId: listId, userId: me, role: "viewer", createdAt: t0, updatedAt: t0)
+    ])
+    harness.clock.advance(3600)
+    await harness.engine.drain(pull: true)
+    #expect(try harness.fresh(ShoppingList.self).first { $0.id == listId }?.role == .viewer)
+    #expect(try harness.fresh(OutboxEntry.self).isEmpty)
   }
 
   /// Relecture Android (c) : un article accepté par le serveur est noté pour son écho, par liste.

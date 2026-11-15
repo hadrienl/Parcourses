@@ -32,8 +32,9 @@ final class SharingCenter {
     }
     /// Mon compte, pour les marques d'auteur et « vous ».
     var accountId: () -> UUID? = { nil }
-    /// Signal `items` qui n'est que l'écho de ma dernière écriture (#87 §6.6).
-    var isEcho: (RealtimeSignal) -> Bool = { _ in false }
+    /// Signal `items` qui n'est probablement que l'écho de ma dernière écriture (#87 §6.6) : temps restant de la
+    /// fenêtre, `nil` sinon.
+    var echoDelay: (RealtimeSignal) -> TimeInterval? = { _ in nil }
   }
 
   /// Invitations adressées à mon adresse (`my_invitations`), la plus récente d'abord.
@@ -74,7 +75,7 @@ final class SharingCenter {
         isSharingSheetOpen: { [weak self] listId in listId != nil && self?.openSheetListId == listId },
         pull: dependencies.requestPull,
         reloadInvitations: { [weak self] in Task { await self?.loadInvitations() } },
-        reloadSharing: { [weak self] _ in self?.sharingRevision += 1 }, isEcho: dependencies.isEcho))
+        reloadSharing: { [weak self] _ in self?.sharingRevision += 1 }, echoDelay: dependencies.echoDelay))
     if monitorsNetwork {
       network = NetworkWatcher { [weak self] online in
         Task { @MainActor in self?.isOnline = online }

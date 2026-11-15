@@ -36,10 +36,12 @@ final class AppEnvironment {
     lists: lists, visits: visits, stores: stores, categories: categories, analyzer: entryAnalyzer,
     activity: shoppingActivity, session: { [weak self] in self?.currentSession })
 
-  /// `shoppingActivity` : remplacé dans les tests, qui ne doivent pas ouvrir de vraie Live Activity.
+  /// `shoppingActivity` : remplacé dans les tests, qui ne doivent pas ouvrir de vraie Live Activity. `cursors` : compte
+  /// des données, remplacé dans les tests de la réparation des rôles.
   init(
     container: ModelContainer, gateway: (any RemoteGateway)? = nil,
-    shoppingActivity: ActivityKitShoppingActivity = ActivityKitShoppingActivity()
+    shoppingActivity: ActivityKitShoppingActivity = ActivityKitShoppingActivity(),
+    cursors: any SyncCursors = UserDefaultsSyncCursors()
   ) throws {
     self.container = container
     self.shoppingActivity = shoppingActivity
@@ -56,7 +58,6 @@ final class AppEnvironment {
         // Sans configuration : rien à réveiller.
       }
     // Dernier compte connu : auteur d'une modification faite ici, avant même qu'elle parte (#87, lot 87.4).
-    let cursors = UserDefaultsSyncCursors()
     let author: () -> UUID? = { cursors.accountId }
     accountId = author
     lists = SwiftDataListRepository(context: context, onEnqueue: onEnqueue, author: author)
@@ -68,8 +69,10 @@ final class AppEnvironment {
     try categories.seedIfNeeded()
     self.categories = categories
     entryAnalyzer = try EntryAnalyzer()
-    // Listes d'autrui passées `owner` par la migration V4→V5 : lecture seule jusqu'à la descente (#87, lot 87.4).
-    // Un échec ne bloque pas le lancement : la descente pose le rôle de toute façon.
+    // Listes d'autrui passées `owner` par la migration V4→V5 : lecture seule jusqu'à la descente (#87, lot 87.4). Fait
+    // ici, à la construction : avant toute reprise de visite (`resumeShopping`) et toute ouverture du mode courses. Mes
+    // listes (`ownerId` = mon compte, ou `nil` après une reprise de compte) ne bougent pas. Un échec ne bloque pas le
+    // lancement : la descente pose le rôle de toute façon.
     _ = try? ListRoleRepair.apply(in: context, me: cursors.accountId)
   }
 
@@ -203,7 +206,7 @@ final class AppEnvironment {
           try? lists.forgetList(id: id)
           NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
         },
-        accountId: accountId, isEcho: { echoes.isEcho($0) }),
+        accountId: accountId, echoDelay: { echoes.echoDelay($0) }),
       monitorsNetwork: monitorsNetwork)
   }
 

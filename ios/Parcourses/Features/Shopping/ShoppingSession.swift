@@ -726,13 +726,13 @@ final class ShoppingSession: Identifiable {
     guard summary == nil, !expired else { return }
     guard let list = try? lists.list(id: listId) else {
       // Liste retirée de l'appareil : les courses s'arrêtent, les coches déjà faites restent les miennes.
-      accessEnd = .removed
+      endForAccess(.removed)
       return
     }
     let access = ListAccess(list: list, me: accountId())
     guard access.capabilities.canShop else {
       // Passé lecteur : plus aucune coche ni visite (Q5) ; celles déjà faites restent.
-      accessEnd = .readOnly(ownerName: access.ownerName)
+      endForAccess(.readOnly(ownerName: access.ownerName))
       return
     }
     guard !hasUnsettledChange else { return }
@@ -748,6 +748,13 @@ final class ShoppingSession: Identifiable {
     announce(
       checked: checkedElsewhere.map { (name: access.otherName($0.updatedBy), label: $0.label) },
       returned: returned.map { (name: access.otherName($0.updatedBy), label: $0.label) })
+  }
+
+  /// Courses arrêtées d'office : la Live Activity se termine tout de suite (« Cocher le suivant » n'a plus d'effet) et
+  /// ne réapparaît pas, `publishActivity` ne publiant plus après `endActivity`.
+  private func endForAccess(_ end: AccessEnd) {
+    accessEnd = end
+    endActivity()
   }
 
   /// Annonces polies de la maquette : « Léa a pris Lait entier. 5 restants. », « Léa a remis Pâtes dans la liste. ».

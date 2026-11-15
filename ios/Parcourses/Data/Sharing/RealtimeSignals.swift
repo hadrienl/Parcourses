@@ -24,8 +24,8 @@ final class RealtimeSignals {
       // Sans feuille « Partager ».
     }
     var sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// Écho de ma propre écriture (`RecentItemWrites`) : ignoré, la donnée est déjà là.
-    var isEcho: (RealtimeSignal) -> Bool = { _ in false }
+    /// Écho probable de ma propre écriture (`RecentItemWrites`) : temps restant de sa fenêtre, `nil` sinon.
+    var echoDelay: (RealtimeSignal) -> TimeInterval? = { _ in nil }
   }
 
   /// Regroupement des signaux (§6.2).
@@ -41,6 +41,8 @@ final class RealtimeSignals {
   private var openedFor: UUID?
   private var pending: [RealtimeSignal] = []
   private var flushTask: Task<Void, Never>?
+  /// Descente reportée à la fin de la fenêtre d'un écho : un vrai signal d'un autre membre a pu y arriver.
+  private var deferredPull: Task<Void, Never>?
   /// Fermeture en cours : une ouverture attend qu'elle soit finie.
   private var closing: Task<Void, Never>?
 
@@ -118,6 +120,8 @@ final class RealtimeSignals {
     self.listener = nil
     openedFor = nil
     if !pending.isEmpty { flush() }
+    // Descente reportée encore due : elle part avant la fermeture, comme les signaux en attente.
+    if deferredPull != nil { pullNow() }
     guard let transport else { return }
     let closing = Task { await transport.closeUserSignals() }
     self.closing = closing
@@ -129,9 +133,12 @@ final class RealtimeSignals {
     switch event {
     case .subscribed:
       // (Re)connexion : une descente rattrape ce qui a pu être manqué.
-      dependencies.pull()
+      pullNow()
     case .signal(let signal):
-      guard !dependencies.isEcho(signal) else { return }
+      if let delay = dependencies.echoDelay(signal) {
+        deferPull(by: delay)
+        return
+      }
       pending.append(signal)
       guard flushTask == nil else { return }
       let sleep = dependencies.sleep
@@ -140,6 +147,25 @@ final class RealtimeSignals {
         self?.flush()
       }
     }
+  }
+
+  /// Écho probable : pas de descente tout de suite, une seule à la fin de la fenêtre. Les échos suivants ne la
+  /// repoussent pas : un signal d'un autre membre caché dans la fenêtre n'attend jamais plus de 2 s.
+  private func deferPull(by delay: TimeInterval) {
+    guard deferredPull == nil else { return }
+    let sleep = dependencies.sleep
+    deferredPull = Task { [weak self] in
+      do { try await sleep(.milliseconds(Int((delay * 1000).rounded(.up)))) } catch { return }
+      self?.deferredPull = nil
+      self?.dependencies.pull()
+    }
+  }
+
+  /// Une descente part : celle qui était reportée n'a plus lieu d'être.
+  private func pullNow() {
+    deferredPull?.cancel()
+    deferredPull = nil
+    dependencies.pull()
   }
 
   /// Applique les signaux reçus pendant la fenêtre de regroupement : une seule descente, une seule relecture.
@@ -157,7 +183,7 @@ final class RealtimeSignals {
         if action == .reloadSharing, let listId = signal.listId, !sharing.contains(listId) { sharing.append(listId) }
       }
     }
-    if actions.contains(.pull) { dependencies.pull() }
+    if actions.contains(.pull) { pullNow() }
     if actions.contains(.reloadInvitations) { dependencies.reloadInvitations() }
     for listId in sharing { dependencies.reloadSharing(listId) }
   }
