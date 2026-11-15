@@ -4,7 +4,7 @@ import { assert, assertEquals } from "@std/assert";
 import categories from "../categories/categories.json" with { type: "json" };
 import dictionary from "../categories/keywords.fr.json" with { type: "json" };
 import { normalize } from "./normalize.ts";
-import { Classifier, type Dictionary, ORGANIC_WORDS } from "./classify.ts";
+import { Classifier, type Dictionary, isOneEditAway, ORGANIC_WORDS } from "./classify.ts";
 import { BIO_CATEGORY, effectiveCategory } from "./effective_category.ts";
 
 const dict = dictionary as Dictionary;
@@ -54,6 +54,20 @@ Deno.test("dictionnaire : le rayon bio ne reçoit aucun article par mot-clé", (
     assert(e.c !== BIO_CATEGORY, `${e.k} classé en bio`);
     // Le mot est retiré avant la recherche : une clé qui le contient ne serait jamais atteinte.
     assert(!e.k.split(" ").some((w) => ORGANIC_WORDS.has(w)), `clé inatteignable : ${e.k}`);
+  }
+});
+
+Deno.test("isOneEditAway : une seule opération", () => {
+  const yes = [["salde", "salade"], ["beurre", "beure"], ["tomqte", "tomate"], [
+    "yahourt",
+    "yaourt",
+  ]];
+  for (const [a, b] of [...yes, ["aubergnie", "aubergine"], ["ab", "ba"], ["a", "ab"]]) {
+    assert(isOneEditAway(a, b), `${a} / ${b}`);
+  }
+  const no = [["lait", "lait"], ["croque", "croquette"], ["carrotes", "carotte"], ["abc", "cab"]];
+  for (const [a, b] of [...no, ["", "ab"], ["ab", "cd"]]) {
+    assert(!isOneEditAway(a, b), `${a} / ${b}`);
   }
 });
 
