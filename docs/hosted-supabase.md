@@ -39,7 +39,8 @@ Le script est idempotent : un second `--apply` ne pousse rien. Il travaille en *
    **L'hébergé les refuse sans SMTP personnalisé** : `400 entitlement_required, feature auth.email_templates`, « configure
    a custom SMTP provider ». Sans SMTP, `--apply` pousse quand même le groupe auth, laisse les modèles en attente, le dit,
    et sort en **3**. Le hook et la longueur du code sont actifs dès le groupe auth, mais **les modèles par défaut ne
-   portent qu'un lien** (`{{ .ConfirmationURL }}`, vers `site_url`) et pas le code : la connexion par code des apps ne
+   portent qu'un lien** (`{{ .ConfirmationURL }}` : `https://<ref>.supabase.co/auth/v1/verify…`, qui redirige vers
+   `site_url`) et pas le code : la connexion par code des apps ne
    marche sur l'hébergé qu'une fois les modèles poussés, donc avec un SMTP personnalisé.
 
 Codes de sortie :
@@ -47,7 +48,8 @@ Codes de sortie :
 - 0 : à jour, ou appliqué et relu conforme ;
 - 1 : écarts en `--check`, ou relecture non conforme ;
 - 2 : erreur d'usage ou d'API (relancer : un `PATCH` a pu passer avant l'erreur) ;
-- 3 : appliqué, sauf les modèles, qui attendent un SMTP.
+- 3 : appliqué, sauf les modèles, qui attendent un SMTP (en `--check` aussi, quand seuls les modèles diffèrent et
+  qu'aucun SMTP n'est configuré ni fourni).
 
 ### SMTP personnalisé
 
@@ -76,7 +78,7 @@ incomplètes sont refusées : le script nomme celles qui manquent.
 **Jamais poussés** :
 
 - `site_url` et les URL de redirection : celles du dépôt visent `127.0.0.1` ;
-- le SMTP de `config.toml` : désactivé en local, il ne sert qu'à documenter ;
+- le SMTP de `config.toml` : désactivé en local ; seul son `sender_name` sert de valeur par défaut à `SMTP_SENDER_NAME` ;
 - les limites de débit et `max_frequency` : valeurs de test locales, plus permissives.
 
 Les tests du script tournent en CI (`supabase`), sans réseau : `python3 scripts/test_hosted_auth_config.py`.

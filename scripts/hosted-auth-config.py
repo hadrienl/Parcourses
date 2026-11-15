@@ -182,11 +182,18 @@ class ApiError(Exception):
         self.body = body
 
 
-def _scrub(text: str, secrets: list[str]) -> str:
+def _scrub(text: str, secrets: list[str], limit: int = 300) -> str:
+    """Masque les secrets (tels quels et échappés en JSON), puis tronque : jamais un début de secret à la coupure."""
     for secret in secrets:
         if secret:
-            text = text.replace(secret, "•••")
-    return text
+            for form in {secret, json.dumps(secret)[1:-1]}:
+                text = text.replace(form, "•••")
+    return text[:limit]
+
+
+def _printable(value: str) -> bool:
+    """Valeur d'en-tête sûre : ASCII visible, sans espace ni caractère de contrôle (\\r, \\n d'un copier-coller)."""
+    return bool(value) and all(33 <= ord(ch) <= 126 for ch in value)
 
 
 def _request(
@@ -205,12 +212,16 @@ def _request(
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = json.loads(resp.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as err:
-        raise ApiError(err.code, _scrub(err.read().decode("utf-8", "replace")[:300], hidden)) from None
+        raise ApiError(err.code, _scrub(err.read().decode("utf-8", "replace"), hidden)) from None
     except urllib.error.URLError as err:
         print(f"API de gestion injoignable : {err.reason}", file=sys.stderr)
         raise SystemExit(EXIT_ERROR) from None
     except (http.client.HTTPException, json.JSONDecodeError, UnicodeDecodeError, TimeoutError) as err:
         print(f"API de gestion : {method}, réponse illisible ({type(err).__name__})", file=sys.stderr)
+        raise SystemExit(EXIT_ERROR) from None
+    except ValueError as err:
+        # Ex. en-tête invalide : son message contiendrait la valeur (le jeton). Seul le type sort.
+        print(f"API de gestion : {method}, requête refusée avant l'envoi ({type(err).__name__})", file=sys.stderr)
         raise SystemExit(EXIT_ERROR) from None
     if not isinstance(payload, dict):
         print(f"API de gestion : {method}, réponse inattendue (pas un objet JSON)", file=sys.stderr)
@@ -229,6 +240,11 @@ def _call(method: str, ref: str, token: str, body: dict[str, Any] | None = None,
 def _is_template_entitlement(err: ApiError) -> bool:
     return err.status == 400 and ("entitlement_required" in err.body or "auth.email_templates" in err.body)
 
+
+STILL_REFUSED = (
+    "Modèles d'e-mail encore refusés juste après la configuration du SMTP (entitlement_required) : l'hébergé ne l'a "
+    "peut-être pas encore pris en compte. Relancer --apply dans quelques instants ; le SMTP ne sera pas renvoyé."
+)
 
 NO_SMTP = (
     "Modèles d'e-mail en attente : l'hébergé les refuse sans SMTP personnalisé (entitlement_required). Tant qu'ils "
@@ -252,6 +268,9 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
         config = tomllib.load(fh)
     want_auth, want_templates = desired_auth(config), desired_templates(config)
     smtp = smtp_from_env(config, env)
+    if args.rotate_smtp_pass and not smtp:
+        print("--rotate-smtp-pass demande les variables SMTP_*.", file=sys.stderr)
+        return EXIT_ERROR
 
     if args.plan:
         for field, value in {**want_auth, **want_templates}.items():
@@ -259,9 +278,14 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
         print("smtp : " + ("depuis SMTP_* (valeurs non affichées)" if smtp else "non fourni (variables SMTP_* absentes)"))
         return EXIT_OK
 
-    token, ref = env.get("SUPABASE_ACCESS_TOKEN", ""), env.get("SUPABASE_PROJECT_REF", "")
+    token = env.get("SUPABASE_ACCESS_TOKEN", "").strip()
+    ref = env.get("SUPABASE_PROJECT_REF", "").strip()
     if not token or not ref:
         print("SUPABASE_ACCESS_TOKEN et SUPABASE_PROJECT_REF sont requis.", file=sys.stderr)
+        return EXIT_ERROR
+    if not _printable(token) or not ref.isalnum():
+        print("SUPABASE_ACCESS_TOKEN ou SUPABASE_PROJECT_REF contient un caractère invalide (valeur non affichée).",
+              file=sys.stderr)
         return EXIT_ERROR
     secrets = list(smtp.values()) if smtp else []
 
@@ -277,6 +301,8 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
         print(f"smtp : à mettre à jour ({', '.join(smtp_diff)}, valeurs non affichées)")
     elif smtp and not has_smtp(have):
         print("smtp : absent de l'hébergé, à configurer depuis SMTP_*")
+    elif push_smtp:
+        print("smtp : mot de passe à renvoyer (--rotate-smtp-pass)")
     if template_diff and not has_smtp(have) and not smtp:
         print("modèles : l'hébergé n'a pas de SMTP personnalisé, ils ne pourront pas être poussés sans SMTP_*.")
 
@@ -284,7 +310,12 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
         print(f"Auth hébergée à jour ({len(want_auth) + len(want_templates)} réglages comparés"
               + (", SMTP compris)." if smtp else ")."))
         return EXIT_OK
+    waits_for_smtp = bool(template_diff) and not has_smtp(have) and not smtp
     if not args.apply:
+        if waits_for_smtp and not auth_diff:
+            # Seuls les modèles diffèrent, et ils ne peuvent pas partir sans SMTP : même sortie que --apply.
+            print(NO_SMTP)
+            return EXIT_TEMPLATES_PENDING
         print("Écarts trouvés. Relancer avec --apply pour les pousser.")
         return EXIT_DIFF
 
@@ -308,7 +339,7 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
                 if not _is_template_entitlement(err):
                     print(f"API de gestion : PATCH {err.status} {err.body}", file=sys.stderr)
                     return EXIT_ERROR
-                print(NO_SMTP, file=sys.stderr)
+                print(STILL_REFUSED if push_smtp else NO_SMTP, file=sys.stderr)
                 pending = True
         else:
             print(NO_SMTP, file=sys.stderr)
@@ -324,7 +355,8 @@ def main(argv: list[str], env: dict[str, str] | None = None) -> int:
         print(f"Après --apply, {len(left)} écart(s) restent : {', '.join(left)}", file=sys.stderr)
         return EXIT_DIFF
     if pending:
-        print("Auth et SMTP relus conformes ; modèles en attente d'un SMTP personnalisé.")
+        relu = "Auth et SMTP relus conformes" if smtp else "Auth relue conforme"
+        print(f"{relu} ; modèles en attente d'un SMTP personnalisé.")
         return EXIT_TEMPLATES_PENDING
     print("Relu conforme.")
     return EXIT_OK

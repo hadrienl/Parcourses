@@ -10,6 +10,7 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
 import tomllib
 import unittest
 from pathlib import Path
@@ -195,6 +196,24 @@ class RequestTest(unittest.TestCase):
             self.assertNotIn("jeton-secret", err)
             self.assertNotIn("mot-de-passe-smtp", err)
 
+    def test_secret_a_cheval_sur_la_coupure_ou_echappe(self):
+        body = ("x" * 295 + "mot-de-passe-smtp " + json.dumps({"v": 'mot"de"passe'})).encode()
+        error = hac.urllib.error.HTTPError("u", 400, "x", None, io.BytesIO(body))
+        _, _, err, _ = self.call(error, secrets=["mot-de-passe-smtp", 'mot"de"passe'])
+        self.assertNotIn("mot-de-pas", err)
+        self.assertNotIn('mot\\"de', err)
+
+    def test_entete_invalide_sans_le_jeton(self):
+        def urlopen(req, timeout):
+            raise ValueError(f"Invalid header value {req.get_header('Authorization')!r}")
+
+        err = io.StringIO()
+        with mock.patch.object(hac.urllib.request, "urlopen", urlopen), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as ctx:
+                hac._request("GET", "ref", "jeton-secret")
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertNotIn("jeton-secret", err.getvalue())
+
     def test_reponse_illisible_ou_pas_un_objet(self):
         for body in (b"<html>", b"[1, 2]"):
             _, code, err, _ = self.call(body)
@@ -238,9 +257,12 @@ class CheckApplyTest(unittest.TestCase):
                     raise hac.ApiError(400, ENTITLEMENT)
                 return super().__call__(method, ref, token, body, secrets)
 
-        code, out = run(["--apply"], Refusing(dict(auth, **SMTP_STATE)))
+        api = Refusing(dict(auth, **SMTP_STATE))
+        code, out = run(["--apply"], api)
         self.assertEqual(code, 3, out)
-        self.assertIn("entitlement_required", out)
+        self.assertIn("SMTP personnalisé", out)
+        self.assertIn("Auth relue conforme", out)
+        self.assertNotIn("Auth et SMTP", out)
 
     def test_avec_smtp_brevo_trois_patch_dans_l_ordre(self):
         auth = hac.desired_auth(CONFIG)
@@ -299,6 +321,54 @@ class CheckApplyTest(unittest.TestCase):
 
         code, _ = run(["--apply"], Stubborn(dict(SMTP_STATE)))
         self.assertEqual(code, 1)
+
+    def test_jeton_avec_retour_chariot_refuse_sans_l_afficher(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = hac.main(["--check"], {"SUPABASE_ACCESS_TOKEN": "jeton\r\njeton-suite", "SUPABASE_PROJECT_REF": "ref"})
+        self.assertEqual(code, 2)
+        self.assertNotIn("jeton", out.getvalue().replace("SUPABASE_ACCESS_TOKEN", ""))
+
+    def test_jeton_avec_espaces_autour_accepte(self):
+        api = FakeApi(dict(hac.desired(CONFIG), **SMTP_STATE))
+        out = io.StringIO()
+        with mock.patch.object(hac, "_request", api), contextlib.redirect_stdout(out):
+            code = hac.main(["--check"], {"SUPABASE_ACCESS_TOKEN": " jeton\n", "SUPABASE_PROJECT_REF": "ref"})
+        self.assertEqual(code, 0)
+
+    def test_check_seuls_les_modeles_attendent_un_smtp(self):
+        api = FakeApi(hac.desired_auth(CONFIG))
+        code, out = run(["--check"], api)
+        self.assertEqual(code, 3)
+        self.assertIn("SMTP personnalisé", out)
+        self.assertEqual(api.patches, [])
+
+    def test_smtp_pousse_puis_modeles_encore_refuses(self):
+        class Lagging(FakeApi):
+            def __call__(self, method, ref, token, body=None, secrets=None):
+                if method == "PATCH" and any(k.startswith("mailer_templates_") for k in body):
+                    self.patches.append(dict(body))
+                    raise hac.ApiError(400, ENTITLEMENT)
+                return super().__call__(method, ref, token, body, secrets)
+
+        api = Lagging(hac.desired_auth(CONFIG))
+        code, out = run(["--apply"], api, BREVO)
+        self.assertEqual(code, 3, out)
+        self.assertIn("Relancer --apply dans quelques instants", out)
+        self.assertNotIn("Définir SMTP_HOST", out)
+        self.assertIn("Auth et SMTP relus conformes", out)
+        secret_free(self, out)
+
+    def test_rotation_sans_smtp_refusee(self):
+        code, out = run(["--apply", "--rotate-smtp-pass"], FakeApi({}))
+        self.assertEqual(code, 2)
+        self.assertIn("SMTP_*", out)
+
+    def test_check_annonce_la_rotation(self):
+        api = FakeApi(dict(hac.desired(CONFIG), **SMTP_STATE))
+        code, out = run(["--check", "--rotate-smtp-pass"], api, BREVO)
+        self.assertEqual(code, 1)
+        self.assertIn("mot de passe à renvoyer", out)
 
     def test_sans_jeton(self):
         with contextlib.redirect_stderr(io.StringIO()):
