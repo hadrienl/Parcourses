@@ -531,20 +531,20 @@ actor SupabaseGateway: RemoteGateway {
   func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
     let verified = try await mappedAuth {
       let auth = self.client.auth
-      // Gardé avant la vérification : la session change de compte quand l'adresse en a déjà un. Jeton anonyme expiré ou
-      // près de l'être : rafraîchi d'abord, pour que `deleteAccount(accessToken:)` ne reçoive pas un jeton mort.
-      var previous = auth.currentSession
-      if let session = previous, session.user.isAnonymous,
-        Self.needsRefreshBeforeKeeping(expiresAt: session.expiresAt, now: Date.now.timeIntervalSince1970)
-      {
-        previous = try? await auth.refreshSession()
+      // Gardé avant la vérification : la session change de compte quand l'adresse en a déjà un.
+      var previous: KeptAnonymousSession?
+      if let session = auth.currentSession {
+        previous = await Self.anonymousSessionToKeep(
+          accountId: session.user.id, isAnonymous: session.user.isAnonymous, accessToken: session.accessToken,
+          expiresAt: session.expiresAt, now: Date.now.timeIntervalSince1970,
+          refresh: { try await auth.refreshSession().accessToken })
       }
       let type: EmailOTPType = purpose == .link ? .emailChange : .email
       let response = try await auth.verifyOTP(email: email, token: code, type: type)
       // Sans session dans la réponse, le jeton en cours porte encore `is_anonymous` : on le renouvelle.
       if response.session == nil { _ = try await auth.refreshSession() }
       guard let session = auth.currentSession else { throw RemoteError.unauthorized }
-      let left = previous.flatMap { $0.user.isAnonymous && $0.user.id != session.user.id ? $0.accessToken : nil }
+      let left = previous.flatMap { $0.accountId != session.user.id ? $0.accessToken : nil }
       return VerifiedCode(accountId: session.user.id, previousAnonymousToken: left)
     }
     categoryMap = nil
@@ -610,6 +610,27 @@ actor SupabaseGateway: RemoteGateway {
 
   static func needsRefreshBeforeKeeping(expiresAt: TimeInterval, now: TimeInterval) -> Bool {
     expiresAt - now < keptTokenMinimumLifetime
+  }
+
+  /// Compte anonyme quitté et son jeton, gardés avant `verifyOTP` pour `deleteAccount(accessToken:)`.
+  nonisolated struct KeptAnonymousSession: Sendable, Equatable {
+    let accountId: UUID
+    let accessToken: String
+  }
+
+  /// Session anonyme à garder : son jeton, rafraîchi d'abord s'il lui reste moins de 10 min. Un rafraîchissement en
+  /// échec donne `nil` (aucun jeton, l'ancien compte sera purgé pour inactivité, #68) : jamais d'erreur, un code valide
+  /// ne doit pas échouer pour ça. `nil` aussi pour une session non anonyme.
+  static func anonymousSessionToKeep(
+    accountId: UUID, isAnonymous: Bool, accessToken: String, expiresAt: TimeInterval, now: TimeInterval,
+    refresh: @Sendable () async throws -> String
+  ) async -> KeptAnonymousSession? {
+    guard isAnonymous else { return nil }
+    guard needsRefreshBeforeKeeping(expiresAt: expiresAt, now: now) else {
+      return KeptAnonymousSession(accountId: accountId, accessToken: accessToken)
+    }
+    guard let refreshed = try? await refresh() else { return nil }
+    return KeptAnonymousSession(accountId: accountId, accessToken: refreshed)
   }
 
   /// Refus de GoTrue gardé tel quel (statut et `error_code`) : l'écran de connexion en tire son message.

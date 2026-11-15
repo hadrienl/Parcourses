@@ -421,6 +421,80 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
   }
 }
 
+/// Sans heure du serveur, le curseur des pierres tombales reste vide : la réconciliation complète avant l'envoi n'a lieu
+/// qu'une fois par heure, et une seule fois par passe (la descente ne la refait pas).
+@MainActor
+@Suite(.serialized) struct UndatedFullReconcileTests {
+  private func serverDates(_ harness: SyncHarness) async -> Int {
+    await harness.gateway.calls.filter { $0 == "serverDate" }.count
+  }
+
+  @Test func withoutServerDateFullReconciliationIsSpacedAndDoneOncePerPass() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await harness.engine.drain(pull: true)
+    await harness.gateway.setServerNow(nil)
+    harness.cursors.tombstones = nil
+    await harness.gateway.clearCalls()
+    // Avant l'envoi, puis pas une seconde fois dans la descente de la même passe.
+    await harness.engine.drain(pull: true)
+    #expect(await serverDates(harness) == 1)
+    #expect(harness.cursors.tombstones == nil)
+
+    // Dans l'heure : l'envoi part sans réconciliation.
+    await harness.gateway.clearCalls()
+    harness.clock.advance(10)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: harness.clock.now, at: harness.clock.now)
+    await harness.engine.drain()
+    #expect(await harness.gateway.calls.contains("updateItem"))
+    #expect(await serverDates(harness) == 0)
+
+    // Une heure plus tard : de nouveau avant l'envoi.
+    await harness.gateway.clearCalls()
+    harness.clock.advance(SyncRetryPolicy.undatedFullReconcileSpacing)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: nil, at: harness.clock.now)
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    let reconciled = try #require(calls.firstIndex(of: "serverDate"))
+    let sent = try #require(calls.firstIndex(of: "updateItem"))
+    #expect(reconciled < sent)
+    #expect(calls.filter { $0 == "serverDate" }.count == 1)
+  }
+}
+
+extension UndatedFullReconcileTests {
+  /// Changement de compte adopté sans réidentification (`AccountSession.adoptAccount`) : l'espacement repart de zéro,
+  /// la première passe du nouveau compte réconcilie avant d'envoyer.
+  @Test func aNewAccountResetsTheSpacing() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await harness.engine.drain(pull: true)
+    await harness.gateway.setServerNow(nil)
+    harness.cursors.tombstones = nil
+    await harness.engine.drain(pull: true)
+    // Le compte B est adopté : session, dernier compte connu et curseurs écrits par `adoptAccount`.
+    await harness.gateway.loseAccount()
+    let accountB = await harness.gateway.account
+    await harness.gateway.setKnownAccount(accountB)
+    harness.cursors.accountId = accountB
+    harness.cursors.accountKind = .email
+    await harness.gateway.clearCalls()
+    harness.clock.advance(10)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: harness.clock.now, at: harness.clock.now)
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    let reconciled = try #require(calls.firstIndex(of: "serverDate"))
+    let sent = try #require(calls.firstIndex(of: "updateItem"))
+    #expect(reconciled < sent)
+  }
+}
+
 /// README des vecteurs : un ancien compte e-mail n'est jamais repris, même si l'app est tuée entre `verifyCode` et la
 /// purge du changement de compte.
 @MainActor
@@ -464,6 +538,28 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
 }
 
 @Suite struct KeptTokenTests {
+  /// Un rafraîchissement en échec ne fait pas échouer le code : aucun jeton gardé.
+  @Test func aFailedRefreshKeepsNoTokenWithoutFailing() async {
+    let id = UUID()
+    let failed = await SupabaseGateway.anonymousSessionToKeep(
+      accountId: id, isAnonymous: true, accessToken: "vieux", expiresAt: 1000, now: 1000,
+      refresh: { throw RemoteError.network })
+    #expect(failed == nil)
+    let refreshed = await SupabaseGateway.anonymousSessionToKeep(
+      accountId: id, isAnonymous: true, accessToken: "vieux", expiresAt: 1000, now: 1000, refresh: { "neuf" })
+    #expect(refreshed == SupabaseGateway.KeptAnonymousSession(accountId: id, accessToken: "neuf"))
+    let fresh = await SupabaseGateway.anonymousSessionToKeep(
+      accountId: id, isAnonymous: true, accessToken: "valable", expiresAt: 5000, now: 1000,
+      refresh: {
+        Issue.record("rafraîchissement inutile")
+        return "neuf"
+      })
+    #expect(fresh?.accessToken == "valable")
+    let email = await SupabaseGateway.anonymousSessionToKeep(
+      accountId: id, isAnonymous: false, accessToken: "jeton", expiresAt: 5000, now: 1000, refresh: { "neuf" })
+    #expect(email == nil)
+  }
+
   @Test func anAnonymousTokenCloseToExpiryIsRefreshedBeforeBeingKept() {
     #expect(SupabaseGateway.needsRefreshBeforeKeeping(expiresAt: 1000, now: 1000))
     #expect(SupabaseGateway.needsRefreshBeforeKeeping(expiresAt: 1000 + 599, now: 1000))

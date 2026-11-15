@@ -35,7 +35,8 @@ struct ListsView: View {
       .ticketBackground()
       .navigationTitle("Mes listes")
       .toolbar {
-        if let account, account.isAvailable, account.kind == .anonymous {
+        // Tant qu'une déconnexion attend sa purge, seul « Réessayer » est proposé.
+        if let account, account.isAvailable, account.kind == .anonymous, !account.isSignOutPending {
           // Tant que le compte est anonyme (#87, écran 4).
           ToolbarItem(placement: .topBarLeading) {
             Button {
@@ -61,7 +62,7 @@ struct ListsView: View {
         AccountSignInView(link: link) { Task { await account?.linkDidFinish() } }
       }
       .safeAreaInset(edge: .top) {
-        if let account, account.needsSignIn {
+        if let account, account.needsSignIn, !account.isSignOutPending {
           SessionLostBanner(account: account) { signIn = account.makeLink() }
         }
       }

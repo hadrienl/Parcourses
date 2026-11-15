@@ -26,7 +26,7 @@ struct ParcoursesApp: App {
       case .active:
         app.sync?.foreground()
         Task {
-          await app.account?.refresh()
+          await app.foreground()
           // Canal temps réel et invitations, une fois le compte relu (#87, lot 87.4).
           await app.sharing?.foreground()
         }
