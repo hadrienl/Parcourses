@@ -211,6 +211,8 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     type("\n", into: entry, app)
     XCTAssertTrue(row(app, "kiwi melon", "non coché").waitForExistence(timeout: 15))
     app.navigationBars.buttons.firstMatch.tap()
+    // Écran de la liste parti : son titre (« Semaine », dans le ticket) ne répond plus à la recherche.
+    XCTAssertTrue(app.descendants(matching: .any)["listTitle"].waitForNonExistence(timeout: 15))
     let list = app.staticTexts["Semaine"]
     XCTAssertTrue(list.waitForExistence(timeout: 15))
     list.tap()

@@ -94,7 +94,7 @@ struct InvitationCard: View {
 
   private var summary: some View {
     HStack(alignment: .top, spacing: Space.s) {
-      MemberAvatar(label: model.inviterInitial, size: 36, ring: false)
+      MemberAvatar(label: model.inviterInitial, size: 36, ring: false, scalesWithText: true)
       VStack(alignment: .leading, spacing: Space.xs) {
         Text(model.title)
           .font(TicketFont.item.weight(.bold))

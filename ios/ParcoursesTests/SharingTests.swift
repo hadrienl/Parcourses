@@ -449,7 +449,7 @@ private final class SignalProbe {
       monitorsNetwork: false)
   }
 
-  @Test func theOwnerSeesMembersInvitationsAndInvites() async {
+  @Test func theOwnerSeesMembersInvitationsAndInvites() async throws {
     let center = center(.owner)
     let model = center.makeShareModel(listId: UITestSharingGateway.listId, listName: "Courses de la semaine")
     var copied: [String] = []
@@ -481,22 +481,18 @@ private final class SignalProbe {
     model.copyFailedMailLink()
     #expect(copied == ["parcourses://invitation#\(UITestSharingGateway.token)"])
 
-    let pending = try? #require(model.invitations.first { $0.email == "c.martin@exemple.fr" })
-    if let pending {
-      await model.copyLink(pending)
-      #expect(model.toast?.hasPrefix("Nouveau lien copié") == true)
-      await model.revoke(pending)
-      #expect(!model.invitations.contains { $0.email == "c.martin@exemple.fr" })
-    }
+    let pending = try #require(model.invitations.first { $0.email == "c.martin@exemple.fr" })
+    await model.copyLink(pending)
+    #expect(model.toast?.hasPrefix("Nouveau lien copié") == true)
+    await model.revoke(pending)
+    #expect(!model.invitations.contains { $0.email == "c.martin@exemple.fr" })
 
-    let leaRow = model.members.first { $0.name == "Léa" }
-    if let leaRow {
-      await model.setRole(leaRow, to: .viewer)
-      #expect(model.toast == "Léa passe en lecture seule.")
-      #expect(model.members.first { $0.name == "Léa" }?.role == .viewer)
-      await model.remove(leaRow)
-      #expect(!model.members.contains { $0.name == "Léa" })
-    }
+    let leaRow = try #require(model.members.first { $0.name == "Léa" })
+    await model.setRole(leaRow, to: .viewer)
+    #expect(model.toast == "Léa passe en lecture seule.")
+    #expect(model.members.first { $0.name == "Léa" }?.role == .viewer)
+    await model.remove(leaRow)
+    #expect(!model.members.contains { $0.name == "Léa" })
   }
 
   @Test func aMemberSeesTheMembersAndCanLeave() async {
@@ -512,12 +508,11 @@ private final class SignalProbe {
     #expect(forgotten == [UITestSharingGateway.listId])
   }
 
-  @Test func aReceivedInvitationIsAcceptedThenTheListOpens() async {
+  @Test func aReceivedInvitationIsAcceptedThenTheListOpens() async throws {
     var synchronized = 0
     let center = center(.invitation, synchronized: { synchronized += 1 })
     await center.loadInvitations()
-    let invitation = try? #require(center.invitations.first)
-    guard let invitation else { return }
+    let invitation = try #require(center.invitations.first)
     let card = center.makeCard(for: invitation)
     #expect(card.title == "Hadrien vous invite à «\u{00A0}Courses de la semaine\u{00A0}»")
     #expect(card.canAccept && card.canDecline)
@@ -527,12 +522,12 @@ private final class SignalProbe {
     #expect(center.invitations.isEmpty)
   }
 
-  @Test func aLinkOpenedOnAnAnonymousAccountAsksToSignInFirst() async {
+  @Test func aLinkOpenedOnAnAnonymousAccountAsksToSignInFirst() async throws {
     let center = center(.invitation, email: false)
     #expect(center.open(url: URL(string: "parcourses://invitation#\(UITestSharingGateway.token)")!))
     #expect(!center.open(url: URL(string: "https://evil.example/i/#\(UITestSharingGateway.token)")!))
-    let token = try? #require(center.openedLink?.token)
-    let card = center.makeCard(token: token ?? "")
+    let token = try #require(center.openedLink?.token)
+    let card = center.makeCard(token: token)
     await card.load()
     #expect(card.phase == .signInRequired)
   }

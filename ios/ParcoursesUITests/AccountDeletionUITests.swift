@@ -21,6 +21,8 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
     type("tomates\n", into: entry, app)
     XCTAssertTrue(row(app, "tomates", "non coché").waitForExistence(timeout: 15))
     app.navigationBars.buttons.firstMatch.tap()
+    // Écran de la liste parti : son titre (« Semaine », dans le ticket) ne répond plus à la recherche.
+    XCTAssertTrue(app.descendants(matching: .any)["listTitle"].waitForNonExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Semaine"].waitForExistence(timeout: 15))
 
     // Annuler ne touche à rien.

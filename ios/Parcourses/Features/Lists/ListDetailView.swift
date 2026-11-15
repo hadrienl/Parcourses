@@ -48,6 +48,7 @@ struct ListDetailView: View {
     // Écran de préparation : le fil est tracé, rien n'est encore parcouru.
     let places = ThreadPlace.places(count: lines.count, reached: nil, progress: false)
     List {
+      if !model.isMissing { titleLine.ticketRow() }
       if let change = accessChange { accessBanner(change).ticketRow() }
       if isOffline { offlineBanner.ticketRow() }
       if model.access.isReadOnly {
@@ -87,7 +88,8 @@ struct ListDetailView: View {
           description: "Ajoutez un article, par exemple « 2 laits demi-écrémé ».")
       }
     }
-    .navigationTitle(model.name)
+    // Titre dans le ticket (`titleLine`), pas dans la barre : elle porte les pastilles et le chariot, un titre y serait
+    // tronqué (maquette sharing-v1, décision « Titre de la liste sur iOS »).
     .navigationBarTitleDisplayMode(.inline)
     .navigationBarBackButtonHidden(model.wasRemoved)
     .toolbar {
@@ -142,6 +144,22 @@ struct ListDetailView: View {
     }
   }
 
+  /// Nom de la liste en tête du ticket, en mono majuscules comme le magasin du mode courses ; passe sur plusieurs
+  /// lignes plutôt que d'être tronqué. Lu comme l'en-tête de l'écran, avec la casse saisie.
+  private var titleLine: some View {
+    Text(model.name)
+      .font(TicketFont.title)
+      .tracking(TicketFont.titleTracking)
+      .textCase(.uppercase)
+      .foregroundStyle(Palette.ink)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, Space.xs)
+      .accessibilityLabel(Text(model.name))
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityIdentifier("listTitle")
+  }
+
   /// Compteur du ticket : « ARTICLES 06 ».
   private var header: some View {
     let count = model.sections.reduce(0) { $0 + $1.items.count }
@@ -170,6 +188,9 @@ struct ListDetailView: View {
         Text(SharingFormat.modifiedBy(change.name, at: change.date, now: context.date))
           .font(TicketFont.meta)
           .foregroundStyle(Palette.inkMuted)
+          // Passe à la ligne aux grandes tailles au lieu d'être rognée.
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
           .accessibilityLabel(SharingFormat.modifiedByAccessibility(change.name, at: change.date, now: context.date))
       }
       .accessibilityIdentifier("lastChange")

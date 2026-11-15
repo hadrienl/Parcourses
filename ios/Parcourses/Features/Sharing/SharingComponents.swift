@@ -7,14 +7,19 @@ struct MemberAvatar: View {
   var size: CGFloat = 28
   /// Anneau couleur papier qui sépare les pastilles empilées.
   var ring = true
+  /// Suit Dynamic Type sans plafond (un plafond est signalé par l'audit) : avatar posé dans le contenu, comme celui de
+  /// la carte d'invitation. Les pastilles de la barre et des lignes gardent leur taille, la barre ne s'agrandit pas.
+  var scalesWithText = false
+  @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
   var body: some View {
+    let side = scalesWithText ? size * scale : size
     Text(label)
-      .font(.system(size: size * 0.43, weight: .bold, design: .monospaced))
+      .font(.system(size: side * 0.43, weight: .bold, design: .monospaced))
       .foregroundStyle(Palette.ink)
       .lineLimit(1)
       .minimumScaleFactor(0.6)
-      .frame(width: size, height: size)
+      .frame(width: side, height: side)
       .background(Palette.paperEdge, in: Circle())
       .overlay { if ring { Circle().strokeBorder(Palette.paper, lineWidth: 2) } }
       .accessibilityHidden(true)

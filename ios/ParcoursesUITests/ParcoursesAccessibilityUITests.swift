@@ -161,6 +161,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    défaut comme en AX5 (`quickEntry`, `shoppingEntry`, `storeSearch`) ; les captures montrent le texte et
       //    l'indication entiers.
       if issue.auditType == .textClipped && element.elementType == .textField { return .known("9 champ de texte") }
+      // 10. Pastilles des membres dans la barre d'une liste partagée (`MemberAvatar`, 28 pt, empilées) : « Contrast
+      //    failed » sur iOS 26.5, alors que le rendu mesuré sur la capture donne l'initiale #1A1C22 sur #EAE1CE,
+      //    13:1. L'audit mesure la pastille voisine qui la recouvre de 8 pt, rendue par le verre de la barre. Les
+      //    mêmes pastilles hors de la barre (feuille « Partager ») restent auditées.
+      if issue.auditType == .contrast, let bar = screen.navigationBar, bar.contains(frame),
+        frame.width == 28, frame.height == 28
+      {
+        return .known("10 pastilles de la barre")
+      }
       return nil
     default:
       return nil
