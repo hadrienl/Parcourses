@@ -12,6 +12,7 @@ import fr.parcourses.core.database.entity.SyncState
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
+@Suppress("TooManyFunctions")
 @Dao
 interface ShoppingListDao {
     /** Listes non supprimées, la plus récemment modifiée d'abord. */
@@ -62,6 +63,25 @@ interface ShoppingListDao {
 
     @Query("DELETE FROM lists WHERE id = :id")
     suspend fun delete(id: String): Int
+
+    /** Mon rôle sur la liste (#87, lot 87.6) : sans toucher à `updatedAt` ni à l'état d'envoi, il vient du serveur. */
+    @Query("UPDATE lists SET role = :role WHERE id = :id")
+    suspend fun setRole(
+        id: String,
+        role: fr.parcourses.core.model.ListRole,
+    ): Int
+
+    /**
+     * Rôles cohérents avec le propriétaire (#87, lot 87.6), au lancement : une liste de [me] est à moi ; celle d'un
+     * autre marquée « propriétaire » (base d'avant la version 3) passe en lecture seule jusqu'à ce que la descente dise
+     * mon rôle. Une liste jamais descendue (`ownerId` nul) est à moi et n'est pas touchée.
+     */
+    @Query(
+        "UPDATE lists SET role = CASE WHEN ownerId = :me THEN 'Owner' ELSE 'Viewer' END " +
+            "WHERE ownerId IS NOT NULL " +
+            "AND ((ownerId = :me AND role != 'Owner') OR (ownerId != :me AND role = 'Owner'))",
+    )
+    suspend fun repairRoles(me: String): Int
 }
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
@@ -128,7 +148,11 @@ interface ListItemDao {
     @Upsert
     suspend fun upsertAll(items: List<ListItemEntity>)
 
-    @Query("UPDATE list_items SET checkedAt = :checkedAt, updatedAt = :at, syncState = :state WHERE id = :id")
+    /** Coche locale : la dernière modification devient la mienne (`updatedBy` nul : aucune marque d'auteur, #87). */
+    @Query(
+        "UPDATE list_items SET checkedAt = :checkedAt, updatedAt = :at, syncState = :state, updatedBy = NULL " +
+            "WHERE id = :id",
+    )
     suspend fun setChecked(
         id: String,
         checkedAt: Instant?,

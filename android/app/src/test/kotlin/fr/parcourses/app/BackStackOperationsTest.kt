@@ -343,4 +343,22 @@ class ShoppingNavigationTest {
     }
 
     // endregion
+    // region Partage (#87)
+
+    @Test
+    fun aSecondInvitationLinkReplacesTheFirstScreen() {
+        val stack = stack(Route.Lists)
+        stack.openInvitation()
+        val first = stack.last() as Route.Invitation
+        stack.openInvitation()
+        val second = stack.last() as Route.Invitation
+        // Un seul écran d'invitation, neuf : son modèle lit le jeton du second lien.
+        assertEquals(1, stack.count { it is Route.Invitation })
+        assertNotEquals(first.slot, second.slot)
+
+        stack.openAcceptedList("a")
+        assertEquals(listOf<NavKey>(Route.Lists, Route.ListDetail("a", (stack.last() as Route.ListDetail).slot)), stack)
+    }
+
+    // endregion
 }

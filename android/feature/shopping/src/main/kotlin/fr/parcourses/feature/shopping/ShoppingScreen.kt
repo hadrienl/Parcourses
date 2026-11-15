@@ -147,7 +147,9 @@ internal fun ShoppingContent(
             ShoppingList(state, actions)
         }
     }
-    if (showsRemaining || state.expired) {
+    if (state.accessLost) {
+        AccessLostDialog(onFinish = { actions.onFinish(true) })
+    } else if (showsRemaining || state.expired) {
         RemainingItemsSheet(
             count = state.remainingCount,
             expired = state.expired,

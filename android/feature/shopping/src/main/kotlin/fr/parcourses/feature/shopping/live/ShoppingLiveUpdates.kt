@@ -5,6 +5,7 @@ import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.feature.shopping.ShoppingTimings
 import fr.parcourses.feature.shopping.checkSubject
 import kotlinx.coroutines.CancellationException
@@ -297,6 +298,20 @@ class ShoppingLiveUpdates(
             log.warn("« Cocher le suivant » ignoré : la notification ne suit plus cette visite")
             return
         }
+        // Liste passée en lecture seule (#87, Q5) : plus de courses, la notification est retirée comme à la fin.
+        if (lists.list(state.listId)?.role == ListRole.Viewer) {
+            log.warn("« Cocher le suivant » refusé : liste en lecture seule")
+            current = null
+        } else {
+            checkPending(state, command)
+        }
+    }
+
+    /** Coche l'article que la notification montre encore à prendre. */
+    private suspend fun checkPending(
+        state: ShoppingLiveState,
+        command: Command.CheckNext,
+    ) {
         val item = lists.items(state.listId).firstOrNull { it.id == command.itemId }
         // Seul un article que la notification montre encore à prendre se coche : ni un article retiré ou passé
         // introuvable entre-temps, ni un article d'un ancien état.
@@ -384,14 +399,17 @@ class ShoppingLiveUpdates(
     }
 
     /**
-     * Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée, ou
-     * liste supprimée).
+     * Dernière activité de la visite suivie, `null` si elle ne doit plus être montrée (close, disparue, périmée, liste
+     * supprimée, ou passée en lecture seule : un lecteur ne fait pas les courses, #87 Q5).
      */
     private suspend fun lastActivityIfLive(state: ShoppingLiveState): Instant? {
-        val visit = visits.visit(state.visitId)?.takeIf { lists.list(state.listId) != null }
+        val visit =
+            visits.visit(state.visitId)?.takeIf {
+                lists.list(state.listId)?.let { list -> list.role != ListRole.Viewer } == true
+            }
         val last = visit?.let { visits.lastActivity(it.id) ?: it.startedAt }
         when {
-            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close ou sans liste")
+            visit == null || visit.endedAt != null -> log.info("Live Update retirée : visite close, sans liste ou lue")
             last == null || now() - last >= timings.expiry -> log.info("Live Update retirée : visite périmée (45 min)")
             else -> return last
         }

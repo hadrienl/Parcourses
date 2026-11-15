@@ -9,6 +9,7 @@ import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.database.entity.VisitEntity
+import fr.parcourses.core.model.ListRole
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Instant
@@ -131,6 +132,8 @@ class RoomVisitRepository(
         var enqueued = false
         val visit =
             db.withWriteTransaction {
+                // Lecteur (#87, Q5) : pas de mode courses, donc aucune visite.
+                if (db.lists().get(listId)?.role == ListRole.Viewer) throw RepositoryException.ReadOnly(listId)
                 var reused: VisitEntity? = null
                 for (open in db.visits().getOpen()) {
                     val same = open.storeId == storeId && open.listId == listId
@@ -321,7 +324,14 @@ class RoomVisitRepository(
 
     private suspend fun requireWritableItem(id: String): ListItemEntity {
         val item = db.items().get(id) ?: throw RepositoryException.NotFound(id)
-        if (db.lists().get(item.listId)?.deletedAt != null) throw RepositoryException.ListDeleted(item.listId)
+        requireWritableList(item.listId)
         return item
+    }
+
+    private suspend fun requireWritableList(listId: String) {
+        val list = db.lists().get(listId)
+        if (list?.deletedAt != null) throw RepositoryException.ListDeleted(listId)
+        // Lecteur (#87, Q5) : ni coche ni décoche, aucune coche de visite.
+        if (list?.role == ListRole.Viewer) throw RepositoryException.ReadOnly(listId)
     }
 }

@@ -1,6 +1,9 @@
 package fr.parcourses.app
 
 import android.app.Application
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import fr.parcourses.core.data.sync.SyncWorkerFactory
 import fr.parcourses.feature.shopping.live.LiveUpdateHost
@@ -32,5 +35,17 @@ class ParcoursesApp :
     override fun onCreate() {
         super.onCreate()
         container.start(appScope)
+        // Canal temps réel du partage (#87 §6.6) : ouvert au premier plan de l'app, fermé en arrière-plan.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    container.realtime?.foreground()
+                }
+
+                override fun onStop(owner: LifecycleOwner) {
+                    container.realtime?.background()
+                }
+            },
+        )
     }
 }

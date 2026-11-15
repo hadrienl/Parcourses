@@ -13,6 +13,7 @@ internal fun MutableList<NavKey>.applyRemap(remap: IdentifierRemap) {
             is Route.StorePicker -> this[index] = key.copy(listId = remap[key.listId])
             is Route.Shopping -> this[index] = key.copy(listId = remap[key.listId])
             is Route.ShoppingSummary -> this[index] = key.remapped(remap)
+            is Route.ShareList -> this[index] = key.copy(listId = remap[key.listId])
             else -> Unit
         }
     }
@@ -122,6 +123,7 @@ internal fun MutableList<NavKey>.popIfTop(slot: String): Boolean {
             is Route.Shopping -> top.slot
             is Route.ShoppingSummary -> top.slot
             is Route.ListDetail -> top.slot
+            is Route.ShareList -> top.slot
             else -> null
         }
     if (topSlot != slot) return false

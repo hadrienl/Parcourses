@@ -9,21 +9,33 @@ import fr.parcourses.core.data.outbox.ServerClock
 import fr.parcourses.core.data.outbox.VisitClosePayload
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.ListItemEntity
+import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.database.entity.OutboxEntryEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.database.entity.syncedOnce
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.CategoryMap
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListItemUpsert
+import fr.parcourses.core.network.dto.ListMemberRow
 import fr.parcourses.core.network.dto.ListRow
+import fr.parcourses.core.network.dto.ListSharing
+import fr.parcourses.core.network.dto.ProfileRow
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Duration
 import kotlin.time.Instant
+
+/** Mon rôle sur une liste a changé (#87, lot 87.6). */
+data class RoleChange(
+    val listId: String,
+    val from: ListRole,
+    val to: ListRole,
+)
 
 /** Ce qu'il faut savoir d'un article pour le créer localement à la descente. */
 data class PulledItemClassification(
@@ -54,7 +66,7 @@ class PullMerge {
  * Accès Room de la synchronisation. N'alloue jamais de `sequence` : les entrées ne sont ajoutées que par
  * `OutboxQueue`, dans la transaction de l'écriture qu'elles accompagnent.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass") // une méthode par opération de la file et de la descente
 class SyncStore(
     private val db: ParcoursesDatabase,
 ) {
@@ -320,7 +332,10 @@ class SyncStore(
      * La ligne serveur s'applique dès qu'aucune entrée n'attend pour cet id : le local partira sinon ensuite
      * (#9 §5.4). Aucune comparaison de dates : horloge du serveur et de l'appareil ne se comparent pas.
      */
-    suspend fun mergeLists(rows: List<ListRow>): PullMerge =
+    suspend fun mergeLists(
+        rows: List<ListRow>,
+        me: String? = null,
+    ): PullMerge =
         db.withWriteTransaction {
             val pending = pendingEntityIds()
             val merge = PullMerge()
@@ -342,6 +357,15 @@ class SyncStore(
                                 null,
                                 SyncState.SYNCED,
                                 ownerId = row.ownerId.toString(),
+                                // Liste d'un autre : lecture seule jusqu'à ce que les membres disent mon rôle.
+                                role =
+                                    if (me == null ||
+                                        row.ownerId.toString() == me
+                                    ) {
+                                        ListRole.Owner
+                                    } else {
+                                        ListRole.Viewer
+                                    },
                             ),
                         )
                         merge.changed = true
@@ -573,7 +597,9 @@ class SyncStore(
         rows: List<ListItemRow>,
         classify: (String) -> PulledItemClassification,
         keepUnsent: Boolean = false,
+        onDropped: (Int) -> Unit = {},
     ): PullMerge {
+        var dropped = 0
         db.withWriteTransaction {
             // [keepUnsent] (liste à soi) : les articles jamais arrivés au serveur et leurs entrées restent.
             val unsent =
@@ -596,7 +622,10 @@ class SyncStore(
                         OutboxKind.UpsertItem, OutboxKind.DeleteItem -> OutboxDependencies.listId(entry) == listId
                         else -> false
                     }
-                if (tied) outbox.delete(entry.id)
+                if (tied) {
+                    outbox.delete(entry.id)
+                    dropped += 1
+                }
             }
             val alive = rows.map { it.id.toString() }.toSet()
             for (item in db.items().getByList(listId)) {
@@ -606,8 +635,101 @@ class SyncStore(
                 db.lists().setSyncState(listId, SyncState.SYNCED)
             }
         }
+        onDropped(dropped)
         return mergeItems(rows, classify)
     }
+
+    /** Toutes les listes, supprimées comprises (noms des listes qu'une réconciliation va retirer). */
+    suspend fun lists(): List<ShoppingListEntity> = db.lists().getAll()
+
+    /**
+     * Membres de toutes les listes (#87, lot 87.6), à la descente : les personnes de chaque liste partagée
+     * (propriétaire compris) remplacent celles de l'appareil, et mon rôle est relu. Une liste jamais descendue reste à
+     * soi, sans personne. Renvoie les rôles changés des listes déjà connues comme partagées (pas l'arrivée d'une
+     * liste).
+     */
+    suspend fun replaceParticipants(
+        members: List<ListMemberRow>,
+        profiles: List<ProfileRow>,
+        me: String?,
+    ): List<RoleChange> =
+        db.withWriteTransaction {
+            val names = profiles.associate { it.userId.toString() to it.displayName }
+            val byList = members.groupBy { it.listId.toString() }
+            val known =
+                db
+                    .participants()
+                    .all()
+                    .filter { it.isMe }
+                    .map { it.listId }
+                    .toSet()
+            val rows = mutableListOf<ListParticipantEntity>()
+            val changes = mutableListOf<RoleChange>()
+            for (list in db.lists().getAll()) {
+                val owner = list.ownerId ?: continue
+                val listMembers = byList[list.id].orEmpty()
+                if (listMembers.isNotEmpty() ||
+                    owner != me
+                ) {
+                    rows += participantsOf(list.id, owner, listMembers, names, me)
+                }
+                val role = me?.let { myRole(owner, listMembers, it) }
+                if (role != null && role != list.role) {
+                    db.lists().setRole(list.id, role)
+                    if (list.id in known) changes += RoleChange(list.id, list.role, role)
+                }
+            }
+            db.participants().deleteAll()
+            db.participants().upsertAll(rows)
+            changes
+        }
+
+    /** Personnes d'une liste partagée : son propriétaire, puis ses membres. */
+    private fun participantsOf(
+        listId: String,
+        owner: String,
+        members: List<ListMemberRow>,
+        names: Map<String, String?>,
+        me: String?,
+    ): List<ListParticipantEntity> =
+        listOf(ListParticipantEntity(listId, owner, names[owner], ListRole.Owner, owner == me)) +
+            members.map { member ->
+                val user = member.userId.toString()
+                ListParticipantEntity(listId, user, names[user], member.role, user == me, member.createdAt)
+            }
+
+    /** Mon rôle sur une liste : propriétaire, celui de `list_members`, ou `null` si je n'y figure pas. */
+    private fun myRole(
+        owner: String,
+        members: List<ListMemberRow>,
+        me: String,
+    ): ListRole? = if (owner == me) ListRole.Owner else members.firstOrNull { it.userId.toString() == me }?.role
+
+    /** Réponse de `list_sharing` pour une liste : ses personnes et mon rôle. Renvoie le changement de rôle éventuel. */
+    suspend fun applySharing(sharing: ListSharing): RoleChange? =
+        db.withWriteTransaction {
+            val listId = sharing.listId.toString()
+            val list = db.lists().get(listId) ?: return@withWriteTransaction null
+            db.participants().deleteByList(listId)
+            val shared = sharing.members.isNotEmpty() || !sharing.owner.isMe
+            if (shared) {
+                db.participants().upsertAll(
+                    sharing.participants.map {
+                        ListParticipantEntity(
+                            listId,
+                            it.userId.toString(),
+                            it.displayName,
+                            it.role,
+                            it.isMe,
+                            it.joinedAt,
+                        )
+                    },
+                )
+            }
+            if (list.role == sharing.role) return@withWriteTransaction null
+            db.lists().setRole(listId, sharing.role)
+            RoleChange(listId, list.role, sharing.role)
+        }
 
     private suspend fun removeListsLocked(ids: Collection<String>) {
         if (ids.isEmpty()) return
@@ -623,6 +745,7 @@ class SyncStore(
         }
         for (id in doomed) {
             db.items().deleteByList(id)
+            db.participants().deleteByList(id)
             db.lists().delete(id)
         }
         Log.i(TAG, "Listes retirées de l'appareil : ${doomed.size}")

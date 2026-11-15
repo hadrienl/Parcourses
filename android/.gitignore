@@ -5,3 +5,5 @@ local.properties
 .kotlin/
 *.iml
 captures/
+# Captures d’écran des PR (#87) : versionnées, contrairement à celles d’Android Studio.
+!/docs/captures/

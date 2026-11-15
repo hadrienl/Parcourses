@@ -39,6 +39,12 @@ data class ShoppingRow(
     val isChecked: Boolean,
     /** Rayon effectif (bio compris si le magasin en a un) : celui de la section en ordre générique. */
     val aisleId: String = "",
+    /**
+     * Coché par un autre membre d'une liste partagée (#87 §7) : son initiale dans le panier ([checkedByName] : son
+     * prénom, lu par TalkBack). Une telle coche ne crée aucune coche dans ma visite.
+     */
+    val checkedBy: String? = null,
+    val checkedByName: String? = null,
 ) {
     /** « Tomates, 2 » : l'état est lu à part par TalkBack. */
     val accessibilityLabel: String get() = listOfNotNull(label, quantity).joinToString(", ")
@@ -125,6 +131,8 @@ data class ShoppingUiState(
     val summary: ShoppingSummary? = null,
     val reorder: ReorderAnnouncement? = null,
     val errorMessage: String? = null,
+    /** La liste n'est plus partagée avec moi (#87 §1.5) : les courses s'arrêtent, la visite garde ses coches. */
+    val accessLost: Boolean = false,
 ) {
     /** Articles ni cochés ni décidés : la feuille de fin demande s'il faut les garder. */
     val remainingCount: Int get() = toBuy.count { !it.isChecked } + notFound.size

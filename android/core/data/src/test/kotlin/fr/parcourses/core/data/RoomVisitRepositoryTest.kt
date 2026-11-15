@@ -13,6 +13,7 @@ import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.database.entity.VisitEntity
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.RemoteError
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -53,6 +54,36 @@ class RoomVisitRepositoryTest : DataTest() {
             val visit = visits.startVisit(store, list.id, listWasSorted = true, at = now)
             assertEquals(visit, visits.openVisit())
             assertTrue(visit.listWasSorted)
+            assertTrue(db.outbox().all().isEmpty())
+        }
+
+    @Test
+    fun aReaderNeitherStartsAVisitNorChecks() =
+        runBlocking {
+            val list = newList()
+            val item = lists.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            val visit = visits.startVisit(store, list.id, listWasSorted = false, at = now)
+            db.outbox().all().forEach { db.outbox().delete(it.id) }
+            // Rôle abaissé pendant les courses : ni coche, ni décoche, ni nouvelle visite.
+            db.lists().setRole(list.id, ListRole.Viewer)
+            try {
+                visits.checkItem(visit.id, item.id, CheckSubject.Category("dairy"), now)
+                fail("Coche d'un lecteur acceptée")
+            } catch (_: RepositoryException.ReadOnly) {
+            }
+            try {
+                visits.uncheckItem(item.id, null, now)
+                fail("Décoche d'un lecteur acceptée")
+            } catch (_: RepositoryException.ReadOnly) {
+            }
+            visits.abandonVisit(visit.id, now)
+            try {
+                visits.startVisit(store, list.id, listWasSorted = false, at = now)
+                fail("Visite d'un lecteur ouverte")
+            } catch (_: RepositoryException.ReadOnly) {
+            }
+            assertTrue(visits.checks(visit.id).isEmpty())
+            assertNull(db.items().get(item.id)?.checkedAt)
             assertTrue(db.outbox().all().isEmpty())
         }
 

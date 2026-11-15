@@ -21,6 +21,8 @@ room3 {
 
 dependencies {
     // Le référentiel de catégories embarqué (amorçage) vient du module JVM du classifieur.
+    // Rôle sur une liste (#87, lot 87.6), commun à la base, au réseau et aux écrans.
+    api(project(":core:model"))
     api(project(":core:categorizer"))
     api(libs.room.runtime)
     api(libs.kotlinx.coroutines.core)

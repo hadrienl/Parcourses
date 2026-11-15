@@ -4,6 +4,7 @@ import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
+import fr.parcourses.core.model.ListRole
 import kotlin.time.Instant
 
 // Les identifiants UUID sont stockés en texte minuscule (règle de comparaison de #5).
@@ -21,10 +22,35 @@ data class ShoppingListEntity(
     val syncState: SyncState = SyncState.PENDING,
     /** Propriétaire, appris à la descente (#87) ; `null` tant que la liste n'est jamais descendue : elle est à nous. */
     val ownerId: String? = null,
+    /**
+     * Mon rôle sur la liste (#87, lot 87.6), durable : [ListRole.Owner] pour une liste créée ici, sinon celui de
+     * `list_members`, relu à la descente et par `refreshAccess`. Ce que l'interface propose en dépend
+     * (`SharingDecisions.roleCapabilities`).
+     */
+    @ColumnInfo(defaultValue = "Owner") val role: ListRole = ListRole.Owner,
 )
 
 /** Déjà arrivée au serveur une fois (envoi accusé ou ligne descendue) : `syncedOnce` du vecteur `005`. */
 val ShoppingListEntity.syncedOnce: Boolean get() = ownerId != null || syncState == SyncState.SYNCED
+
+/**
+ * Une personne d'une liste (#87, lot 87.6) : le propriétaire et les membres, appris à la descente (`list_members`,
+ * `profiles`). Sert aux pastilles, à « Modifiée par… » et à la marque d'auteur, hors ligne compris. Jamais d'adresse.
+ */
+@Entity(
+    tableName = "list_participants",
+    primaryKeys = ["listId", "userId"],
+    indices = [Index("userId")],
+)
+data class ListParticipantEntity(
+    val listId: String,
+    val userId: String,
+    val displayName: String? = null,
+    val role: ListRole,
+    /** Le compte des données de l'appareil, au moment de la descente. */
+    val isMe: Boolean = false,
+    val joinedAt: Instant? = null,
+)
 
 /** Article d'une liste (`list_items`). `categoryId`, `notFoundAt` et `position` restent locaux. */
 @Entity(

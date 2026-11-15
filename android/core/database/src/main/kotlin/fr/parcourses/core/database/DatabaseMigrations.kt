@@ -22,5 +22,27 @@ object DatabaseMigrations {
             }
         }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2)
+    /**
+     * Version 3 (#87, lot 87.6) : `lists.role` et la table `list_participants`, remplie à la descente suivante. Une
+     * liste jamais descendue (`ownerId` nul) est à soi ; une liste descendue peut être celle d'un autre (partage du
+     * lot 87.2, déjà descendu en 87.5) : lecture seule, puis `ListDao.repairRoles` rend les miennes au lancement, avant
+     * que la descente ne dise mon rôle sur les autres.
+     */
+    val MIGRATION_2_3: Migration =
+        object : Migration(2, 3) {
+            override suspend fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `lists` ADD COLUMN `role` TEXT NOT NULL DEFAULT 'Owner'")
+                connection.execSQL("UPDATE `lists` SET `role` = 'Viewer' WHERE `ownerId` IS NOT NULL")
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `list_participants` (`listId` TEXT NOT NULL, `userId` TEXT NOT NULL, " +
+                        "`displayName` TEXT, `role` TEXT NOT NULL, `isMe` INTEGER NOT NULL, `joinedAt` INTEGER, " +
+                        "PRIMARY KEY(`listId`, `userId`))",
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_list_participants_userId` ON `list_participants` (`userId`)",
+                )
+            }
+        }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }
