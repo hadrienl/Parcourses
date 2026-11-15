@@ -30,6 +30,9 @@ nonisolated enum SyncRetryPolicy {
   static let pullAfterSendInterval: TimeInterval = 60
   /// Une descente en échec ne se retente qu'une fois par minute, sans gêner l'envoi.
   static let pullRetryInterval: TimeInterval = 60
+  /// Réconciliation complète sans heure du serveur : le curseur reste vide, et la suivante avant l'envoi attend ce
+  /// délai au lieu de revenir à chaque passe.
+  static let undatedFullReconcileSpacing: TimeInterval = 3600
 
   /// Entrées par appel à `resolve_products`, sa limite côté serveur.
   static let maxResolutionBatch = 100
@@ -111,6 +114,14 @@ actor SyncEngine {
   /// lancement (quota du jour, catégorie refusée). Un libellé modifié repart.
   private var resolutionAttempts: [UUID: String] = [:]
   private var resolutionBackoffUntil: Date?
+  /// Dernière réconciliation complète faite sans heure du serveur (en mémoire) : la suivante avant l'envoi attend
+  /// `undatedFullReconcileSpacing`.
+  private var undatedFullReconcileNotBefore: Date?
+  /// Réconciliation complète déjà faite pendant cette passe : la descente ne la refait pas.
+  private var isFullyReconciledThisPass = false
+  /// Compte de la dernière passe prête : un autre compte (changement adopté par `AccountSession.adoptAccount`, sans
+  /// réidentification ici) remet l'espacement des réconciliations à zéro.
+  private var preparedAccountId: UUID?
 
   init(
     gateway: any RemoteGateway, container: ModelContainer, cursors: any SyncCursors,
@@ -202,6 +213,7 @@ actor SyncEngine {
 
   private func pass(pull requested: Bool) async {
     var pull = requested
+    isFullyReconciledThisPass = false
     await reconcileQueueIfNeeded()
     // Une descente demandée reste due si la passe s'arrête avant elle.
     guard dependencies.isOnline() else {
@@ -301,6 +313,10 @@ actor SyncEngine {
           needsAccountRecovery = true
         } else {
           cursors.accountId = id
+          if preparedAccountId != id {
+            preparedAccountId = id
+            undatedFullReconcileNotBefore = nil
+          }
           await noteAccountKind()
           return .ready
         }
@@ -336,6 +352,7 @@ actor SyncEngine {
       cursors.items = nil
       // Sans curseur : la première descente du nouveau compte réconcilie ses articles en entier (vecteur `007`).
       cursors.tombstones = nil
+      undatedFullReconcileNotBefore = nil
       cursors.accountId = id
       cursors.accountKind = nil
       await noteAccountKind()
@@ -880,6 +897,8 @@ actor SyncEngine {
       cursors.tombstones = Self.later(cursors.tombstones, rows.map(\.deletedAt).max())
       return changed
     case .fullReconcile:
+      // Déjà faite avant l'envoi de cette passe (heure du serveur absente, curseur resté vide).
+      guard !isFullyReconciledThisPass else { return false }
       return try await reconcileItemsFully()
     }
   }
@@ -894,6 +913,9 @@ actor SyncEngine {
       changed = try await store.reconcileItems(listId: listId, serverIds: Set(ids)) || changed
     }
     cursors.tombstones = serverNow
+    isFullyReconciledThisPass = true
+    undatedFullReconcileNotBefore =
+      serverNow == nil ? dependencies.now().addingTimeInterval(SyncRetryPolicy.undatedFullReconcileSpacing) : nil
     return changed
   }
 
@@ -903,6 +925,8 @@ actor SyncEngine {
     let now = dependencies.now()
     guard SyncDecisions.tombstonePullMode(cursor: cursors.tombstones, now: now) == .fullReconcile else { return true }
     if let pullBackoffUntil, pullBackoffUntil > now { return true }
+    // Sans heure du serveur la dernière fois : une par heure au plus, la descente réconcilie entre-temps.
+    if let undatedFullReconcileNotBefore, undatedFullReconcileNotBefore > now { return true }
     do {
       // Aucune liste encore arrivée au serveur : rien à confronter, la descente posera le curseur.
       guard try await !store.reconcilableListIds().isEmpty else { return true }

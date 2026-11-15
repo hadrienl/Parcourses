@@ -25,7 +25,7 @@ struct ParcoursesApp: App {
       switch phase {
       case .active:
         app.sync?.foreground()
-        Task { await app.account?.refresh() }
+        Task { await app.foreground() }
       case .background:
         guard let sync = app.sync else { break }
         sync.enteredBackground()

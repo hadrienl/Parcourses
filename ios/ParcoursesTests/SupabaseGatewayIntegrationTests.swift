@@ -948,7 +948,7 @@ struct AccountsIntegrationTests {
         container: container, keychain: keychain, defaults: defaults,
         urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
       signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
-      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults), cursors: cursors,
       dependencies: AccountSession.Dependencies(pendingChanges: pendingChanges, link: link))
     return Device(
       remote: remote, keychain: keychain, defaults: defaults, kinds: kinds, cursors: cursors, container: container,
@@ -1114,6 +1114,8 @@ struct AccountsIntegrationTests {
     await switching.verify(code: try await Mailpit.code(to: second, seen: &seen))
     #expect(switching.outcome == .signedIn(displayName: nil, addedLists: 0))
     #expect(try await a.remote.currentAccountId() == accountB)
+    // B est le compte des données dès la purge, avant toute passe réussie.
+    #expect(a.cursors.accountId == accountB && a.cursors.accountKind == .email)
     #expect(try a.listNames() == ["IT-87 de B"])
     #expect(try await other.remote.fetchLists(updatedAfter: nil).map(\.name) == ["IT-87 de B"])
     #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
@@ -1143,7 +1145,7 @@ struct AccountsIntegrationTests {
         container: a.container, keychain: a.keychain, defaults: a.defaults,
         urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
       signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: a.defaults),
-      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: a.defaults))
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: a.defaults), cursors: a.cursors)
     await session.refresh()
     #expect(session.kind == .email && session.email == email)
     await session.signOut()
