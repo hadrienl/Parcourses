@@ -725,7 +725,8 @@ final class ShoppingSession: Identifiable {
     let items = (try? lists.items(listId: listId)) ?? []
     let access = currentAccess()
     let checkedElsewhere = items.filter { $0.checkedAt != nil && shown[$0.id]?.isChecked == false }
-    let returned = items.filter { $0.checkedAt == nil && basket.contains(where: { row in row.id == $0.id }) }
+    let inBasket = Set(basket.map(\.id))
+    let returned = items.filter { $0.checkedAt == nil && inBasket.contains($0.id) }
     settlingIds.formUnion(checkedElsewhere.map(\.id))
     reloadRows()
     scheduleSettle()

@@ -15,13 +15,15 @@ extension SyncStore {
       guard let ownerId = list.ownerId else { continue }
       let resolved = ListMemberships.resolve(
         listId: list.id, ownerId: ownerId, me: me, members: members, names: names)
+      // Liste qui vient d'arriver (aucun participant encore lu) : son rôle se pose sans message.
+      let isNew = list.participantsData == nil && list.roleRaw == ListRole.owner.rawValue && ownerId != me
       if resolved.participants != list.participants {
         list.participants = resolved.participants
         changed = true
       }
       // Sans ligne à mon nom, la liste n'est plus à moi : la réconciliation des listes la retire, le rôle reste.
       guard let role = resolved.role, role != list.role else { continue }
-      if let kind = ListMemberships.change(from: list.role, to: role) {
+      if !isNew, let kind = ListMemberships.change(from: list.role, to: role) {
         changes.append(
           SharingAccessChange(listId: list.id, listName: list.name, ownerName: names[ownerId], kind: kind))
       }

@@ -361,7 +361,8 @@ actor ScriptedSyncGateway: RemoteGateway {
   func fetchLists(updatedAfter: Date?) async throws -> [ListRow] {
     try record("fetchLists")
     listCursors.append(updatedAfter)
-    return listRows
+    // Comme la RLS : une liste qui n'est plus lisible ne descend plus.
+    return listRows.filter { !hiddenLists.contains($0.id) }
   }
   func fetchItems(updatedAfter: Date?) async throws -> [ListItemRow] {
     try record("fetchItems")

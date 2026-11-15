@@ -112,11 +112,13 @@ struct SharingValueTests {
     let scheme = InvitationLinks(httpsHost: "  ")
     #expect(scheme.httpsHost == nil)
     #expect(scheme.link(token: token) == "parcourses://invitation#\(token)")
-    #expect(scheme.token(in: try #require(URL(string: "parcourses://invitation#\(token)"))) == token)
-    #expect(scheme.token(in: try #require(URL(string: "https://parcourses.example/i/#\(token)"))) == nil)
+    let schemeURL = try #require(URL(string: "parcourses://invitation#\(token)"))
+    let httpsURL = try #require(URL(string: "https://parcourses.example/i/#\(token)"))
+    #expect(scheme.token(in: schemeURL) == token)
+    #expect(scheme.token(in: httpsURL) == nil)
     let host = InvitationLinks(httpsHost: "parcourses.example")
     #expect(host.link(token: token) == "https://parcourses.example/i/#\(token)")
-    #expect(host.token(in: try #require(URL(string: host.link(token: token)))) == token)
+    #expect(host.token(in: httpsURL) == token)
     // Aucun domaine écrit en dur : l'Info.plist de l'app ne porte pas d'hôte par défaut.
     #expect(InvitationLinks(bundle: .main).httpsHost == nil)
   }

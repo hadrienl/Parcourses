@@ -1256,7 +1256,8 @@ struct SharingIntegrationTests {
       let sent = try await owner.remote.sendInvitation(listId: list.id, email: memberEmail, role: .editor)
       #expect(sent.sent)
       #expect(sent.link.hasPrefix("parcourses://invitation#"))
-      #expect(InvitationLinks(httpsHost: nil).token(in: try #require(URL(string: sent.link))) != nil)
+      let sentURL = try #require(URL(string: sent.link))
+      #expect(InvitationLinks(httpsHost: nil).token(in: sentURL) != nil)
     } else {
       _ = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .editor)
     }
@@ -1284,7 +1285,8 @@ struct SharingIntegrationTests {
 
     // Par le lien : nouveau jeton, aperçu « déjà membre », acceptation idempotente.
     let link = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .viewer)
-    let token = try #require(InvitationLinks(httpsHost: nil).token(in: try #require(URL(string: link))))
+    let linkURL = try #require(URL(string: link))
+    let token = try #require(InvitationLinks(httpsHost: nil).token(in: linkURL))
     let preview = try await member.remote.previewInvitation(token: token)
     #expect(preview.cardState == .alreadyMember)
     let again = try await member.remote.acceptInvitation(token: token)
