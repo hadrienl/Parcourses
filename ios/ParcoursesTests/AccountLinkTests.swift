@@ -116,15 +116,32 @@ final class LinkProbe {
   var resendable = 0
   /// Appels de la passerelle vus au moment de la synchronisation : l'ordre compte.
   var callsAtSynchronization: [String] = []
+  var previousAccount: UUID?
+  var pending = 0
+  /// Ordre des étapes demandées à l'app : arrêt et reprise de la synchro, changement de compte, synchro.
+  var steps: [String] = []
+  var switchFailure: (any Error)?
 
   func dependencies(_ gateway: AccountGateway) -> AccountLink.Dependencies {
     AccountLink.Dependencies(
       isOnline: { self.online }, now: { self.now }, resendableLists: { _ in self.resendable },
       synchronize: {
         self.synchronizations += 1
+        self.steps.append("synchronize")
         self.callsAtSynchronization = await gateway.calls
       },
-      sessionDidChange: { self.sessionChanges += 1 })
+      sessionDidChange: { self.sessionChanges += 1 },
+      previousAccountId: { self.previousAccount }, pendingChanges: { self.pending },
+      suspendSync: {
+        let calls = await gateway.calls
+        self.steps.append("suspend:\(calls.count)")
+      },
+      resumeSync: { self.steps.append("resume") },
+      switchAccount: { id in
+        self.steps.append("switch")
+        if let failure = self.switchFailure { throw failure }
+        _ = id
+      })
   }
 }
 
@@ -208,6 +225,63 @@ final class LinkProbe {
     #expect(link.outcome == .signedIn(displayName: nil, addedLists: 0))
     #expect(probe.synchronizations == 1)
     #expect(await gateway.deletedTokens.isEmpty)
+  }
+
+  /// Synchro arrêtée avant la vérification, reprise après, succès comme échec.
+  @Test func syncIsSuspendedAroundTheVerification() async {
+    let (link, gateway, _, probe) = makeLink()
+    link.email = "lea@exemple.fr"
+    await link.requestCode()
+    await gateway.setVerifyFailures([AuthRequestError(status: 403, code: "otp_expired")])
+    await link.verify(code: "000000")
+    // Arrêt avant l'appel (1 appel : la liaison), reprise après l'échec.
+    #expect(probe.steps == ["suspend:1", "resume"])
+    await link.verify(code: "123456")
+    #expect(probe.steps == ["suspend:1", "resume", "suspend:2", "resume"])
+  }
+
+  /// D'un compte e-mail à un autre : l'appareil est purgé avant la reprise de la synchro, rien n'est renvoyé.
+  @Test func anotherEmailAccountReplacesTheDeviceData() async {
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    probe.previousAccount = UUID()
+    probe.resendable = 3
+    probe.pending = 2
+    #expect(link.losesPendingChangesOnSwitch)
+    await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: nil))
+    link.email = "autre@exemple.fr"
+    await link.requestCode()
+    await link.verify(code: "333333")
+    #expect(probe.steps == ["suspend:1", "switch", "resume", "synchronize"])
+    #expect(link.outcome == .signedIn(displayName: nil, addedLists: 0))
+  }
+
+  /// Même compte (reconnexion) : pas de purge.
+  @Test func theSameEmailAccountKeepsTheDeviceData() async {
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    let account = UUID()
+    probe.previousAccount = account
+    await gateway.setVerified(VerifiedCode(accountId: account, previousAnonymousToken: nil))
+    link.email = "lea@exemple.fr"
+    await link.requestCode()
+    await link.verify(code: "444444")
+    #expect(!probe.steps.contains("switch"))
+    #expect(link.phase == .done)
+  }
+
+  /// Purge impossible : la session du nouveau compte est oubliée, on attend une nouvelle connexion sans rien renvoyer.
+  @Test func aFailedSwitchSignsOutAndWaits() async {
+    struct PurgeFailure: Error {}
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    probe.previousAccount = UUID()
+    probe.switchFailure = PurgeFailure()
+    link.email = "autre@exemple.fr"
+    await link.requestCode()
+    await link.verify(code: "555555")
+    #expect(link.error == .unknown)
+    #expect(link.phase == .enterEmail)
+    #expect(await gateway.calls.last == "signOut")
+    #expect(probe.steps == ["suspend:1", "switch", "resume"])
+    #expect(probe.synchronizations == 0)
   }
 
   @Test func errorsAreClassified() async {
@@ -360,9 +434,16 @@ private final class SignOutHost: AccountDeletionHost {
       container: container, keychain: MemorySecureStore(), defaults: defaults,
       urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0))
     let counter = Counter()
+    let pending = SyncState.pending.rawValue
     let session = AccountSession(
       gateway: gateway, kinds: kinds, purge: purge,
-      dependencies: AccountSession.Dependencies(sessionDidChange: { counter.value += 1 }))
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
+      dependencies: AccountSession.Dependencies(
+        pendingChanges: {
+          let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
+          return (try? container.mainContext.fetchCount(descriptor)) ?? 0
+        },
+        sessionDidChange: { counter.value += 1 }))
     return Setup(
       session: session, gateway: gateway, kinds: kinds, defaults: defaults, container: container,
       changes: { counter.value })
@@ -406,7 +487,8 @@ private final class SignOutHost: AccountDeletionHost {
     await setup.session.refresh()
     let lists = SwiftDataListRepository(context: setup.container.mainContext)
     _ = try lists.createList(name: "Courses", at: .now)
-    #expect(setup.session.losesPendingChanges == false)
+    // La liste n'est pas encore partie : la confirmation le dit.
+    #expect(setup.session.losesPendingChanges)
     let host = SignOutHost()
     setup.session.host = host
     await setup.session.signOut()
@@ -418,5 +500,57 @@ private final class SignOutHost: AccountDeletionHost {
     #expect(setup.defaults.string(forKey: UserDefaultsAccountKindStore.key) == nil)
     #expect(setup.session.kind == .anonymous)
     #expect(setup.session.email == nil)
+    #expect(!UserDefaultsAccountSignOutFlagStore(defaults: setup.defaults).isPending)
+  }
+
+  /// Arrêt de l'app après la pose du drapeau : la purge est faite au lancement suivant.
+  @Test func anInterruptedSignOutIsFinishedAtLaunch() async throws {
+    let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "Courses", at: .now)
+    let flags = UserDefaultsAccountSignOutFlagStore(defaults: setup.defaults)
+    flags.save()
+    #expect(setup.session.resumePendingSignOut())
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    #expect(!flags.isPending)
+    #expect(setup.session.kind == .anonymous)
+  }
+
+  /// Purge en échec : ni reconstruction ni compte anonyme, « Réessayer » ; le drapeau reste jusqu'au succès.
+  @Test func aFailedPurgeOffersARetry() async throws {
+    struct SeedFailure: Error {}
+    let defaults = try #require(UserDefaults(suiteName: "tests.account.\(UUID().uuidString)"))
+    let kinds = UserDefaultsAccountKindStore(defaults: defaults)
+    kinds.save(.email)
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let gateway = AccountGateway()
+    await gateway.setEmail("lea@exemple.fr")
+    let fails = Counter()
+    fails.value = 1
+    let purge = LocalDataPurge(
+      container: container, keychain: MemorySecureStore(), defaults: defaults,
+      urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0),
+      seedSource: {
+        if fails.value > 0 {
+          fails.value -= 1
+          throw SeedFailure()
+        }
+        return try CategorySeed.bundled()
+      })
+    let flags = UserDefaultsAccountSignOutFlagStore(defaults: defaults)
+    let session = AccountSession(gateway: gateway, kinds: kinds, purge: purge, signOutFlags: flags)
+    await session.refresh()
+    let host = SignOutHost()
+    session.host = host
+    await session.signOut()
+    #expect(session.signOutFailed)
+    #expect(flags.isPending)
+    #expect(!host.steps.contains("restart"))
+    #expect(await !gateway.calls.contains("ensureSession"))
+    await session.retrySignOut()
+    withExtendedLifetime(host) {}
+    #expect(!session.signOutFailed)
+    #expect(!flags.isPending)
+    #expect(host.steps.last == "restart")
+    #expect(await gateway.calls.last == "ensureSession")
   }
 }

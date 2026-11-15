@@ -88,6 +88,16 @@ struct AccountSignInView: View {
       .accessibilityAddTraits(.isHeader)
     Text("Retrouvez vos listes et celles qu'on partage avec vous.")
       .foregroundStyle(Palette.ink)
+    if link.losesPendingChangesOnSwitch {
+      // Compte e-mail sans session : une autre adresse purgerait l'appareil (#87, changement de compte).
+      Label(
+        "Avec une autre adresse, les listes de cet appareil en seront retirées. Les modifications pas encore envoyées seront perdues.",
+        systemImage: "exclamationmark.triangle"
+      )
+      .font(.callout)
+      .foregroundStyle(Palette.ink)
+      .accessibilityIdentifier("switchWarning")
+    }
     field(label: "Adresse e-mail") {
       TextField("prenom@exemple.fr", text: $link.email)
         .textContentType(.emailAddress)

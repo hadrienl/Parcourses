@@ -87,6 +87,10 @@ final class AppEnvironment {
     let container = container
     let cursors = UserDefaultsSyncCursors()
     let pending = SyncState.pending.rawValue
+    let pendingChanges: () -> Int = {
+      let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
+      return (try? container.mainContext.fetchCount(descriptor)) ?? 0
+    }
     let link = AccountLink.Dependencies(
       isOnline: { sync?.isOnline ?? true },
       resendableLists: { accountId in
@@ -95,15 +99,16 @@ final class AppEnvironment {
         return (try? AccountRekey.resendCount(in: container.mainContext, previousAccountId: cursors.accountId)) ?? 0
       },
       synchronize: { await sync?.synchronize() },
-      sessionDidChange: { sync?.sessionDidChange() })
+      sessionDidChange: { sync?.sessionDidChange() },
+      previousAccountId: { cursors.accountId },
+      pendingChanges: pendingChanges,
+      suspendSync: { await sync?.suspend() },
+      resumeSync: { await sync?.resumeAndWait() })
     return AccountSession(
       gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: LocalDataPurge(container: container),
       dependencies: AccountSession.Dependencies(
         isOnline: { sync?.isOnline ?? true },
-        pendingChanges: {
-          let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
-          return (try? container.mainContext.fetchCount(descriptor)) ?? 0
-        },
+        pendingChanges: pendingChanges,
         sessionDidChange: { sync?.sessionDidChange() }, link: link))
   }
 

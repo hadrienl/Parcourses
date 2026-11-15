@@ -16,7 +16,10 @@ final class AppModel {
   private(set) var isResumingDeletion: Bool
   let gateway: (any RemoteGateway)?
 
-  init(flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()) {
+  init(
+    flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
+    signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore()
+  ) {
     let gateway = AuthBootstrap.makeGateway()
     self.gateway = gateway
     environment = Result { try AppEnvironment.live(gateway: gateway) }
@@ -26,6 +29,8 @@ final class AppModel {
     deletion?.host = self
     account = current?.makeAccountSession()
     account?.host = self
+    // Déconnexion interrompue par un arrêt de l'app : la purge est achevée avant toute synchro, qui reste arrêtée sinon.
+    if signOutFlags.isPending, account?.resumePendingSignOut() == true { current?.sync?.resume() }
     // Avant tout `perform()` : l'app peut être lancée en arrière-plan par « Cocher le suivant », sans scène.
     // Jamais pendant une suppression : la coche irait dans des données sur le point d'être effacées.
     if !isResumingDeletion { CheckNextItemRouter.handler = current?.activityActions }

@@ -155,6 +155,36 @@ struct AccountSection: View {
   }
 }
 
+extension View {
+  /// Purge de la déconnexion en échec : « Réessayer », ou « Plus tard » (elle reprendra au prochain lancement).
+  /// `isHidden` : une feuille est ouverte par-dessus, c'est elle qui présente l'alerte.
+  func signOutFailurePresentation(_ account: AccountSession?, isHidden: Bool = false) -> some View {
+    modifier(SignOutFailurePresentation(account: account, isHidden: isHidden))
+  }
+}
+
+private struct SignOutFailurePresentation: ViewModifier {
+  let account: AccountSession?
+  let isHidden: Bool
+
+  func body(content: Content) -> some View {
+    content.alert("La déconnexion n'a pas abouti.", isPresented: isPresented) {
+      Button("Réessayer") { Task { await account?.retrySignOut() } }
+        .accessibilityIdentifier("retrySignOut")
+      Button("Plus tard", role: .cancel) { account?.postponeSignOutRetry() }
+    } message: {
+      Text(
+        "Vos listes sont peut-être encore sur cet appareil. Sans nouvel essai, la déconnexion reprendra au prochain lancement."
+      )
+    }
+  }
+
+  /// Les deux boutons changent l'état du compte : la fermeture de l'alerte n'a rien à écrire.
+  private var isPresented: Binding<Bool> {
+    Binding(get: { account?.signOutFailed == true && !isHidden }, set: { _ in })
+  }
+}
+
 /// Bandeau de l'écran Listes : un compte e-mail dont la session a disparu ne crée plus de compte anonyme (vecteur
 /// `009`), la synchro attend la reconnexion.
 struct SessionLostBanner: View {

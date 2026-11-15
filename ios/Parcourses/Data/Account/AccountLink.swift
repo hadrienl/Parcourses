@@ -54,6 +54,24 @@ final class AccountLink {
     var sessionDidChange: () -> Void = {
       // Sans moteur ni écran à prévenir.
     }
+    /// Compte auquel se rapportent les données de l'appareil (`SyncCursors.accountId`).
+    var previousAccountId: () -> UUID? = { nil }
+    /// Entrées de la file pas encore parties.
+    var pendingChanges: () -> Int = { 0 }
+    /// Arrêt de la synchro pendant la vérification du code : aucune requête (ni page suivante) ne part avec le jeton
+    /// du nouveau compte sur les données de l'ancien.
+    var suspendSync: () async -> Void = {
+      // Sans moteur à arrêter.
+    }
+    /// Attendue : la synchro qui suit doit trouver le moteur reparti.
+    var resumeSync: () async -> Void = {
+      // Sans moteur à relancer.
+    }
+    /// Compte e-mail qui se connecte à un autre compte e-mail : l'appareil est purgé, session gardée, et le nouveau
+    /// compte adopté. Rien de l'ancien compte n'est renvoyé.
+    var switchAccount: (UUID) async throws -> Void = { _ in
+      // Sans données locales : rien à purger.
+    }
   }
 
   /// Délai avant « Renvoyer le code ».
@@ -124,6 +142,10 @@ final class AccountLink {
     return name
   }
 
+  /// Compte e-mail sans session : se connecter avec une autre adresse purgerait l'appareil, et des modifications pas
+  /// encore envoyées seraient perdues. L'écran le dit avant la demande de code.
+  var losesPendingChangesOnSwitch: Bool { !canLink && dependencies.pendingChanges() > 0 }
+
   /// Secondes avant « Renvoyer le code », 0 s'il est disponible.
   func secondsUntilResend(now: Date) -> Int {
     guard let codeSentAt else { return 0 }
@@ -166,26 +188,49 @@ final class AccountLink {
     error = nil
     defer { isWorking = false }
     let gateway = gateway
+    await dependencies.suspendSync()
     let verified: VerifiedCode
     do {
       verified = try await withTimeout(Self.timeout) {
         try await gateway.verifyCode(email: sentTo, code: code, purpose: purpose)
       }
     } catch {
+      await dependencies.resumeSync()
       return publish(classifyVerification(error))
     }
     kinds.save(.email)
     let name = Self.validDisplayName(displayName)
     if purpose == .link {
+      await dependencies.resumeSync()
       dependencies.sessionDidChange()
       if let name { await writeDisplayName(name) }
       outcome = .linked
       phase = .done
       return
     }
-    // Compte existant : les listes du téléphone y sont ajoutées par la passe qui suit (`AccountRekey`).
-    let added = dependencies.resendableLists(verified.accountId)
     phase = .merging
+    var added = 0
+    if !canLink, verified.accountId != dependencies.previousAccountId() {
+      // D'un compte e-mail à un autre : les données de l'ancien restent chez lui, sur le serveur. L'appareil est purgé
+      // avant que la synchro reprenne, sinon `AccountRekey` les renverrait au nouveau compte.
+      do {
+        try await dependencies.switchAccount(verified.accountId)
+      } catch {
+        Self.logger.error("Changement de compte impossible : \(String(describing: error), privacy: .private)")
+        // Retour à l'attente d'une connexion, sans rien renvoyer.
+        try? await gateway.signOut()
+        await dependencies.resumeSync()
+        phase = .enterEmail
+        self.purpose = nil
+        self.sentTo = nil
+        codeSentAt = nil
+        return publish(.unknown)
+      }
+    } else {
+      // Compte existant : les listes du téléphone y sont ajoutées par la passe qui suit (`AccountRekey`).
+      added = dependencies.resendableLists(verified.accountId)
+    }
+    await dependencies.resumeSync()
     dependencies.sessionDidChange()
     await dependencies.synchronize()
     if let token = verified.previousAnonymousToken {

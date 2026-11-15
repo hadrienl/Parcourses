@@ -49,6 +49,65 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(await harness.gateway.patches.last?.columns == [ListItemFields.checkedAt])
   }
 
+  /// Insertion arrivée mais réponse perdue : l'article n'est pas accusé, puis il est coché. L'insertion suivante ne
+  /// touche rien ; les champs de l'entrée partent en mise à jour, la coche arrive.
+  @Test func aChangeAfterAnInsertWhoseResponseWasLostReachesTheServer() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await harness.gateway.setLosesInsertResponses(true)
+    await harness.engine.drain()
+    #expect(try freshItem(harness, item.id)?.isOnServer == false)
+    let checkedAt = t0.addingTimeInterval(30)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: checkedAt, at: checkedAt)
+    await harness.skipBackoff()
+    await harness.gateway.clearCalls()
+    await harness.engine.drain()
+    let calls = await harness.gateway.calls
+    let insert = try #require(calls.firstIndex(of: "insertItem"))
+    let update = try #require(calls.firstIndex(of: "updateItem"))
+    #expect(insert < update)
+    #expect(await harness.gateway.patches.last?.columns.contains(ListItemFields.checkedAt) == true)
+    #expect(await harness.gateway.savedItems.last?.checkedAt == checkedAt)
+    #expect(try harness.entries().isEmpty)
+    #expect(try freshItem(harness, item.id)?.isOnServer == true)
+  }
+
+  /// Insertion ignorée d'un article enterré : la mise à jour qui suit ne touche rien, la pierre tombale tranche.
+  @Test func anIgnoredInsertOfABuriedItemDropsIt() async throws {
+    let harness = try SyncHarness()
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    await harness.engine.drain()
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    await harness.gateway.deleteElsewhere(item.id, listId: list.id, at: t0)
+    await harness.engine.drain()
+    #expect(try freshItem(harness, item.id) == nil)
+    #expect(try harness.entries().isEmpty)
+    #expect(await harness.gateway.calls.contains("fetchTombstones(ids:)"))
+  }
+
+  /// `refreshAccess` sur une liste à soi : un article jamais envoyé et son entrée restent.
+  @Test func reloadingOwnListKeepsUnsentItems() async throws {
+    let harness = try SyncHarness()
+    let (list, item) = try await syncedItem(harness)
+    await harness.gateway.setReadOnlyItems([item.id])
+    await harness.gateway.setPull(items: [serverItem(item.id, listId: list.id, label: "Lait", at: t0)])
+    // L'article ajouté attend (23503, mis de côté sans arrêter la passe) quand la coche est refusée en silence.
+    await harness.gateway.fail("insertItem", with: [.dependencyMissing(code: "23503")])
+    let unsent = try harness.lists.addItem(
+      listId: list.id, label: "Pain", normalizedName: "pain", quantity: nil, productId: nil, categoryId: "bakery",
+      at: t0)
+    try harness.lists.setChecked(itemId: item.id, checkedAt: t0, at: t0)
+    await harness.engine.drain()
+    #expect(try freshItem(harness, unsent.id) != nil)
+    #expect(try harness.entries().map(\.entityId) == [unsent.id])
+    #expect(try freshItem(harness, item.id)?.checkedAt == nil)
+  }
+
   /// Vecteur `002` : une entrée remplacée avant l'envoi garde sa place et l'union des champs.
   @Test func aReplacedEntryKeepsItsSequenceAndTheUnionOfFields() async throws {
     let harness = try SyncHarness()

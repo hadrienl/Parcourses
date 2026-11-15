@@ -31,7 +31,8 @@ Les valeurs de sortie sont les noms des cas d'enum (Swift `case deletedElsewhere
 - **Modèles locaux** : `ShoppingList.ownerId` (UUID nul tant que la liste n'est pas descendue), `ListItem.isOnServer`
   (vrai dès qu'un envoi est accusé ou que la ligne est descendue), `ListItem.updatedBy`, `OutboxEntry.changedFields`
   (noms de colonnes serveur), `SyncCursors.tombstones`.
-- **Passerelle** (`RemoteGateway`) : `insertItem(_:)` (insertion complète, idempotente), `updateItem(id:fields:)` →
+- **Passerelle** (`RemoteGateway`) : `insertItem(_:)` → `Bool` (insertion complète, idempotente ; vrai si une ligne a
+  été insérée), `updateItem(id:fields:)` →
   `Bool` (vrai si une ligne a été touchée), `accessibleListIds()`, `fetchItems(listId:)`, `fetchItemIds(listId:)`,
   `fetchTombstones(after:)`, `fetchTombstones(ids:)`, `linkEmail(_:)`, `signInWithEmail(_:)`,
   `verifyCode(email:code:purpose:)` (`EmailCodePurpose` : `link`, `signIn`), `setDisplayName(_:)`, `accountEmail()`,
@@ -53,3 +54,17 @@ Les valeurs de sortie sont les noms des cas d'enum (Swift `case deletedElsewhere
 - Après la reprise vers un compte existant, l'ancien compte anonyme est supprimé par `deleteAccount(accessToken:)` avec
   le jeton gardé avant `verifyCode` ; un échec est sans conséquence (purge des inactifs à 365 jours, #68).
 - Déconnexion : confirmation, `signOut()`, puis `LocalDataPurge` (#68) et nouveau compte anonyme vide.
+- Insertion d'un article (`insert` du vecteur `001`) qui n'insère rien (`insertItem` → `false`) : la ligne existait déjà
+  (réponse d'une insertion précédente perdue, article d'avant la migration) ou elle est enterrée. Les champs de l'entrée
+  partent aussitôt par `updateItem(id:fields:)` ; si cette mise à jour touche 0 ligne, le vecteur `003` tranche. Sans
+  cela, une coche faite entre l'insertion et son accusé n'arriverait jamais au serveur.
+- Reconnexion d'un compte e-mail (session perdue) à **un autre** compte (`verifyCode` renvoie un compte différent de
+  `SyncCursors.accountId`) : aucun renvoi, `AccountRekey` n'est pas joué. `LocalDataPurge` en gardant la session du
+  nouveau compte, qui est acquitté (`acknowledgeAccount`), puis descente. Les données de l'ancien compte restent sur le
+  serveur, sous lui. L'écran prévient avant la demande de code si des modifications ne sont pas encore parties (« Les
+  modifications pas encore envoyées seront perdues. »). Même compte : rien ne change. La synchro est suspendue pendant
+  `verifyCode` et reprise ensuite, succès comme échec.
+- Déconnexion : drapeau durable `account.signOut` posé avant `signOut()`, effacé après la purge ; tant qu'il est posé, la
+  synchro reste arrêtée et la purge est rejouée au lancement. Purge en échec : pas de nouveau compte, « Réessayer ».
+- `refreshAccess` sur une liste dont on est propriétaire : les articles jamais envoyés (`isOnServer = false`) et leurs
+  entrées restent.

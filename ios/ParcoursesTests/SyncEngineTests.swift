@@ -192,16 +192,25 @@ actor ScriptedSyncGateway: RemoteGateway {
     try checkAccount()
     deletedLists.append(id)
   }
-  func insertItem(_ item: ListItemUpsert) async throws {
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
     try record("insertItem")
     try checkAccount()
     try checkServer(item.id)
     if itemsNeedTheirList, !savedLists.contains(where: { $0.id == item.listId }) { throw RemoteError.forbidden }
     if refusedLists.contains(item.listId) { throw RemoteError.forbidden }
-    // Comme la garde du serveur : un article enterré n'est pas recréé, sans erreur.
-    guard !tombstones.contains(where: { $0.id == item.id }) else { return }
+    // Comme la garde du serveur : un article enterré n'est pas recréé, sans erreur. Un doublon non plus.
+    guard !tombstones.contains(where: { $0.id == item.id }), serverItems[item.id] == nil else { return false }
     savedItems.append(item)
+    if losesInsertResponses {
+      losesInsertResponses = false
+      throw RemoteError.network
+    }
+    return true
   }
+
+  /// La prochaine insertion arrive, mais sa réponse se perd.
+  var losesInsertResponses = false
+  func setLosesInsertResponses(_ value: Bool) { losesInsertResponses = value }
 
   /// Mises à jour reçues, colonnes comprises.
   var patches: [(id: UUID, columns: [String])] = []

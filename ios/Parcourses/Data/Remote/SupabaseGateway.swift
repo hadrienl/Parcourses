@@ -271,8 +271,17 @@ actor SupabaseGateway: RemoteGateway {
     try await authorized { _ = try await self.rest.from(ListUpsert.table).delete().eq("id", value: id).execute() }
   }
 
-  func insertItem(_ item: ListItemUpsert) async throws {
-    try await authorized { try await self.insertIgnoringDuplicates(item, into: ListItemUpsert.table) }
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
+    try await authorized {
+      // `on conflict do nothing` ne renvoie que les lignes insérées : rien si l'article existait déjà (insertion
+      // précédente dont la réponse s'est perdue) ou s'il est enterré (pierre tombale).
+      let inserted: [IdentifierRow] =
+        try await self.rest.from(ListItemUpsert.table)
+        .upsert(item, onConflict: "id", returning: .representation, ignoreDuplicates: true)
+        .select("id")
+        .execute().value
+      return !inserted.isEmpty
+    }
   }
 
   func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {

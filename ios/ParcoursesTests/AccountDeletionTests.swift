@@ -198,10 +198,12 @@ actor DeletionGateway: RemoteGateway {
     let account = try liveAccount()
     serverLists[account, default: []].remove(id)
   }
-  func insertItem(_ item: ListItemUpsert) async throws {
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
     try write("insertItem")
     let account = try liveAccount()
+    guard serverItems[account]?[item.id] == nil else { return false }
     serverItems[account, default: [:]][item.id] = item.listId
+    return true
   }
   func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
     try write("updateItem")

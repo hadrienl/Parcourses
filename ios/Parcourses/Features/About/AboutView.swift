@@ -82,6 +82,7 @@ struct AboutView: View {
     }
     .accountDeletionPresentation(deletion)
     .accountPrompts($accountPrompts, account: account)
+    .signOutFailurePresentation(account)
     .overlay {
       if account?.isSigningOut == true { SignOutVeil() }
     }

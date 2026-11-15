@@ -410,18 +410,20 @@ actor SyncStore {
   }
 
   /// Liste rechargée entièrement (`refreshAccess`) : les entrées de ses articles sont jetées, les articles absents du
-  /// serveur retirés, puis les lignes du serveur appliquées. Vrai si l'affichage a changé.
-  func replaceItems(listId: UUID, rows: [ListItemRow], classify: @Sendable (String) -> PulledItemClassification)
-    throws -> Bool
-  {
+  /// serveur retirés, puis les lignes du serveur appliquées. `keepingUnsent` (liste à soi) : les articles jamais
+  /// envoyés et leurs entrées restent. Vrai si l'affichage a changé.
+  func replaceItems(
+    listId: UUID, rows: [ListItemRow], keepingUnsent: Bool, classify: @Sendable (String) -> PulledItemClassification
+  ) throws -> Bool {
     var changed = false
+    let local = try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }))
+    let unsent = keepingUnsent ? Set(local.filter { !$0.isOnServer }.map(\.id)) : []
     for entry in try pendingEntries() where entry.kind == .upsertItem || entry.kind == .deleteItem {
-      guard OutboxDependencies.listId(of: entry) == listId else { continue }
+      guard OutboxDependencies.listId(of: entry) == listId, !unsent.contains(entry.entityId) else { continue }
       modelContext.delete(entry)
     }
     let serverIds = Set(rows.map(\.id))
-    for item in try modelContext.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == listId }))
-    where !serverIds.contains(item.id) {
+    for item in local where !serverIds.contains(item.id) && !unsent.contains(item.id) {
       modelContext.delete(item)
       changed = true
     }

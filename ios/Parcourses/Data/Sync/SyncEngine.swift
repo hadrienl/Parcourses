@@ -492,7 +492,14 @@ actor SyncEngine {
     }
     switch SyncDecisions.itemSaveRequest(isOnServer: work.isOnServer, changedFields: changed) {
     case .insert:
-      try await gateway.insertItem(row)
+      if try await gateway.insertItem(row) { return .sent }
+      // Rien d'inséré : la ligne existait déjà (réponse d'une insertion précédente perdue, article d'avant la
+      // migration) ou elle est enterrée. Les champs de l'entrée partent en mise à jour, sinon une coche faite entre-temps
+      // n'arriverait jamais ; 0 ligne se tranche ensuite par la pierre tombale.
+      let columns = SyncDecisions.mergeChangedFields(pending: nil, new: changed)
+      guard !columns.isEmpty else { return .sent }
+      let touched = try await gateway.updateItem(id: row.id, fields: ListItemFields(values: row, columns: columns))
+      if !touched { return .untouched(listId: row.listId) }
     case .patch(let columns):
       let touched = try await gateway.updateItem(id: row.id, fields: ListItemFields(values: row, columns: columns))
       if !touched { return .untouched(listId: row.listId) }
@@ -533,7 +540,10 @@ actor SyncEngine {
     let accessible = try await gateway.accessibleListIds()
     if accessible.contains(listId) {
       let rows = try await gateway.fetchItems(listId: listId)
-      _ = try await store.replaceItems(listId: listId, rows: rows, classify: classify)
+      // Liste à soi : les articles jamais envoyés et leurs entrées restent, rien ne les a refusés.
+      let ownerId = try await store.listOwnership(listId).ownerId
+      let isMine = ownerId.map { $0 == cursors.accountId } ?? true
+      _ = try await store.replaceItems(listId: listId, rows: rows, keepingUnsent: isMine, classify: classify)
     } else {
       // Une ligne de cette liste était sur le serveur : elle en a disparu, même si l'appareil ne l'a jamais descendue.
       try await store.forget(listId: listId)

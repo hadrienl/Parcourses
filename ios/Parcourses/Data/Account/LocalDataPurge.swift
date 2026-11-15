@@ -33,7 +33,9 @@ struct LocalDataPurge {
   }
 
   /// `checkpoint` lève pour simuler un arrêt après une étape (tests) : rien de ce qui suit n'est fait.
-  func run(checkpoint: (Step) throws -> Void = { _ in }) throws {
+  /// `keepingSession` : passage d'un compte e-mail à un autre (#87), la session du nouveau compte reste dans le
+  /// Keychain ; l'appelant y acquitte ensuite ce compte (`acknowledgeAccount`).
+  func run(keepingSession: Bool = false, checkpoint: (Step) throws -> Void = { _ in }) throws {
     let context = container.mainContext
     // Base : tout ou rien, en une seule sauvegarde. `OutboxEntry` emporte ses charges utiles.
     do {
@@ -61,7 +63,7 @@ struct LocalDataPurge {
     try checkpoint(.categoriesSeeded)
 
     // Session, dernier compte connu (`last-account-id`) et sentinelle : le nouveau compte est adopté sans reprise.
-    try keychain.removeAll()
+    if !keepingSession { try keychain.removeAll() }
     try checkpoint(.keychainPurged)
 
     UserDefaultsSyncCursors(defaults: defaults).removeAll()

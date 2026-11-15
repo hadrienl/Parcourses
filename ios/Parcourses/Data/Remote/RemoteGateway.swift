@@ -180,9 +180,11 @@ nonisolated protocol RemoteGateway: Sendable {
 
   func saveList(_ list: ListUpsert) async throws
   func deleteList(id: UUID) async throws
-  /// Insertion complète, idempotente (`on conflict do nothing`) : un article jamais arrivé au serveur. Ignorée en
-  /// silence si l'article a été supprimé ailleurs (pierre tombale, 87.1).
-  func insertItem(_ item: ListItemUpsert) async throws
+  /// Insertion complète, idempotente (`on conflict do nothing`) : un article jamais accusé. Vrai si une ligne a été
+  /// insérée ; faux si elle existait déjà (réponse d'une insertion précédente perdue) ou si l'article est enterré
+  /// (pierre tombale, 87.1). L'appelant envoie alors les champs modifiés par une mise à jour.
+  @discardableResult
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool
   /// Mise à jour des seules colonnes de `fields`, sans repli sur l'insertion. Vrai si une ligne a été touchée : 0 ligne
   /// veut dire supprimé ailleurs ou accès perdu, la RLS filtre sans erreur (vecteur `003`).
   @discardableResult

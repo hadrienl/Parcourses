@@ -5,7 +5,7 @@ import Foundation
 /// Doublures qui ne servent ni la synchro des articles ni les comptes (#87) : tout échoue comme sans session. Les
 /// doublures de la synchro (`ScriptedSyncGateway`, `DeletionGateway`) et du compte (`AccountGateway`) les implémentent.
 extension RemoteGateway {
-  func insertItem(_ item: ListItemUpsert) async throws { throw RemoteError.unauthorized }
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool { throw RemoteError.unauthorized }
   func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool { throw RemoteError.unauthorized }
   func deleteItem(id: UUID) async throws -> Bool { throw RemoteError.unauthorized }
   func fetchItems(listId: UUID) async throws -> [ListItemRow] { throw RemoteError.unauthorized }

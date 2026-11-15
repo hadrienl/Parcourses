@@ -78,8 +78,8 @@ struct SupabaseGatewayIntegrationTests {
     let item = ListItemUpsert(
       id: UUID(), listId: list.id, productId: nil, label: "Lait", quantity: "2", checkedAt: checkedAt
     )
-    try await gateway.insertItem(item)
-    try await gateway.insertItem(item)
+    #expect(try await gateway.insertItem(item))
+    #expect(try await gateway.insertItem(item) == false)
     var items = try await gateway.fetchItems(updatedAfter: nil)
     #expect(items.count == 1)
     #expect(abs((items.first?.checkedAt ?? .distantPast).timeIntervalSince(checkedAt)) < 0.001)
@@ -117,8 +117,8 @@ struct SupabaseGatewayIntegrationTests {
     #expect(
       try await gateway.updateItem(id: item.id, fields: ListItemFields(values: item, columns: ListItemFields.all))
         == false)
-    // Renvoyée, l'insertion ne ressuscite pas l'article.
-    try await gateway.insertItem(item)
+    // Renvoyée, l'insertion ne ressuscite pas l'article, et le dit.
+    #expect(try await gateway.insertItem(item) == false)
     #expect(try await gateway.fetchItemIds(listId: list.id).isEmpty)
     try await gateway.deleteList(id: list.id)
     try await gateway.deleteList(id: list.id)
@@ -316,9 +316,9 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     try await remote.deleteList(id: id)
   }
-  func insertItem(_ item: ListItemUpsert) async throws {
+  func insertItem(_ item: ListItemUpsert) async throws -> Bool {
     try check()
-    try await remote.insertItem(item)
+    return try await remote.insertItem(item)
   }
   func updateItem(id: UUID, fields: ListItemFields) async throws -> Bool {
     try check()
@@ -899,21 +899,14 @@ struct AccountsIntegrationTests {
     let engine: SyncEngine
     let lists: SwiftDataListRepository
 
+    /// Compte de l'appareil, retenu ici comme par `AppModel` : la liaison s'y adosse (changement de compte).
+    let account: AccountSession
+
     var context: ModelContext { container.mainContext }
 
     func link() -> AccountLink {
-      let cursors = cursors
-      let container = container
-      let engine = engine
-      return AccountLink(
-        gateway: remote, kinds: kinds,
-        dependencies: AccountLink.Dependencies(
-          resendableLists: { id in
-            guard cursors.accountId != id else { return 0 }
-            return (try? AccountRekey.resendCount(in: container.mainContext, previousAccountId: cursors.accountId)) ?? 0
-          },
-          synchronize: { await engine.drain(pull: true) },
-          sessionDidChange: { Task { await engine.resume() } }))
+      // Toujours présent : la passerelle existe.
+      account.makeLink() ?? AccountLink(gateway: remote, kinds: kinds)
     }
 
     /// Lecture sur un contexte neuf : le contexte principal reçoit les écritures du moteur plus tard.
@@ -938,10 +931,30 @@ struct AccountsIntegrationTests {
     let engine = SyncEngine(
       gateway: remote, container: container, cursors: cursors, classify: try PulledItemClassifier.make(),
       dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    let pending = SyncState.pending.rawValue
+    let pendingChanges: () -> Int = {
+      let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
+      return (try? container.mainContext.fetchCount(descriptor)) ?? 0
+    }
+    let link = AccountLink.Dependencies(
+      resendableLists: { id in
+        guard cursors.accountId != id else { return 0 }
+        return (try? AccountRekey.resendCount(in: container.mainContext, previousAccountId: cursors.accountId)) ?? 0
+      },
+      synchronize: { await engine.drain(pull: true) },
+      sessionDidChange: { Task { await engine.resume() } },
+      previousAccountId: { cursors.accountId }, pendingChanges: pendingChanges,
+      suspendSync: { await engine.suspend() }, resumeSync: { await engine.resume() })
+    let account = AccountSession(
+      gateway: remote, kinds: kinds,
+      purge: LocalDataPurge(
+        container: container, keychain: keychain, defaults: defaults,
+        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
+      dependencies: AccountSession.Dependencies(pendingChanges: pendingChanges, link: link))
     return Device(
       remote: remote, keychain: keychain, defaults: defaults, kinds: kinds, cursors: cursors, container: container,
-      engine: engine,
-      lists: SwiftDataListRepository(context: container.mainContext))
+      engine: engine, lists: SwiftDataListRepository(context: container.mainContext), account: account)
   }
 
   @discardableResult
@@ -1017,6 +1030,17 @@ struct AccountsIntegrationTests {
       #expect(local.checkedAt != nil && local.quantity == "2")
     }
 
+    // Insertion arrivée au serveur, réponse perdue : l'article n'est pas accusé, puis il est coché. La coche arrive.
+    let eggs = try addItem(a, "Œufs", to: list.id)
+    let eggsRow = ListItemUpsert(
+      id: eggs.id, listId: list.id, productId: nil, label: "Œufs", quantity: nil, checkedAt: nil)
+    #expect(try await a.remote.insertItem(eggsRow))
+    try a.lists.setChecked(itemId: eggs.id, checkedAt: .now, at: .now)
+    await a.engine.drain()
+    #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+    await b.engine.drain(pull: true)
+    #expect(try b.items().first { $0.id == eggs.id }?.checkedAt != nil)
+
     // Suppression sur un appareil : la pierre tombale la propage à l'autre.
     try a.lists.deleteItem(id: bread.id)
     await a.engine.drain()
@@ -1049,6 +1073,56 @@ struct AccountsIntegrationTests {
     try await a.remote.deleteAccount()
     try a.keychain.removeAll()
     try b.keychain.removeAll()
+  }
+
+  /// Compte e-mail A sans session, connexion à un autre compte e-mail B : l'appareil est purgé, B ne reçoit rien de A.
+  @Test func signingInToAnotherEmailAccountLeavesThePreviousListsBehind() async throws {
+    let first = "it-87-a-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    let second = "it-87-b-\(UUID().uuidString.prefix(8).lowercased())@example.com"
+    var seen: Set<String> = []
+    // Le compte B existe, avec sa liste, créé sur un autre téléphone.
+    let other = try await makeDevice()
+    _ = try other.lists.createList(name: "IT-87 de B", at: .now)
+    await other.engine.drain(pull: true)
+    let linkB = other.link()
+    linkB.email = second
+    await linkB.requestCode()
+    await linkB.verify(code: try await Mailpit.code(to: second, seen: &seen))
+    let accountB = try await other.remote.currentAccountId()
+
+    // Le téléphone de A : liste envoyée, une modification encore en file, puis la session disparaît.
+    let a = try await makeDevice()
+    let list = try a.lists.createList(name: "IT-87 de A", at: .now)
+    try addItem(a, "Lait", to: list.id)
+    await a.engine.drain(pull: true)
+    let linkA = a.link()
+    linkA.email = first
+    await linkA.requestCode()
+    await linkA.verify(code: try await Mailpit.code(to: first, seen: &seen))
+    try a.lists.renameList(id: list.id, name: "IT-87 de A, renommée", at: .now)
+    try a.keychain.removeAll()
+    await a.engine.drain(pull: true)
+    #expect(await a.engine.isWaitingForSession)
+
+    let switching = a.link()
+    #expect(!switching.canLink)
+    // L'écran prévient : la modification en file sera perdue.
+    #expect(switching.losesPendingChangesOnSwitch)
+    switching.email = second
+    // `max_frequency` (1 s en local) : B a reçu un code juste avant.
+    try await Task.sleep(for: .seconds(2))
+    await switching.requestCode()
+    #expect(switching.phase == .enterCode, "\(String(describing: switching.error))")
+    await switching.verify(code: try await Mailpit.code(to: second, seen: &seen))
+    #expect(switching.outcome == .signedIn(displayName: nil, addedLists: 0))
+    #expect(try await a.remote.currentAccountId() == accountB)
+    #expect(try a.listNames() == ["IT-87 de B"])
+    #expect(try await other.remote.fetchLists(updatedAfter: nil).map(\.name) == ["IT-87 de B"])
+    #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+
+    try await other.remote.deleteAccount()
+    try a.keychain.removeAll()
+    try other.keychain.removeAll()
   }
 
   /// Déconnexion : session oubliée, appareil purgé, compte anonyme vide ; les listes restent dans le compte.

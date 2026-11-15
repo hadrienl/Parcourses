@@ -14,23 +14,27 @@ final class SyncRuntime {
   private let engine: SyncEngine
   private let monitor: NetworkMonitor
   private let deletionFlags: any AccountDeletionFlagStore
+  private let signOutFlags: any AccountSignOutFlagStore
   private var networkTask: Task<Void, Never>?
   /// Remplacé par un moteur neuf (suppression du compte) : plus rien ne doit le relancer.
   private var isStopped = false
 
-  /// Le moteur naît suspendu si une suppression de compte est en cours (#68 §5.3) : il ne repart qu'avec `resume()`.
+  /// Le moteur naît suspendu si une suppression de compte (#68 §5.3) ou une déconnexion (#87) est en cours : il ne
+  /// repart qu'avec `resume()`.
   init(
     gateway: any RemoteGateway, container: ModelContainer,
-    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore()
+    deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
+    signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore()
   ) throws {
     let monitor = NetworkMonitor()
     self.monitor = monitor
     self.deletionFlags = deletionFlags
+    self.signOutFlags = signOutFlags
     engine = SyncEngine(
       gateway: gateway, container: container, cursors: UserDefaultsSyncCursors(),
       classify: try PulledItemClassifier.make(),
       dependencies: SyncEngine.Dependencies(isOnline: { monitor.isOnline }),
-      suspended: deletionFlags.isDeletionPending)
+      suspended: deletionFlags.isDeletionPending || signOutFlags.isPending)
   }
 
   /// Dernier état connu du réseau, optimiste avant le premier.
@@ -50,7 +54,7 @@ final class SyncRuntime {
   /// À appeler dès qu'une session valide est disponible. Sans effet pendant une suppression de compte : la
   /// connexion lancée avant elle ne doit pas relancer le moteur.
   func sessionDidChange() {
-    guard !isStopped, !deletionFlags.isDeletionPending else { return }
+    guard !isStopped, !deletionFlags.isDeletionPending, !signOutFlags.isPending else { return }
     let engine = engine
     Task { await engine.resume() }
   }
@@ -77,6 +81,13 @@ final class SyncRuntime {
     networkTask = nil
     BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
     await engine.stop()
+  }
+
+  /// Comme `resume`, en attendant que le moteur soit reparti : une passe demandée juste après n'est pas perdue.
+  func resumeAndWait() async {
+    guard !isStopped else { return }
+    await engine.resume()
+    Self.scheduleBackgroundRefresh()
   }
 
   /// Passe complète, attendue : après une connexion, la reprise des données (`AccountRekey`) puis la descente.
