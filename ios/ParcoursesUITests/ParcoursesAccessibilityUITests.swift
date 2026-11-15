@@ -453,6 +453,45 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     auditShopping(arguments: Self.ax5, suffix: "-ax5")
   }
 
+  /// Partage (#87, lot 87.4), sur le serveur en mémoire `UITestSharingGateway` : carte d'invitation de Mes listes,
+  /// liste partagée (pastilles, marques d'auteur) et feuille « Partager la liste ».
+  @MainActor
+  private func auditSharing(arguments: [String], suffix: String, dark: Bool = false) {
+    let invited = launch(
+      reset: true, launchArguments: arguments, dark: dark, settings: ["PARCOURSES_TEST_SHARING": "invitation"])
+    XCTAssertTrue(invited.descendants(matching: .any)["invitationCard"].waitForExistence(timeout: 15))
+    audit(invited, "invitation\(suffix)")
+    invited.terminate()
+
+    let app = launch(
+      reset: true, launchArguments: arguments, dark: dark, settings: ["PARCOURSES_TEST_SHARING": "owner"])
+    let list = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Courses de la semaine")).firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 15))
+    list.tap()
+    let members = app.buttons["listMembers"]
+    XCTAssertTrue(members.waitForExistence(timeout: 15))
+    audit(app, "liste-partagee\(suffix)")
+    members.tap()
+    XCTAssertTrue(app.textFields["shareEmailField"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["member-Léa"].waitForExistence(timeout: 15))
+    audit(app, "partager\(suffix)", modal: true)
+  }
+
+  @MainActor
+  func testAuditSharing() {
+    auditSharing(arguments: [], suffix: "")
+  }
+
+  @MainActor
+  func testAuditSharingAX5() {
+    auditSharing(arguments: Self.ax5, suffix: "-ax5")
+  }
+
+  @MainActor
+  func testAuditSharingDark() {
+    auditSharing(arguments: [], suffix: "-sombre", dark: true)
+  }
+
   /// Mode sombre : teinte, fonds opaques et textes secondaires sur fond sombre.
   @MainActor
   func testAuditListsDark() {

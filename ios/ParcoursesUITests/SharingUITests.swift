@@ -65,11 +65,13 @@ nonisolated final class SharingUITests: ParcoursesUITestCase {
     XCTAssertTrue(members.waitForExistence(timeout: 10))
     XCTAssertEqual(members.label, "Membres : Léa, Tom et vous. Partager la liste")
     XCTAssertTrue(app.descendants(matching: .any)["lastChange"].waitForExistence(timeout: 5))
-    // Article modifié par Léa : « dernière modification par Léa » dans le libellé lu.
+    capture(app, "sharing-2-liste-partagee\(name)")
+    // Article modifié par Léa : « dernière modification par Léa » dans le libellé lu. En texte agrandi, la ligne est
+    // sous le pli : la liste défile jusqu'à elle.
     let butter = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "Beurre doux, 1, dernière modification par Léa")).firstMatch
-    XCTAssertTrue(butter.waitForExistence(timeout: 5))
-    capture(app, "sharing-2-liste-partagee\(name)")
+    reveal(butter, in: app)
+    XCTAssertTrue(butter.exists)
 
     members.tap()
     let field = app.textFields["shareEmailField"]
@@ -87,8 +89,9 @@ nonisolated final class SharingUITests: ParcoursesUITestCase {
     XCTAssertTrue(error.label.contains("fait déjà partie de la liste"), error.label)
     capture(app, "sharing-4-erreur\(name)")
 
-    // Invitation envoyée : champ vidé, capsule, nouvelle invitation en attente.
-    field.tap()
+    // Invitation envoyée : champ vidé, capsule, nouvelle invitation en attente. Le toucher vise la fin du champ : au
+    // milieu du texte (texte agrandi), les effacements laisseraient la fin de l'ancienne adresse.
+    field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
     field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20) + "camille@exemple.fr")
     app.buttons["sendInvitation"].tap()
     XCTAssertTrue(app.descendants(matching: .any)["sharingToast"].waitForExistence(timeout: 5))

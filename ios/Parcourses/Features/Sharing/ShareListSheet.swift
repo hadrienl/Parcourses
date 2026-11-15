@@ -56,6 +56,8 @@ struct ShareListSheet: View {
       AccessibilityNotification.Announcement(message).post()
       emailFocused = true
     }
+    // Invitation envoyée ou lien copié : le clavier se retire, la capsule et l'invitation en attente restent visibles.
+    .onChange(of: model.toastRevision) { emailFocused = false }
     .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
     .alert(
       removing.map { "Retirer \($0.name) de la liste ?" } ?? "", isPresented: isPresented($removing),
