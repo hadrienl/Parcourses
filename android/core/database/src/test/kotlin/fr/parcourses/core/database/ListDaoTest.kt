@@ -2,6 +2,7 @@ package fr.parcourses.core.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -26,6 +27,23 @@ class ListDaoTest : DatabaseTest() {
                     .first()
                     .map { it.id },
             )
+        }
+
+    @Test
+    fun repairingRolesGivesMeMyListsAndOthersReadOnly() =
+        runBlocking {
+            db.lists().upsert(list("mine").copy(ownerId = "me", role = ListRole.Viewer))
+            db.lists().upsert(list("theirs").copy(ownerId = "lea", role = ListRole.Owner))
+            db.lists().upsert(list("member").copy(ownerId = "lea", role = ListRole.Editor))
+            db.lists().upsert(list("local"))
+
+            assertEquals(2, db.lists().repairRoles("me"))
+
+            assertEquals(ListRole.Owner, db.lists().get("mine")?.role)
+            assertEquals(ListRole.Viewer, db.lists().get("theirs")?.role)
+            // Un rôle déjà lu à la descente reste ; une liste jamais descendue est à moi.
+            assertEquals(ListRole.Editor, db.lists().get("member")?.role)
+            assertEquals(ListRole.Owner, db.lists().get("local")?.role)
         }
 
     @Test

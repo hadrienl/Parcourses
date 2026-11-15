@@ -70,6 +70,18 @@ interface ShoppingListDao {
         id: String,
         role: fr.parcourses.core.model.ListRole,
     ): Int
+
+    /**
+     * Rôles cohérents avec le propriétaire (#87, lot 87.6), au lancement : une liste de [me] est à moi ; celle d'un
+     * autre marquée « propriétaire » (base d'avant la version 3) passe en lecture seule jusqu'à ce que la descente dise
+     * mon rôle. Une liste jamais descendue (`ownerId` nul) est à moi et n'est pas touchée.
+     */
+    @Query(
+        "UPDATE lists SET role = CASE WHEN ownerId = :me THEN 'Owner' ELSE 'Viewer' END " +
+            "WHERE ownerId IS NOT NULL " +
+            "AND ((ownerId = :me AND role != 'Owner') OR (ownerId != :me AND role = 'Owner'))",
+    )
+    suspend fun repairRoles(me: String): Int
 }
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
