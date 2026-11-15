@@ -65,8 +65,10 @@ class SharingScreensTest {
         rule.onNodeWithText("Lecture seule").performClick()
         rule.onNodeWithTag(TAG_SHARE_SEND).performClick()
         assertEquals(listOf("role:viewer", "send"), calls)
-        rule.onNodeWithTag(TAG_SHARE_LIST).performScrollToNode(hasText("c.martin@exemple.fr"))
-        rule.onNodeWithText("c.martin@exemple.fr").assertExists()
+        // Une invitation en attente se lit d'un bloc : adresse, accès, échéance.
+        val pending = hasContentDescription("c.martin@exemple.fr", substring = true)
+        rule.onNodeWithTag(TAG_SHARE_LIST).performScrollToNode(pending)
+        rule.onNode(pending).assertExists()
         rule.onNode(hasContentDescription("Hadrien (vous), propriétaire")).assertExists()
     }
 
@@ -128,7 +130,9 @@ class SharingScreensTest {
             }
         }
         rule.onNodeWithTag(TAG_INVITATION_CARD).assertExists()
-        rule.onNodeWithText("Hadrien vous invite à «\u00A0Courses de la semaine\u00A0»").assertExists()
+        rule
+            .onNodeWithText("Hadrien vous invite à «\u00A0Courses de la semaine\u00A0»", useUnmergedTree = true)
+            .assertExists()
         rule.onNodeWithTag(TAG_INVITATION_ACCEPT).performClick()
         rule.onNodeWithTag(TAG_INVITATION_DECLINE).performClick()
         rule.onNodeWithText("Refuser l’invitation\u202F?").assertExists()
