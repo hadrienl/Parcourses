@@ -47,6 +47,7 @@ struct ParcoursesApp: App {
         .environment(app.deletion)
         .environment(app.account)
         .task {
+          await app.resumePendingSwitch()
           environment.sync?.start()
           if let gateway = app.gateway {
             await AuthBootstrap.signIn(gateway)

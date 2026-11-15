@@ -519,8 +519,14 @@ actor SupabaseGateway: RemoteGateway {
   func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
     let verified = try await mappedAuth {
       let auth = self.client.auth
-      // Gardé avant la vérification : la session change de compte quand l'adresse en a déjà un.
-      let previous = auth.currentSession
+      // Gardé avant la vérification : la session change de compte quand l'adresse en a déjà un. Jeton anonyme expiré ou
+      // près de l'être : rafraîchi d'abord, pour que `deleteAccount(accessToken:)` ne reçoive pas un jeton mort.
+      var previous = auth.currentSession
+      if let session = previous, session.user.isAnonymous,
+        Self.needsRefreshBeforeKeeping(expiresAt: session.expiresAt, now: Date.now.timeIntervalSince1970)
+      {
+        previous = try? await auth.refreshSession()
+      }
       let type: EmailOTPType = purpose == .link ? .emailChange : .email
       let response = try await auth.verifyOTP(email: email, token: code, type: type)
       // Sans session dans la réponse, le jeton en cours porte encore `is_anonymous` : on le renouvelle.
@@ -585,6 +591,13 @@ actor SupabaseGateway: RemoteGateway {
     } catch {
       throw Self.classify(error)
     }
+  }
+
+  /// Le jeton gardé sert après la reprise, quelques minutes plus tard au plus : il doit lui rester au moins 10 min.
+  static let keptTokenMinimumLifetime: TimeInterval = 600
+
+  static func needsRefreshBeforeKeeping(expiresAt: TimeInterval, now: TimeInterval) -> Bool {
+    expiresAt - now < keptTokenMinimumLifetime
   }
 
   /// Refus de GoTrue gardé tel quel (statut et `error_code`) : l'écran de connexion en tire son message.

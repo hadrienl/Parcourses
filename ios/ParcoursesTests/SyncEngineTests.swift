@@ -34,6 +34,7 @@ nonisolated final class MemorySyncCursors: SyncCursors, @unchecked Sendable {
   var items: Date?
   var catalog: Date?
   var tombstones: Date?
+  var accountKind: AccountKind?
 }
 
 /// Doublure : journal des appels et erreurs programmées par nom d'appel.

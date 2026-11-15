@@ -36,8 +36,11 @@ actor AccountGateway: RemoteGateway {
     calls.append("signInWithEmail:\(email)")
     if let signInFailure { throw signInFailure }
   }
+  var verifyDelay: Duration?
+  func setVerifyDelay(_ value: Duration?) { verifyDelay = value }
   func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
     calls.append("verifyCode:\(purpose.rawValue):\(code)")
+    if let verifyDelay { try await Task.sleep(for: verifyDelay) }
     if !verifyFailures.isEmpty { throw verifyFailures.removeFirst() }
     return verified
   }
@@ -240,6 +243,20 @@ final class LinkProbe {
     #expect(probe.steps == ["suspend:1", "resume", "suspend:2", "resume"])
   }
 
+  /// L'annulation de l'appelant (écran fermé) n'interrompt ni la vérification ni la reprise de la synchro.
+  @Test func cancellingTheCallerDoesNotInterruptTheVerification() async {
+    let (link, gateway, kinds, probe) = makeLink()
+    link.email = "lea@exemple.fr"
+    await link.requestCode()
+    await gateway.setVerifyDelay(.milliseconds(100))
+    let caller = Task { await link.verify(code: "123456") }
+    caller.cancel()
+    await caller.value
+    #expect(link.outcome == .linked)
+    #expect(kinds.kind == .email)
+    #expect(probe.steps == ["suspend:1", "resume"])
+  }
+
   /// D'un compte e-mail à un autre : l'appareil est purgé avant la reprise de la synchro, rien n'est renvoyé.
   @Test func anotherEmailAccountReplacesTheDeviceData() async {
     let (link, gateway, _, probe) = makeLink(kind: .email)
@@ -422,6 +439,7 @@ private final class SignOutHost: AccountDeletionHost {
     let defaults: UserDefaults
     let container: ModelContainer
     var changes: () -> Int
+    let previous: Previous
   }
 
   private func makeSetup(kind: AccountKind) throws -> Setup {
@@ -434,35 +452,101 @@ private final class SignOutHost: AccountDeletionHost {
       container: container, keychain: MemorySecureStore(), defaults: defaults,
       urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0))
     let counter = Counter()
-    let pending = SyncState.pending.rawValue
+    let previous = Previous()
     let session = AccountSession(
       gateway: gateway, kinds: kinds, purge: purge,
       signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults),
       dependencies: AccountSession.Dependencies(
-        pendingChanges: {
-          let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
-          return (try? container.mainContext.fetchCount(descriptor)) ?? 0
-        },
-        sessionDidChange: { counter.value += 1 }))
+        // Comme l'app : `pending` et `failed`.
+        pendingChanges: { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 },
+        sessionDidChange: { counter.value += 1 },
+        link: AccountLink.Dependencies(previousAccountId: { previous.value })))
     return Setup(
       session: session, gateway: gateway, kinds: kinds, defaults: defaults, container: container,
-      changes: { counter.value })
+      changes: { counter.value }, previous: previous)
   }
 
   private final class Counter {
     var value = 0
   }
 
-  @Test func anEmailAccountWithoutSessionWaitsForSignIn() async throws {
+  /// `SyncCursors.accountId` simulé.
+  final class Previous {
+    var value: UUID?
+  }
+
+  /// « Continuer sans compte » : l'appareil est purgé d'abord, puis un compte anonyme vide naît.
+  @Test func anEmailAccountWithoutSessionWaitsForSignInOrStartsEmpty() async throws {
     let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "Courses", at: .now)
     await setup.gateway.setLocalSession(nil)
     await setup.session.refresh()
     #expect(setup.session.needsSignIn)
-    // « Continuer sans compte » : un compte anonyme pourra naître, le moteur reprend.
-    setup.session.continueWithoutAccount()
-    #expect(!setup.session.needsSignIn)
+    let host = SignOutHost()
+    setup.session.host = host
+    #expect(await setup.session.prepareToLeave())
+    await setup.session.continueWithoutAccount()
+    withExtendedLifetime(host) {}
+    #expect(host.steps == ["suspendSync", "endShopping", "stopSync", "restart"])
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
     #expect(setup.kinds.kind == .anonymous)
-    #expect(setup.changes() == 1)
+    #expect(!setup.session.needsSignIn)
+    #expect(await setup.gateway.calls == ["ensureSession"])
+  }
+
+  /// Déconnexion : la synchro est suspendue avant de compter la file, entrées `failed` comprises.
+  @Test func leavingCountsPendingAndFailedEntriesAfterSuspendingSync() async throws {
+    let setup = try makeSetup(kind: .email)
+    let context = setup.container.mainContext
+    context.insert(OutboxEntry(sequence: 1, kind: .upsertList, entityId: UUID(), payload: Data(), syncState: .failed))
+    try context.save()
+    let host = SignOutHost()
+    setup.session.host = host
+    #expect(await setup.session.prepareToLeave())
+    #expect(host.steps == ["suspendSync"])
+    setup.session.cancelLeaving()
+    #expect(host.steps == ["suspendSync", "resumeSync"])
+    withExtendedLifetime(host) {}
+  }
+
+  /// Drapeau `account.switch` et session d'un autre compte au lancement : purge rejouée, aucune reprise.
+  @Test func anInterruptedAccountSwitchIsFinishedAtLaunch() async throws {
+    let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "De A", at: .now)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    setup.previous.value = UUID()
+    await setup.gateway.setLocalSession(UUID())
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    #expect(!flags.isPending)
+    #expect(setup.kinds.kind == .email)
+  }
+
+  /// Même compte : le drapeau est effacé, rien n'est purgé.
+  @Test func anAccountSwitchFlagWithTheSameAccountIsCleared() async throws {
+    let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "À moi", at: .now)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    let account = UUID()
+    setup.previous.value = account
+    await setup.gateway.setLocalSession(account)
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 1)
+    #expect(!flags.isPending)
+  }
+
+  /// `account.kind` absent, session non anonyme : compte e-mail.
+  @Test func aMissingKindWithANonAnonymousSessionIsEmail() async throws {
+    let setup = try makeSetup(kind: .anonymous)
+    setup.defaults.removeObject(forKey: UserDefaultsAccountKindStore.key)
+    await setup.gateway.setEmail("lea@exemple.fr")
+    UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults).save()
+    setup.previous.value = await setup.gateway.localSession
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(setup.kinds.kind == .email)
   }
 
   @Test func aSessionWithAnAddressMakesAnEmailAccount() async throws {
@@ -537,7 +621,9 @@ private final class SignOutHost: AccountDeletionHost {
         return try CategorySeed.bundled()
       })
     let flags = UserDefaultsAccountSignOutFlagStore(defaults: defaults)
-    let session = AccountSession(gateway: gateway, kinds: kinds, purge: purge, signOutFlags: flags)
+    let session = AccountSession(
+      gateway: gateway, kinds: kinds, purge: purge, signOutFlags: flags,
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults))
     await session.refresh()
     let host = SignOutHost()
     session.host = host

@@ -25,6 +25,23 @@ nonisolated struct UserDefaultsAccountSignOutFlagStore: AccountSignOutFlagStore,
   func clear() { defaults.removeObject(forKey: Self.key) }
 }
 
+/// Drapeau durable `account.switch` : posé avant `verifyCode` d'une connexion depuis un compte e-mail. Au lancement, s'il
+/// est posé et que la session appartient à un autre compte que celui des données (`SyncCursors.accountId`), la purge
+/// est rejouée et rien n'est repris ; sinon il est effacé.
+nonisolated struct UserDefaultsAccountSwitchFlagStore: AccountSignOutFlagStore, @unchecked Sendable {
+  static let key = "account.switch"
+
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  var isPending: Bool { defaults.bool(forKey: Self.key) }
+  func save() { defaults.set(true, forKey: Self.key) }
+  func clear() { defaults.removeObject(forKey: Self.key) }
+}
+
 /// État du compte pour les écrans (#87 §2.4) : anonyme ou e-mail, adresse, prénom, session à retrouver. Porte aussi
 /// la déconnexion et « Continuer sans compte ». Mêmes noms sur Android.
 @Observable
@@ -62,18 +79,21 @@ final class AccountSession {
   private let kinds: any AccountKindStore
   private let purge: LocalDataPurge?
   private let signOutFlags: any AccountSignOutFlagStore
+  private let switchFlags: any AccountSignOutFlagStore
   private let dependencies: Dependencies
 
   /// `gateway` à `nil` : build sans Supabase, aucun compte à lier.
   init(
     gateway: (any RemoteGateway)?, kinds: any AccountKindStore, purge: LocalDataPurge?,
     signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore(),
+    switchFlags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore(),
     dependencies: Dependencies = Dependencies()
   ) {
     self.gateway = gateway
     self.kinds = kinds
     self.purge = purge
     self.signOutFlags = signOutFlags
+    self.switchFlags = switchFlags
     self.dependencies = dependencies
     kind = kinds.kind
   }
@@ -114,6 +134,10 @@ final class AccountSession {
       self?.kind = .email
     }
     link.pendingChanges = dependencies.pendingChanges
+    let switchFlags = switchFlags
+    link.markSwitch = { isPending in
+      if isPending { switchFlags.save() } else { switchFlags.clear() }
+    }
     link.switchAccount = { [weak self] id in
       guard let self else { return }
       try await self.adoptAccount(id)
@@ -146,6 +170,35 @@ final class AccountSession {
   /// La déconnexion perdra des modifications pas encore envoyées.
   var losesPendingChanges: Bool { dependencies.pendingChanges() > 0 }
 
+  /// Avant la confirmation d'une déconnexion ou de « Continuer sans compte » : la synchro est suspendue, puis les
+  /// entrées restées dans la file (`pending` ou `failed`) sont comptées. Vrai si elles seront perdues.
+  func prepareToLeave() async -> Bool {
+    await host?.suspendSync()
+    return losesPendingChanges
+  }
+
+  /// Confirmation annulée : la synchro reprend.
+  func cancelLeaving() {
+    host?.resumeSync()
+  }
+
+  /// Au lancement, avant toute synchro : un changement de compte interrompu (drapeau `account.switch`) est achevé si la
+  /// session appartient à un autre compte que celui des données ; sinon le drapeau est effacé. Faux si la purge échoue
+  /// (la synchro reste arrêtée, nouvel essai au lancement suivant).
+  func resumePendingSwitch() async -> Bool {
+    guard let gateway, switchFlags.isPending else { return true }
+    do {
+      if (try await gateway.accountEmail()) != nil, kinds.kind != .email { kinds.save(.email) }
+      if let session = try await gateway.localSessionAccountId(), session != dependencies.link.previousAccountId() {
+        try await adoptAccount(session)
+      }
+      switchFlags.clear()
+      return true
+    } catch {
+      Self.logger.error("Changement de compte inachevé : \(String(describing: error), privacy: .private)")
+      return false
+    }
+  }
   /// Écrit le prénom. Faux s'il est refusé (forme) ou s'il n'a pas pu partir.
   func updateDisplayName(_ raw: String) async -> Bool {
     guard let gateway, let name = AccountLink.validDisplayName(raw), dependencies.isOnline() else { return false }
@@ -237,15 +290,17 @@ final class AccountSession {
     host?.restart()
   }
 
-  /// « Continuer sans compte » (session perdue) : un compte anonyme naît, `AccountRekey` y renvoie les listes à soi et
-  /// retire celles d'autrui (#87 §2.3).
-  func continueWithoutAccount() {
-    guard needsSignIn else { return }
-    kinds.save(.anonymous)
-    kind = .anonymous
-    email = nil
-    displayName = nil
-    needsSignIn = false
-    dependencies.sessionDidChange()
+  /// « Continuer sans compte » (compte e-mail sans session) : l'appareil est purgé (#68), puis un compte anonyme vide
+  /// naît et l'app repart (README des vecteurs).
+  func continueWithoutAccount() async {
+    guard let gateway, needsSignIn, !isSigningOut else { return }
+    // Les données du compte e-mail ne passent jamais à un compte anonyme : purge d'abord, puis compte vide. Même
+    // drapeau durable que la déconnexion.
+    signOutFlags.save()
+    isSigningOut = true
+    defer { isSigningOut = false }
+    host?.endShopping()
+    await host?.stopSync()
+    await finishSignOut(gateway)
   }
 }

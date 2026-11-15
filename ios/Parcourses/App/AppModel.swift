@@ -36,6 +36,13 @@ final class AppModel {
     if !isResumingDeletion { CheckNextItemRouter.handler = current?.activityActions }
   }
 
+  /// Au lancement, avant la synchro : changement de compte interrompu (drapeau `account.switch`), achevé puis synchro
+  /// reprise. Sinon la synchro reste arrêtée jusqu'au lancement suivant.
+  func resumePendingSwitch(flags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore()) async {
+    guard flags.isPending, let account else { return }
+    if await account.resumePendingSwitch() { sync?.resume() }
+  }
+
   var sync: SyncRuntime? {
     try? environment.get().sync
   }

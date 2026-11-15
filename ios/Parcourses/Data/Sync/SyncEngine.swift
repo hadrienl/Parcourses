@@ -227,6 +227,12 @@ actor SyncEngine {
     case .recovered: pull = true
     case .ready: break
     }
+    // Curseur des pierres tombales trop vieux : les articles supprimés ailleurs pendant la longue absence partent avant
+    // qu'un envoi ne les touche (README des vecteurs).
+    guard await reconcileItemsBeforeSending() else {
+      if pull { isPullRequested = true }
+      return
+    }
     // Avant l'envoi : l'article et ses coches en file partent avec leur produit.
     await resolveProducts()
     guard let sent = await sendQueue() else {
@@ -295,6 +301,7 @@ actor SyncEngine {
           needsAccountRecovery = true
         } else {
           cursors.accountId = id
+          await noteAccountKind()
           return .ready
         }
       }
@@ -315,8 +322,10 @@ actor SyncEngine {
       let id = try await gateway.sessionAccountId()
       let now = dependencies.now()
       let previous = cursors.accountId
+      let previousKind = cursors.accountKind ?? .anonymous
       try await MainActor.run { [container] in
-        let remap = try AccountRekey.run(in: container.mainContext, previousAccountId: previous, now: now)
+        let remap = try AccountRekey.run(
+          in: container.mainContext, previousAccountId: previous, previousAccountKind: previousKind, now: now)
         NotificationCenter.default.post(
           name: .syncDidRekeyData, object: nil, userInfo: [IdentifierRemap.userInfoKey: remap])
         NotificationCenter.default.post(name: .syncDidChangeData, object: nil)
@@ -328,6 +337,8 @@ actor SyncEngine {
       // Sans curseur : la première descente du nouveau compte réconcilie ses articles en entier (vecteur `007`).
       cursors.tombstones = nil
       cursors.accountId = id
+      cursors.accountKind = nil
+      await noteAccountKind()
       try await gateway.acknowledgeAccount(id)
       needsAccountRecovery = false
       isWaitingForSession = false
@@ -339,6 +350,15 @@ actor SyncEngine {
       needsAccountRecovery = true
       _ = stop(on: error, recovering: true)
       return .stopped
+    }
+  }
+
+  /// Nature du compte des données, lue dans la session (sans appel au serveur). Illisible : rien ne change.
+  private func noteAccountKind() async {
+    do {
+      cursors.accountKind = try await gateway.accountEmail() == nil ? .anonymous : .email
+    } catch {
+      // Keychain verrouillé : la nature déjà notée reste.
     }
   }
 
@@ -517,9 +537,13 @@ actor SyncEngine {
     } catch {
       return stop(on: error)
     }
-    switch SyncDecisions.zeroRowOutcome(tombstoned: tombstones.contains { $0.id == work.entityId }) {
+    let ownerId = try await store.listOwnership(listId).ownerId
+    let ownedByMe = ownerId.map { $0 == cursors.accountId } ?? true
+    switch SyncDecisions.zeroRowOutcome(
+      tombstoned: tombstones.contains { $0.id == work.entityId }, listOwnedByMe: ownedByMe)
+    {
     case .deletedElsewhere:
-      // L'article et ses entrées partent, sans nouvel essai : la suppression gagne.
+      // L'article et ses entrées partent, sans nouvel essai : la suppression gagne. Les autres entrées restent.
       let row = TombstoneRow(id: work.entityId, listId: listId, deletedAt: dependencies.now())
       if try await store.merge(tombstones: [row]) { await Self.postDataChange() }
       return .proceed
@@ -856,16 +880,45 @@ actor SyncEngine {
       cursors.tombstones = Self.later(cursors.tombstones, rows.map(\.deletedAt).max())
       return changed
     case .fullReconcile:
-      // Heure du serveur d'abord : une suppression faite pendant la réconciliation sera relue la fois suivante.
-      // Sans en-tête lisible, le curseur reste vide et la réconciliation complète recommencera.
-      let serverNow = try await gateway.serverDate()
-      var changed = false
-      for listId in try await store.reconcilableListIds() {
-        let ids = try await gateway.fetchItemIds(listId: listId)
-        changed = try await store.reconcileItems(listId: listId, serverIds: Set(ids)) || changed
+      return try await reconcileItemsFully()
+    }
+  }
+
+  /// Réconciliation complète des articles (vecteur `007`). Heure du serveur d'abord : une suppression faite pendant la
+  /// réconciliation sera relue la fois suivante. Sans en-tête lisible, le curseur reste vide et elle recommencera.
+  private func reconcileItemsFully() async throws -> Bool {
+    let serverNow = try await gateway.serverDate()
+    var changed = false
+    for listId in try await store.reconcilableListIds() {
+      let ids = try await gateway.fetchItemIds(listId: listId)
+      changed = try await store.reconcileItems(listId: listId, serverIds: Set(ids)) || changed
+    }
+    cursors.tombstones = serverNow
+    return changed
+  }
+
+  /// `fullReconcile` dû : la réconciliation complète passe avant l'envoi de la file. Faux si la passe doit s'arrêter
+  /// (session perdue ou compte changé) ; une autre erreur reporte seulement la réconciliation, comme une descente.
+  private func reconcileItemsBeforeSending() async -> Bool {
+    let now = dependencies.now()
+    guard SyncDecisions.tombstonePullMode(cursor: cursors.tombstones, now: now) == .fullReconcile else { return true }
+    if let pullBackoffUntil, pullBackoffUntil > now { return true }
+    do {
+      // Aucune liste encore arrivée au serveur : rien à confronter, la descente posera le curseur.
+      guard try await !store.reconcilableListIds().isEmpty else { return true }
+      if try await reconcileItemsFully() { await Self.postDataChange() }
+      return true
+    } catch {
+      guard !Task.isCancelled else { return false }
+      switch error as? RemoteError {
+      case .accountChanged, .unauthorized, .accountGone, .keychainLocked:
+        _ = stop(on: error)
+        return false
+      default:
+        Self.logger.notice("Réconciliation des articles reportée : \(String(describing: error), privacy: .private)")
+        pullBackoffUntil = now.addingTimeInterval(SyncRetryPolicy.pullRetryInterval)
+        return true
       }
-      cursors.tombstones = serverNow
-      return changed
     }
   }
 

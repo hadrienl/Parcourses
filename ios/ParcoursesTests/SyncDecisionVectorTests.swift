@@ -77,7 +77,9 @@ struct SyncDecisionVectorTests {
       let pending = input["pending"] is NSNull ? nil : try strings(input, "pending")
       return SyncDecisions.mergeChangedFields(pending: pending, new: try strings(input, "new"))
     case "zeroRowOutcome":
-      return SyncDecisions.zeroRowOutcome(tombstoned: try bool(input, "tombstoned")).rawValue
+      return SyncDecisions.zeroRowOutcome(
+        tombstoned: try bool(input, "tombstoned"), listOwnedByMe: try bool(input, "listOwnedByMe")
+      ).rawValue
     case "insertRefusedOutcome":
       return SyncDecisions.insertRefusedOutcome(
         listSynced: try bool(input, "listSynced"), listOwnedByMe: try bool(input, "listOwnedByMe")

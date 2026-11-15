@@ -49,8 +49,13 @@ enum AccountRekey {
     Dictionary(grouping: try context.fetch(FetchDescriptor<ListItem>()), by: \.listId).mapValues(\.count)
   }
 
-  static func run(in context: ModelContext, previousAccountId: UUID?, now: Date) throws -> IdentifierRemap {
-    try context.atomically {
+  /// `previousAccountKind` : un ancien compte e-mail n'est jamais repris (README des vecteurs) ; ses listes, articles,
+  /// visites et entrées quittent l'appareil, ils restent chez lui sur le serveur.
+  static func run(
+    in context: ModelContext, previousAccountId: UUID?, previousAccountKind: AccountKind = .anonymous, now: Date
+  ) throws -> IdentifierRemap {
+    if previousAccountKind == .email { return try leaveEmailAccountData(in: context) }
+    return try context.atomically {
       // Sur un contexte neuf : le principal reçoit les écritures du moteur plus tard, et un état `pending` périmé
       // ferait renvoyer une visite déjà reçue.
       let disk = ModelContext(context.container)
@@ -161,6 +166,20 @@ enum AccountRekey {
         if let endedAt = visit.endedAt { try context.enqueueClosure(ofVisit: visit.id, endedAt: endedAt, at: now) }
       }
       return IdentifierRemap(identifiers: identifiers)
+    }
+  }
+}
+
+extension AccountRekey {
+  /// Ancien compte e-mail : rien n'est renvoyé, ses données quittent l'appareil. Tout ou rien.
+  fileprivate static func leaveEmailAccountData(in context: ModelContext) throws -> IdentifierRemap {
+    try context.atomically {
+      try context.delete(model: OutboxEntry.self)
+      try context.delete(model: Check.self)
+      try context.delete(model: Visit.self)
+      try context.delete(model: ListItem.self)
+      try context.delete(model: ShoppingList.self)
+      return IdentifierRemap(identifiers: [:])
     }
   }
 }

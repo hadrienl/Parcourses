@@ -43,6 +43,9 @@ struct ListsView: View {
       .sheet(isPresented: $showsAbout) { AboutView() }
       // Déconnexion interrompue au lancement : À propos fermé, l'alerte vient ici.
       .signOutFailurePresentation(account, isHidden: showsAbout)
+      .overlay {
+        if account?.isSigningOut == true, !showsAbout { SignOutVeil() }
+      }
       .sheet(item: $signIn) { link in
         AccountSignInView(link: link) { Task { await account?.linkDidFinish() } }
       }

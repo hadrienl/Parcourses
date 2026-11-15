@@ -36,7 +36,8 @@ Deno.test("chaque fonction de SyncDecisions a son fichier de vecteurs", () => {
 
 for (const v of vectors) {
   Deno.test(`vecteurs ${v.id}`, () => {
-    assertEquals(v.format_version, 1);
+    // 003 passe en version 2 (entrée listOwnedByMe) ; les autres restent en version 1.
+    assertEquals(v.format_version, v.id === "003-zero-row-outcome" ? 2 : 1);
     const run = functions[v.function];
     assert(run, `fonction inconnue : ${v.function}`);
     assert(v.cases.length > 0, "aucun cas");

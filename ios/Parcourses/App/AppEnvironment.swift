@@ -86,11 +86,8 @@ final class AppEnvironment {
     let sync = sync
     let container = container
     let cursors = UserDefaultsSyncCursors()
-    let pending = SyncState.pending.rawValue
-    let pendingChanges: () -> Int = {
-      let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
-      return (try? container.mainContext.fetchCount(descriptor)) ?? 0
-    }
+    // Entrées `pending` et `failed` : toutes celles qui restent dans la file seraient perdues.
+    let pendingChanges: () -> Int = { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 }
     let link = AccountLink.Dependencies(
       isOnline: { sync?.isOnline ?? true },
       resendableLists: { accountId in

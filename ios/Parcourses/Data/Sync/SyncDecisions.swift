@@ -10,7 +10,7 @@ nonisolated enum ItemSaveRequest: Sendable, Equatable {
   case none
 }
 
-/// Mise à jour ou suppression qui a touché 0 ligne (vecteur `003`).
+/// Mise à jour ou suppression qui a touché 0 ligne (vecteur `003`, format 2).
 nonisolated enum ZeroRowOutcome: String, Sendable {
   /// Pierre tombale présente : l'article et son entrée partent, sans nouvel essai.
   case deletedElsewhere
@@ -102,8 +102,10 @@ nonisolated enum SyncDecisions {
     uniqueSorted((pending ?? []) + new)
   }
 
-  static func zeroRowOutcome(tombstoned: Bool) -> ZeroRowOutcome {
-    tombstoned ? .deletedElsewhere : .accessLost
+  /// Sur sa propre liste, l'accès ne se perd jamais : sans pierre tombale (purgée après 30 jours), l'article a été
+  /// supprimé ailleurs aussi.
+  static func zeroRowOutcome(tombstoned: Bool, listOwnedByMe: Bool) -> ZeroRowOutcome {
+    tombstoned || listOwnedByMe ? .deletedElsewhere : .accessLost
   }
 
   static func insertRefusedOutcome(listSynced: Bool, listOwnedByMe: Bool) -> InsertRefusedOutcome {

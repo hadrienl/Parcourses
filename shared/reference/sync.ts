@@ -24,8 +24,11 @@ export function mergeChangedFields(input: { pending: string[] | null; new: strin
   return uniqueSorted([...(input.pending ?? []), ...input.new]);
 }
 
-export function zeroRowOutcome(input: { tombstoned: boolean }): "deletedElsewhere" | "accessLost" {
-  return input.tombstoned ? "deletedElsewhere" : "accessLost";
+// Sur sa propre liste, l'accès ne se perd jamais : sans pierre tombale (purgée après 30 jours), l'article a été supprimé.
+export function zeroRowOutcome(
+  input: { tombstoned: boolean; listOwnedByMe: boolean },
+): "deletedElsewhere" | "accessLost" {
+  return input.tombstoned || input.listOwnedByMe ? "deletedElsewhere" : "accessLost";
 }
 
 export function insertRefusedOutcome(

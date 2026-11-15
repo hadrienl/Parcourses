@@ -432,6 +432,7 @@ private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
   var items: Date?
   var catalog: Date?
   var tombstones: Date?
+  var accountKind: AccountKind?
 }
 
 /// La file complète contre le Supabase local.
@@ -931,11 +932,7 @@ struct AccountsIntegrationTests {
     let engine = SyncEngine(
       gateway: remote, container: container, cursors: cursors, classify: try PulledItemClassifier.make(),
       dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
-    let pending = SyncState.pending.rawValue
-    let pendingChanges: () -> Int = {
-      let descriptor = FetchDescriptor<OutboxEntry>(predicate: #Predicate { $0.syncStateRaw == pending })
-      return (try? container.mainContext.fetchCount(descriptor)) ?? 0
-    }
+    let pendingChanges: () -> Int = { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 }
     let link = AccountLink.Dependencies(
       resendableLists: { id in
         guard cursors.accountId != id else { return 0 }
@@ -951,6 +948,7 @@ struct AccountsIntegrationTests {
         container: container, keychain: keychain, defaults: defaults,
         urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
       signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults),
       dependencies: AccountSession.Dependencies(pendingChanges: pendingChanges, link: link))
     return Device(
       remote: remote, keychain: keychain, defaults: defaults, kinds: kinds, cursors: cursors, container: container,
@@ -1143,7 +1141,9 @@ struct AccountsIntegrationTests {
       gateway: a.remote, kinds: a.kinds,
       purge: LocalDataPurge(
         container: a.container, keychain: a.keychain, defaults: a.defaults,
-        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)))
+        urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)),
+      signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: a.defaults),
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: a.defaults))
     await session.refresh()
     #expect(session.kind == .email && session.email == email)
     await session.signOut()

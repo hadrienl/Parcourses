@@ -67,6 +67,11 @@ final class AccountLink {
     var resumeSync: () async -> Void = {
       // Sans moteur à relancer.
     }
+    /// Drapeau durable `account.switch` : posé avant `verifyCode` d'une connexion depuis un compte e-mail, effacé quand
+    /// le compte n'a pas changé ou quand la purge du changement est faite.
+    var markSwitch: (Bool) -> Void = { _ in
+      // Sans drapeau durable (aperçus, tests).
+    }
     /// Compte e-mail qui se connecte à un autre compte e-mail : l'appareil est purgé, session gardée, et le nouveau
     /// compte adopté. Rien de l'ancien compte n'est renvoyé.
     var switchAccount: (UUID) async throws -> Void = { _ in
@@ -179,29 +184,54 @@ final class AccountLink {
     sentTo = nil
   }
 
-  /// Validation au 6ᵉ chiffre.
+  /// Validation au 6ᵉ chiffre. La vérification et la reprise tournent dans une tâche à part : ni la fermeture de
+  /// l'écran ni l'annulation de l'appelant ne les interrompent (README des vecteurs).
   func verify(code raw: String) async {
     let code = raw.filter(\.isASCII).filter(\.isNumber)
     guard phase == .enterCode, !isWorking, code.count == Self.codeLength, let purpose, let sentTo else { return }
     guard dependencies.isOnline() else { return publish(.offline) }
     isWorking = true
     error = nil
-    defer { isWorking = false }
-    let gateway = gateway
+    let work = Task { await self.runVerification(code: code, purpose: purpose, sentTo: sentTo) }
+    await work.value
+    isWorking = false
+  }
+
+  /// La synchro, suspendue avant `verifyCode`, est reprise dans tous les cas, sauf si une purge de changement de
+  /// compte reste en attente (drapeau `account.switch`, rejouée au lancement).
+  private func runVerification(code: String, purpose: EmailCodePurpose, sentTo: String) async {
     await dependencies.suspendSync()
+    var sync = SyncHold.suspended
+    await verifyAndMerge(code: code, purpose: purpose, sentTo: sentTo, sync: &sync)
+    if sync == .suspended { await dependencies.resumeSync() }
+  }
+
+  /// État de la synchro pendant la vérification.
+  private enum SyncHold {
+    case suspended
+    case resumed
+    /// Purge en attente : la synchro ne doit pas reprendre avant elle.
+    case heldForPurge
+  }
+
+  private func verifyAndMerge(code: String, purpose: EmailCodePurpose, sentTo: String, sync: inout SyncHold) async {
+    let gateway = gateway
+    // Connexion depuis un compte e-mail : le changement de compte éventuel doit survivre à un arrêt de l'app.
+    let fromEmailAccount = !canLink && purpose == .signIn
+    if fromEmailAccount { dependencies.markSwitch(true) }
     let verified: VerifiedCode
     do {
       verified = try await withTimeout(Self.timeout) {
         try await gateway.verifyCode(email: sentTo, code: code, purpose: purpose)
       }
     } catch {
-      await dependencies.resumeSync()
+      if fromEmailAccount { dependencies.markSwitch(false) }
       return publish(classifyVerification(error))
     }
     kinds.save(.email)
     let name = Self.validDisplayName(displayName)
     if purpose == .link {
-      await dependencies.resumeSync()
+      await resume(&sync)
       dependencies.sessionDidChange()
       if let name { await writeDisplayName(name) }
       outcome = .linked
@@ -210,16 +240,21 @@ final class AccountLink {
     }
     phase = .merging
     var added = 0
-    if !canLink, verified.accountId != dependencies.previousAccountId() {
+    if fromEmailAccount, verified.accountId != dependencies.previousAccountId() {
       // D'un compte e-mail à un autre : les données de l'ancien restent chez lui, sur le serveur. L'appareil est purgé
-      // avant que la synchro reprenne, sinon `AccountRekey` les renverrait au nouveau compte.
+      // avant que la synchro reprenne, sinon elles partiraient au nouveau compte.
       do {
         try await dependencies.switchAccount(verified.accountId)
+        dependencies.markSwitch(false)
       } catch {
         Self.logger.error("Changement de compte impossible : \(String(describing: error), privacy: .private)")
-        // Retour à l'attente d'une connexion, sans rien renvoyer.
-        try? await gateway.signOut()
-        await dependencies.resumeSync()
+        // Retour à l'attente d'une connexion, sans rien renvoyer. Session encore là : la purge reste due.
+        do {
+          try await gateway.signOut()
+          dependencies.markSwitch(false)
+        } catch {
+          sync = .heldForPurge
+        }
         phase = .enterEmail
         self.purpose = nil
         self.sentTo = nil
@@ -227,10 +262,11 @@ final class AccountLink {
         return publish(.unknown)
       }
     } else {
+      if fromEmailAccount { dependencies.markSwitch(false) }
       // Compte existant : les listes du téléphone y sont ajoutées par la passe qui suit (`AccountRekey`).
       added = dependencies.resendableLists(verified.accountId)
     }
-    await dependencies.resumeSync()
+    await resume(&sync)
     dependencies.sessionDidChange()
     await dependencies.synchronize()
     if let token = verified.previousAnonymousToken {
@@ -248,6 +284,12 @@ final class AccountLink {
     }
     outcome = .signedIn(displayName: known, addedLists: added)
     phase = .done
+  }
+
+  private func resume(_ sync: inout SyncHold) async {
+    guard sync == .suspended else { return }
+    sync = .resumed
+    await dependencies.resumeSync()
   }
 
   // MARK: - Outils

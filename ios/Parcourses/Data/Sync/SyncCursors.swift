@@ -9,6 +9,9 @@ nonisolated protocol SyncCursors: Sendable {
   var catalog: Date? { get set }
   /// Plus récente pierre tombale descendue (#87), ou heure du serveur à la dernière réconciliation complète.
   var tombstones: Date? { get set }
+  /// Nature du compte `accountId` : à un changement de compte, seules les données d'un ancien compte anonyme sont
+  /// reprises (`AccountRekey`). `nil` (avant 87.3) : anonyme, seule sorte de compte d'alors.
+  var accountKind: AccountKind? { get set }
 }
 
 nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
@@ -17,6 +20,7 @@ nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   /// Toutes les clés des curseurs : la suppression du compte les efface (`LocalDataPurge`).
   static let keys = [
     "sync.cursor.account", "sync.cursor.lists", "sync.cursor.items", "sync.cursor.catalog", "sync.cursor.tombstones",
+    "sync.cursor.accountKind",
   ]
 
   init(defaults: UserDefaults = .standard) {
@@ -47,5 +51,9 @@ nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   var tombstones: Date? {
     get { defaults.object(forKey: "sync.cursor.tombstones") as? Date }
     nonmutating set { defaults.set(newValue, forKey: "sync.cursor.tombstones") }
+  }
+  var accountKind: AccountKind? {
+    get { defaults.string(forKey: "sync.cursor.accountKind").flatMap(AccountKind.init(rawValue:)) }
+    nonmutating set { defaults.set(newValue?.rawValue, forKey: "sync.cursor.accountKind") }
   }
 }

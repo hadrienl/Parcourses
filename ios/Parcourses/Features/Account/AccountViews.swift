@@ -8,6 +8,8 @@ struct AccountPrompts {
   var editsName = false
   var nameInput = ""
   var nameFailed = false
+  /// Compté après la suspension de la synchro : des entrées (`pending` ou `failed`) restent dans la file.
+  var losesChanges = false
 }
 
 extension View {
@@ -29,9 +31,7 @@ private struct AccountPromptsPresentation: ViewModifier {
       .alert("Se déconnecter ?", isPresented: $prompts.confirmsSignOut) {
         Button("Se déconnecter", role: .destructive) { Task { await account?.signOut() } }
           .accessibilityIdentifier("confirmSignOut")
-        Button("Annuler", role: .cancel) {
-          // La confirmation se referme, rien d'autre.
-        }
+        Button("Annuler", role: .cancel) { account?.cancelLeaving() }
       } message: {
         Text(signOutMessage)
       }
@@ -63,7 +63,7 @@ private struct AccountPromptsPresentation: ViewModifier {
 
   private var signOutMessage: String {
     var sentences = ["Vos listes restent dans votre compte. Elles seront retirées de cet appareil."]
-    if account?.losesPendingChanges == true {
+    if prompts.losesChanges {
       sentences.append("Les modifications pas encore envoyées seront perdues.")
     }
     return sentences.joined(separator: " ")
@@ -142,7 +142,11 @@ struct AccountSection: View {
     .foregroundStyle(Palette.inkMuted)
     if !account.needsSignIn {
       Button(role: .destructive) {
-        prompts.confirmsSignOut = true
+        // Synchro suspendue avant de compter ce qui reste dans la file.
+        Task {
+          prompts.losesChanges = await account.prepareToLeave()
+          prompts.confirmsSignOut = true
+        }
       } label: {
         Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,6 +195,7 @@ struct SessionLostBanner: View {
   let account: AccountSession
   let onReconnect: () -> Void
   @State private var confirmsAnonymous = false
+  @State private var losesChanges = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: Space.xs) {
@@ -201,10 +206,15 @@ struct SessionLostBanner: View {
       }
       .prominentButton()
       .accessibilityIdentifier("reconnect")
-      Button("Continuer sans compte") { confirmsAnonymous = true }
-        .frame(maxWidth: .infinity)
-        .touchTarget()
-        .accessibilityIdentifier("continueWithoutAccount")
+      Button("Continuer sans compte") {
+        Task {
+          losesChanges = await account.prepareToLeave()
+          confirmsAnonymous = true
+        }
+      }
+      .frame(maxWidth: .infinity)
+      .touchTarget()
+      .accessibilityIdentifier("continueWithoutAccount")
     }
     .padding(Space.s)
     .background(Palette.paper, in: RoundedRectangle(cornerRadius: TicketMetrics.radius * 2, style: .continuous))
@@ -215,16 +225,21 @@ struct SessionLostBanner: View {
     .padding(.horizontal, Space.m)
     .padding(.bottom, Space.xs)
     .alert("Continuer sans compte ?", isPresented: $confirmsAnonymous) {
-      Button("Continuer sans compte", role: .destructive) { account.continueWithoutAccount() }
+      Button("Continuer sans compte", role: .destructive) { Task { await account.continueWithoutAccount() } }
         .accessibilityIdentifier("confirmContinueWithoutAccount")
-      Button("Annuler", role: .cancel) {
-        // Le compte reste en attente de reconnexion.
-      }
+      Button("Annuler", role: .cancel) { account.cancelLeaving() }
     } message: {
-      Text(
-        "Les listes partagées avec vous seront retirées de cet appareil. Les vôtres restent ici, sans adresse ni synchronisation entre appareils."
-      )
+      Text(message)
     }
+  }
+
+  /// Les listes du compte restent sur le serveur, l'appareil repart vide (README des vecteurs).
+  private var message: String {
+    var sentences = [
+      "Les listes de votre compte seront retirées de cet appareil ; elles restent dans votre compte. Vous repartirez sans compte, avec un appareil vide."
+    ]
+    if losesChanges { sentences.append("Les modifications pas encore envoyées seront perdues.") }
+    return sentences.joined(separator: " ")
   }
 }
 

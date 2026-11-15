@@ -14,7 +14,7 @@ Conception : #87 §2.3, §2.4, §6.4, §6.5 et §6.7 ; serveur : lots 87.1 (pier
 | --- | --- | --- |
 | `001` | `itemSaveRequest(isOnServer, changedFields)` | `insert` \| `patch(fields)` \| `none` |
 | `002` | `mergeChangedFields(pending, new)` | union triée |
-| `003` | `zeroRowOutcome(tombstoned)` | `deletedElsewhere` \| `accessLost` |
+| `003` | `zeroRowOutcome(tombstoned, listOwnedByMe)` | `deletedElsewhere` \| `accessLost` |
 | `004` | `insertRefusedOutcome(listSynced, listOwnedByMe)` | `waitForList` \| `refreshAccess` \| `reconcile` |
 | `005` | `reconcileLists(local, accessible)` | `remove`, `fetchFully` |
 | `006` | `applyTombstones(localItems, tombstones)` | `delete` |
@@ -68,3 +68,19 @@ Les valeurs de sortie sont les noms des cas d'enum (Swift `case deletedElsewhere
   synchro reste arrêtée et la purge est rejouée au lancement. Purge en échec : pas de nouveau compte, « Réessayer ».
 - `refreshAccess` sur une liste dont on est propriétaire : les articles jamais envoyés (`isOnServer = false`) et leurs
   entrées restent.
+- Curseur des pierres tombales trop vieux (`tombstonePullMode` → `fullReconcile`, vecteur `007`) : la réconciliation
+  complète passe **avant** l'envoi de la file, pour que les articles supprimés ailleurs pendant une longue absence soient
+  retirés sans qu'un envoi les touche.
+- Changement de compte durable : avant `verifyCode` d'une connexion (`signIn`) depuis un compte e-mail, drapeau durable
+  `account.switch` (UserDefaults / DataStore, exclu de la sauvegarde). Au lancement, s'il est posé et que la session est
+  celle d'un autre compte que `SyncCursors.accountId`, la purge est rejouée et aucune reprise n'est faite ; s'il est posé
+  et que le compte n'a pas changé, il est effacé. `account.kind` absent avec une session non anonyme : `email`.
+- `AccountRekey` ne renvoie jamais les listes d'un ancien compte e-mail : seul un ancien compte **anonyme** est repris.
+- « Continuer sans compte » depuis un compte e-mail sans session : `LocalDataPurge` d'abord (même avertissement sur les
+  modifications non envoyées), puis nouveau compte anonyme vide.
+- Vérification du code et reprise : ni la fermeture de l'écran ni l'annulation de la tâche ne les interrompent ; la
+  synchro est reprise dans tous les cas (sauf purge en attente). Fermer et Retour sont inactifs pendant la vérification.
+- Déconnexion : avertissement (pas de refus) si des entrées restent dans la file, `pending` **ou** `failed`, comptées
+  après la suspension de la synchro.
+- Jeton de l'ancien compte anonyme : session rafraîchie si besoin avant de le garder, pour que `deleteAccount` ne
+  reçoive pas un jeton expiré.
