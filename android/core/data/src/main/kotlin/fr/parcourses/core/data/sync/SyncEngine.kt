@@ -34,6 +34,7 @@ import kotlinx.serialization.SerializationException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -140,6 +141,7 @@ class SyncEngine(
     private var lastPull: Instant? = null
     private var resolutionAttempts = mutableMapOf<String, String>()
     private var resolutionBackoffUntil: Instant? = null
+    private var fullReconcileNotBefore: Instant? = null
 
     /**
      * Arrête le moteur (suppression du compte, #68) : plus aucune passe ne démarre, et l'appel ne rend la main qu'une
@@ -978,6 +980,8 @@ class SyncEngine(
      */
     private suspend fun reconcileAllItems() {
         val serverNow = gateway.serverDate()
+        // Sans heure du serveur, le curseur reste nul : la suivante, avant l'envoi, attend une heure.
+        fullReconcileNotBefore = if (serverNow == null) dependencies.now() + FULL_RECONCILE_SPACING else null
         for (listId in store.syncedListIds()) {
             store.reconcileItems(listId, gateway.fetchItemIds(parse(listId)).map { it.toString() })
         }
@@ -992,8 +996,11 @@ class SyncEngine(
         ) {
             return true
         }
-        // Rien de synchronisé (premier passage, reprise de compte) : la descente posera le curseur.
-        if (store.syncedListIds().isEmpty()) return true
+        // Rien de synchronisé (premier passage, reprise de compte) : la descente posera le curseur. Dernière
+        // réconciliation sans heure du serveur : pas avant chaque passe.
+        if (store.syncedListIds().isEmpty() || fullReconcileNotBefore?.let { it > dependencies.now() } == true) {
+            return true
+        }
         return try {
             reconcileAllItems()
             true
@@ -1035,5 +1042,8 @@ class SyncEngine(
     private companion object {
         const val TAG = "SyncEngine"
         const val CLOCK_CONSTRAINT = "23514"
+
+        /** Réconciliations complètes avant l'envoi, sans heure du serveur : au plus une par heure. */
+        val FULL_RECONCILE_SPACING = 1.hours
     }
 }

@@ -19,9 +19,11 @@ class DeletionGuardedGateway(
     private val inner: RemoteGateway,
     private val flag: AccountDeletionFlag,
     private val accountKind: AccountKindFlag? = null,
+    /** Déconnexion en attente de purge (#87) : aucun compte ne naît avant elle, la purge l'effacerait. */
+    private val signOutFlag: AccountSignOutFlag? = null,
 ) : RemoteGateway by inner {
     override suspend fun ensureSession(captchaToken: String?): Uuid {
-        if (flag.isPending) throw RemoteError.Unauthorized()
+        if (flag.isPending || signOutFlag?.isPending == true) throw RemoteError.Unauthorized()
         val kind = accountKind?.kind?.value
         if (kind != null && SyncDecisions.sessionLossAction(kind) == SessionLossAction.WaitForSignIn) {
             // Session existante : celle du compte e-mail. Absente : aucune création.

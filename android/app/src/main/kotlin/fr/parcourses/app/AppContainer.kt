@@ -128,7 +128,9 @@ class AppContainer(
      * Toute l'app passe par la garde : aucun `ensureSession` pendant une suppression du compte, et jamais de compte
      * anonyme recréé pour un compte e-mail (#87).
      */
-    val gateway: RemoteGateway? by lazy { supabase?.let { DeletionGuardedGateway(it, deletionFlag, accountKind) } }
+    val gateway: RemoteGateway? by lazy {
+        supabase?.let { DeletionGuardedGateway(it, deletionFlag, accountKind, signOutFlag) }
+    }
 
     /** Entretien de la session (écran À propos) : `null` sans configuration Supabase. */
     val sessionMaintenance: SessionMaintenance? get() = supabase
@@ -395,7 +397,9 @@ class AppContainer(
     }
 
     /** Purge locale (#68), commune à la suppression et à la déconnexion : `account.kind` compris. */
-    private val purge by lazy { LocalDataPurge(database, cursors, accountKind = accountKind) }
+    private val purge by lazy {
+        LocalDataPurge(database, cursors, accountKind = accountKind, switchFlag = switchFlag)
+    }
 
     /** « Se déconnecter » (#87 §2.4) : `null` sans Supabase. */
     val accountSignOut: AccountSignOutController? by lazy {
@@ -457,11 +461,13 @@ class AppContainer(
      * synchronisation aussi arrêtée jusqu'à la prochaine connexion.
      */
     @Suppress("TooGenericExceptionCaught") // Toute panne garde le drapeau : rien ne part vers le mauvais compte.
-    internal suspend fun replayAccountSwitch(remote: RemoteGateway) {
-        if (!switchFlag.isPending) return
-        try {
+    internal suspend fun replayAccountSwitch(remote: RemoteGateway): Boolean {
+        if (!switchFlag.isPending) return true
+        return try {
             val session = remote.sessionAccountId()
-            if (session != cursors.accountId) {
+            // Session anonyme (le code n'a jamais été accepté) : rien à adopter, le drapeau part seul.
+            val emailSession = remote.accountEmail() != null
+            if (emailSession && session != cursors.accountId) {
                 withTimeoutOrNull(LIVE_UPDATE_BUDGET) { liveUpdates.endAll().await() }
                 purge.run()
                 livePreferences.clear()
@@ -470,10 +476,13 @@ class AppContainer(
                 Log.i(TAG, "Changement de compte e-mail repris au lancement")
             }
             switchFlag.clear()
+            true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // Signalé dans le journal ; nouvel essai au retour au premier plan, synchro arrêtée d'ici là.
             Log.w(TAG, "Changement de compte non repris : ${e.javaClass.simpleName}")
+            false
         }
     }
 
@@ -551,6 +560,13 @@ class AppContainer(
 
     /** Premier plan : une passe avec descente. */
     fun onForeground() {
+        // Changement de compte e-mail pas encore repris (session illisible au lancement) : nouvel essai.
+        val remote = gateway
+        if (remote != null && switchFlag.isPending) {
+            maintenanceScope.launch {
+                if (withContext(IO) { replayAccountSwitch(remote) }) coordinator?.sessionDidChange()
+            }
+        }
         coordinator?.requestSync(pull = true)
     }
 

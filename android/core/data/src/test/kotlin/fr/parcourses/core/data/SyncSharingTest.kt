@@ -421,4 +421,27 @@ class SyncSharingTest : DataTest() {
             assertTrue(gateway.calls.indexOf("fetchItemIds:$listId") < gateway.calls.indexOf("updateItem:$kept"))
             assertTrue(db.outbox().all().isEmpty())
         }
+
+    /** Sans heure du serveur, la réconciliation complète avant l'envoi n'est pas refaite à chaque passe. */
+    @Test
+    fun withoutServerTimeTheFullReconciliationBeforeSendingIsSpaced() =
+        runBlocking {
+            val (listId, itemId) = pulled()
+            gateway.serverDate = null
+            cursors.tombstones = now - 30.days
+            repository.setChecked(itemId, now, now)
+            engine.drain()
+            val first = gateway.callsOf("fetchItemIds").size
+            assertTrue(first >= 1)
+
+            repository.setChecked(itemId, null, now)
+            gateway.calls.clear()
+            engine.drain()
+            assertTrue(
+                gateway.calls.indexOf("fetchItemIds:$listId").let {
+                    it < 0 ||
+                        it > gateway.calls.indexOf("updateItem:$itemId")
+                },
+            )
+        }
 }

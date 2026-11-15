@@ -140,14 +140,7 @@ fun ParcoursesNavHost(
                         onOpen = { id -> backStack.openListFromLists(id) },
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
                         aboutNeedsAttention = sessionStuck,
-                        account =
-                            ListsAccountUi(
-                                canSignIn = container.gateway != null && account.kind == AccountKind.Anonymous,
-                                needsSignIn = account.needsSignIn,
-                                unsentChanges = unsent,
-                                onSignIn = openSignIn,
-                                onContinueWithoutAccount = container::continueWithoutAccount,
-                            ),
+                        account = listsAccount(container, account, unsent, signOut, openSignIn),
                     )
                 }
                 entry<Route.About> {
@@ -292,6 +285,27 @@ fun ParcoursesNavHost(
                     ShoppingSummaryRoute(summary = key.summary, onClose = { backStack.popIfTop(key.slot) })
                 }
             },
+    )
+}
+
+/**
+ * Compte, vu de l'écran Listes. Déconnexion en attente de purge : seul « Réessayer » est proposé (voile de la
+ * déconnexion) ; se reconnecter ouvrirait un compte que la purge effacerait.
+ */
+private fun listsAccount(
+    container: AppContainer,
+    account: AccountState,
+    unsent: Int,
+    signOut: AccountSignOutState,
+    openSignIn: () -> Unit,
+): ListsAccountUi {
+    val free = signOut == AccountSignOutState.Idle
+    return ListsAccountUi(
+        canSignIn = container.gateway != null && account.kind == AccountKind.Anonymous && free,
+        needsSignIn = account.needsSignIn && free,
+        unsentChanges = unsent,
+        onSignIn = openSignIn,
+        onContinueWithoutAccount = container::continueWithoutAccount,
     )
 }
 

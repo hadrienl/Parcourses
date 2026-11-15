@@ -290,10 +290,12 @@ class AccountLinkTest : DataTest() {
                     }
                 }
             val flag = InMemoryAccountSignOutFlag()
+            // Un changement de compte en attente n'a plus d'objet après la purge de déconnexion.
+            switch.write()
             val signOut =
                 AccountSignOut(
                     guarded,
-                    LocalDataPurge(db, cursors, accountKind = kind),
+                    LocalDataPurge(db, cursors, accountKind = kind, switchFlag = switch),
                     host,
                     flag,
                     isOnline = { online },
@@ -325,6 +327,7 @@ class AccountLinkTest : DataTest() {
             assertEquals(AccountSignOutOutcome.SignedOut, signOut.run())
 
             assertEquals(listOf("suspend", "shopping", "suspend", "clear", "rebuild"), steps)
+            assertFalse(switch.isPending)
             assertFalse(flag.isPending)
             assertEquals(1, gateway.callsOf("signOut").size)
             assertTrue(db.lists().getAll().isEmpty())
@@ -532,5 +535,34 @@ class AccountLinkTest : DataTest() {
             assertFalse(switch.isPending)
             assertEquals(listOf("suspend", "purge", "purge", "resume"), syncSteps)
             assertTrue(db.lists().getAll().isEmpty())
+        }
+
+    /** Un essai de code qui échoue n'efface `account.switch` que s'il l'a posé lui-même. */
+    @Test
+    fun aFailedCodeKeepsASwitchFlagItDidNotSet() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            gateway.hasSession = false
+            val link = link()
+            link.requestCode("tom@exemple.fr")
+            gateway.failNext("verifyCode", AuthRequestError(403, "otp_expired"), times = 2)
+
+            link.verify("000000")
+            assertFalse(switch.isPending)
+
+            switch.write()
+            link.verify("000000")
+            assertTrue(switch.isPending)
+        }
+
+    /** Déconnexion en attente de purge : aucun compte ne naît avant elle. */
+    @Test
+    fun noAccountIsCreatedWhileASignOutAwaitsItsPurge() =
+        runBlocking {
+            val signOutFlag = InMemoryAccountSignOutFlag().also { it.write() }
+            val blocked = DeletionGuardedGateway(gateway, InMemoryAccountDeletionFlag(), kind, signOutFlag)
+            gateway.hasSession = false
+            assertTrue(runCatching { blocked.ensureSession() }.exceptionOrNull() is RemoteError.Unauthorized)
+            assertTrue(gateway.callsOf("ensureSession").isEmpty())
         }
 }

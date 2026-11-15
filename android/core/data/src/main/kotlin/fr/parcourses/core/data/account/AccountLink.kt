@@ -209,14 +209,16 @@ class AccountLink(
         host.suspendSync()
         var resumed = false
         try {
-            // Durable : si le processus meurt, le lancement suivant rejoue la purge d'un changement de compte.
-            if (fromEmail) io { switchFlag.write() }
+            // Durable : si le processus meurt, le lancement suivant rejoue la purge d'un changement de compte. Un
+            // drapeau déjà posé (reprise en attente) n'est pas le nôtre : un échec ne l'efface pas.
+            val setByMe = fromEmail && !switchFlag.isPending
+            if (setByMe) io { switchFlag.write() }
             val verified =
                 try {
                     gateway.verifyCode(state.email, digits, purpose)
                 } catch (e: RemoteError) {
                     Log.i(TAG, "Code refusé : ${e.message}")
-                    if (fromEmail) io { switchFlag.clear() }
+                    if (setByMe) io { switchFlag.clear() }
                     return fail(codeError(e, state.codeSentAt))
                 }
             io { kind.write(AccountKind.Email) }
