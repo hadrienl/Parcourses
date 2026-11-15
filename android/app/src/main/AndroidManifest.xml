@@ -47,7 +47,7 @@
             </intent-filter>
             <!--
               Invitation (#87) : parcourses://invitation#<jeton>, ouvert depuis un e-mail ou la page /i/ (BROWSABLE).
-              Pas d'autoVerify ni de lien https tant que le domaine n'est pas choisi (Q2, lot 87.7).
+              Pas d'autoVerify ni de lien https : les App Links et assetlinks.json viennent au lot 87.7.
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

@@ -33,8 +33,8 @@ fun supabaseUrl(environment: String): String =
 
 fun String.asBuildConfigString() = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-// Hôte des liens d'invitation https (#87, lot 87.7) : vide tant que le domaine n'est pas choisi (Q2). Aucun domaine
-// n'est écrit en dur ; `-Pparcourses.invitationHost=<hôte>` ou ~/.gradle/gradle.properties.
+// Hôte des liens d'invitation https (#87) : vide par défaut jusqu'aux App Links et à assetlinks.json du lot 87.7.
+// Aucun domaine n'est écrit en dur ; `-Pparcourses.invitationHost=<hôte>` ou ~/.gradle/gradle.properties.
 val invitationHost: String =
     providers
         .gradleProperty("parcourses.invitationHost")

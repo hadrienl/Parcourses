@@ -10,7 +10,6 @@
     <string name="role_viewer">Lecture seule</string>
     <string name="role_editor_help">Ajoute, modifie et coche les articles.</string>
     <string name="role_viewer_help">Voit la liste, sans la modifier ni faire les courses.</string>
-    <string name="sharing_you">vous</string>
     <string name="sharing_someone">Un autre membre</string>
     <string name="sharing_owner_fallback">Le propriétaire</string>
     <string name="sharing_retry">Réessayer</string>
@@ -79,7 +78,10 @@
         <item quantity="other">%1$s la perdront aussi. C’est définitif.</item>
     </plurals>
     <string name="delete_shared_btn">Supprimer</string>
-    <string name="sharing_and_others">%1$s et %2$d autres</string>
+    <plurals name="sharing_and_others">
+        <item quantity="one">%1$s et %2$d autre</item>
+        <item quantity="other">%1$s et %2$d autres</item>
+    </plurals>
 
     <!-- 2. Partager la liste -->
     <string name="share_title">Partager la liste</string>
@@ -106,7 +108,6 @@
     <string name="pending_resend">Renvoyer</string>
     <string name="pending_copy">Copier le lien</string>
     <string name="pending_revoke">Annuler l’invitation</string>
-    <string name="pending_more_a11y">Actions pour l’invitation de %1$s</string>
     <string name="pending_row_a11y">%1$s, %2$s, %3$s</string>
     <string name="err_invalid">Cette adresse ne semble pas valide.</string>
     <string name="err_self">C’est votre propre adresse.</string>

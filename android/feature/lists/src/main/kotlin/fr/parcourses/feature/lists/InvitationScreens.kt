@@ -1,5 +1,6 @@
 package fr.parcourses.feature.lists
 
+import android.widget.Toast
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.parcourses.core.data.sharing.AcceptOutcome
 import fr.parcourses.core.data.sharing.InvitationCardState
 import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.designsystem.AvatarSize
@@ -75,61 +78,7 @@ import java.util.Locale
 import kotlin.time.Instant
 import kotlin.time.toJavaInstant
 
-// Écrans des invitations reçues (#87 §9.5, maquette §5).
-
-/** « Invitations (n) » : une carte par invitation. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ReceivedInvitationsScreen(
-    state: InvitationsUiState,
-    onAccept: (ReceivedInvitation) -> Unit,
-    onDecline: (ReceivedInvitation) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val title = pluralStringResource(R.plurals.inv_entry, state.invitations.size, state.invitations.size)
-    Scaffold(
-        modifier = modifier,
-        containerColor = Ticket.colors.desk,
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
-                title = { Text(title, modifier = Modifier.semantics { heading() }) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.sharing_close))
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
-        ) {
-            items(state.invitations, key = { it.id.toString() }) { invitation ->
-                InvitationItem(invitation, state, onAccept, onDecline, label = stringResource(R.string.inv_sheet))
-            }
-        }
-    }
-}
-
-/** Écran des invitations branché sur son modèle : une liste acceptée s'ouvre. */
-@Composable
-fun ReceivedInvitationsRoute(
-    viewModel: InvitationsViewModel,
-    onOpenList: (String) -> Unit,
-    onBack: () -> Unit,
-) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(state.openList) {
-        state.openList?.let {
-            viewModel.listOpened()
-            onOpenList(it)
-        }
-    }
-    ReceivedInvitationsScreen(state, viewModel::accept, viewModel::decline, onBack)
-}
+// Invitation ouverte par son lien (#87 §1.3, maquette §5).
 
 /**
  * Invitation ouverte par son lien (§5) : la carte, ou l'avertissement « autre adresse », ou l'état final (expirée,
@@ -343,37 +292,17 @@ fun InvitationLinkRoute(
     onClose: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val alreadyMember = stringResource(R.string.inv_member)
     LaunchedEffect(state.openList) {
         state.openList?.let {
+            // Déjà membre (acceptation idempotente) : la liste s'ouvre, avec un message bref (maquette §5).
+            if (state.outcome == AcceptOutcome.AlreadyMember) {
+                Toast.makeText(context, alreadyMember, Toast.LENGTH_SHORT).show()
+            }
             viewModel.listOpened()
             onOpenList(it)
         }
     }
     InvitationLinkScreen(state, viewModel::accept, viewModel::retry, onSwitchAccount, onClose)
-}
-
-/** Compte anonyme, « Mes listes » : l'invitation se retrouve après la connexion avec l'adresse qui l'a reçue. */
-@Composable
-internal fun AnonymousInvitationHint(onSignIn: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().padding(TicketDimens.spaceL).testTag(TAG_INVITATION_ANON),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
-    ) {
-        Icon(
-            Icons.Default.Email,
-            contentDescription = null,
-            tint = Ticket.colors.inkMuted,
-            modifier = Modifier.size(32.dp),
-        )
-        Text(
-            stringResource(R.string.inv_anon_empty),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Ticket.colors.ink,
-            textAlign = TextAlign.Center,
-        )
-        FilledTonalButton(onClick = onSignIn, modifier = Modifier.heightIn(min = TicketDimens.touchMin)) {
-            Text(stringResource(R.string.lists_sign_in))
-        }
-    }
 }

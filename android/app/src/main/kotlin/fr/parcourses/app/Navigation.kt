@@ -47,9 +47,9 @@ import kotlinx.coroutines.flow.map
 
 /**
  * Une seule activité, une pile de routes, un ViewModel par entrée. [coldStart] : l'activité démarre sans état
- * sauvegardé (ni recréation ni restauration après la mort du processus).
+ * sauvegardé (ni recréation ni restauration après la mort du processus). Une entrée par route : la longueur et les
+ * branches viennent de la table des écrans, pas d'une logique imbriquée.
  */
-// Une entrée par route : la longueur et les branches viennent de la table des écrans, pas d'une logique imbriquée.
 @Suppress("LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun ParcoursesNavHost(

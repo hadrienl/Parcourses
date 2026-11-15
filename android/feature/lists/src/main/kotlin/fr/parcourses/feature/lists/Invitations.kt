@@ -250,7 +250,7 @@ internal fun InvitationsEntry(
 
 /** Une invitation, sa carte, son erreur et la confirmation de son refus. */
 @Composable
-private fun InvitationItem(
+internal fun InvitationItem(
     invitation: ReceivedInvitation,
     state: InvitationsUiState,
     onAccept: (ReceivedInvitation) -> Unit,

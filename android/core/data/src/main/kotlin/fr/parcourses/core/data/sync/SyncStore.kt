@@ -668,23 +668,12 @@ class SyncStore(
             for (list in db.lists().getAll()) {
                 val owner = list.ownerId ?: continue
                 val listMembers = byList[list.id].orEmpty()
-                if (listMembers.isNotEmpty() || owner != me) {
-                    rows += ListParticipantEntity(list.id, owner, names[owner], ListRole.Owner, owner == me)
-                    listMembers.forEach { member ->
-                        val user = member.userId.toString()
-                        rows +=
-                            ListParticipantEntity(list.id, user, names[user], member.role, user == me, member.createdAt)
-                    }
+                if (listMembers.isNotEmpty() ||
+                    owner != me
+                ) {
+                    rows += participantsOf(list.id, owner, listMembers, names, me)
                 }
-                if (me == null) continue
-                val role =
-                    if (owner ==
-                        me
-                    ) {
-                        ListRole.Owner
-                    } else {
-                        listMembers.firstOrNull { it.userId.toString() == me }?.role
-                    }
+                val role = me?.let { myRole(owner, listMembers, it) }
                 if (role != null && role != list.role) {
                     db.lists().setRole(list.id, role)
                     if (list.id in known) changes += RoleChange(list.id, list.role, role)
@@ -694,6 +683,27 @@ class SyncStore(
             db.participants().upsertAll(rows)
             changes
         }
+
+    /** Personnes d'une liste partagée : son propriétaire, puis ses membres. */
+    private fun participantsOf(
+        listId: String,
+        owner: String,
+        members: List<ListMemberRow>,
+        names: Map<String, String?>,
+        me: String?,
+    ): List<ListParticipantEntity> =
+        listOf(ListParticipantEntity(listId, owner, names[owner], ListRole.Owner, owner == me)) +
+            members.map { member ->
+                val user = member.userId.toString()
+                ListParticipantEntity(listId, user, names[user], member.role, user == me, member.createdAt)
+            }
+
+    /** Mon rôle sur une liste : propriétaire, celui de `list_members`, ou `null` si je n'y figure pas. */
+    private fun myRole(
+        owner: String,
+        members: List<ListMemberRow>,
+        me: String,
+    ): ListRole? = if (owner == me) ListRole.Owner else members.firstOrNull { it.userId.toString() == me }?.role
 
     /** Réponse de `list_sharing` pour une liste : ses personnes et mon rôle. Renvoie le changement de rôle éventuel. */
     suspend fun applySharing(sharing: ListSharing): RoleChange? =

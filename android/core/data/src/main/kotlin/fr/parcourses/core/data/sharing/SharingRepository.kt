@@ -157,14 +157,16 @@ class SharingRepository(
         val remote = gateway?.takeIf { isOnline() } ?: throw SharingFailure(InviteErrorKind.Offline)
         return try {
             operation(remote)
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
-            throw SharingFailure(SharingDecisions.inviteErrorKind(errorOf(e)), e)
+            throw failureOf(e)
         }
     }
 
     private companion object {
+        /** L'annulation passe telle quelle ; toute autre panne devient le message de la maquette. */
+        fun failureOf(error: Exception): Exception =
+            error as? CancellationException ?: SharingFailure(SharingDecisions.inviteErrorKind(errorOf(error)), error)
+
         /** Entrée du vecteur `003` : message du serveur, `null` sans réponse. */
         fun errorOf(error: Exception): String? =
             when (error) {

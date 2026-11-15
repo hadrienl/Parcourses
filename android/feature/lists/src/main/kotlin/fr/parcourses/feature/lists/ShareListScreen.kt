@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -218,6 +219,36 @@ fun ShareListScreen(
     ShareSheets(state, sheet, actions) { sheet = it }
 }
 
+/** Membres, puis invitations en attente (propriétaire seulement), chacun suivi d'un séparateur. */
+private fun LazyListScope.peopleItems(
+    state: ShareListUiState,
+    actions: ShareListActions,
+    onSheet: (ShareSheet) -> Unit,
+) {
+    items(state.members, key = { "m-${it.userId}" }) { member ->
+        MemberRow(
+            member = member,
+            manageable = state.isOwner && member.role != ListRole.Owner,
+            busy = state.busyId == member.userId.toString(),
+            onManage = { onSheet(ShareSheet.Member(member.userId.toString())) },
+        )
+        HorizontalDivider(color = Ticket.colors.paperEdge)
+    }
+    if (state.isOwner && state.invitations.isNotEmpty()) {
+        item(key = "pending-title") { SectionTitle(stringResource(R.string.share_pending, state.invitations.size)) }
+        items(state.invitations, key = { "i-${it.id}" }) { invitation ->
+            PendingRow(
+                invitation = invitation,
+                busy = state.busyId == invitation.id.toString(),
+                actions = actions,
+                onMore = { onSheet(ShareSheet.Pending(invitation.id.toString())) },
+                onRevoke = { onSheet(ShareSheet.ConfirmRevoke(invitation.id.toString())) },
+            )
+            HorizontalDivider(color = Ticket.colors.paperEdge)
+        }
+    }
+}
+
 @Composable
 private fun ShareContent(
     state: ShareListUiState,
@@ -255,28 +286,7 @@ private fun ShareContent(
         if (state.load == ShareLoad.Loading) {
             item(key = "loading") { LoadingRow() }
         }
-        items(state.members, key = { "m-${it.userId}" }) { member ->
-            MemberRow(
-                member = member,
-                manageable = state.isOwner && member.role != ListRole.Owner,
-                busy = state.busyId == member.userId.toString(),
-                onManage = { onSheet(ShareSheet.Member(member.userId.toString())) },
-            )
-            HorizontalDivider(color = Ticket.colors.paperEdge)
-        }
-        if (state.isOwner && state.invitations.isNotEmpty()) {
-            item(key = "pending-title") { SectionTitle(stringResource(R.string.share_pending, state.invitations.size)) }
-            items(state.invitations, key = { "i-${it.id}" }) { invitation ->
-                PendingRow(
-                    invitation = invitation,
-                    busy = state.busyId == invitation.id.toString(),
-                    actions = actions,
-                    onMore = { onSheet(ShareSheet.Pending(invitation.id.toString())) },
-                    onRevoke = { onSheet(ShareSheet.ConfirmRevoke(invitation.id.toString())) },
-                )
-                HorizontalDivider(color = Ticket.colors.paperEdge)
-            }
-        }
+        peopleItems(state, actions, onSheet)
         if (state.isOwner && state.members.size <= 1 && state.invitations.isEmpty()) {
             item(key = "empty") {
                 Text(

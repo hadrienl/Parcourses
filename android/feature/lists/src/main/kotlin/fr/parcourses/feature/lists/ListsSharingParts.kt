@@ -166,7 +166,12 @@ internal fun ListRowMenu(
 @Composable
 internal fun sharedNames(names: List<String>): String =
     if (names.size > MAX_NAMED) {
-        stringResource(R.string.sharing_and_others, names.take(2).joinToString(", "), names.size - 2)
+        pluralStringResource(
+            R.plurals.sharing_and_others,
+            names.size - 2,
+            names.take(2).joinToString(", "),
+            names.size - 2,
+        )
     } else {
         joinedNames(names)
     }
