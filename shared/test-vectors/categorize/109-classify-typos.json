@@ -1,0 +1,487 @@
+{
+  "id": "109-classify-typos",
+  "description": "Fautes de frappe (#98), en repli seulement quand rien ne correspond exactement : un mot inconnu de 5 lettres ou plus, à une opération d'un seul mot-clé de même initiale (à 5 lettres, seulement une lettre manquante), est corrigé avant de reclasser.",
+  "format_version": 1,
+  "cases": [
+    {
+      "input": "Nesqick",
+      "expected": {
+        "normalized": "nesqick",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquick",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "nesquic",
+      "expected": {
+        "normalized": "nesquic",
+        "category_id": "breakfast",
+        "matched_keyword": "nesquick",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "yahourt",
+      "expected": {
+        "normalized": "yahourt",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "yahourts natures",
+      "expected": {
+        "normalized": "yahourt nature",
+        "category_id": "dairy",
+        "matched_keyword": "yaourt nature",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "salde",
+      "expected": {
+        "normalized": "salde",
+        "category_id": "produce",
+        "matched_keyword": "salade",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "beure",
+      "expected": {
+        "normalized": "beure",
+        "category_id": "dairy",
+        "matched_keyword": "beurre",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "tomat",
+      "expected": {
+        "normalized": "tomat",
+        "category_id": "produce",
+        "matched_keyword": "tomate",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "carote",
+      "expected": {
+        "normalized": "carote",
+        "category_id": "produce",
+        "matched_keyword": "carotte",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "courgete",
+      "expected": {
+        "normalized": "courgete",
+        "category_id": "produce",
+        "matched_keyword": "courgette",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "aubergnie",
+      "expected": {
+        "normalized": "aubergnie",
+        "category_id": "produce",
+        "matched_keyword": "aubergine",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "mozarella",
+      "expected": {
+        "normalized": "mozarella",
+        "category_id": "cheese",
+        "matched_keyword": "mozzarella",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "croisant",
+      "expected": {
+        "normalized": "croisant",
+        "category_id": "bakery",
+        "matched_keyword": "croissant",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "saucison",
+      "expected": {
+        "normalized": "saucison",
+        "category_id": "deli",
+        "matched_keyword": "saucisson",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "lessiv",
+      "expected": {
+        "normalized": "lessiv",
+        "category_id": "household",
+        "matched_keyword": "lessive",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "dentifrise",
+      "expected": {
+        "normalized": "dentifrise",
+        "category_id": "hygiene",
+        "matched_keyword": "dentifrice",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "wisky",
+      "expected": {
+        "normalized": "wisky",
+        "category_id": "alcohol",
+        "matched_keyword": "whisky",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "musli",
+      "expected": {
+        "normalized": "musli",
+        "category_id": "breakfast",
+        "matched_keyword": "muesli",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "pringels",
+      "expected": {
+        "normalized": "pringel",
+        "category_id": "snacks",
+        "matched_keyword": "pringle",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "lazagne",
+      "expected": {
+        "normalized": "lazagne",
+        "category_id": "deli",
+        "matched_keyword": "lasagne",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "spéculoss",
+      "expected": {
+        "normalized": "speculos",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "speculo",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquete",
+      "expected": {
+        "normalized": "croquete",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "saumn fumé",
+      "expected": {
+        "normalized": "saumn fume",
+        "category_id": "seafood",
+        "matched_keyword": "saumon fume",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "bananne bio",
+      "expected": {
+        "normalized": "bananne bio",
+        "category_id": "produce",
+        "matched_keyword": "banane",
+        "match": "fuzzy",
+        "organic": true
+      }
+    },
+    {
+      "input": "croque",
+      "expected": {
+        "normalized": "croque",
+        "category_id": "deli",
+        "matched_keyword": "croque",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquette",
+      "expected": {
+        "normalized": "croquette",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croquettes",
+      "expected": {
+        "normalized": "croquette",
+        "category_id": "pets",
+        "matched_keyword": "croquette",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pâte à tartinner",
+      "expected": {
+        "normalized": "pate tartinner",
+        "category_id": "savory-grocery",
+        "matched_keyword": "pate",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "coques",
+      "expected": {
+        "normalized": "coque",
+        "category_id": "seafood",
+        "matched_keyword": "coque",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "poêle",
+      "expected": {
+        "normalized": "poele",
+        "category_id": "household",
+        "matched_keyword": "poele",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pinces",
+      "expected": {
+        "normalized": "pince",
+        "category_id": "household",
+        "matched_keyword": "pince",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "ognon",
+      "expected": {
+        "normalized": "ognon",
+        "category_id": "produce",
+        "matched_keyword": "oignon",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "poivr",
+      "expected": {
+        "normalized": "poivr",
+        "category_id": "savory-grocery",
+        "matched_keyword": "poivre",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "crepme",
+      "expected": {
+        "normalized": "crepme",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "melpn",
+      "expected": {
+        "normalized": "melpn",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "pomes de terre",
+      "expected": {
+        "normalized": "pome terre",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "porte",
+      "expected": {
+        "normalized": "porte",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "radio",
+      "expected": {
+        "normalized": "radio",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "tante",
+      "expected": {
+        "normalized": "tante",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "salon",
+      "expected": {
+        "normalized": "salon",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "pomm",
+      "expected": {
+        "normalized": "pomm",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "croc monsieur",
+      "expected": {
+        "normalized": "croc monsieur",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "carte cadeau",
+      "expected": {
+        "normalized": "carte cadeau",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "câble",
+      "expected": {
+        "normalized": "cable",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "vromage",
+      "expected": {
+        "normalized": "vromage",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "beurre2",
+      "expected": {
+        "normalized": "beurre2",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "biologie",
+      "expected": {
+        "normalized": "biologie",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
+      "input": "poison",
+      "expected": {
+        "normalized": "poison",
+        "category_id": "seafood",
+        "matched_keyword": "poisson",
+        "match": "fuzzy",
+        "organic": false
+      }
+    },
+    {
+      "input": "raquette",
+      "expected": {
+        "normalized": "raquette",
+        "category_id": "produce",
+        "matched_keyword": "roquette",
+        "match": "fuzzy",
+        "organic": false
+      }
+    }
+  ]
+}

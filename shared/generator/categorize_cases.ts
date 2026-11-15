@@ -6,6 +6,8 @@ export interface CategorizeCase {
   input: string;
   n?: string;
   c?: string;
+  /** Nature de la correspondance attendue. */
+  m?: string;
   /** Indicateur « bio » attendu. */
   o?: boolean;
 }
@@ -18,6 +20,8 @@ export interface CategorizeGroup {
 
 const N = (input: string, n: string): CategorizeCase => ({ input, n });
 const C = (input: string, c: string): CategorizeCase => ({ input, c });
+/** Faute de frappe : catégorie et nature attendues (`fuzzy`, ou `none` si rien n'est corrigé). */
+const T = (input: string, c: string, m = "fuzzy"): CategorizeCase => ({ input, c, m });
 
 /** Raccourci : « saisie => catégorie » par ligne. */
 const lines = (s: string): CategorizeCase[] =>
@@ -451,6 +455,73 @@ export function categorizeGroups(): CategorizeGroup[] {
         iced tea => beverages
         Fuze Tea => beverages
       `),
+    },
+    {
+      id: "109-classify-typos",
+      description:
+        "Fautes de frappe (#98), en repli seulement quand rien ne correspond exactement : un mot " +
+        "inconnu de 5 lettres ou plus, à une opération d'un seul mot-clé de même initiale (à 5 " +
+        "lettres, seulement une lettre manquante), est corrigé avant de reclasser.",
+      cases: [
+        // Corrigés.
+        T("Nesqick", "breakfast"),
+        // Deux candidats de même catégorie : le premier dans l'ordre alphabétique.
+        T("nesquic", "breakfast"),
+        T("yahourt", "dairy"),
+        T("yahourts natures", "dairy"),
+        T("salde", "produce"),
+        T("beure", "dairy"),
+        T("tomat", "produce"),
+        T("carote", "produce"),
+        T("courgete", "produce"),
+        T("aubergnie", "produce"),
+        T("mozarella", "cheese"),
+        T("croisant", "bakery"),
+        T("saucison", "deli"),
+        T("lessiv", "household"),
+        T("dentifrise", "hygiene"),
+        T("wisky", "alcohol"),
+        T("musli", "breakfast"),
+        T("pringels", "snacks"),
+        T("lazagne", "deli"),
+        T("spéculoss", "sweet-grocery"),
+        T("croquete", "pets"),
+        // La correction rejoint une expression de deux mots.
+        T("saumn fumé", "seafood"),
+        T("bananne bio", "produce"),
+        // Non corrigés : un mot exact suffit, la correction n'a pas lieu.
+        T("croque", "deli", "keyword"),
+        T("croquette", "pets", "keyword"),
+        T("croquettes", "pets", "keyword"),
+        T("pâte à tartinner", "savory-grocery", "keyword"),
+        T("coques", "seafood", "keyword"),
+        T("poêle", "household", "keyword"),
+        T("pinces", "household", "keyword"),
+        // « rognon » n'a pas la même initiale : seul « oignon » est candidat.
+        T("ognon", "produce"),
+        // 5 lettres : une lettre manquante.
+        T("poivr", "savory-grocery"),
+        // Non corrigés : ambigu entre deux catégories (crème, crêpe).
+        T("crepme", "other", "none"),
+        // Non corrigés : 5 lettres sans lettre manquante, ou moins de 5 lettres après le singulier.
+        T("melpn", "other", "none"),
+        T("pomes de terre", "other", "none"),
+        T("porte", "other", "none"),
+        T("radio", "other", "none"),
+        T("tante", "other", "none"),
+        T("salon", "other", "none"),
+        T("pomm", "other", "none"),
+        T("croc monsieur", "other", "none"),
+        // Non corrigés : mot connu du dictionnaire, initiale différente, chiffres.
+        T("carte cadeau", "other", "none"),
+        T("câble", "other", "none"),
+        T("vromage", "other", "none"),
+        T("beurre2", "other", "none"),
+        T("biologie", "other", "none"),
+        // Faux positifs assumés : de vrais mots à une faute d'un mot-clé.
+        T("poison", "seafood"),
+        T("raquette", "produce"),
+      ],
     },
   ];
 }
