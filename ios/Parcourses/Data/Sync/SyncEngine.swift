@@ -557,23 +557,46 @@ actor SyncEngine {
     }
   }
 
-  /// Accès perdu ou rôle abaissé (#87 §6.4) : la liste quitte l'appareil si elle n'est plus lisible ; sinon les
-  /// entrées de ses articles sont jetées et elle est rechargée entièrement. La relecture du rôle (`list_sharing`)
-  /// arrive avec le partage (87.4).
+  /// Accès perdu ou rôle abaissé (#87 §6.4) : `list_sharing` relit mon rôle. Refus (`not allowed`) : la liste n'est
+  /// plus accessible et quitte l'appareil. Sinon rôle et participants sont posés, les entrées de ses articles jetées
+  /// et elle est rechargée entièrement ; en lecture seule, toutes ses entrées partent.
   func refreshAccess(listId: UUID) async throws {
-    let accessible = try await gateway.accessibleListIds()
-    if accessible.contains(listId) {
-      let rows = try await gateway.fetchItems(listId: listId)
-      // Liste à soi : les articles jamais envoyés et leurs entrées restent, rien ne les a refusés.
-      let ownerId = try await store.listOwnership(listId).ownerId
-      let isMine = ownerId.map { $0 == cursors.accountId } ?? true
-      _ = try await store.replaceItems(listId: listId, rows: rows, keepingUnsent: isMine, classify: classify)
-    } else {
+    let sharing: ListSharing
+    do {
+      sharing = try await gateway.listSharing(listId: listId)
+    } catch RemoteError.forbidden {
       // Une ligne de cette liste était sur le serveur : elle en a disparu, même si l'appareil ne l'a jamais descendue.
+      let removed = try await store.listsSharedWithMe()[listId]
+      let name = try await store.listName(listId)
       try await store.forget(listId: listId)
-      _ = try await store.reconcile(listIds: accessible)
+      await Self.postDataChange()
+      if let name {
+        await Self.postAccessChanges([
+          removed ?? SharingAccessChange(listId: listId, listName: name, ownerName: nil, kind: .removed)
+        ])
+      }
+      return
     }
+    let dropped = try await store.pendingItemWrites(listId: listId)
+    let previous = try await store.applySharing(sharing)
+    let rows = try await gateway.fetchItems(listId: listId)
+    // Liste à soi : les articles jamais envoyés et leurs entrées restent, rien ne les a refusés.
+    _ = try await store.replaceItems(
+      listId: listId, rows: rows, keepingUnsent: sharing.role == .owner, classify: classify)
     await Self.postDataChange()
+    guard let previous, var kind = ListMemberships.change(from: previous, to: sharing.role) else { return }
+    if case .downgraded = kind { kind = .downgraded(droppedChanges: dropped) }
+    let name = try await store.listName(listId) ?? ""
+    await Self.postAccessChanges([
+      SharingAccessChange(listId: listId, listName: name, ownerName: sharing.owner.displayName, kind: kind)
+    ])
+  }
+
+  private static func postAccessChanges(_ changes: [SharingAccessChange]) async {
+    guard !changes.isEmpty else { return }
+    await MainActor.run {
+      for change in changes { NotificationCenter.default.post(name: .sharingAccessDidChange, object: change) }
+    }
   }
 
   private static func postDataChange() async {
@@ -827,7 +850,11 @@ actor SyncEngine {
       // l'appareil ; une liste nouvellement accessible est descendue entièrement, ses articles étant plus anciens que
       // le curseur.
       let accessible = try await gateway.accessibleListIds()
+      let sharedWithMe = try await store.listsSharedWithMe()
       let reconciliation = try await store.reconcile(listIds: accessible)
+      // Annoncé tout de suite : une erreur plus loin dans la descente ne doit pas faire oublier le retrait.
+      await Self.postAccessChanges(reconciliation.decision.remove.compactMap { sharedWithMe[$0] })
+      var accessChanges: [SharingAccessChange] = []
       let fetchFully = reconciliation.decision.fetchFully
       let lists = try await gateway.fetchLists(updatedAfter: fetchFully.isEmpty ? cursors.lists : nil)
       let items = try await gateway.fetchItems(updatedAfter: cursors.items)
@@ -837,6 +864,27 @@ actor SyncEngine {
       for listId in fetchFully {
         let rows = try await gateway.fetchItems(listId: listId)
         dataChanged = try await store.merge(items: rows, classify: classify).changed || dataChanged
+      }
+      // Rôles et participants (#87, lot 87.4) : deux lectures, `profiles` seulement si une liste est partagée.
+      if let me = cursors.accountId {
+        let members = try await gateway.fetchListMembers()
+        let profiles = members.isEmpty ? [] : try await gateway.fetchProfiles()
+        let memberships = try await store.applyMemberships(members: members, profiles: profiles, me: me)
+        for change in memberships.changes {
+          guard case .downgraded = change.kind else {
+            accessChanges.append(change)
+            continue
+          }
+          // Passé lecteur : les écritures en attente de cette liste ne passeront plus, elle est rechargée.
+          let dropped = try await store.pendingItemWrites(listId: change.listId)
+          let rows = try await gateway.fetchItems(listId: change.listId)
+          _ = try await store.replaceItems(listId: change.listId, rows: rows, keepingUnsent: false, classify: classify)
+          accessChanges.append(
+            SharingAccessChange(
+              listId: change.listId, listName: change.listName, ownerName: change.ownerName,
+              kind: .downgraded(droppedChanges: dropped)))
+        }
+        dataChanged = dataChanged || memberships.changed
       }
       cursors.lists = Self.later(cursors.lists, listsMerge.cursor)
       cursors.items = Self.later(cursors.items, itemsMerge.cursor)
@@ -857,6 +905,7 @@ actor SyncEngine {
       isWaitingForSession = false
       // Catalogue changé : l'écran Liste ouvert reconstruit ses suggestions (un nom retiré n'y reste pas).
       if dataChanged || catalogChanged { await Self.postDataChange() }
+      await Self.postAccessChanges(accessChanges)
     } catch {
       isPullRequested = true
       guard !Task.isCancelled else { return }

@@ -343,7 +343,7 @@ nonisolated enum SchemaV1: VersionedSchema {
 }
 
 // Noms courts vers la version courante : le reste de l'app ne cite jamais SchemaV1.
-typealias ShoppingList = SchemaV4.ShoppingList
+typealias ShoppingList = SchemaV5.ShoppingList
 typealias ListItem = SchemaV4.ListItem
 typealias Visit = SchemaV1.Visit
 typealias Check = SchemaV1.Check

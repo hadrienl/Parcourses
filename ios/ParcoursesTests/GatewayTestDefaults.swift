@@ -23,4 +23,23 @@ extension RemoteGateway {
   func setDisplayName(_ name: String) async throws { throw RemoteError.unauthorized }
   func signOut() async throws { throw RemoteError.unauthorized }
   func deleteAccount(accessToken: String) async throws { throw RemoteError.unauthorized }
+
+  // Partage (#87, lot 87.4) : aucune liste partagée, et les actions échouent comme sans réseau.
+  func sendInvitation(listId: UUID, email: String, role: ListRole) async throws -> SentInvitation {
+    throw SharingRequestError(error: nil)
+  }
+  func invitationLink(listId: UUID, email: String, role: ListRole) async throws -> String {
+    throw SharingRequestError(error: nil)
+  }
+  func revokeInvitation(id: UUID) async throws { throw SharingRequestError(error: nil) }
+  func listSharing(listId: UUID) async throws -> ListSharing { throw RemoteError.network }
+  func myInvitations() async throws -> [ReceivedInvitation] { [] }
+  func previewInvitation(token: String) async throws -> InvitationPreview { throw SharingRequestError(error: nil) }
+  func acceptInvitation(token: String) async throws -> InvitationAcceptance { throw SharingRequestError(error: nil) }
+  func acceptInvitation(id: UUID) async throws -> InvitationAcceptance { throw SharingRequestError(error: nil) }
+  func declineInvitation(id: UUID) async throws { throw SharingRequestError(error: nil) }
+  func setMemberRole(listId: UUID, userId: UUID, role: ListRole) async throws { throw SharingRequestError(error: nil) }
+  func removeMember(listId: UUID, userId: UUID) async throws { throw SharingRequestError(error: nil) }
+  func fetchListMembers() async throws -> [ListMemberRow] { [] }
+  func fetchProfiles() async throws -> [ProfileRow] { [] }
 }

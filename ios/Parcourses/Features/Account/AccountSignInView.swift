@@ -2,6 +2,16 @@ import SwiftUI
 
 extension AccountLink: Identifiable {}
 
+/// Raison d'ouvrir « Se connecter » (maquette, écran 4) : le titre et le texte d'accueil en dépendent.
+enum SignInContext {
+  /// « Se connecter » de Mes listes.
+  case signIn
+  /// « Partager » sur un compte anonyme.
+  case share
+  /// Lien d'invitation ouvert sur un compte anonyme : le jeton attend en mémoire.
+  case invitation
+}
+
 /// Feuille « Se connecter » (#87, maquette `design/sharing-v1.html`, écran 4) : adresse (et prénom pour un compte
 /// anonyme), puis code à 6 chiffres, puis « Rapprochement de vos listes… » et « Bon retour » pour un compte existant.
 struct AccountSignInView: View {
@@ -9,6 +19,7 @@ struct AccountSignInView: View {
   @State private var link: AccountLink
   /// Liaison ou connexion terminée : le compte est relu.
   let onFinish: () -> Void
+  private let context: SignInContext
 
   @State private var code = ""
   @State private var canResend = false
@@ -21,8 +32,9 @@ struct AccountSignInView: View {
     case code
   }
 
-  init(link: AccountLink, onFinish: @escaping () -> Void) {
+  init(link: AccountLink, context: SignInContext = .signIn, onFinish: @escaping () -> Void) {
     _link = State(initialValue: link)
+    self.context = context
     self.onFinish = onFinish
   }
 
@@ -82,12 +94,22 @@ struct AccountSignInView: View {
   // MARK: - Adresse
 
   @ViewBuilder private var emailStep: some View {
-    Text("Se connecter")
+    Text(context == .share ? "Pour partager, liez une adresse e-mail" : "Se connecter")
       .font(TicketFont.title)
       .foregroundStyle(Palette.ink)
       .accessibilityAddTraits(.isHeader)
-    Text("Retrouvez vos listes et celles qu'on partage avec vous.")
-      .foregroundStyle(Palette.ink)
+    Text(
+      context == .share
+        ? "Vos listes restent les vôtres. Les membres verront votre prénom, jamais votre adresse."
+        : "Retrouvez vos listes et celles qu'on partage avec vous."
+    )
+    .foregroundStyle(Palette.ink)
+    if context == .invitation {
+      Label("Vous avez ouvert une invitation. Connectez-vous avec l'adresse qui l'a reçue.", systemImage: "envelope.open")
+        .font(.callout)
+        .foregroundStyle(Palette.ink)
+        .accessibilityIdentifier("signInInvitationContext")
+    }
     if link.losesPendingChangesOnSwitch {
       // Compte e-mail sans session : une autre adresse purgerait l'appareil (#87, changement de compte).
       Label(

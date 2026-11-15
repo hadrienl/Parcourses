@@ -251,4 +251,51 @@ nonisolated protocol RemoteGateway: Sendable {
   /// Supprime l'ancien compte anonyme avec son jeton gardé en mémoire, après une reprise vers un compte existant.
   /// Jamais le compte de la session.
   func deleteAccount(accessToken: String) async throws
+
+  // MARK: Partage (#87, lot 87.4)
+
+  // Réseau exigé, rien en file. Les refus du serveur lèvent `SharingRequestError` (son `error` est l'entrée du
+  // vecteur `003`, `nil` sans réponse) ; `listSharing` lève `RemoteError.forbidden` sur une liste illisible.
+
+  /// Crée l'invitation (ou renouvelle son jeton) et l'envoie par e-mail : Edge Function `send-invitation`.
+  func sendInvitation(listId: UUID, email: String, role: ListRole) async throws -> SentInvitation
+  /// « Copier le lien » : `create_invitation` sans e-mail, nouveau jeton (l'ancien lien ne marche plus). Renvoie le
+  /// lien construit par `InvitationLinks`.
+  func invitationLink(listId: UUID, email: String, role: ListRole) async throws -> String
+  func revokeInvitation(id: UUID) async throws
+  func listSharing(listId: UUID) async throws -> ListSharing
+  func myInvitations() async throws -> [ReceivedInvitation]
+  func previewInvitation(token: String) async throws -> InvitationPreview
+  func acceptInvitation(token: String) async throws -> InvitationAcceptance
+  func acceptInvitation(id: UUID) async throws -> InvitationAcceptance
+  func declineInvitation(id: UUID) async throws
+  func setMemberRole(listId: UUID, userId: UUID, role: ListRole) async throws
+  /// Retire un membre (propriétaire), ou quitte la liste (son propre `userId`).
+  func removeMember(listId: UUID, userId: UUID) async throws
+  /// Membres des listes lisibles (`list_members`), pour les rôles et les pastilles relus à la descente.
+  func fetchListMembers() async throws -> [ListMemberRow]
+  /// Prénoms lisibles : le mien et ceux des autres membres de mes listes (`profiles`).
+  func fetchProfiles() async throws -> [ProfileRow]
+}
+
+/// Réponse de `accept_invitation` : la suite (vecteur `005`), et la liste rejointe pour l'ouvrir.
+nonisolated struct InvitationAcceptance: Sendable, Equatable {
+  let outcome: AcceptOutcome
+  let listId: UUID?
+  let role: ListRole?
+}
+
+/// Événement du canal temps réel d'un compte.
+nonisolated enum RealtimeEvent: Sendable, Equatable {
+  /// Canal rejoint, ou rejoint à nouveau après une coupure : les signaux manqués ne sont pas rejoués.
+  case subscribed
+  case signal(RealtimeSignal)
+}
+
+/// Canal privé `user:<uid>` (#87 §6.2). `SupabaseGateway` l'implémente avec le Realtime de `supabase-swift`.
+nonisolated protocol RealtimeTransport: Sendable {
+  /// Rejoint le canal du compte et en livre les événements, jusqu'à `closeUserSignals()` ou l'annulation.
+  func userSignals(userId: UUID) async -> AsyncStream<RealtimeEvent>
+  /// Quitte le canal et ferme la connexion.
+  func closeUserSignals() async
 }

@@ -122,7 +122,7 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(try freshItem(harness, item.id) == nil)
     #expect(try freshItem(harness, other.id) != nil)
     #expect(try harness.entries().map(\.entityId) == [other.id])
-    #expect(await !harness.gateway.calls.contains("accessibleListIds"))
+    #expect(await !harness.gateway.calls.contains("listSharing"))
   }
 
   /// Vecteur `002` : une entrée remplacée avant l'envoi garde sa place et l'union des champs.
@@ -174,7 +174,7 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(local.label == "Lait demi-écrémé")
     #expect(try harness.entries().isEmpty)
     let calls = await harness.gateway.calls
-    #expect(calls.contains("accessibleListIds") && calls.contains("fetchItems(listId:)"))
+    #expect(calls.contains("listSharing") && calls.contains("fetchItems(listId:)"))
   }
 
   /// Vecteur `004` : un ajout refusé dans la liste d'un autre (rôle abaissé) recharge la liste, sans abandon en file.

@@ -282,6 +282,46 @@ actor ScriptedSyncGateway: RemoteGateway {
     try record("fetchTombstones(ids:)")
     return tombstones.filter { ids.contains($0.id) }
   }
+
+  // Partage (#87, lot 87.4) : membres des listes (`list_members`), prénoms, et `list_sharing` qui en découle.
+  var memberRows: [ListMemberRow] = []
+  var profileRows: [ProfileRow] = []
+  func setMembers(_ rows: [ListMemberRow], profiles: [ProfileRow] = []) {
+    memberRows = rows
+    profileRows = profiles
+  }
+  /// Hors journal `calls` : ces lectures accompagnent chaque descente.
+  func fetchListMembers() async throws -> [ListMemberRow] {
+    try recordFailureOnly("fetchListMembers")
+    return memberRows
+  }
+  func fetchProfiles() async throws -> [ProfileRow] {
+    try recordFailureOnly("fetchProfiles")
+    return profileRows
+  }
+  /// Comme la RPC : `forbidden` si la liste n'est plus lisible ; sinon mon rôle, le propriétaire et les membres.
+  func listSharing(listId: UUID) async throws -> ListSharing {
+    try record("listSharing")
+    let readable = Set(listRows.map(\.id)).union(savedLists.map(\.id)).subtracting(deletedLists)
+      .subtracting(hiddenLists)
+    guard readable.contains(listId) else { throw RemoteError.forbidden }
+    let ownerId = listRows.first { $0.id == listId }?.ownerId ?? account
+    let rows = memberRows.filter { $0.listId == listId }
+    let names = Dictionary(profileRows.map { ($0.userId, $0.displayName) }) { first, _ in first }
+    let role: ListRole =
+      ownerId == account
+      ? .owner : rows.first { $0.userId == account }.flatMap { ListRole(rawValue: $0.role) } ?? .editor
+    return ListSharing(
+      listId: listId, role: role,
+      owner: ListParticipant(
+        userId: ownerId, displayName: names[ownerId], role: .owner, isMe: ownerId == account, joinedAt: nil),
+      members: rows.map {
+        ListParticipant(
+          userId: $0.userId, displayName: names[$0.userId], role: ListRole(rawValue: $0.role) ?? .viewer,
+          isMe: $0.userId == account, joinedAt: $0.createdAt)
+      },
+      invitations: [])
+  }
   func createVisit(_ visit: VisitInsert) async throws {
     try record("createVisit")
     try checkAccount()
