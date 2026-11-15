@@ -14,11 +14,13 @@ import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
 import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.account.InMemoryAccountSignOutFlag
+import fr.parcourses.core.data.account.InMemoryAccountSwitchFlag
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.AccountRekey
 import fr.parcourses.core.data.sync.InMemorySyncCursors
+import fr.parcourses.core.data.sync.SyncDependencies
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.SyncState
@@ -26,6 +28,8 @@ import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.core.network.dto.ListRow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,7 +49,9 @@ class AccountLinkTest : DataTest() {
     private val kind = InMemoryAccountKindFlag()
     private val cursors = InMemorySyncCursors()
     private val guarded by lazy { DeletionGuardedGateway(gateway, InMemoryAccountDeletionFlag(), kind) }
-    private val engine by lazy { SyncEngine(guarded, db, cursors, classify, dependencies) }
+    private val accountDependencies =
+        SyncDependencies(now = { now }, jitter = { 1.0 }, isOnline = { online }, accountKind = { kind.kind.value })
+    private val engine by lazy { SyncEngine(guarded, db, cursors, classify, accountDependencies) }
     private val repository by lazy { RoomListRepository(db) }
     private var sessionChanges = 0
     private val syncSteps = mutableListOf<String>()
@@ -74,11 +80,15 @@ class AccountLinkTest : DataTest() {
 
             override suspend fun purgeLocalData() {
                 syncSteps += "purge"
+                if (purgeFailures-- > 0) error("base verrouillée")
                 LocalDataPurge(db, cursors, accountKind = kind).run()
             }
         }
 
-    private fun link() = AccountLink(guarded, kind, host, isOnline = { online }, now = { now })
+    private val switch = InMemoryAccountSwitchFlag()
+    private var purgeFailures = 0
+
+    private fun link() = AccountLink(guarded, kind, host, isOnline = { online }, switchFlag = switch, now = { now })
 
     @Test
     fun aNewAddressIsLinkedToTheSameAccountWithItsName() =
@@ -252,7 +262,7 @@ class AccountLinkTest : DataTest() {
         }
 
     @Test
-    fun signingOutNeedsTheNetworkAndAnEmptyQueueThenPurgesTheDevice() =
+    fun signingOutWarnsAboutUnsentChangesNeedsTheNetworkThenPurgesTheDevice() =
         runBlocking {
             kind.write(AccountKind.Email)
             val list = repository.createList("Courses", now)
@@ -279,7 +289,6 @@ class AccountLinkTest : DataTest() {
                         steps += "rebuild"
                     }
                 }
-            var flushed = 1
             val flag = InMemoryAccountSignOutFlag()
             val signOut =
                 AccountSignOut(
@@ -288,14 +297,19 @@ class AccountLinkTest : DataTest() {
                     host,
                     flag,
                     isOnline = { online },
-                    flush = { flushed },
+                    flush = {},
+                    unsent = { db.outbox().all().size },
                 )
 
+            // Avertissement, pas de refus : la liste jamais envoyée est comptée après l'arrêt de la synchro.
+            assertEquals(1, signOut.prepare())
+            assertEquals(listOf("suspend"), steps)
+            signOut.abandon()
+            assertEquals(listOf("suspend", "resume"), steps)
+            steps.clear()
             online = false
             assertEquals(AccountSignOutOutcome.Failed(AccountSignOutError.Offline), signOut.run())
-            online = true
-            assertEquals(AccountSignOutOutcome.Failed(AccountSignOutError.Unsynced), signOut.run())
-            assertTrue(steps.isEmpty())
+            assertEquals(listOf("resume"), steps)
             assertEquals(
                 list.id,
                 db
@@ -304,8 +318,9 @@ class AccountLinkTest : DataTest() {
                     .single()
                     .id,
             )
+            steps.clear()
 
-            flushed = 0
+            online = true
             val before = gateway.account
             assertEquals(AccountSignOutOutcome.SignedOut, signOut.run())
 
@@ -426,7 +441,8 @@ class AccountLinkTest : DataTest() {
                     failingHost,
                     flag,
                     isOnline = { online },
-                    flush = { 0 },
+                    flush = {},
+                    unsent = { 0 },
                 )
 
             assertEquals(AccountSignOutOutcome.Failed(AccountSignOutError.Unknown), signOut.run())
@@ -438,5 +454,83 @@ class AccountLinkTest : DataTest() {
             assertEquals(AccountSignOutOutcome.SignedOut, signOut.resumePending())
             assertFalse(flag.isPending)
             assertNull(signOut.resumePending())
+        }
+
+    /** Majeur 2 : une annulation pendant la vérification (écran fermé) laisse le déroulé finir et la synchro reprise. */
+    @Test
+    fun aCancellationDuringTheVerificationLeavesTheSyncResumed() =
+        runBlocking {
+            engine.drain()
+            val link = link()
+            link.requestCode("lea@exemple.fr")
+            lateinit var job: Job
+            gateway.beforeCall = { if (it == "verifyCode") job.cancel() }
+            job = launch { link.verify("123456") }
+            job.join()
+
+            assertTrue(job.isCancelled)
+            assertEquals(AccountLinkPhase.Done, link.state.value.phase)
+            assertEquals(listOf("suspend", "resume"), syncSteps)
+            gateway.beforeCall = {}
+            repository.createList("Après", now)
+            engine.drain()
+            assertTrue(gateway.callsOf("saveList").isNotEmpty())
+        }
+
+    /**
+     * Majeur 1 : processus arrêté pendant un passage de A à B. Un nouveau moteur avec les curseurs de A (compte e-mail)
+     * et la session de B ne renvoie aucune liste de A vers B : les données de A quittent l'appareil.
+     */
+    @Test
+    fun aNewEngineWithTheCursorsOfAnEmailAccountAndTheSessionOfAnotherSendsItNothing() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            val list = repository.createList("Courses de A", now - 1.minutes)
+            repository.renameList(list.id, "Courses de A", now)
+            repository.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            engine.drain()
+            assertEquals(AccountKind.Email, cursors.accountKind)
+            val saved = gateway.callsOf("saveList").size
+            // Relance après l'arrêt : la session est déjà celle de B, la purge n'a pas eu lieu.
+            gateway.account = Uuid.random()
+            val relaunched = SyncEngine(guarded, db, cursors, classify, accountDependencies)
+
+            relaunched.drain(pull = true)
+
+            assertEquals(saved, gateway.callsOf("saveList").size)
+            assertTrue(gateway.callsOf("insertItem").size <= 1)
+            assertTrue(db.lists().getAll().isEmpty())
+            assertTrue(db.items().getAll().isEmpty())
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(gateway.account, cursors.accountId)
+        }
+
+    /** Majeur 1 et mineur 10 : purge en échec, on sort du rapprochement avec « Réessayer », synchro arrêtée. */
+    @Test
+    fun aFailedPurgeOffersToRetryAndKeepsTheSyncStopped() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            repository.createList("Courses de A", now)
+            engine.drain()
+            gateway.hasSession = false
+            gateway.codeAccount = Uuid.random()
+            purgeFailures = 1
+            val link = link()
+            link.requestCode("tom@exemple.fr")
+
+            link.verify("123456")
+
+            assertEquals(AccountLinkPhase.Merging, link.state.value.phase)
+            assertEquals(AccountLinkError.Unknown, link.state.value.error)
+            assertFalse(link.state.value.busy)
+            assertTrue(switch.isPending)
+            assertEquals(listOf("suspend", "purge"), syncSteps)
+
+            link.retryMerge()
+
+            assertEquals(AccountLinkPhase.Done, link.state.value.phase)
+            assertFalse(switch.isPending)
+            assertEquals(listOf("suspend", "purge", "purge", "resume"), syncSteps)
+            assertTrue(db.lists().getAll().isEmpty())
         }
 }

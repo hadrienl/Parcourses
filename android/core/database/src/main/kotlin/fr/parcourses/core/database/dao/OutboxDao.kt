@@ -7,6 +7,7 @@ import androidx.room3.Transaction
 import fr.parcourses.core.database.entity.OutboxEntryEntity
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
+import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
 // Un DAO est une liste plate de requêtes : le plafond de fonctions de detekt n'a pas de sens ici.
@@ -61,6 +62,10 @@ abstract class OutboxDao {
 
     @Query("SELECT COUNT(*) FROM outbox WHERE syncState = 'PENDING'")
     abstract suspend fun pendingCount(): Int
+
+    /** Entrées encore là, `PENDING` et `FAILED` : modifications pas encore arrivées au serveur. */
+    @Query("SELECT COUNT(*) FROM outbox")
+    abstract fun observeCount(): Flow<Int>
 
     @Query("DELETE FROM outbox WHERE id = :id")
     abstract suspend fun delete(id: String): Int

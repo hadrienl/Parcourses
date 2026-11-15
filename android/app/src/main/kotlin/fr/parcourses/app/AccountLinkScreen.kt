@@ -101,6 +101,7 @@ data class AccountLinkActions(
     val onResend: () -> Unit = {},
     val onChangeEmail: () -> Unit = {},
     val onEdit: () -> Unit = {},
+    val onRetryMerge: () -> Unit = {},
 )
 
 /** Porte une [AccountLink] le temps de l'écran : quitter l'écran avant le code n'a rien changé. */
@@ -121,6 +122,7 @@ class AccountLinkViewModel(
             onResend = { viewModelScope.launch { link.resendCode() } },
             onChangeEmail = link::changeEmail,
             onEdit = link::clearError,
+            onRetryMerge = { viewModelScope.launch { link.retryMerge() } },
         )
 
     init {
@@ -157,7 +159,9 @@ fun AccountLinkScreen(
     val colors = Ticket.colors
     val phase = state.link.phase
     // La reprise des données ne s'interrompt pas : ni Retour ni ✕ pendant le rapprochement.
-    BackHandler(enabled = phase == AccountLinkPhase.Merging) {}
+    // Vérification du code et reprise des données : ni Retour ni ✕ (elles iraient au bout quand même).
+    val locked = state.link.busy || phase == AccountLinkPhase.Merging
+    BackHandler(enabled = locked) {}
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
@@ -166,7 +170,7 @@ fun AccountLinkScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.desk),
                 title = {},
                 navigationIcon = {
-                    if (phase != AccountLinkPhase.Merging) {
+                    if (!locked) {
                         IconButton(onClick = onClose, modifier = Modifier.testTag(TAG_LINK_CLOSE)) {
                             Icon(Icons.Default.Close, contentDescription = stringResource(R.string.link_close))
                         }
@@ -186,7 +190,7 @@ fun AccountLinkScreen(
                 when (phase) {
                     AccountLinkPhase.EnterEmail -> EmailStep(state.link, actions)
                     AccountLinkPhase.EnterCode -> CodeStep(state, actions)
-                    AccountLinkPhase.Merging -> MergingStep()
+                    AccountLinkPhase.Merging -> MergingStep(state.link, actions)
                     AccountLinkPhase.Done -> DoneStep(state.link, onClose)
                 }
             }
@@ -340,12 +344,28 @@ private fun CodeStep(
 }
 
 @Composable
-private fun MergingStep() {
+private fun MergingStep(
+    state: AccountLinkState,
+    actions: AccountLinkActions,
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 96.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceM),
     ) {
+        // Purge d'un changement de compte inachevée : message et « Réessayer », la synchronisation reste arrêtée.
+        val error = state.error
+        if (error != null && !state.busy) {
+            ErrorMessage(requestErrorText(error))
+            PrimaryButton(
+                text = stringResource(R.string.account_retry),
+                enabled = true,
+                busy = false,
+                onClick = actions.onRetryMerge,
+                tag = TAG_LINK_RETRY,
+            )
+            return@Column
+        }
         CircularProgressIndicator(color = Ticket.colors.ink)
         Text(
             stringResource(R.string.link_merging),
@@ -413,6 +433,7 @@ private fun DoneStep(
 
 internal const val TAG_LINK_CLOSE = "link-close"
 internal const val TAG_LINK_UNSENT = "link-unsent"
+internal const val TAG_LINK_RETRY = "link-retry"
 internal const val TAG_LINK_EMAIL = "link-email"
 internal const val TAG_LINK_NAME = "link-name"
 internal const val TAG_LINK_SEND = "link-send"

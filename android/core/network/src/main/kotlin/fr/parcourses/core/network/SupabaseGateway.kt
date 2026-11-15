@@ -61,6 +61,8 @@ import kotlinx.serialization.json.put
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -189,6 +191,9 @@ class SupabaseGateway internal constructor(
                 if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
                 // Avant la vérification : la session anonyme quittée ne sera plus lisible ensuite.
                 val previous = auth.currentUserOrNull()
+                // `currentAccessTokenOrNull` ne regarde pas l'échéance (supabase-kt 3.8) : un jeton bientôt expiré est
+                // d'abord rafraîchi, pour que `deleteAccount` le reçoive valable.
+                if (previous?.isAnonymous == true) refreshIfExpiring(KEPT_TOKEN_MARGIN)
                 val previousToken = auth.currentAccessTokenOrNull().takeIf { previous?.isAnonymous == true }
                 val type =
                     when (purpose) {
@@ -310,10 +315,10 @@ class SupabaseGateway internal constructor(
         return userId()
     }
 
-    private suspend fun refreshIfExpiring() {
+    private suspend fun refreshIfExpiring(margin: Duration = REFRESH_MARGIN) {
         val session = auth.currentSessionOrNull() ?: return
         // Hors premier plan, le rafraîchissement automatique de la bibliothèque est arrêté.
-        if (session.expiresAt - REFRESH_MARGIN <= clock.now()) auth.refreshCurrentSession()
+        if (session.expiresAt - margin <= clock.now()) auth.refreshCurrentSession()
     }
 
     private fun userId(): Uuid {
@@ -732,6 +737,9 @@ class SupabaseGateway internal constructor(
 
         /** Rafraîchit un peu avant l'expiration pour qu'une requête en cours ne parte pas avec un jeton périmé. */
         val REFRESH_MARGIN = 30.seconds
+
+        /** Jeton de l'ancien anonyme gardé pour sa suppression : valable encore au moins ce délai. */
+        val KEPT_TOKEN_MARGIN = 10.minutes
 
         fun parseHttpDate(value: String): Instant? =
             try {

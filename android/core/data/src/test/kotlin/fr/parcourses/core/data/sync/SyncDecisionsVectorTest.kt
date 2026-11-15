@@ -60,8 +60,11 @@ class SyncDecisionsVectorTest {
                 val pending = input["pending"]?.takeIf { it != JsonNull }?.jsonArray?.map { it.jsonPrimitive.content }
                 SyncDecisions.mergeChangedFields(pending, input.strings("new")).json()
             },
-            "zeroRowOutcome" to
-                { input -> JsonPrimitive(SyncDecisions.zeroRowOutcome(input.bool("tombstoned")).wireName) },
+            "zeroRowOutcome" to { input ->
+                JsonPrimitive(
+                    SyncDecisions.zeroRowOutcome(input.bool("tombstoned"), input.bool("listOwnedByMe")).wireName,
+                )
+            },
             "insertRefusedOutcome" to { input ->
                 JsonPrimitive(
                     SyncDecisions.insertRefusedOutcome(input.bool("listSynced"), input.bool("listOwnedByMe")).wireName,
@@ -122,7 +125,7 @@ class SyncDecisionsVectorTest {
     fun everyVectorMatches() {
         for (vector in vectors) {
             val id = vector.str("id")
-            assertEquals(id, 1, vector.getValue("format_version").jsonPrimitive.int)
+            assertTrue("$id : format inconnu", vector.getValue("format_version").jsonPrimitive.int in 1..2)
             val run = functions[vector.str("function")] ?: error("fonction inconnue : ${vector.str("function")} ($id)")
             val cases = vector.getValue("cases").jsonArray
             assertTrue("$id : aucun cas", cases.isNotEmpty())

@@ -47,6 +47,8 @@ class SyncDependencies(
      * aucun `ensureSession`, tant qu'elle n'est pas finie. Relu à chaque passe : il survit à la mort du processus.
      */
     val isAccountDeletionPending: () -> Boolean = { false },
+    /** Type du compte de la session (`account.kind`, #87) : retenu avec le compte des données. */
+    val accountKind: () -> AccountKind = { AccountKind.Anonymous },
 ) {
     private companion object {
         const val JITTER_MIN = 0.8
@@ -233,6 +235,9 @@ class SyncEngine(
         }
         // Avant l'envoi : l'article et ses coches en file partent avec leur produit.
         resolveProducts()
+        // Curseur des suppressions trop vieux : les articles supprimés ailleurs sont retirés avant qu'un envoi les
+        // touche.
+        if (!reconcileBeforeSend()) return deferPull(pullDue)
         val sent = sendQueue() ?: return deferPull(pullDue)
         transientFailures = 0
         backoffUntil = null
@@ -298,6 +303,7 @@ class SyncEngine(
                     needsAccountRecovery = true
                 } else {
                     cursors.accountId = id
+                    cursors.accountKind = dependencies.accountKind()
                     return AccountState.Ready
                 }
             }
@@ -322,7 +328,13 @@ class SyncEngine(
         try {
             // D'abord le compte : sans session établie (stockage verrouillé compris), on ne touche à rien.
             val id = gateway.sessionAccountId()
-            val result = rekey.run(dependencies.now(), previousAccountId = cursors.accountId?.toString())
+            // Un ancien compte e-mail n'est jamais repris : seul un ancien compte anonyme l'est (#87).
+            val result =
+                rekey.run(
+                    dependencies.now(),
+                    previousAccountId = cursors.accountId?.toString(),
+                    previousWasEmail = cursors.accountKind == AccountKind.Email,
+                )
             val remap = result.remap
             remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
@@ -330,6 +342,7 @@ class SyncEngine(
             // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`).
             cursors.tombstones = null
             cursors.accountId = id
+            cursors.accountKind = dependencies.accountKind()
             lastRekey = id to result.resentLists
             gateway.acknowledgeAccount(id)
             needsAccountRecovery = false
@@ -529,10 +542,13 @@ class SyncEngine(
         listId: String,
     ) {
         val tombstoned = gateway.fetchTombstones(listOf(itemId)).any { it.id == itemId }
-        when (SyncDecisions.zeroRowOutcome(tombstoned)) {
+        val owner = store.list(listId)?.ownerId
+        val owned = owner == null || owner == cursors.accountId?.toString()
+        when (SyncDecisions.zeroRowOutcome(tombstoned, owned)) {
             ZeroRowOutcome.DeletedElsewhere -> {
                 Log.i(TAG, "Article supprimé ailleurs : modification abandonnée")
-                store.mergeTombstones(listOf(itemId.toString()))
+                // Seule cette entrée part (avec l'article), les autres de la liste restent.
+                store.merge(tombstones = listOf(itemId.toString()))
             }
 
             ZeroRowOutcome.AccessLost -> {
@@ -945,19 +961,48 @@ class SyncEngine(
         when (SyncDecisions.tombstonePullMode(cursors.tombstones, now)) {
             TombstonePullMode.Incremental -> {
                 val rows = gateway.fetchTombstones(after = cursors.tombstones)
-                store.mergeTombstones(rows.map { it.id.toString() })
+                store.merge(tombstones = rows.map { it.id.toString() })
                 cursors.tombstones = later(cursors.tombstones, rows.maxOfOrNull { it.deletedAt })
             }
 
             TombstonePullMode.FullReconcile -> {
-                // Lue avant la liste des articles : une suppression faite entre-temps sera relue (recouvrement). Sans
-                // heure du serveur, le curseur reste nul : la passe suivante réconcilie encore en entier.
-                val serverNow = gateway.serverDate()
-                for (listId in store.syncedListIds()) {
-                    store.reconcileItems(listId, gateway.fetchItemIds(parse(listId)).map { it.toString() })
-                }
-                cursors.tombstones = serverNow
+                reconcileAllItems()
             }
+        }
+    }
+
+    /**
+     * Réconciliation complète des articles (vecteur `007`). L'heure du serveur est lue avant la liste des articles :
+     * une suppression faite entre-temps sera relue (recouvrement). Sans elle, le curseur reste nul et la passe suivante
+     * réconcilie encore en entier.
+     */
+    private suspend fun reconcileAllItems() {
+        val serverNow = gateway.serverDate()
+        for (listId in store.syncedListIds()) {
+            store.reconcileItems(listId, gateway.fetchItemIds(parse(listId)).map { it.toString() })
+        }
+        cursors.tombstones = serverNow
+    }
+
+    /** Avant l'envoi, si le curseur des suppressions est trop vieux (README des vecteurs). Faux : la passe s'arrête. */
+    @Suppress("TooGenericExceptionCaught", "ReturnCount") // pannes en délais ; une garde par cas
+    private suspend fun reconcileBeforeSend(): Boolean {
+        if (SyncDecisions.tombstonePullMode(cursors.tombstones, dependencies.now()) !=
+            TombstonePullMode.FullReconcile
+        ) {
+            return true
+        }
+        // Rien de synchronisé (premier passage, reprise de compte) : la descente posera le curseur.
+        if (store.syncedListIds().isEmpty()) return true
+        return try {
+            reconcileAllItems()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.i(TAG, "Réconciliation des suppressions reportée : ${e.javaClass.simpleName}")
+            stop(e)
+            false
         }
     }
 

@@ -45,8 +45,12 @@ class AccountRekey(
     suspend fun run(
         now: Instant,
         previousAccountId: String? = null,
+        previousWasEmail: Boolean = false,
     ): AccountRekeyResult =
         db.withWriteTransaction {
+            // Ancien compte e-mail : ses données restent sous lui, sur le serveur ; rien ne part vers le nouveau
+            // compte, tout quitte l'appareil (#87). Seul un ancien compte anonyme est repris.
+            if (previousWasEmail) return@withWriteTransaction dropEverything()
             val visits = db.visits().getAll()
             val received =
                 visits
@@ -156,4 +160,13 @@ class AccountRekey(
             }
             AccountRekeyResult(IdentifierRemap(identifiers.toMap()), resentLists = alive.size)
         }
+
+    private suspend fun dropEverything(): AccountRekeyResult {
+        db.outbox().all().forEach { db.outbox().delete(it.id) }
+        db.checks().getAll().forEach { db.checks().delete(it.id) }
+        db.visits().getAll().forEach { db.visits().delete(it.id) }
+        db.items().getAll().forEach { db.items().delete(it.id) }
+        db.lists().getAll().forEach { db.lists().delete(it.id) }
+        return AccountRekeyResult(IdentifierRemap(emptyMap()), resentLists = 0)
+    }
 }

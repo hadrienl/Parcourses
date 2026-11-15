@@ -82,6 +82,12 @@ class AccountSignOutController(
     private val current = MutableStateFlow<AccountSignOutState>(AccountSignOutState.Idle)
     val state: StateFlow<AccountSignOutState> = current.asStateFlow()
 
+    /** Avant la confirmation : file envoyée, synchronisation arrêtée, modifications restantes comptées. */
+    suspend fun prepare(): Int = signOut.prepare()
+
+    /** Confirmation fermée : la synchronisation reprend. */
+    fun abandon() = signOut.abandon()
+
     /** Après confirmation. `false` si une déconnexion tourne déjà. */
     fun start(): Boolean {
         while (true) {
@@ -135,6 +141,8 @@ data class AccountUiState(
     val visible: Boolean = false,
     val account: AccountState = AccountState(),
     val confirmingSignOut: Boolean = false,
+    /** Modifications pas encore envoyées, comptées à la demande : la confirmation prévient qu'elles seront perdues. */
+    val unsentChanges: Int = 0,
     val signingOut: Boolean = false,
     val editingName: Boolean = false,
     val nameSaveFailed: Boolean = false,
@@ -157,6 +165,7 @@ class AccountViewModel(
     onSignIn: () -> Unit,
 ) : ViewModel() {
     private val confirming = MutableStateFlow(false)
+    private val unsent = MutableStateFlow(0)
     private val editing = MutableStateFlow(false)
     private val saveFailed = MutableStateFlow(false)
     private val accountFlow = session?.state ?: MutableStateFlow(AccountState())
@@ -169,6 +178,7 @@ class AccountViewModel(
                 visible = session != null,
                 account = account,
                 confirmingSignOut = confirm && !running,
+                unsentChanges = unsent.value,
                 signingOut = running,
                 editingName = edit,
                 nameSaveFailed = failed,
@@ -178,9 +188,9 @@ class AccountViewModel(
     val actions =
         AccountActions(
             onSignIn = onSignIn,
-            onSignOutRequest = { confirming.value = true },
+            onSignOutRequest = ::requestSignOut,
             onSignOutConfirm = ::confirmSignOut,
-            onSignOutDismiss = { confirming.value = false },
+            onSignOutDismiss = ::dismissSignOut,
             onEditName = {
                 saveFailed.value = false
                 editing.value = true
@@ -193,6 +203,27 @@ class AccountViewModel(
         // Adresse lue dans la session, prénom relu sur le serveur à l'ouverture d'À propos.
         viewModelScope.launch { session?.refresh() }
     }
+
+    /** Compte d'abord ce qui n'est pas parti (synchronisation arrêtée), puis ouvre la confirmation. */
+    private fun requestSignOut() {
+        val controller = signOut ?: return
+        if (confirming.value || requesting) return
+        requesting = true
+        viewModelScope.launch {
+            try {
+                unsent.value = controller.prepare()
+                confirming.value = true
+            } finally {
+                requesting = false
+            }
+        }
+    }
+
+    private fun dismissSignOut() {
+        if (confirming.compareAndSet(expect = true, update = false)) signOut?.abandon()
+    }
+
+    private var requesting = false
 
     private fun confirmSignOut() {
         if (!confirming.compareAndSet(expect = true, update = false)) return
@@ -236,7 +267,7 @@ internal fun AccountContent(
             ) { Text(stringResource(R.string.account_sign_in)) }
         }
     }
-    if (state.confirmingSignOut) SignOutConfirmation(actions)
+    if (state.confirmingSignOut) SignOutConfirmation(state.unsentChanges, actions)
     if (state.editingName) NameDialog(state, actions)
 }
 
@@ -311,11 +342,19 @@ private fun AccountRow(
 }
 
 @Composable
-private fun SignOutConfirmation(actions: AccountActions) {
+private fun SignOutConfirmation(
+    unsentChanges: Int,
+    actions: AccountActions,
+) {
     AlertDialog(
         onDismissRequest = actions.onSignOutDismiss,
         title = { Text(stringResource(R.string.account_sign_out_title)) },
-        text = { Text(stringResource(R.string.account_sign_out_body)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS)) {
+                Text(stringResource(R.string.account_sign_out_body))
+                if (unsentChanges > 0) Text(stringResource(R.string.account_sign_out_unsent))
+            }
+        },
         confirmButton = {
             TextButton(
                 onClick = actions.onSignOutConfirm,
@@ -429,7 +468,6 @@ internal fun AccountSignOutOverlay(
             val text =
                 when (state.error) {
                     AccountSignOutError.Offline -> R.string.account_sign_out_offline
-                    AccountSignOutError.Unsynced -> R.string.account_sign_out_unsynced
                     AccountSignOutError.Unknown -> R.string.account_sign_out_failed
                 }
             AlertDialog(

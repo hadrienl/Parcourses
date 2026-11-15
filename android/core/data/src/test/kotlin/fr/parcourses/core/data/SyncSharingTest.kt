@@ -361,14 +361,64 @@ class SyncSharingTest : DataTest() {
             val (listId, itemId) = pulled()
             val draft = repository.addItem(listId, "beurre", "beurre", null, null, "dairy", now)
             db.outbox().pendingFor(draft.id).forEach { db.outbox().setNextAttempt(it.id, now + 1.days) }
-            repository.setChecked(itemId, now, now)
-            gateway.rowTouched = { false }
+            db.items().setChecked(itemId, now, now)
 
-            engine.drain()
+            engine.refreshAccess(listId)
 
             assertTrue(gateway.callsOf("fetchItemsOfList").isNotEmpty())
             assertNull(checkNotNull(db.items().get(itemId)).checkedAt)
             assertNotNull(db.items().get(draft.id))
             assertEquals(listOf(draft.id), db.outbox().pending().map { it.entityId })
+        }
+
+    /** Vecteur 003 v2 : sur ma liste, 0 ligne sans pierre tombale = supprimé ailleurs, seule cette entrée part. */
+    @Test
+    fun noRowWithoutTombstoneOnMyListDropsOnlyThatItem() =
+        runBlocking {
+            val (listId, itemId) = pulled()
+            val other = Uuid.random()
+            gateway.remoteItems =
+                gateway.remoteItems + ListItemRow(other, Uuid.parse(listId), null, "pain", null, null, now, now, me)
+            engine.drain(pull = true)
+            repository.setChecked(itemId, now, now)
+            repository.setChecked(other.toString(), now, now)
+            gateway.rowTouched = { it.toString() != itemId }
+
+            engine.drain()
+
+            assertNull(db.items().get(itemId))
+            assertNotNull(checkNotNull(db.items().get(other.toString())).checkedAt)
+            assertTrue(gateway.callsOf("fetchItemsOfList").isEmpty())
+            assertEquals(2, gateway.callsOf("updateItem").size)
+            assertTrue(db.outbox().all().isEmpty())
+        }
+
+    /**
+     * Majeur 3, scénario des 10 coches : de retour après plus de 29 jours, dix articles cochés sur ma liste ont été
+     * supprimés ailleurs (pierres tombales purgées). La réconciliation complète passe avant l'envoi : aucune mise à jour
+     * ne part, seuls ces articles quittent l'appareil, le reste de la file part.
+     */
+    @Test
+    fun tenChecksOnItemsDeletedDuringALongAbsenceNeverLeave() =
+        runBlocking {
+            val (listId, kept) = pulled()
+            val gone = (1..10).map { Uuid.random() }
+            gateway.remoteItems =
+                gateway.remoteItems +
+                gone.map { ListItemRow(it, Uuid.parse(listId), null, "a$it", null, null, now, now, me) }
+            engine.drain(pull = true)
+            gone.forEach { repository.setChecked(it.toString(), now, now) }
+            repository.setChecked(kept, now, now)
+            // 31 jours plus tard : les dix articles ont disparu du serveur, leurs pierres tombales aussi.
+            advance(31.days)
+            gateway.remoteItems = gateway.remoteItems.filter { it.id !in gone }
+            gateway.calls.clear()
+
+            engine.drain()
+
+            assertTrue(gone.none { db.items().get(it.toString()) != null })
+            assertEquals(listOf("updateItem:$kept"), gateway.callsOf("updateItem"))
+            assertTrue(gateway.calls.indexOf("fetchItemIds:$listId") < gateway.calls.indexOf("updateItem:$kept"))
+            assertTrue(db.outbox().all().isEmpty())
         }
 }

@@ -38,8 +38,10 @@ import fr.parcourses.core.designsystem.TicketDimens
 data class ListsAccountUi(
     val canSignIn: Boolean = false,
     val needsSignIn: Boolean = false,
+    /** Modifications pas encore envoyées : « Continuer sans compte » prévient qu'elles seront perdues. */
+    val unsentChanges: Int = 0,
     val onSignIn: () -> Unit = {},
-    /** Après confirmation : compte anonyme, les listes partagées avec soi quittent l'appareil. */
+    /** Après confirmation : l'appareil est purgé, puis un compte anonyme vide est créé. */
     val onContinueWithoutAccount: () -> Unit = {},
 )
 
@@ -88,13 +90,19 @@ internal fun SessionLostBanner(
 
 @Composable
 internal fun ContinueWithoutAccountDialog(
+    unsentChanges: Int,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.lists_anonymous_title)) },
-        text = { Text(stringResource(R.string.lists_anonymous_body)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS)) {
+                Text(stringResource(R.string.lists_anonymous_body))
+                if (unsentChanges > 0) Text(stringResource(R.string.lists_anonymous_unsent))
+            }
+        },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,

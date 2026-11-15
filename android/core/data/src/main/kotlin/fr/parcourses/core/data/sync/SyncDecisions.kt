@@ -21,7 +21,7 @@ sealed interface ItemSaveRequest {
 enum class ZeroRowOutcome(
     val wireName: String,
 ) {
-    /** Pierre tombale : l'article a été supprimé ailleurs. Retirer l'article et l'entrée, sans réessayer. */
+    /** Supprimé ailleurs : retirer l'article et son entrée, sans réessayer ; les autres entrées restent. */
     DeletedElsewhere("deletedElsewhere"),
 
     /** Pas de pierre tombale : accès perdu ou rôle abaissé, `SyncEngine.refreshAccess`. */
@@ -144,9 +144,14 @@ object SyncDecisions {
         new: Collection<String>,
     ): List<String> = uniqueSorted(pending.orEmpty() + new)
 
-    /** Vecteur `003`. */
-    fun zeroRowOutcome(tombstoned: Boolean): ZeroRowOutcome =
-        if (tombstoned) ZeroRowOutcome.DeletedElsewhere else ZeroRowOutcome.AccessLost
+    /**
+     * Vecteur `003`, format 2 : sur ma liste, 0 ligne sans pierre tombale = supprimé ailleurs aussi (pierre tombale
+     * purgée après 30 jours, le propriétaire ne perd jamais l'accès à sa liste).
+     */
+    fun zeroRowOutcome(
+        tombstoned: Boolean,
+        listOwnedByMe: Boolean,
+    ): ZeroRowOutcome = if (tombstoned || listOwnedByMe) ZeroRowOutcome.DeletedElsewhere else ZeroRowOutcome.AccessLost
 
     /** Vecteur `004`. */
     fun insertRefusedOutcome(

@@ -1,6 +1,7 @@
 package fr.parcourses.app
 
 import android.content.Context
+import android.util.Log
 import fr.parcourses.core.categorizer.CategoryClassifier
 import fr.parcourses.core.data.EntryAnalyzer
 import fr.parcourses.core.data.account.AccountDeletion
@@ -12,11 +13,13 @@ import fr.parcourses.core.data.account.AccountLinkHost
 import fr.parcourses.core.data.account.AccountSession
 import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.AccountSignOutFlag
+import fr.parcourses.core.data.account.AccountSwitchFlag
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSignOutFlag
+import fr.parcourses.core.data.account.SharedPreferencesAccountSwitchFlag
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
@@ -44,6 +47,7 @@ import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.location.LocationProvider
 import fr.parcourses.core.location.SystemLocationProvider
 import fr.parcourses.core.network.AuthBootstrap
+import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SessionMaintenance
 import fr.parcourses.core.network.SupabaseConfig
@@ -58,6 +62,7 @@ import fr.parcourses.feature.shopping.live.ShoppingLiveUpdates
 import fr.parcourses.feature.shopping.live.SystemLiveUpdateNotifier
 import fr.parcourses.feature.storepicker.LocationPermissionMemory
 import fr.parcourses.feature.storepicker.SharedPreferencesLocationPermissionMemory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Dispatchers.IO
@@ -111,6 +116,9 @@ class AppContainer(
     /** Drapeau durable de « Se déconnecter » (#87) : la purge est rejouée au lancement tant qu'il existe. */
     val signOutFlag: AccountSignOutFlag by lazy { SharedPreferencesAccountSignOutFlag(context) }
 
+    /** Drapeau durable `account.switch` (#87) : changement de compte e-mail en cours, rejoué au lancement. */
+    val switchFlag: AccountSwitchFlag by lazy { SharedPreferencesAccountSwitchFlag(context) }
+
     /** Drapeau durable `account.kind` (#87) : un compte e-mail sans session attend la reconnexion. */
     val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
 
@@ -150,7 +158,10 @@ class AppContainer(
                         SyncDependencies(
                             isOnline = { networkMonitor.isOnline },
                             // Suppression du compte (#68) ou déconnexion (#87) en cours : aucune passe.
-                            isAccountDeletionPending = { deletionFlag.isPending || signOutFlag.isPending },
+                            isAccountDeletionPending = {
+                                deletionFlag.isPending || signOutFlag.isPending || switchFlag.isPending
+                            },
+                            accountKind = { accountKind.kind.value },
                         ),
                 )
             }
@@ -216,7 +227,13 @@ class AppContainer(
     /** Une liaison par écran de connexion ; `null` sans Supabase. */
     fun newAccountLink(): AccountLink? =
         gateway?.let { remote ->
-            AccountLink(remote, accountKind, LinkHost(), isOnline = { networkMonitor.isOnline })
+            AccountLink(
+                remote,
+                accountKind,
+                LinkHost(),
+                isOnline = { networkMonitor.isOnline },
+                switchFlag = switchFlag,
+            )
         }
 
     /** Ce que la liaison demande à la synchronisation : reprise immédiate des données, puis descente. */
@@ -232,13 +249,12 @@ class AppContainer(
             coordinator?.suspend()
         }
 
-        override fun resumeSync() {
-            coordinator?.sessionDidChange()
-        }
+        // Comme `DeletionHost.resumeSync` : Live Update, travail périodique, moteur relancé avec une descente.
+        override fun resumeSync() = DeletionHost().resumeSync()
 
         override suspend fun dataAccount(): Uuid? = withContext(IO) { cursors.accountId }
 
-        override suspend fun pendingChanges(): Int = database.outbox().pendingCount()
+        override suspend fun pendingChanges(): Int = database.outbox().all().size
 
         override suspend fun purgeLocalData() {
             val host = DeletionHost()
@@ -345,6 +361,10 @@ class AppContainer(
             // Une Live Update restée d'un lancement précédent ne survit que si sa visite est encore ouverte.
             liveUpdates.reconcile()
             gateway?.let { remote ->
+                withContext(IO) {
+                    inferAccountKind(remote)
+                    replayAccountSwitch(remote)
+                }
                 coordinator?.start()
                 // Un échec n'empêche rien : tout est local et la file attend.
                 AuthBootstrap.signIn(remote)
@@ -387,10 +407,9 @@ class AppContainer(
                     host = DeletionHost(),
                     flag = signOutFlag,
                     isOnline = { networkMonitor.isOnline },
-                    flush = {
-                        engine?.drain()
-                        database.outbox().pendingCount()
-                    },
+                    flush = { engine?.drain() },
+                    // `PENDING` et `FAILED` : toute entrée encore là sera perdue.
+                    unsent = { database.outbox().all().size },
                 ),
                 maintenanceScope,
             )
@@ -402,11 +421,59 @@ class AppContainer(
      * reprend les données de l'appareil (les listes partagées avec soi en partent, `AccountRekey`).
      */
     fun continueWithoutAccount() {
+        val remote = gateway ?: return
         maintenanceScope.launch {
-            accountKind.write(AccountKind.Anonymous)
-            accountSession.forget()
-            gateway?.let { AuthBootstrap.signIn(it) }
-            coordinator?.sessionDidChange()
+            val host = DeletionHost()
+            try {
+                host.suspendSync()
+                host.endShopping()
+                // Purge d'abord (`account.kind` compris) : rien du compte e-mail ne part vers le compte anonyme.
+                purge.run()
+                host.clearLocalState()
+                // Dernier compte connu oublié : le compte anonyme neuf est adopté sans reprise.
+                remote.signOutLocally()
+                accountSession.forget()
+                AuthBootstrap.signIn(remote)
+                host.rebuild()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RemoteError) {
+                Log.w(TAG, "Compte anonyme non créé : ${e.message}")
+                host.resumeSync()
+            }
+        }
+    }
+
+    /** `account.kind` absent (installation d'avant #87) avec une session non anonyme : compte e-mail. */
+    private suspend fun inferAccountKind(remote: RemoteGateway) {
+        if (accountKind.isSet) return
+        val email = runCatching { remote.accountEmail() }.getOrNull()
+        if (email != null) accountKind.write(AccountKind.Email)
+    }
+
+    /**
+     * Changement de compte e-mail interrompu (drapeau `account.switch`) : session d'un autre compte que celui des
+     * données = purge rejouée, aucune reprise ; même compte = drapeau effacé. Session illisible : le drapeau reste, la
+     * synchronisation aussi arrêtée jusqu'à la prochaine connexion.
+     */
+    @Suppress("TooGenericExceptionCaught") // Toute panne garde le drapeau : rien ne part vers le mauvais compte.
+    internal suspend fun replayAccountSwitch(remote: RemoteGateway) {
+        if (!switchFlag.isPending) return
+        try {
+            val session = remote.sessionAccountId()
+            if (session != cursors.accountId) {
+                withTimeoutOrNull(LIVE_UPDATE_BUDGET) { liveUpdates.endAll().await() }
+                purge.run()
+                livePreferences.clear()
+                accountKind.write(AccountKind.Email)
+                remote.acknowledgeAccount(session)
+                Log.i(TAG, "Changement de compte e-mail repris au lancement")
+            }
+            switchFlag.clear()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Changement de compte non repris : ${e.javaClass.simpleName}")
         }
     }
 
@@ -493,6 +560,7 @@ class AppContainer(
     }
 
     private companion object {
+        const val TAG = "AppContainer"
         val LIVE_UPDATE_BUDGET = 3.seconds
     }
 }

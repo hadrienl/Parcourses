@@ -529,9 +529,9 @@ class SyncStore(
      * Pierres tombales descendues (vecteur `006`) : les articles locaux de même id sont supprimés, entrées de file
      * comprises (la suppression gagne). Vrai si un article a disparu.
      */
-    suspend fun mergeTombstones(ids: Collection<String>): Boolean =
+    suspend fun merge(tombstones: Collection<String>): Boolean =
         db.withWriteTransaction {
-            val doomed = SyncDecisions.applyTombstones(db.items().allIds(), ids)
+            val doomed = SyncDecisions.applyTombstones(db.items().allIds(), tombstones)
             deleteItemsLocked(doomed)
             doomed.isNotEmpty()
         }

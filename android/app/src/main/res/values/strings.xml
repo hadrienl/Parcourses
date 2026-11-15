@@ -72,7 +72,7 @@
     <string name="account_sign_out_body">Vos listes restent dans votre compte. Elles seront retirées de cet appareil.</string>
     <string name="account_sign_out_running">Déconnexion…</string>
     <string name="account_sign_out_offline">Il faut du réseau pour se déconnecter. Rien n\'a été retiré.</string>
-    <string name="account_sign_out_unsynced">Vos dernières modifications ne sont pas encore enregistrées dans votre compte. Réessayez dans un instant.</string>
+    <string name="account_sign_out_unsent">Les modifications pas encore envoyées seront perdues.</string>
     <string name="account_sign_out_failed">La déconnexion n\'a pas abouti. Réessayez.</string>
     <string name="account_retry">Réessayer</string>
     <string name="account_cancel">Annuler</string>
@@ -107,7 +107,7 @@
     <string name="link_error_too_many_codes">Trop d’essais. Patientez une minute avant de réessayer.</string>
     <string name="link_error_offline">Il faut du réseau pour recevoir un code.</string>
     <string name="link_error_unknown">Le code n\'a pas pu être envoyé. Vérifiez l\'adresse et réessayez.</string>
-    <string name="link_unsent_warning">Des modifications de cet appareil ne sont pas encore envoyées. Si vous vous connectez avec l\'adresse d\'un autre compte, elles seront perdues.</string>
+    <string name="link_unsent_warning">Avec une autre adresse, les listes de cet appareil en seront retirées. Les modifications pas encore envoyées seront perdues.</string>
     <string name="link_merging">Rapprochement de vos listes…</string>
     <string name="link_welcome_title">Bon retour, %1$s !</string>
     <string name="link_welcome_title_plain">Bon retour !</string>

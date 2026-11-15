@@ -23,7 +23,8 @@
     <string name="lists_session_reconnect">Se reconnecter</string>
     <string name="lists_session_anonymous">Continuer sans compte</string>
     <string name="lists_anonymous_title">Continuer sans compte ?</string>
-    <string name="lists_anonymous_body">Les listes partagées avec vous seront retirées de cet appareil. Les vôtres restent ici, sans adresse ni synchronisation entre appareils.</string>
+    <string name="lists_anonymous_body">Les listes de votre compte seront retirées de cet appareil, mais restent dans votre compte. Vous repartirez avec un compte anonyme vide.</string>
+    <string name="lists_anonymous_unsent">Les modifications pas encore envoyées seront perdues.</string>
     <string name="lists_anonymous_action">Continuer sans compte</string>
     <plurals name="lists_subtitle_remaining">
         <item quantity="one">%1$d article restant</item>

@@ -196,6 +196,7 @@ fun ListsScreen(
     }
     if (confirmingAnonymous && account.needsSignIn) {
         ContinueWithoutAccountDialog(
+            unsentChanges = account.unsentChanges,
             onConfirm = {
                 confirmingAnonymous = false
                 account.onContinueWithoutAccount()

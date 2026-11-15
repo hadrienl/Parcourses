@@ -100,9 +100,6 @@ enum class AccountSignOutError(
     /** Le réseau est exigé : rien n'a été retiré. */
     Offline("offline"),
 
-    /** Des modifications ne sont pas encore arrivées au compte : les retirer les perdrait. */
-    Unsynced("unsynced"),
-
     /** La purge de l'appareil n'est pas allée au bout : le drapeau reste, « Réessayer » la reprend. */
     Unknown("unknown"),
 }
@@ -116,12 +113,12 @@ sealed interface AccountSignOutOutcome {
 }
 
 /**
- * « Se déconnecter » (#87 §2.4), après confirmation : « Vos listes restent dans votre compte. Elles seront retirées de
- * cet appareil. » Le réseau est exigé et la file doit être vide ([flush] l'envoie d'abord) : sinon la promesse ne
- * tiendrait pas. Puis, comme la fin de « Supprimer mes données » (#68) : synchronisation arrêtée, mode courses fermé,
- * drapeau durable [AccountSignOutFlag] posé, `signOut()`, [LocalDataPurge] (`account.kind` compris), nouveau compte
- * anonyme vide, état de l'app recréé, drapeau effacé. Tant que le drapeau existe, la purge est rejouée
- * ([resumePending], au lancement ; [run], « Réessayer ») ; un échec n'entraîne aucun redémarrage de l'app.
+ * « Se déconnecter » (#87 §2.4), même règle qu'iOS. [prepare] envoie la file, arrête la synchronisation et compte ce
+ * qui n'est pas parti (entrées `PENDING` et `FAILED`) : la confirmation prévient que ces modifications seront perdues,
+ * sans refuser. Puis, comme la fin de « Supprimer mes données » (#68) : mode courses fermé, drapeau durable
+ * [AccountSignOutFlag] posé, `signOut()`, [LocalDataPurge] (`account.kind` compris), nouveau compte anonyme vide, état
+ * de l'app recréé, drapeau effacé. Tant que le drapeau existe, la purge est rejouée ([resumePending], au lancement ;
+ * [run], « Réessayer ») ; un échec n'entraîne aucun redémarrage de l'app.
  */
 class AccountSignOut(
     private val gateway: RemoteGateway,
@@ -129,8 +126,10 @@ class AccountSignOut(
     private val host: AccountDeletionHost,
     private val flag: AccountSignOutFlag,
     private val isOnline: () -> Boolean,
-    /** Envoie la file et rend le nombre d'entrées encore en attente. */
-    private val flush: suspend () -> Int,
+    /** Envoie ce qui peut l'être avant l'arrêt. */
+    private val flush: suspend () -> Unit,
+    /** Entrées de file restantes, `PENDING` et `FAILED`. */
+    private val unsent: suspend () -> Int,
     private val timeout: Duration = 15.seconds,
 ) {
     private val lock = Mutex()
@@ -138,22 +137,36 @@ class AccountSignOut(
     /** Une déconnexion a commencé et n'est pas finie (drapeau présent). Lit le disque : hors du fil principal. */
     val isPending: Boolean get() = flag.isPending
 
+    /**
+     * Avant la confirmation : file envoyée, synchronisation arrêtée, modifications restantes comptées. Ensuite [run] ou
+     * [abandon].
+     */
+    @Suppress("TooGenericExceptionCaught") // Un envoi impossible n'empêche pas de compter ce qui reste.
+    suspend fun prepare(): Int =
+        lock.withLock {
+            try {
+                flush()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.i(TAG, "Envoi avant déconnexion impossible : ${e.javaClass.simpleName}")
+            }
+            host.suspendSync()
+            unsent()
+        }
+
+    /** Confirmation fermée : la synchronisation reprend. */
+    fun abandon() = host.resumeSync()
+
     /** Après confirmation, ou « Réessayer » si le drapeau est déjà posé. */
     @Suppress("TooGenericExceptionCaught", "ReturnCount") // Toute panne locale reprend la synchronisation.
     suspend fun run(): AccountSignOutOutcome =
         lock.withLock {
             if (flag.isPending) return@withLock finish()
-            if (!isOnline()) return@withLock AccountSignOutOutcome.Failed(AccountSignOutError.Offline)
-            val pending =
-                try {
-                    flush()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.i(TAG, "Envoi avant déconnexion impossible : ${e.javaClass.simpleName}")
-                    -1
-                }
-            if (pending != 0) return@withLock AccountSignOutOutcome.Failed(AccountSignOutError.Unsynced)
+            if (!isOnline()) {
+                host.resumeSync()
+                return@withLock AccountSignOutOutcome.Failed(AccountSignOutError.Offline)
+            }
             try {
                 host.suspendSync()
                 host.endShopping()

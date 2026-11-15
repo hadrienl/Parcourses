@@ -10,13 +10,16 @@ import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.EmailCodePurpose
 import fr.parcourses.core.network.dto.VerifiedCode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -129,8 +132,9 @@ class AccountLink(
     private val kind: AccountKindFlag,
     private val host: AccountLinkHost,
     private val isOnline: () -> Boolean,
+    private val switchFlag: AccountSwitchFlag = InMemoryAccountSwitchFlag(),
     private val now: () -> Instant = { Clock.System.now() },
-    private val mergeTimeout: Duration = MERGE_TIMEOUT,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val lock = Mutex()
     private val current =
@@ -138,6 +142,12 @@ class AccountLink(
     val state: StateFlow<AccountLinkState> = current.asStateFlow()
 
     private var pendingName: String? = null
+
+    /** Changement de compte e-mail dont la purge reste à faire. */
+    private var pendingSwitch: Pair<VerifiedCode, EmailCodePurpose>? = null
+
+    /** Écriture sur le disque (préférences en `commit`) : jamais sur le fil principal. */
+    private suspend fun io(write: () -> Unit) = withContext(ioDispatcher) { write() }
 
     /** À l'ouverture de l'écran : avertissement des modifications non envoyées d'un compte e-mail. */
     suspend fun prepare() {
@@ -173,40 +183,80 @@ class AccountLink(
     /** Efface le message d'erreur (saisie modifiée). */
     fun clearError() = current.update { it.copy(error = null) }
 
-    /** Code saisi : validé dès le 6ᵉ chiffre par l'écran. */
-    @Suppress("ReturnCount") // Une garde par cas : code, réseau, étape.
+    /**
+     * Code saisi : validé dès le 6ᵉ chiffre par l'écran. Ni la fermeture de l'écran ni l'annulation de la tâche
+     * n'interrompent la vérification et la reprise ([NonCancellable]) ; la synchronisation est reprise dans tous les
+     * cas, sauf si la purge d'un changement de compte e-mail reste à faire ([retryMerge]).
+     */
     suspend fun verify(code: String) =
-        lock.withLock {
-            val state = current.value
-            val purpose = state.purpose ?: return@withLock
-            if (state.phase != AccountLinkPhase.EnterCode) return@withLock
-            val digits = code.filter(Char::isDigit)
-            if (digits.length != CODE_LENGTH) return@withLock fail(AccountLinkError.InvalidCode)
-            if (!isOnline()) return@withLock fail(AccountLinkError.Offline)
-            current.update { it.copy(busy = true, error = null) }
-            // Compte e-mail qui se reconnecte : ses données ne vont jamais à un autre compte.
-            val previousEmailAccount = if (kind.kind.value == AccountKind.Email) host.dataAccount() else null
-            // Rien ne part pendant que la session change : synchronisation arrêtée, reprise ensuite.
-            host.suspendSync()
+        withContext(NonCancellable) {
+            lock.withLock { verifyLocked(code) }
+        }
+
+    @Suppress("ReturnCount", "CyclomaticComplexMethod") // Une garde par cas : code, réseau, étape, refus, purge.
+    private suspend fun verifyLocked(code: String) {
+        val state = current.value
+        val purpose = state.purpose ?: return
+        if (state.phase != AccountLinkPhase.EnterCode) return
+        val digits = code.filter(Char::isDigit)
+        if (digits.length != CODE_LENGTH) return fail(AccountLinkError.InvalidCode)
+        if (!isOnline()) return fail(AccountLinkError.Offline)
+        current.update { it.copy(busy = true, error = null) }
+        // Compte e-mail qui se reconnecte : ses données ne vont jamais à un autre compte.
+        val fromEmail = kind.kind.value == AccountKind.Email
+        val previousEmailAccount = if (fromEmail) host.dataAccount() else null
+        // Rien ne part pendant que la session change : synchronisation arrêtée, reprise ensuite.
+        host.suspendSync()
+        var resumed = false
+        try {
+            // Durable : si le processus meurt, le lancement suivant rejoue la purge d'un changement de compte.
+            if (fromEmail) io { switchFlag.write() }
             val verified =
                 try {
                     gateway.verifyCode(state.email, digits, purpose)
                 } catch (e: RemoteError) {
                     Log.i(TAG, "Code refusé : ${e.message}")
-                    host.resumeSync()
-                    return@withLock fail(codeError(e, state.codeSentAt))
+                    if (fromEmail) io { switchFlag.clear() }
+                    return fail(codeError(e, state.codeSentAt))
                 }
-            kind.write(AccountKind.Email)
+            io { kind.write(AccountKind.Email) }
             current.update { it.copy(phase = AccountLinkPhase.Merging, error = null) }
-            if (previousEmailAccount != null && previousEmailAccount != verified.accountId &&
-                !replaceDeviceData(verified.accountId)
-            ) {
-                // Purge inachevée : la synchronisation reste arrêtée, les données de A ne partent pas vers B.
-                return@withLock fail(AccountLinkError.Unknown)
+            if (previousEmailAccount != null && previousEmailAccount != verified.accountId) {
+                pendingSwitch = verified to purpose
+                // Purge inachevée : synchronisation arrêtée, drapeau gardé, « Réessayer ».
+                if (!replaceDeviceData(verified.accountId)) return failMerge()
+                resumed = true
+                return completeSwitch()
             }
+            if (fromEmail) io { switchFlag.clear() }
+            resumed = true
             host.resumeSync()
             finish(verified, purpose)
+        } finally {
+            if (!resumed && pendingSwitch == null) host.resumeSync()
         }
+    }
+
+    /** « Réessayer » après une purge inachevée d'un changement de compte e-mail. */
+    suspend fun retryMerge() =
+        withContext(NonCancellable) {
+            lock.withLock {
+                val switch = pendingSwitch ?: return@withLock
+                current.update { it.copy(busy = true, error = null) }
+                if (replaceDeviceData(switch.first.accountId)) completeSwitch() else failMerge()
+            }
+        }
+
+    /** Purge faite : drapeau effacé, synchronisation reprise, puis fin du déroulé. */
+    private suspend fun completeSwitch() {
+        val (verified, purpose) = pendingSwitch ?: return
+        pendingSwitch = null
+        io { switchFlag.clear() }
+        host.resumeSync()
+        finish(verified, purpose)
+    }
+
+    private fun failMerge() = current.update { it.copy(busy = false, error = AccountLinkError.Unknown) }
 
     /**
      * Compte e-mail A vers un autre compte B : aucune liste de A n'est renvoyée à B. L'appareil est purgé, puis B est
@@ -217,7 +267,7 @@ class AccountLink(
         try {
             host.purgeLocalData()
             // La purge efface `account.kind` : c'est toujours un compte e-mail.
-            kind.write(AccountKind.Email)
+            io { kind.write(AccountKind.Email) }
             gateway.acknowledgeAccount(account)
             Log.i(TAG, "Autre compte e-mail : données de l'appareil remplacées")
             true
@@ -279,9 +329,10 @@ class AccountLink(
         verified: VerifiedCode,
         purpose: EmailCodePurpose,
     ) {
+        // Sans délai : la reprise va au bout (« Rapprochement de vos listes… » reste affiché pendant ce temps).
         val added =
             try {
-                withTimeoutOrNull(mergeTimeout) { host.adoptAccount(verified.accountId) }
+                host.adoptAccount(verified.accountId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -375,9 +426,6 @@ class AccountLink(
 
         /** Durée de validité d'un code (`otp_expiry = 900`). */
         val CODE_LIFETIME: Duration = 15.minutes
-
-        /** La reprise des données attend au plus ce délai avant le message de fin ; elle continue sinon seule. */
-        val MERGE_TIMEOUT: Duration = 20.seconds
 
         private const val MAX_DISPLAY_NAME = 40
 

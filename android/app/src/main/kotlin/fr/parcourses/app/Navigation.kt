@@ -132,6 +132,8 @@ fun ParcoursesNavHost(
                         )
                     val sessionStuck by sessionStuckFlow.collectAsState()
                     val account by container.accountSession.state.collectAsState(AccountState())
+                    val unsentFlow = remember(container) { container.database.outbox().observeCount() }
+                    val unsent by unsentFlow.collectAsState(0)
                     ListsRoute(
                         viewModel = model,
                         // Appui sur une liste, ou liste qui vient d'être créée : voir `openListFromLists`.
@@ -142,6 +144,7 @@ fun ParcoursesNavHost(
                             ListsAccountUi(
                                 canSignIn = container.gateway != null && account.kind == AccountKind.Anonymous,
                                 needsSignIn = account.needsSignIn,
+                                unsentChanges = unsent,
                                 onSignIn = openSignIn,
                                 onContinueWithoutAccount = container::continueWithoutAccount,
                             ),

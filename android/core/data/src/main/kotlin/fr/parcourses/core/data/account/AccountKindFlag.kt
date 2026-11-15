@@ -15,6 +15,9 @@ interface AccountKindFlag {
     /** Valeur courante, observée par les écrans. */
     val kind: StateFlow<AccountKind>
 
+    /** Faux tant que rien n'a été écrit (installation d'avant #87, ou purge). */
+    val isSet: Boolean
+
     fun write(kind: AccountKind)
 
     /** Retour à l'état d'un appareil neuf : compte anonyme. */
@@ -32,6 +35,8 @@ class SharedPreferencesAccountKindFlag(
     private val current = MutableStateFlow(read())
 
     override val kind: StateFlow<AccountKind> = current.asStateFlow()
+
+    override val isSet: Boolean get() = prefs.contains(KEY)
 
     // Valeur inconnue (version future) : un compte e-mail, par prudence, plutôt qu'un compte anonyme recréé.
     private fun read(): AccountKind =
@@ -55,17 +60,22 @@ class SharedPreferencesAccountKindFlag(
 
 /** Drapeau en mémoire, pour les tests. */
 class InMemoryAccountKindFlag(
-    initial: AccountKind = AccountKind.Anonymous,
+    initial: AccountKind? = null,
 ) : AccountKindFlag {
-    private val current = MutableStateFlow(initial)
+    private val current = MutableStateFlow(initial ?: AccountKind.Anonymous)
 
     override val kind: StateFlow<AccountKind> = current.asStateFlow()
 
+    override var isSet: Boolean = initial != null
+        private set
+
     override fun write(kind: AccountKind) {
         current.value = kind
+        isSet = true
     }
 
     override fun clear() {
         current.value = AccountKind.Anonymous
+        isSet = false
     }
 }
