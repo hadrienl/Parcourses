@@ -18,6 +18,7 @@ import fr.parcourses.core.data.sharing.SharingMember
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ListParticipantEntity
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.model.SortCategory
 import fr.parcourses.core.model.SortInput
 import fr.parcourses.core.model.SortItem
@@ -188,14 +189,23 @@ class ShoppingViewModel(
         viewModelScope.launch { remaps.collect { remap -> lock.withLock { apply(remap) } } }
         viewModelScope.launch {
             deps.accessNotices.collect { notices ->
-                val lost = notices.any { it is AccessChange.Removed && it.listId == listId }
-                if (lost && !accessLost) {
-                    lock.withLock {
-                        accessLost = true
-                        publish()
-                    }
-                }
+                if (notices.any { it is AccessChange.Removed && it.listId == listId }) loseAccess()
             }
+        }
+        // Rôle abaissé en lecture seule pendant les courses (#87, Q5) : un lecteur ne coche plus, fin des courses.
+        viewModelScope.launch {
+            listIdFlow
+                .flatMapLatest { deps.lists.observeList(it) }
+                .collect { list -> if (list?.role == ListRole.Viewer) loseAccess() }
+        }
+    }
+
+    /** « Vous n'avez plus accès à cette liste » : liste retirée de l'appareil, ou passée en lecture seule. */
+    private suspend fun loseAccess() {
+        if (accessLost) return
+        lock.withLock {
+            accessLost = true
+            publish()
         }
     }
 

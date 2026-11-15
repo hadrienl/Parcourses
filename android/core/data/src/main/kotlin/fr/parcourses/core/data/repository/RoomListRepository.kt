@@ -6,6 +6,7 @@ import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
+import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -134,7 +135,7 @@ class RoomListRepository(
     ): ListItemEntity {
         val item =
             db.withWriteTransaction {
-                requireActiveList(listId)
+                requireEditableList(listId)
                 val created =
                     ListItemEntity(
                         id = newId(),
@@ -172,7 +173,8 @@ class RoomListRepository(
         itemId: String,
         notFoundAt: Instant?,
     ) {
-        requireWritableItem(itemId)
+        // Champ local, jamais envoyé : permis au lecteur, dont « Terminer » remet les introuvables à acheter.
+        requireLocalItem(itemId)
         db.items().setNotFound(itemId, notFoundAt)
     }
 
@@ -196,9 +198,23 @@ class RoomListRepository(
         return list
     }
 
-    private suspend fun requireWritableItem(id: String): ListItemEntity {
+    /** Liste où je peux écrire des articles : active, et pas en lecture seule. */
+    private suspend fun requireEditableList(id: String): ShoppingListEntity {
+        val list = requireActiveList(id)
+        if (list.role == ListRole.Viewer) throw RepositoryException.ReadOnly(id)
+        return list
+    }
+
+    private suspend fun requireLocalItem(id: String): ListItemEntity {
         val item = db.items().get(id) ?: throw RepositoryException.NotFound(id)
         if (db.lists().get(item.listId)?.deletedAt != null) throw RepositoryException.ListDeleted(item.listId)
+        return item
+    }
+
+    /** Article d'une liste où j'écris : comme [requireLocalItem], et pas en lecture seule. */
+    private suspend fun requireWritableItem(id: String): ListItemEntity {
+        val item = requireLocalItem(id)
+        if (db.lists().get(item.listId)?.role == ListRole.Viewer) throw RepositoryException.ReadOnly(item.listId)
         return item
     }
 }

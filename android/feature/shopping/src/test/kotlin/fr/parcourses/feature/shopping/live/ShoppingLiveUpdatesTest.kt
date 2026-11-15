@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.repository.CheckSubject
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.database.entity.VisitEntity
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.feature.shopping.ShoppingTest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -169,6 +171,25 @@ class ShoppingLiveUpdatesTest : ShoppingTest() {
             runCurrent()
 
             assertEquals(newState.visitId, notifier.state?.visitId)
+        }
+
+    /** « Cocher le suivant » sur une liste passée en lecture seule (#87, Q5) : refusé, notification retirée. */
+    @Test
+    fun checkNextIsRefusedOnAReadOnlyList() =
+        runTest(main) {
+            val (visit, state) = shopping()
+            val live = controller()
+            live.publish(state)
+            runCurrent()
+
+            db.lists().setRole(state.listId, ListRole.Viewer)
+            live.checkNext(visit.id, state.pending.first().id)
+            runCurrent()
+
+            assertTrue(visits.checks(visit.id).isEmpty())
+            assertNull(db.items().get(state.pending.first().id)?.checkedAt)
+            assertEquals(LiveUpdateNotifier.Active.None, notifier.shown)
+            assertTrue(log.entries.any { "lecture seule" in it })
         }
 
     @Test

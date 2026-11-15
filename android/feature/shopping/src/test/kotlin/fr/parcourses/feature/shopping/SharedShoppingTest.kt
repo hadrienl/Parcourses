@@ -107,6 +107,37 @@ class SharedShoppingTest : ShoppingTest() {
             assertTrue(model.uiState.value.accessLost)
         }
 
+    @Test
+    fun aRoleLoweredDuringTheShoppingStopsItAndRefusesChecks() =
+        runTest(main) {
+            val (listId, _) = newList(Triple("lait", "dairy", null), Triple("pain", "bakery", null))
+            val model = sharedModel(listId)
+            val state = started(model)
+            assertFalse(state.accessLost)
+
+            // La descente passe mon accès en lecture seule pendant les courses.
+            db.lists().setRole(listId, ListRole.Viewer)
+            runCurrent()
+            assertTrue(model.uiState.value.accessLost)
+
+            // Une coche partie quand même (double appui, écran en retard) est refusée par le dépôt.
+            model.toggle(state.row("lait"))
+            runCurrent()
+            assertTrue(db.checks().getAll().isEmpty())
+            assertNull(
+                db
+                    .items()
+                    .getByList(listId)
+                    .first { it.label == "lait" }
+                    .checkedAt,
+            )
+
+            // « Terminer » clôt la visite.
+            model.finish(true)
+            runCurrent()
+            assertTrue(db.visits().getAll().all { it.endedAt != null })
+        }
+
     private companion object {
         const val OWNER = "11111111-1111-4111-8111-111111111111"
         const val LEA = "22222222-2222-4222-8222-222222222222"

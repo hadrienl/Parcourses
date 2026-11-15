@@ -24,6 +24,14 @@ sealed class RepositoryException(
         val id: String,
     ) : RepositoryException("Cet article est déjà coché.")
 
+    /**
+     * Lecteur d'une liste partagée (#87, Q5) : ni saisie, ni coche, ni suppression d'article, ni coche de visite. La
+     * RLS refuserait l'écriture ; elle est arrêtée ici avant d'entrer dans la file.
+     */
+    class ReadOnly(
+        val id: String,
+    ) : RepositoryException("Cette liste est en lecture seule.")
+
     /** Une coche ne s'ajoute pas à une visite déjà close. */
     class VisitClosed(
         val id: String,

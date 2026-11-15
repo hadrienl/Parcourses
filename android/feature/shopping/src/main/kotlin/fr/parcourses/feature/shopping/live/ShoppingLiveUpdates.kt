@@ -5,6 +5,7 @@ import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sync.IdentifierRemap
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.feature.shopping.ShoppingTimings
 import fr.parcourses.feature.shopping.checkSubject
 import kotlinx.coroutines.CancellationException
@@ -297,6 +298,20 @@ class ShoppingLiveUpdates(
             log.warn("« Cocher le suivant » ignoré : la notification ne suit plus cette visite")
             return
         }
+        // Liste passée en lecture seule (#87, Q5) : plus de courses, la notification est retirée comme à la fin.
+        if (lists.list(state.listId)?.role == ListRole.Viewer) {
+            log.warn("« Cocher le suivant » refusé : liste en lecture seule")
+            current = null
+        } else {
+            checkPending(state, command)
+        }
+    }
+
+    /** Coche l'article que la notification montre encore à prendre. */
+    private suspend fun checkPending(
+        state: ShoppingLiveState,
+        command: Command.CheckNext,
+    ) {
         val item = lists.items(state.listId).firstOrNull { it.id == command.itemId }
         // Seul un article que la notification montre encore à prendre se coche : ni un article retiré ou passé
         // introuvable entre-temps, ni un article d'un ancien état.

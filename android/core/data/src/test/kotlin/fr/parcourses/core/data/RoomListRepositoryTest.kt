@@ -8,6 +8,7 @@ import fr.parcourses.core.data.repository.RepositoryException
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.dto.ListItemUpsert
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -111,6 +112,30 @@ class RoomListRepositoryTest : DataTest() {
             assertEquals(deleted, failure { repository.renameList(list.id, "y", now) }?.let { it::class })
             assertEquals(deleted, failure { repository.deleteItem(item.id, now) }?.let { it::class })
             assertTrue(failure { repository.renameList("inconnue", "y", now) } is RepositoryException.NotFound)
+        }
+
+    @Test
+    fun aReaderCannotAddCheckOrDeleteItemsButKeepsItsLocalNotFound() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            val item = repository.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            db.outbox().all().forEach { db.outbox().delete(it.id) }
+            db.lists().setRole(list.id, ListRole.Viewer)
+
+            fun failure(block: suspend () -> Unit) = runBlocking { runCatching { block() }.exceptionOrNull() }
+            val readOnly = RepositoryException.ReadOnly::class
+            assertEquals(
+                readOnly,
+                failure { repository.addItem(list.id, "x", "x", null, null, "other", now) }?.let { it::class },
+            )
+            assertEquals(readOnly, failure { repository.setChecked(item.id, now, now) }?.let { it::class })
+            assertEquals(readOnly, failure { repository.deleteItem(item.id, now) }?.let { it::class })
+            // Rien n'est entré dans la file, l'article est intact.
+            assertTrue(db.outbox().all().isEmpty())
+            assertNull(db.items().get(item.id)?.checkedAt)
+            assertEquals(1, repository.items(list.id).size)
+            // « Introuvable » reste local : « Terminer » le remet à acheter, même en lecture seule.
+            repository.setNotFound(item.id, null)
         }
 
     @Test
