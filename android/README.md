@@ -13,6 +13,27 @@ L'environnement (`local`, `staging`, `prod`) est choisi à la compilation. Rien 
 
 Sans URL ou sans clé valide (`https`, ou `http` vers la machine locale), l'app reste entièrement locale. La clé du Supabase local : `supabase status -o env` (`PUBLISHABLE_KEY`).
 
+## Liens d'invitation et App Links (#87, lot 87.7)
+
+| Réglage | Rôle |
+| --- | --- |
+| `parcourses.invitationHost` | Hôte des liens https, `parcourses.hadrien.eu` par défaut (`gradle.properties`). Surchargeable : `-Pparcourses.invitationHost=<hôte>` ou `~/.gradle/gradle.properties`. |
+
+Avec un hôte, « Copier le lien » donne `https://<hôte>/i/#<jeton>`, et l'alias `InvitationAppLinks` du manifeste (`android:autoVerify="true"`, https, chemin exact `android:path="/i/"`) ouvre ces liens dans l'app ; `/i/invitation.js` ou `/i/autre` restent au navigateur. MainActivity n'accepte que le jeton relu par `SharingDecisions.parseInvitationLink` (vecteur `shared/test-vectors/sharing/001`) : un lien `/i/?utm=…#<jeton>` ouvre l'app (la requête ne compte pas pour le filtre) mais sans invitation. Le lien `parcourses://invitation#<jeton>` reste toujours reconnu. Un hôte vide (`-Pparcourses.invitationHost=`) coupe le https : aucun lien https construit ni reconnu, alias désactivé et sans `autoVerify`.
+
+`./gradlew :app:checkDebugInvitationAppLinks :app:checkReleaseInvitationAppLinks` contrôle l'alias sur le manifeste fusionné (aussi dans `check`) ; la CI le lance avec l'hôte par défaut, puis avec `-Pparcourses.invitationHost=`.
+
+La vérification passe par `https://<hôte>/.well-known/assetlinks.json` (voir `docs/site.md`), qui liste les empreintes SHA-256 des certificats de signature : pour l'instant, celle de la **clé de debug de la machine de développement** (`~/.android/debug.keystore`). Un APK construit ailleurs (CI, autre poste) est signé par une autre clé de debug : ses liens ne seront pas vérifiés. Une fois le site publié, sur un appareil ou un émulateur où l'app est installée :
+
+```bash
+adb shell pm verify-app-links --re-verify fr.parcourses.app   # relance la vérification (Android 12+)
+adb shell pm get-app-links fr.parcourses.app                  # parcourses.hadrien.eu doit être « verified »
+adb shell am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE \
+  -d 'https://parcourses.hadrien.eu/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde'
+```
+
+Le dernier lien ouvre la carte de l'invitation (jeton du vecteur `001`, inconnu du serveur : « n'est plus valable »). Tant que le domaine n'est pas `verified`, Android 12 et plus ouvrent le lien dans le navigateur (sans proposer l'app), qui affiche la page `/i/` et son bouton « Ouvrir dans l'app ». Sur Android 11 et moins, un sélecteur propose l'app ou le navigateur.
+
 ## Tests instrumentés du Keystore
 
 `./gradlew :core:network:connectedDebugAndroidTest` (émulateur ou appareil branché) vérifie la session chiffrée sur le vrai Android Keystore (#51) : jeu de clés chiffré par la clé maîtresse, jeu de clés en clair remplacé, valeur non hexadécimale et chiffré altéré reconnus comme pertes avérées, clé maîtresse absente, réinitialisation. Ils ne tournent pas en CI, faute d'émulateur.

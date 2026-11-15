@@ -106,7 +106,7 @@ class SupabaseGateway internal constructor(
     private val client: SupabaseClient,
     private val store: SecureStateStore,
     private val clock: Clock = Clock.System,
-    /** Liens de « Copier le lien » (#87, lot 87.6) : schéma de l'app tant qu'aucun domaine n'est configuré. */
+    /** Liens de « Copier le lien » (#87, lot 87.6) : https sur l'hôte du build (lot 87.7), sinon le schéma de l'app. */
     private val invitationLinks: InvitationLinks = InvitationLinks(null),
     /**
      * Adresse des Edge Functions. Par défaut celle du projet ; les tests d'intégration visent `send-invitation`

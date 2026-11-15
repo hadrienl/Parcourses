@@ -200,6 +200,7 @@ class GatewayHarness(
     val server: FakeSupabase = FakeSupabase(),
     val store: SecureStateStore = MemorySecureStateStore(),
     clock: kotlin.time.Clock = kotlin.time.Clock.System,
+    invitationLinks: InvitationLinks = InvitationLinks(null),
 ) {
     private val scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
     val config = SupabaseConfig.create("http://127.0.0.1:56321", "publishable-key")!!
@@ -208,6 +209,7 @@ class GatewayHarness(
             createSupabaseClient(config, store, server.engine, Dispatchers.Unconfined, lifecycleCallbacks = false),
             store,
             clock,
+            invitationLinks,
         )
 
     fun close() = scope.cancel()

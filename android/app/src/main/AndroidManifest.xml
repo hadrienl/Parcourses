@@ -46,8 +46,8 @@
                     android:host="shopping" />
             </intent-filter>
             <!--
-              Invitation (#87) : parcourses://invitation#<jeton>, ouvert depuis un e-mail ou la page /i/ (BROWSABLE).
-              Pas d'autoVerify ni de lien https : les App Links et assetlinks.json viennent au lot 87.7.
+              Invitation (#87) : parcourses://invitation#<jeton>, ouvert depuis un e-mail ou le bouton « Ouvrir dans
+              l'app » de la page /i/ (BROWSABLE). Les liens https passent par l'alias InvitationAppLinks ci-dessous.
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -58,5 +58,29 @@
                     android:host="invitation" />
             </intent-filter>
         </activity>
+
+        <!--
+          App Links des invitations (#87, lot 87.7) : https://<hôte>/i/#<jeton>, vérifiés par
+          https://<hôte>/.well-known/assetlinks.json (docs/site.md). Hôte : `parcourses.invitationHost`, le même que
+          BuildConfig.INVITATION_HOST. Un alias et non un filtre de MainActivity, pour qu'un hôte vide coupe le https :
+          l'alias est alors désactivé, sans autoVerify, sur un hôte réservé qui ne répond jamais (`.invalid`).
+          Chemin exact `/i/` (`path`, pas `pathPrefix`) : /i/invitation.js ou /i/autre restent au navigateur. Le
+          fragment et la requête ne comptent pas pour le filtre : MainActivity relit le lien (parseInvitationLink).
+        -->
+        <activity-alias
+            android:name=".InvitationAppLinks"
+            android:enabled="${invitationAppLinks}"
+            android:exported="true"
+            android:targetActivity=".MainActivity">
+            <intent-filter android:autoVerify="${invitationAppLinks}">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${invitationHost}"
+                    android:path="/i/" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

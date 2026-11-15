@@ -44,6 +44,11 @@ jobs:
       # Les captures Roborazzi (app/src/test/screenshots) sont comparées dans la même passe.
       - name: Tests unitaires et captures
         run: ./gradlew testDebugUnitTest -Proborazzi.test.verify=true
+      # App Links des invitations (#87, lot 87.7) : manifeste fusionné avec l'hôte par défaut, puis sans hôte.
+      - name: App Links des invitations
+        run: |
+          ./gradlew :app:checkDebugInvitationAppLinks :app:checkReleaseInvitationAppLinks
+          ./gradlew :app:checkDebugInvitationAppLinks :app:checkReleaseInvitationAppLinks -Pparcourses.invitationHost=
       # :baselineprofile n'a que des variantes de mesure : on le compile sans le lancer (pas d'émulateur en CI).
       - name: Build debug et release
         run: ./gradlew assembleDebug assembleRelease :baselineprofile:compileBenchmarkReleaseKotlin

@@ -10,9 +10,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
-import fr.parcourses.core.data.sharing.SharingDecisions
 import fr.parcourses.core.designsystem.ParcoursesTheme
-import fr.parcourses.feature.shopping.live.LiveUpdateLinks
 
 /** Seule activité de l'app : le thème, puis la navigation. */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -38,7 +36,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // `singleTop` : la Live Update touchée pendant que l'app est ouverte arrive ici.
+    // `singleTop` : la Live Update ou le lien d'invitation touché pendant que l'app est ouverte arrive ici.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -55,23 +53,15 @@ class MainActivity : ComponentActivity() {
      * notification garde ce lien comme intention de départ : relancée depuis les apps récentes, elle ne le rejoue pas.
      */
     private fun offerLink(intent: Intent?): Boolean {
-        val fromHistory = intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
-        // Invitation (#87) : `parcourses://invitation#<jeton>`, ou https sur l'hôte configuré (lot 87.7). Le jeton
-        // reste en mémoire ; l'intention est vidée pour qu'une recréation ne le rejoue pas.
-        val token =
-            intent
-                ?.takeIf { it.action == Intent.ACTION_VIEW && !fromHistory }
-                ?.dataString
-                ?.let { SharingDecisions.parseInvitationLink(it, container.invitationLinks.httpsHost) }
+        // Invitation (#87) : `parcourses://invitation#<jeton>`, ou App Link https sur l'hôte configuré (lot 87.7). Le
+        // jeton reste en mémoire ; l'intention est vidée pour qu'une recréation ne le rejoue pas.
+        val token = AppLinkIntents.invitationToken(intent, container.invitationLinks.httpsHost)
         if (token != null) {
             container.offerInvitation(token)
             intent?.data = null
             return false
         }
-        val visitId =
-            intent
-                ?.takeIf { it.action == Intent.ACTION_VIEW && !fromHistory }
-                ?.let { LiveUpdateLinks.visitId(it.dataString) }
+        val visitId = AppLinkIntents.shoppingVisit(intent)
         visitId?.let(container::offerShoppingLink)
         return visitId != null
     }

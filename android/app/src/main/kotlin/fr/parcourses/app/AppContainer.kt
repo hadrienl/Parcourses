@@ -145,8 +145,8 @@ class AppContainer(
     val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
 
     /**
-     * Liens d'invitation (#87) : hôte https de la configuration de build (`parcourses.invitationHost`), vide par
-     * défaut jusqu'aux App Links du lot 87.7 ; seul le schéma `parcourses://` est alors reconnu.
+     * Liens d'invitation (#87) : hôte https de la configuration de build (`parcourses.invitationHost`,
+     * `parcourses.hadrien.eu` par défaut, celui des App Links du lot 87.7). Vide : seul `parcourses://` est reconnu.
      */
     val invitationLinks: InvitationLinks = InvitationLinks(BuildConfig.INVITATION_HOST)
 

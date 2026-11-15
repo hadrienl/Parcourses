@@ -50,9 +50,11 @@ Les valeurs de sortie sont les noms des cas d'enum (Swift `case otherAddress` ; 
   descente.
 - **Liens** : `InvitationLinks` : `httpsHost` lu dans la configuration de build (iOS : clé `ParcoursesInvitationHost`
   de l'Info.plist, alimentée par un réglage xcconfig ; Android : `BuildConfig.INVITATION_HOST`, propriété Gradle
-  `parcourses.invitationHost`), **vide par défaut** tant que Q2 (le domaine) est ouverte : seul `parcourses://` est
-  reconnu. Lien construit par l'app : `https://<httpsHost>/i/#<jeton>` si l'hôte est défini, sinon
-  `parcourses://invitation#<jeton>`. Aucun domaine écrit en dur ; liens universels et App Links : lot 87.7.
+  `parcourses.invitationHost`). Q2 est tranchée : l'hôte vaut **`parcourses.hadrien.eu` par défaut** sur les deux
+  apps, et reste surchargeable par la configuration de build. Un hôte **vide coupe le https** : aucun lien https n'est
+  construit ni reconnu, ni lien universel ni App Link ; seul `parcourses://` reste. Lien construit par l'app :
+  `https://<httpsHost>/i/#<jeton>` si l'hôte est défini, sinon `parcourses://invitation#<jeton>`. Liens universels
+  et App Links (lot 87.7) : chemin `/i/`, fichiers servis par `site/.well-known/` (`docs/site.md`).
 - **Écrans** (maquettes, §9) : `ShareListSheet` (iOS) / `ShareListScreen` (Android), `MemberSheet`,
   `InvitationCard`, `ReceivedInvitationsScreen` (entrée « Invitations (n) » de l'écran Listes).
 

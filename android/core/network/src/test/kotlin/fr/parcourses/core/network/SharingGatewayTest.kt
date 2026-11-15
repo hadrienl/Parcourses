@@ -115,6 +115,31 @@ class SharingGatewayTest {
             assertEquals("false", json["p_send_email"]!!.jsonPrimitive.content)
         }
 
+    /** Lot 87.7 : avec l'hôte des App Links, « Copier le lien » donne `https://<hôte>/i/#<jeton>`. */
+    @Test
+    fun copyingALinkUsesTheHttpsHostWhenConfigured() =
+        runBlocking<Unit> {
+            val withHost = GatewayHarness(invitationLinks = InvitationLinks("parcourses.hadrien.eu"))
+            try {
+                withHost.gateway.ensureSession()
+                withHost.server.reply(
+                    "POST rpc/create_invitation",
+                    FakeSupabase.Reply(
+                        body =
+                            """[{"invitation_id":"$list","invitee_email":"lea@exemple.fr","token":"tok",
+                            |"expires_at":"2026-11-21T10:00:00+00:00","sender_name":"Hadrien"}]
+                            """.trimMargin(),
+                    ),
+                )
+                assertEquals(
+                    "https://parcourses.hadrien.eu/i/#tok",
+                    withHost.gateway.invitationLink(list, "lea@exemple.fr", ListRole.Editor),
+                )
+            } finally {
+                withHost.close()
+            }
+        }
+
     @Test
     fun listSharingIsDecodedWithItsRoles() =
         runBlocking<Unit> {
