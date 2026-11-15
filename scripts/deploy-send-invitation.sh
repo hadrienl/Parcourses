@@ -4,6 +4,10 @@
 # À lancer par l'utilisateur, depuis la racine du dépôt (jamais par un agent) :
 #   scripts/deploy-send-invitation.sh --dry-run   # ce qui serait fait, sans rien envoyer
 #   scripts/deploy-send-invitation.sh
+#   scripts/deploy-send-invitation.sh --docker    # empaquetage local par Docker au lieu de l'API
+#
+# Empaquetage : par défaut `--use-api` (côté serveur, sans Docker ; la fonction n'a aucune dépendance). `--docker`
+# revient à l'empaquetage local de la CLI, qui demande un Docker qui répond (OrbStack, Docker Desktop).
 #
 # Lit ~/.config/parcourses/supabase.env (ou PARCOURSES_SUPABASE_ENV), qui doit définir SUPABASE_PROJECT_REF et
 # RESEND_API_KEY ; la CLI doit être connectée (`supabase login`, ou SUPABASE_ACCESS_TOKEN dans ce fichier).
@@ -23,10 +27,12 @@ ENV_FILE="${PARCOURSES_SUPABASE_ENV:-$HOME/.config/parcourses/supabase.env}"
 SITE="https://parcourses.hadrien.eu"
 DRY_RUN=0
 SCHEME_LINKS=0
+BUNDLE=--use-api
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --scheme-links) SCHEME_LINKS=1 ;;
+    --docker) BUNDLE="" ;;
     *) echo "Option inconnue : $arg" >&2; exit 2 ;;
   esac
 done
@@ -63,7 +69,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "--dry-run : rien n'est envoyé."
   if [ "$UNSET_BASE" -eq 1 ]; then echo "  supabase secrets unset --project-ref $SUPABASE_PROJECT_REF INVITATION_BASE_URL"; fi
   echo "  supabase secrets set --project-ref $SUPABASE_PROJECT_REF --env-file <fichier temporaire>"
-  echo "  supabase functions deploy send-invitation --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt"
+  echo "  supabase functions deploy send-invitation --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt${BUNDLE:+ $BUNDLE}"
   exit 0
 fi
 
@@ -80,7 +86,8 @@ if [ "$UNSET_BASE" -eq 1 ]; then
   supabase secrets unset --project-ref "$SUPABASE_PROJECT_REF" INVITATION_BASE_URL
 fi
 supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$secrets"
-supabase functions deploy send-invitation --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+# shellcheck disable=SC2086 # $BUNDLE est vide ou vaut --use-api.
+supabase functions deploy send-invitation --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt $BUNDLE
 
 # Vérification sans compte : la fonction répond 405 à un GET (seul POST est accepté), 401 à un POST sans JWT.
 url="https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/send-invitation"

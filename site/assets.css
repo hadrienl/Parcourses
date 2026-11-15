@@ -1,21 +1,21 @@
-/* Parcourses, site statique (#87, lot 87.7). Couleurs de design/tokens.json, sans police ni image distante. */
+/* Parcourses, site statique (#87, lot 87.7). Couleurs de B3 « Ticket filé » (design/tokens-ticket-v2.json), sans police ni image distante. */
 :root {
   color-scheme: light dark;
-  --surface: #FBF8F3;
-  --raised: #EFE9DF;
-  --text: #1D1B18;
-  --muted: #6B645A;
-  --brand: #C8371D;
+  --surface: #FBF7F0;
+  --raised: #EAE2D3;
+  --text: #1A1C22;
+  --muted: #545866;
+  --brand: #2340C8;
   --on-brand: #FFFFFF;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface: #141210;
-    --raised: #25211D;
-    --text: #F3EEE6;
-    --muted: #A89F92;
-    --brand: #FF6A4D;
-    --on-brand: #2A0A03;
+    --surface: #12141A;
+    --raised: #232631;
+    --text: #ECEEF4;
+    --muted: #A6ABBA;
+    --brand: #8FA6FF;
+    --on-brand: #0B1550;
   }
 }
 * { box-sizing: border-box; }

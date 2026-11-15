@@ -2,7 +2,8 @@
 //   - CNAME, .nojekyll (sans lui, Pages ne publie pas .well-known/) ;
 //   - AASA : JSON valide, appID = <équipe>.app.parcourses, chemin /i/* ;
 //   - assetlinks.json : JSON valide, paquet = applicationId d'android/app/build.gradle.kts, empreintes SHA-256 ;
-//   - aucune ressource distante dans les pages (CSP stricte, ni police ni image ni script d'un autre hôte) ;
+//   - aucune ressource distante dans les fichiers du site (CSP stricte, ni police ni image ni script d'un autre hôte),
+//     ressources locales et ancres internes qui existent, image de partage locale ;
 //   - le jeton de la page /i/ suit la règle de SharingDecisions.parseInvitationLink (vecteur 001).
 //
 //   deno run --allow-read scripts/check-site.ts
@@ -54,14 +55,41 @@ try {
   fail(`assetlinks.json illisible : ${e instanceof Error ? e.message : e}`);
 }
 
-// Aucune ressource distante.
-for (const path of ["index.html", "i/index.html", "i/invitation.js", "assets.css"]) {
+// Aucune ressource distante, dans tous les fichiers texte du site (pages, styles, scripts, SVG).
+const walk = (dir: string): string[] =>
+  [...Deno.readDirSync(SITE + dir)].flatMap((e) =>
+    e.isDirectory ? walk(`${dir}${e.name}/`) : [`${dir}${e.name}`]
+  );
+const files = walk("");
+for (const path of files.filter((p) => /\.(html|css|js|svg)$/.test(p))) {
   const text = read(path);
-  for (const m of text.matchAll(/(?:src|href)\s*=\s*"(https?:)?\/\/[^"]*"|url\(\s*['"]?(https?:)?\/\//g)) {
+  for (const m of text.matchAll(/(?:src|href|srcset)\s*=\s*["'](https?:)?\/\/[^"']*["']|url\(\s*['"]?(https?:)?\/\/|@import/g)) {
     fail(`${path} : ressource distante ${m[0]}`);
   }
-  if (path.endsWith(".html") && !/Content-Security-Policy" content="default-src 'none'/.test(text)) {
-    fail(`${path} : CSP default-src 'none' attendue`);
+  if (path.endsWith(".html")) {
+    if (!/Content-Security-Policy" content="default-src 'none'/.test(text)) fail(`${path} : CSP default-src 'none' attendue`);
+    if (!/Content-Security-Policy" content="[^"]*form-action 'none'/.test(text)) fail(`${path} : CSP form-action 'none' attendue`);
+    // style-src 'self' bloque sans bruit les styles en ligne : ils n'ont rien à faire dans les pages.
+    if (/<style|\sstyle\s*=/.test(text)) fail(`${path} : style en ligne, bloqué par la CSP (style-src 'self')`);
+    // Chaque ressource locale citée (/chemin) existe dans site/.
+    for (const m of text.matchAll(/(?:src|href)\s*=\s*"\/([^"#?]*)"/g)) {
+      const target = m[1] === "" || m[1].endsWith("/") ? `${m[1]}index.html` : m[1];
+      if (!files.includes(target)) fail(`${path} : ${m[0]} ne correspond à aucun fichier de site/`);
+    }
+    // Ancres internes : chaque href="#x" vise un id de la page.
+    for (const m of text.matchAll(/href="#([^"]+)"/g)) {
+      if (!text.includes(`id="${m[1]}"`)) fail(`${path} : ancre #${m[1]} sans cible`);
+    }
+  }
+}
+
+// Aperçus de partage de la page d'accueil : image locale, servie depuis le domaine.
+{
+  const home = read("index.html");
+  for (const prop of ['property="og:image"', 'name="twitter:image"']) {
+    const url = new RegExp(`<meta ${prop} content="([^"]+)"`).exec(home)?.[1];
+    if (!url?.startsWith(`https://${DOMAIN}/`)) fail(`index.html : ${prop} doit pointer vers https://${DOMAIN}/`);
+    else if (!files.includes(url.slice(`https://${DOMAIN}/`.length))) fail(`index.html : ${url} absent de site/`);
   }
 }
 
