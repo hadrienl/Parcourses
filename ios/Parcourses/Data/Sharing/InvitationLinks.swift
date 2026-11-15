@@ -1,9 +1,9 @@
 import Foundation
 
 /// Liens d'invitation (#87 §5). L'hôte https vient de la configuration de build (clé `ParcoursesInvitationHost` de
-/// l'Info.plist, réglage `PARCOURSES_INVITATION_HOST` des xcconfig) : vide par défaut tant que le domaine n'est pas
-/// choisi (Q2), et seul le schéma `parcourses://` est alors reconnu. Aucun domaine n'est écrit dans le code ; liens
-/// universels : lot 87.7.
+/// l'Info.plist, réglage `PARCOURSES_INVITATION_HOST` des xcconfig) : vide par défaut jusqu'au lot 87.7 (liens
+/// universels, AASA et Associated Domains), et seul le schéma `parcourses://` est alors reconnu. Aucun domaine n'est
+/// écrit dans le code.
 nonisolated struct InvitationLinks: Sendable, Equatable {
   static let infoKey = "ParcoursesInvitationHost"
 

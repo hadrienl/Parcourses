@@ -49,7 +49,7 @@ targets:
         AppGroupIdentifier: $(APP_GROUP_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
-        # Hôte des liens d'invitation https (#87, lot 87.7) : vide tant que le domaine n'est pas choisi (Q2).
+        # Hôte des liens d'invitation https (#87, lot 87.7) : vide jusqu'au lot 87.7 (liens universels).
         ParcoursesInvitationHost: $(PARCOURSES_INVITATION_HOST)
         # Liens d'invitation par le schéma de l'app : parcourses://invitation#<jeton> (#87 §5).
         CFBundleURLTypes:

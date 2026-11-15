@@ -65,8 +65,9 @@ identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et fai
 - Décisions : `Data/Sharing/SharingDecisions.swift`, vérifiées par `SharingDecisionVectorTests` contre tous les fichiers
   de `shared/test-vectors/sharing/`.
 - Liens d'invitation : schéma `parcourses://invitation#<jeton>` (`CFBundleURLTypes`, `onOpenURL`). L'hôte https se règle
-  par `PARCOURSES_INVITATION_HOST` dans un xcconfig (clé `ParcoursesInvitationHost`) ; vide tant que le domaine n'est
-  pas choisi (lot 87.7). Essai sur un simulateur : `xcrun simctl openurl booted "parcourses://invitation#<jeton>"`.
+  par `PARCOURSES_INVITATION_HOST` dans un xcconfig (clé `ParcoursesInvitationHost`) ; vide jusqu'au lot 87.7 (liens
+  universels, AASA, Associated Domains). Essai sur un simulateur :
+  `xcrun simctl openurl booted "parcourses://invitation#<jeton>"`.
 - Temps réel : `RealtimeSignals`, canal privé `user:<uid>` ouvert au premier plan pour un compte e-mail.
 - Tests UI et captures : `SharingUITests`, sur le serveur en mémoire `UITestSharingGateway` (Debug,
   `PARCOURSES_TEST_SHARING`). Captures `sharing-…` dans le `.xcresult`.

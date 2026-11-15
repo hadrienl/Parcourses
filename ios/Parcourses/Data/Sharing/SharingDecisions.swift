@@ -79,7 +79,7 @@ nonisolated struct AuthorCandidate: Sendable, Equatable {
 /// Décisions du partage (#87, lots 87.4 et 87.6) : fonctions pures communes avec Android (`object SharingDecisions`),
 /// vérifiées par les vecteurs de `shared/test-vectors/sharing/`. Référence : `shared/reference/sharing.ts`.
 nonisolated enum SharingDecisions {
-  /// Préfixe du schéma de l'app, seul reconnu tant qu'aucun domaine n'est configuré (Q2).
+  /// Préfixe du schéma de l'app, seul reconnu tant qu'aucun hôte https n'est configuré (lot 87.7).
   static let schemeBase = "parcourses://invitation"
   private static let tokenLength = 43
 
