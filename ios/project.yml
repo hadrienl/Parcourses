@@ -39,6 +39,9 @@ targets:
       properties:
         com.apple.security.application-groups:
           - $(APP_GROUP_ID)
+        # Liens universels des invitations (#87, lot 87.7) : `https://<hôte>/i/#<jeton>`, AASA servi par site/.
+        com.apple.developer.associated-domains:
+          - applinks:$(PARCOURSES_INVITATION_HOST)
     info:
       path: Parcourses/Info.plist
       properties:
@@ -49,7 +52,7 @@ targets:
         AppGroupIdentifier: $(APP_GROUP_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
-        # Hôte des liens d'invitation https (#87, lot 87.7) : vide jusqu'au lot 87.7 (liens universels).
+        # Hôte des liens d'invitation https (#87, lot 87.7) : `parcourses.hadrien.eu` par défaut (Base.xcconfig).
         ParcoursesInvitationHost: $(PARCOURSES_INVITATION_HOST)
         # Liens d'invitation par le schéma de l'app : parcourses://invitation#<jeton> (#87 §5).
         CFBundleURLTypes:

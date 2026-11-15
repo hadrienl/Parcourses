@@ -67,16 +67,16 @@ final class ListDetailModel {
   private var index = ItemSuggestionIndex(history: [], products: [], normalizeFallback: { $0 })
   private var pendingNames: Set<String> = []
   private let accountId: () -> UUID?
-  /// Liste quittée volontairement ici (« Quitter la liste »).
-  private let wasLeft: (UUID) -> Bool
+  /// Listes quittées volontairement ici (« Quitter la liste »).
+  private let departures: ListDepartures?
 
   init(
     listId: UUID, lists: any ListRepository, products: any ProductRepository, categories: any CategoryRepository,
     analyzer: EntryAnalyzer, now: @escaping () -> Date = { .now }, accountId: @escaping () -> UUID? = { nil },
-    wasLeft: @escaping (UUID) -> Bool = { _ in false }
+    departures: ListDepartures? = nil
   ) {
     self.accountId = accountId
-    self.wasLeft = wasLeft
+    self.departures = departures
     self.listId = listId
     self.lists = lists
     self.products = products
@@ -103,9 +103,11 @@ final class ListDetailModel {
       let list = try lists.list(id: listId)
       // Une liste partagée avec moi qui disparaît a été retirée : la maquette l'annonce en plein écran. Quittée par moi,
       // l'écran revient simplement à Mes listes.
-      if list == nil, isLoaded, access.role != .owner {
-        if wasLeft(listId) { didLeave = true } else { wasRemoved = true }
+      // Le départ est consommé ici : la même liste, réinvitée puis retirée par le propriétaire, s'annonce comme un retrait.
+      if list == nil, isLoaded, access.role != .owner, !didLeave {
+        if departures?.consume(listId) == true { didLeave = true } else { wasRemoved = true }
       }
+      if list != nil { departures?.forget(listId) }
       name = list?.name ?? name
       isMissing = list == nil
       if let list { access = ListAccess(list: list, me: accountId()) }

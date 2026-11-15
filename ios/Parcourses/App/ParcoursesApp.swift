@@ -56,9 +56,15 @@ struct ParcoursesApp: App {
         .environment(app.deletion)
         .environment(app.account)
         .environment(app.sharing)
-        // Lien d'invitation par le schéma de l'app (#87 §5) : la racine présente la carte.
+        // Lien d'invitation par le schéma de l'app (#87 §5) ou lien universel (lot 87.7) : la racine présente la carte.
         .onOpenURL { url in _ = app.sharing?.open(url: url) }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+          _ = app.sharing?.open(userActivity: activity)
+        }
         .task {
+          // Scène déjà active au premier affichage : le canal temps réel peut s'ouvrir. Connectée en arrière-plan, il
+          // attend le passage à `.active`.
+          if scenePhase == .active { app.sharing?.scenePhaseChanged(isActive: true) }
           await app.resumePendingSwitch()
           environment.sync?.start()
           if let gateway = app.gateway {
@@ -221,6 +227,8 @@ struct RootView: View {
   private func beginPendingShopping() {
     guard let start = pendingStart else { return }
     pendingStart = nil
+    // Passée en lecture seule (ou retirée) pendant le choix du magasin : pas de courses, l'écran Liste le montre déjà.
+    guard environment.canShop(listId: start.listId) else { return }
     isStarting = true
     var storeId: UUID?
     if case .store(let id) = start.outcome { storeId = id }

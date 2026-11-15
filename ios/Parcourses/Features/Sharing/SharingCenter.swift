@@ -129,12 +129,24 @@ final class SharingCenter {
 
   // MARK: - Liens
 
-  /// Lien ouvert dans l'app : vrai s'il s'agit d'une invitation, présentée en feuille.
+  /// Lien ouvert dans l'app (schéma, ou lien universel livré par `onOpenURL`) : vrai s'il s'agit d'une invitation,
+  /// présentée en feuille. Un second lien remplace le premier ; le même lien livré deux fois (`onOpenURL` puis
+  /// `onContinueUserActivity`) garde la feuille déjà présentée.
   @discardableResult
   func open(url: URL) -> Bool {
     guard let token = links.token(in: url) else { return false }
-    openedLink = OpenedInvitation(token: token)
+    if openedLink?.token != token { openedLink = OpenedInvitation(token: token) }
     return true
+  }
+
+  /// Lien universel (`https://<hôte>/i/#<jeton>`, #87 lot 87.7) livré par `onContinueUserActivity` : même carte que le
+  /// schéma. Toute autre activité est ignorée.
+  @discardableResult
+  func open(userActivity: NSUserActivity) -> Bool {
+    guard userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL else {
+      return false
+    }
+    return open(url: url)
   }
 
   func makeCard(for invitation: ReceivedInvitation) -> InvitationCardModel {

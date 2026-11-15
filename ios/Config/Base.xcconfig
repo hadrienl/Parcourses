@@ -13,8 +13,10 @@ APP_BUNDLE_ID = app.parcourses
 // Environnement Supabase : surchargé par Local.xcconfig (Debug) ou Cloud.xcconfig (Release).
 SUPABASE_URL =
 SUPABASE_PUBLISHABLE_KEY =
-// Hôte des liens d'invitation https (#87, lot 87.7), sans schéma ni chemin. Vide : seul parcourses:// est reconnu.
-PARCOURSES_INVITATION_HOST =
+// Hôte des liens d'invitation https (#87, lot 87.7, Q2), sans schéma ni chemin : Info.plist (`ParcoursesInvitationHost`)
+// et domaine associé (`applinks:`). Surchargeable par Local.xcconfig, Cloud.xcconfig ou la ligne de commande. Vide :
+// aucun lien https construit ni reconnu, seul parcourses:// reste (l'entrée `applinks:` sans hôte ne vise aucun site).
+PARCOURSES_INVITATION_HOST = parcourses.hadrien.eu
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
 // Simulateur : signature ad hoc, sans certificat. Sans elle, le Keychain renvoie -34018.
 CODE_SIGN_STYLE[sdk=iphonesimulator*] = Manual

@@ -18,16 +18,46 @@ private nonisolated enum LocalSupabase {
     else { return nil }
     return configuration
   }()
+
+  /// Préférences propres à une passerelle de test : jamais `UserDefaults.standard`, que les tests UI laissent avec
+  /// `account.kind = email` (`UITestSharingGateway`). Sans elles, un simulateur réutilisé faisait échouer `ensureSession`.
+  static func isolatedDefaults() -> UserDefaults {
+    let name = "tests.it.gateway.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: name) else { preconditionFailure("suite \(name)") }
+    return defaults
+  }
+
+  /// Passerelle réelle, Keychain et préférences isolés.
+  static func gateway(
+    _ configuration: SupabaseConfiguration, service: String, defaults: UserDefaults = isolatedDefaults()
+  ) -> SupabaseGateway {
+    SupabaseGateway(
+      configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"),
+      deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults),
+      accountKinds: UserDefaultsAccountKindStore(defaults: defaults))
+  }
 }
 
 @Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
 struct SupabaseGatewayIntegrationTests {
   private func makeGateway(service: String = UUID().uuidString, signedIn: Bool = true) async throws -> SupabaseGateway {
     let configuration = try #require(LocalSupabase.configuration)
-    let gateway = SupabaseGateway(
-      configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"))
+    let gateway = LocalSupabase.gateway(configuration, service: service)
     if signedIn { try await gateway.ensureSession() }
     return gateway
+  }
+
+  /// Contre-relecture de #100 : un compte e-mail laissé dans `UserDefaults.standard` par les tests UI ne bloque plus
+  /// les passerelles d'intégration, qui lisent leur propre suite.
+  @Test func anEmailKindLeftInTheStandardDefaultsDoesNotBlockTheGateways() async throws {
+    let standard = UserDefaults.standard
+    let previous = standard.string(forKey: UserDefaultsAccountKindStore.key)
+    defer { standard.set(previous, forKey: UserDefaultsAccountKindStore.key) }
+    UserDefaultsAccountKindStore().save(.email)
+    #expect(UserDefaultsAccountKindStore().kind == .email)
+    // Compte anonyme créé : la passerelle n'a pas attendu une reconnexion e-mail (vecteur `009`).
+    let gateway = try await makeGateway()
+    _ = try await gateway.currentAccountId()
   }
 
   @Test func withoutSessionARequestCreatesNoAccount() async throws {
@@ -253,10 +283,7 @@ struct SupabaseGatewayIntegrationTests {
 
   @Test func unreachableServerIsANetworkError() async throws {
     let configuration = try #require(SupabaseConfiguration(url: "http://127.0.0.1:9", publishableKey: "k"))
-    let gateway = SupabaseGateway(
-      configuration: configuration,
-      store: KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
-    )
+    let gateway = LocalSupabase.gateway(configuration, service: UUID().uuidString)
     await #expect(throws: RemoteError.network) { try await gateway.ensureSession() }
   }
 }
@@ -452,8 +479,7 @@ struct SyncEngineIntegrationTests {
 
   private func makeSetup(service: String = UUID().uuidString) async throws -> Setup {
     let configuration = try #require(LocalSupabase.configuration)
-    let remote = SupabaseGateway(
-      configuration: configuration, store: KeychainStore(service: "app.parcourses.tests.\(service)"))
+    let remote = LocalSupabase.gateway(configuration, service: service)
     try await remote.ensureSession()
     let gateway = SwitchableGateway(remote)
     let container = try PersistenceStack.makeContainer(storage: .inMemory)
@@ -748,7 +774,9 @@ struct AccountDeletionIntegrationTests {
     let keychain = KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
     let defaults = try #require(UserDefaults(suiteName: "tests.it.deletion.\(UUID().uuidString)"))
     let flags = UserDefaultsAccountDeletionFlagStore(defaults: defaults)
-    let gateway = SupabaseGateway(configuration: configuration, store: keychain, deletionFlags: flags)
+    let gateway = SupabaseGateway(
+      configuration: configuration, store: keychain, deletionFlags: flags,
+      accountKinds: UserDefaultsAccountKindStore(defaults: defaults))
     return Device(gateway: gateway, keychain: keychain, defaults: defaults, flags: flags)
   }
 
@@ -1294,8 +1322,10 @@ struct SharingIntegrationTests {
     let second = try owner.lists.createList(name: "IT-87.4 lien", at: .now)
     await owner.engine.drain(pull: true)
     let link = try await owner.remote.invitationLink(listId: second.id, email: memberEmail, role: .viewer)
+    // « Copier le lien » : le lien universel de l'hôte du build (lot 87.7).
+    #expect(link.hasPrefix("https://parcourses.hadrien.eu/i/#"))
     let linkURL = try #require(URL(string: link))
-    let token = try #require(InvitationLinks(httpsHost: nil).token(in: linkURL))
+    let token = try #require(InvitationLinks().token(in: linkURL))
     let preview = try await member.remote.previewInvitation(token: token)
     // L'aperçu ne donne l'id de la liste qu'à un membre ; à la bonne adresse, il en donne le nom.
     #expect(preview.cardState == .acceptable && preview.listName == "IT-87.4 lien" && preview.listId == nil)
@@ -1307,17 +1337,24 @@ struct SharingIntegrationTests {
 
     // Temps réel : Léa écoute son canal, Hadrien coche, le signal arrive et la descente apporte la coche.
     let stream = await member.remote.userSignals(userId: memberId)
-    // Garde : sans signal en 20 s, le canal se ferme et son flux se termine. Le test échoue au lieu d'attendre sans fin.
+    // Garde : sans signal en 40 s, le canal se ferme et son flux se termine. Le test échoue au lieu d'attendre sans fin.
     let remote = member.remote
     let watchdog = Task {
-      try await Task.sleep(for: .seconds(20))
+      try await Task.sleep(for: .seconds(40))
       await remote.closeUserSignals()
     }
     defer { watchdog.cancel() }
     var iterator = stream.makeAsyncIterator()
     #expect(await iterator.next() == .subscribed)
-    try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
-    await owner.engine.drain()
+    // Juste après `.subscribed`, la première écriture n'est pas toujours acheminée (l'app rattrape alors par la descente
+    // de chaque `.subscribed`). La coche est donc répétée toutes les 2,5 s jusqu'au signal, 12 fois au plus.
+    let writer = Task {
+      for _ in 0..<12 {
+        try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
+        await owner.engine.drain()
+        try await Task.sleep(for: .milliseconds(2500))
+      }
+    }
     var signal: RealtimeSignal?
     while let event = await iterator.next() {
       if case .signal(let received) = event, received.kind == "items" {
@@ -1325,7 +1362,12 @@ struct SharingIntegrationTests {
         break
       }
     }
+    writer.cancel()
+    _ = await writer.result
     #expect(signal?.listId == list.id)
+    // Dernière coche envoyée : rien ne reste dans la file du propriétaire.
+    await owner.engine.drain()
+    #expect(try ModelContext(owner.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
     await member.engine.drain(pull: true)
     let checked = try #require(try member.items(list.id).first { $0.id == milk.id })
     #expect(checked.checkedAt != nil && checked.updatedBy == ownerId)

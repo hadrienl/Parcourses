@@ -64,9 +64,8 @@ identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et fai
 
 - Décisions : `Data/Sharing/SharingDecisions.swift`, vérifiées par `SharingDecisionVectorTests` contre tous les fichiers
   de `shared/test-vectors/sharing/`.
-- Liens d'invitation : schéma `parcourses://invitation#<jeton>` (`CFBundleURLTypes`, `onOpenURL`). L'hôte https se règle
-  par `PARCOURSES_INVITATION_HOST` dans un xcconfig (clé `ParcoursesInvitationHost`) ; vide jusqu'au lot 87.7 (liens
-  universels, AASA, Associated Domains). Essai sur un simulateur :
+- Liens d'invitation : schéma `parcourses://invitation#<jeton>` (`CFBundleURLTypes`, `onOpenURL`) et, depuis le lot
+  87.7, liens universels `https://parcourses.hadrien.eu/i/#<jeton>` (voir plus bas). Essai sur un simulateur :
   `xcrun simctl openurl booted "parcourses://invitation#<jeton>"`.
 - Temps réel : `RealtimeSignals`, canal privé `user:<uid>` ouvert au premier plan pour un compte e-mail.
 - Tests UI et captures : `SharingUITests`, sur le serveur en mémoire `UITestSharingGateway` (Debug,
@@ -74,6 +73,38 @@ identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et fai
 - Intégration : `scripts/integration-test.sh` lance l'Edge Function `send-invitation` avec Deno (l'image Edge Runtime
   manque en local), puis `SharingIntegrationTests` joue deux comptes e-mail, l'invitation, l'acceptation par
   `my_invitations` puis par le lien, une coche reçue par Realtime, le rôle abaissé et le retrait.
+
+## Liens universels des invitations (#87, lot 87.7)
+
+- Hôte : `PARCOURSES_INVITATION_HOST = parcourses.hadrien.eu` dans `Config/Base.xcconfig`, surchargeable par
+  `Local.xcconfig`, `Cloud.xcconfig` ou la ligne de commande (`xcodebuild … PARCOURSES_INVITATION_HOST=`). Le même
+  réglage alimente la clé `ParcoursesInvitationHost` de l'Info.plist et l'entitlement
+  `com.apple.developer.associated-domains` (`applinks:$(PARCOURSES_INVITATION_HOST)`, dans `project.yml`). Vide : aucun
+  lien https construit ni reconnu, seul `parcourses://` reste (l'entrée `applinks:` sans hôte ne vise aucun site).
+- Réception : `onOpenURL` et `onContinueUserActivity(NSUserActivityTypeBrowsingWeb)` passent par
+  `InvitationLinks.token(in:)` (vecteur `001`) : seul `https://<hôte>/i/#<jeton>` ouvre la carte, la même que celle du
+  schéma. Autre hôte, `http`, autre chemin (`/i`, `/i/x`, `/i/?…`) : refusés. « Copier le lien » donne
+  `https://<hôte>/i/#<jeton>`.
+- Fichier servi par le site : `site/.well-known/apple-app-site-association` (`QMJKZ67Z3H.app.parcourses`, `/i/*`,
+  voir `docs/site.md`). Le simulateur ne vérifie pas l'association : les tests passent par `SharingCenter`.
+
+### Vérification une fois le site publié
+
+Sur un iPhone réel, avec un build signé par l'équipe `QMJKZ67Z3H` (`DEVELOPMENT_TEAM` dans `Local.xcconfig`) :
+
+1. `curl -sI https://parcourses.hadrien.eu/.well-known/apple-app-site-association` répond 200, en
+   `application/json`, sans redirection.
+2. Le CDN d'Apple a relu le fichier :
+   `curl -s https://app-site-association.cdn-apple.com/a/v1/parcourses.hadrien.eu` renvoie le même JSON (il peut
+   tarder quelques heures après une publication). Pour contourner le CDN pendant le développement, un build Debug
+   peut utiliser `applinks:parcourses.hadrien.eu?mode=developer` avec *Réglages → Développeur → Associated Domains
+   Development* activé.
+3. Sur le Mac, `swcutil` (macOS 13 et plus) interroge le CDN pour le domaine :
+   `sudo swcutil dl -d parcourses.hadrien.eu` ; sur l'iPhone relié, l'état de l'association se lit dans
+   *Réglages → Développeur → Universal Links → Diagnostics* (saisir `https://parcourses.hadrien.eu/i/`).
+4. Écrire `https://parcourses.hadrien.eu/i/#<jeton>` dans Notes, puis toucher le lien : l'app s'ouvre sur la carte
+   d'invitation (un appui long propose « Ouvrir dans Parcourses »). Depuis Safari, coller le lien dans la barre
+   d'adresse ouvre la page du site, pas l'app : c'est le comportement normal d'iOS.
 
 ## Vérifications locales du choix du magasin
 

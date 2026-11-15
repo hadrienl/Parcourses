@@ -47,8 +47,9 @@ final class RealtimeSignals {
   private var closing: Task<Void, Never>?
 
   /// L'app est au premier plan : posé sans attendre par la scène (`enteredForeground`, `enteredBackground`) et relu
-  /// après chaque `await` d'une ouverture, pour qu'un canal ne s'ouvre jamais en arrière-plan.
-  private(set) var isInForeground = true
+  /// après chaque `await` d'une ouverture, pour qu'un canal ne s'ouvre jamais en arrière-plan. Faux au départ : une
+  /// scène connectée en arrière-plan (tâche de fond, Live Activity) n'ouvre rien avant de passer à `.active`.
+  private(set) var isInForeground = false
   /// Ouverture en cours : une plus récente (ou une fermeture) l'emporte, la précédente s'arrête au prochain `await`.
   private var generation = 0
 
@@ -81,6 +82,11 @@ final class RealtimeSignals {
     listener = Task { [weak self] in
       while !Task.isCancelled {
         let stream = await transport.userSignals(userId: userId)
+        // Fermé pendant l'ouverture : le canal vient d'être rejoint après la fermeture, il se ferme ici.
+        guard !Task.isCancelled else {
+          await transport.closeUserSignals()
+          return
+        }
         for await event in stream { self?.handle(event) }
         // Canal refusé, ou fermé par le serveur : il ne se rejoint plus de lui-même.
         guard !Task.isCancelled, let sleep = self?.dependencies.sleep else { return }
@@ -123,7 +129,12 @@ final class RealtimeSignals {
     // Descente reportée encore due : elle part avant la fermeture, comme les signaux en attente.
     if deferredPull != nil { pullNow() }
     guard let transport else { return }
-    let closing = Task { await transport.closeUserSignals() }
+    // L'écoute finit d'abord (une ouverture en cours se referme elle-même) : sa fermeture tardive ne peut pas couper le
+    // canal d'une ouverture suivante, qui attend `closing`.
+    let closing = Task {
+      await listener.value
+      await transport.closeUserSignals()
+    }
     self.closing = closing
     await closing.value
   }
