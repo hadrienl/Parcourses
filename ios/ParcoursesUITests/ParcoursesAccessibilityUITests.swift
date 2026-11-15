@@ -470,6 +470,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     list.tap()
     let members = app.buttons["listMembers"]
     XCTAssertTrue(members.waitForExistence(timeout: 15))
+    // Même état que « liste-remplie » : saisie active, clavier ouvert. Clavier fermé, iOS 18 ne situe pas les éléments
+    // système de l'écran (bouton retour, chariot, champ de saisie) et leurs problèmes connus ne trouvent pas leur
+    // exception (3 bis, 9) ; constaté en CI sur iOS 18.6, run de dfffef2.
+    let entry = app.textFields["quickEntry"]
+    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    entry.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 15))
     audit(app, "liste-partagee\(suffix)")
     members.tap()
     XCTAssertTrue(app.textFields["shareEmailField"].waitForExistence(timeout: 15))
