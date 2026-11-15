@@ -196,13 +196,14 @@ Puis, sur les mots restants, de gauche à droite :
 4. **Faute de frappe** (#98), seulement si les étapes 1 à 3 ne trouvent rien : chaque mot est
    corrigé vers un mot-clé d'un seul mot, puis on rejoue les étapes 1 à 3 sur les mots corrigés →
    `match: "fuzzy"`, `matched_keyword` = la clé retenue ; `normalized` reste la saisie. Un mot n'est
-   corrigé que s'il a au moins 5 lettres, sans chiffre, et n'apparaît dans aucune clé ni aucun
-   modificateur. Le mot-clé doit avoir la même initiale et se trouver à une seule opération
-   (insertion, suppression, substitution, transposition de deux lettres voisines) ; pour un mot de 5
-   lettres, seulement une lettre manquante. Plusieurs candidats : le plus petit dans l'ordre
-   alphabétique s'ils ont tous la même catégorie, sinon pas de correction. Un résultat exact n'est
-   donc jamais changé. Faux positifs assumés : `poison` → `poisson`, `raquette` → `roquette`
-   (`109-classify-typos`) ; pour en retirer un, ajouter le mot exact au dictionnaire.
+   corrigé que s'il a au moins 5 lettres après le singulier (« pomes » → `pome` ne l'est pas), sans
+   chiffre, et n'apparaît dans aucune clé ni aucun modificateur. Le mot-clé doit avoir la même
+   initiale et se trouver à une seule opération (insertion, suppression, substitution, transposition
+   de deux lettres voisines) ; pour un mot de 5 lettres, seulement une lettre manquante. Plusieurs
+   candidats : le plus petit dans l'ordre alphabétique s'ils ont tous la même catégorie, sinon pas
+   de correction. Un résultat exact n'est donc jamais changé. Faux positifs assumés : `poison` →
+   `poisson`, `raquette` → `roquette` (`109-classify-typos`) ; pour en retirer un, ajouter le mot
+   exact au dictionnaire.
 5. Sinon `{ "category_id": "other", "matched_keyword": null, "match": "none" }`.
 
 Le résultat ne dépend jamais du magasin. Aucune clé du dictionnaire ne contient ces mots, et aucune

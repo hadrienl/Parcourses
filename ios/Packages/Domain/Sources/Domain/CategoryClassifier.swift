@@ -80,7 +80,8 @@ public struct CategoryClassifier: Sendable {
     self.maxWords = maxWords
     vocabulary = Set(
       (Array(keywords.keys) + Array(overrides.keys)).flatMap { $0.split(separator: " ").map(String.init) })
-    singleWords = keywords.values.filter { !$0.k.contains(" ") }.map { (Array($0.k.utf8), $0) }
+    // Trié par clé : la sortie n'en dépend pas, mais on n'itère jamais un Dictionary non trié.
+    singleWords = keywords.values.filter { !$0.k.contains(" ") }.sorted { $0.k < $1.k }.map { (Array($0.k.utf8), $0) }
   }
 
   /// Classifieur sur le dictionnaire français embarqué.

@@ -20,7 +20,7 @@ export interface CategorizeGroup {
 
 const N = (input: string, n: string): CategorizeCase => ({ input, n });
 const C = (input: string, c: string): CategorizeCase => ({ input, c });
-/** Faute de frappe : catégorie et nature attendues (`fuzzy`, ou `none` si rien n'est corrigé). */
+/** Faute de frappe : catégorie et nature de correspondance attendues (`fuzzy` par défaut). */
 const T = (input: string, c: string, m = "fuzzy"): CategorizeCase => ({ input, c, m });
 
 /** Raccourci : « saisie => catégorie » par ligne. */
@@ -497,6 +497,12 @@ export function categorizeGroups(): CategorizeGroup[] {
         T("coques", "seafood", "keyword"),
         T("poêle", "household", "keyword"),
         T("pinces", "household", "keyword"),
+        T("muscade moulue", "savory-grocery", "keyword"),
+        T("macarons", "sweet-grocery", "keyword"),
+        T("filet de perche", "seafood", "keyword"),
+        T("pastilles anti-tartre", "household", "keyword"),
+        T("graines pour canari", "pets", "keyword"),
+        T("pince à épiler", "hygiene", "keyword"),
         // « rognon » n'a pas la même initiale : seul « oignon » est candidat.
         T("ognon", "produce"),
         // 5 lettres : une lettre manquante.
@@ -512,10 +518,12 @@ export function categorizeGroups(): CategorizeGroup[] {
         T("salon", "other", "none"),
         T("pomm", "other", "none"),
         T("croc monsieur", "other", "none"),
-        // Non corrigés : mot connu du dictionnaire, initiale différente, chiffres.
+        // Non corrigés : mot présent dans une clé (« mousse chocolat »), qui sinon irait vers « mousseu ».
+        T("mousse", "other", "none"),
         T("carte cadeau", "other", "none"),
-        T("câble", "other", "none"),
+        // Non corrigés : initiale différente (« fromage »), chiffres, aucun candidat.
         T("vromage", "other", "none"),
+        T("câble", "other", "none"),
         T("beurre2", "other", "none"),
         T("biologie", "other", "none"),
         // Faux positifs assumés : de vrais mots à une faute d'un mot-clé.

@@ -304,6 +304,66 @@
       }
     },
     {
+      "input": "muscade moulue",
+      "expected": {
+        "normalized": "muscade moulue",
+        "category_id": "savory-grocery",
+        "matched_keyword": "muscade",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "macarons",
+      "expected": {
+        "normalized": "macaron",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "macaron",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "filet de perche",
+      "expected": {
+        "normalized": "filet perche",
+        "category_id": "seafood",
+        "matched_keyword": "perche",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pastilles anti-tartre",
+      "expected": {
+        "normalized": "pastille anti tartre",
+        "category_id": "household",
+        "matched_keyword": "anti tartre",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "graines pour canari",
+      "expected": {
+        "normalized": "graine canari",
+        "category_id": "pets",
+        "matched_keyword": "canari",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "pince à épiler",
+      "expected": {
+        "normalized": "pince epiler",
+        "category_id": "hygiene",
+        "matched_keyword": "pince epiler",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
       "input": "ognon",
       "expected": {
         "normalized": "ognon",
@@ -414,6 +474,16 @@
       }
     },
     {
+      "input": "mousse",
+      "expected": {
+        "normalized": "mousse",
+        "category_id": "other",
+        "matched_keyword": null,
+        "match": "none",
+        "organic": false
+      }
+    },
+    {
       "input": "carte cadeau",
       "expected": {
         "normalized": "carte cadeau",
@@ -424,9 +494,9 @@
       }
     },
     {
-      "input": "câble",
+      "input": "vromage",
       "expected": {
-        "normalized": "cable",
+        "normalized": "vromage",
         "category_id": "other",
         "matched_keyword": null,
         "match": "none",
@@ -434,9 +504,9 @@
       }
     },
     {
-      "input": "vromage",
+      "input": "câble",
       "expected": {
-        "normalized": "vromage",
+        "normalized": "cable",
         "category_id": "other",
         "matched_keyword": null,
         "match": "none",
