@@ -1,0 +1,50 @@
+{
+  "id": "005-accept-outcome",
+  "function": "acceptOutcome",
+  "description": "Résultat de accept_invitation (status) → suite dans l'app. joined et alreadyMember ouvrent la liste (descente complète d'abord).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "accepted",
+      "input": {
+        "status": "accepted"
+      },
+      "expected": "joined"
+    },
+    {
+      "name": "member",
+      "input": {
+        "status": "member"
+      },
+      "expected": "alreadyMember"
+    },
+    {
+      "name": "used",
+      "input": {
+        "status": "used"
+      },
+      "expected": "used"
+    },
+    {
+      "name": "expired",
+      "input": {
+        "status": "expired"
+      },
+      "expected": "expired"
+    },
+    {
+      "name": "invalid",
+      "input": {
+        "status": "invalid"
+      },
+      "expected": "invalid"
+    },
+    {
+      "name": "rate_limited",
+      "input": {
+        "status": "rate_limited"
+      },
+      "expected": "rateLimited"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "id": "007-member-initial",
+  "function": "memberInitial",
+  "description": "Initiale d'un membre pour les pastilles et la marque d'auteur : première lettre du prénom sans les espaces de tête, en majuscule ; pas de prénom (nul ou vide) : « ? ».",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "prénom simple",
+      "input": {
+        "displayName": "Léa"
+      },
+      "expected": "L"
+    },
+    {
+      "name": "accent en tête",
+      "input": {
+        "displayName": "élodie"
+      },
+      "expected": "É"
+    },
+    {
+      "name": "composé",
+      "input": {
+        "displayName": "jean-pierre"
+      },
+      "expected": "J"
+    },
+    {
+      "name": "espaces autour",
+      "input": {
+        "displayName": "  anne "
+      },
+      "expected": "A"
+    },
+    {
+      "name": "apostrophe",
+      "input": {
+        "displayName": "O'Neil"
+      },
+      "expected": "O"
+    },
+    {
+      "name": "œ",
+      "input": {
+        "displayName": "œdipe"
+      },
+      "expected": "Œ"
+    },
+    {
+      "name": "nul",
+      "input": {
+        "displayName": null
+      },
+      "expected": "?"
+    },
+    {
+      "name": "vide",
+      "input": {
+        "displayName": ""
+      },
+      "expected": "?"
+    },
+    {
+      "name": "blanc",
+      "input": {
+        "displayName": "   "
+      },
+      "expected": "?"
+    }
+  ]
+}

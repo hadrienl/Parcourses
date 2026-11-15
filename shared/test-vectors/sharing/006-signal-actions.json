@@ -1,0 +1,90 @@
+{
+  "id": "006-signal-actions",
+  "function": "signalActions",
+  "description": "Signal temps réel reçu sur user:<uid> ({ list_id, kind }, #87 §6.2) → actions, triées. pull = descente (pullAll) regroupée sur 300 ms ; reloadSharing = relire list_sharing de cette liste, seulement si sa feuille est ouverte ; reloadInvitations = relire my_invitations. kind inconnu : pull.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "articles",
+      "input": {
+        "kind": "items",
+        "sharingSheetOpen": false
+      },
+      "expected": [
+        "pull"
+      ]
+    },
+    {
+      "name": "articles, feuille ouverte",
+      "input": {
+        "kind": "items",
+        "sharingSheetOpen": true
+      },
+      "expected": [
+        "pull"
+      ]
+    },
+    {
+      "name": "liste",
+      "input": {
+        "kind": "list",
+        "sharingSheetOpen": false
+      },
+      "expected": [
+        "pull"
+      ]
+    },
+    {
+      "name": "membres",
+      "input": {
+        "kind": "members",
+        "sharingSheetOpen": false
+      },
+      "expected": [
+        "pull"
+      ]
+    },
+    {
+      "name": "membres, feuille ouverte",
+      "input": {
+        "kind": "members",
+        "sharingSheetOpen": true
+      },
+      "expected": [
+        "pull",
+        "reloadSharing"
+      ]
+    },
+    {
+      "name": "invitations",
+      "input": {
+        "kind": "invitations",
+        "sharingSheetOpen": false
+      },
+      "expected": [
+        "reloadInvitations"
+      ]
+    },
+    {
+      "name": "invitations, feuille ouverte",
+      "input": {
+        "kind": "invitations",
+        "sharingSheetOpen": true
+      },
+      "expected": [
+        "reloadInvitations",
+        "reloadSharing"
+      ]
+    },
+    {
+      "name": "type inconnu",
+      "input": {
+        "kind": "presence",
+        "sharingSheetOpen": true
+      },
+      "expected": [
+        "pull"
+      ]
+    }
+  ]
+}

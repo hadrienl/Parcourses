@@ -1,0 +1,120 @@
+{
+  "id": "001-parse-invitation-link",
+  "function": "parseInvitationLink",
+  "description": "Jeton d'une invitation ouverte par un lien. Schéma de l'app parcourses://invitation#<jeton> ; lien https://<hôte>/i/#<jeton> seulement si un hôte est configuré (httpsHost non nul, #87 lot 87.7, Q2) et égal, sans tenir compte de la casse. Le jeton est dans le fragment : 43 caractères base64url (A-Z a-z 0-9 - _). Tout autre lien : null.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "schéma de l'app",
+      "input": {
+        "url": "parcourses://invitation#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": null
+      },
+      "expected": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    },
+    {
+      "name": "schéma de l'app, hôte configuré",
+      "input": {
+        "url": "parcourses://invitation#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    },
+    {
+      "name": "https, hôte configuré",
+      "input": {
+        "url": "https://parcourses.example/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    },
+    {
+      "name": "https, hôte en majuscules",
+      "input": {
+        "url": "https://Parcourses.Example/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    },
+    {
+      "name": "https sans hôte configuré",
+      "input": {
+        "url": "https://parcourses.example/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "https, autre hôte",
+      "input": {
+        "url": "https://evil.example/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": null
+    },
+    {
+      "name": "https, autre chemin",
+      "input": {
+        "url": "https://parcourses.example/x/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": null
+    },
+    {
+      "name": "http refusé",
+      "input": {
+        "url": "http://parcourses.example/i/#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": "parcourses.example"
+      },
+      "expected": null
+    },
+    {
+      "name": "jeton en paramètre et non dans le fragment",
+      "input": {
+        "url": "parcourses://invitation?token=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "autre écran du schéma",
+      "input": {
+        "url": "parcourses://list#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "fragment vide",
+      "input": {
+        "url": "parcourses://invitation#",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "jeton trop court",
+      "input": {
+        "url": "parcourses://invitation#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "jeton trop long",
+      "input": {
+        "url": "parcourses://invitation#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdex",
+        "httpsHost": null
+      },
+      "expected": null
+    },
+    {
+      "name": "caractère hors base64url",
+      "input": {
+        "url": "parcourses://invitation#AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd=",
+        "httpsHost": null
+      },
+      "expected": null
+    }
+  ]
+}
