@@ -20,7 +20,7 @@
     static let tom = UUID(uuidString: "33333333-3333-4333-8333-333333333333") ?? UUID()
     static let listId = UUID(uuidString: "44444444-4444-4444-8444-444444444444") ?? UUID()
     static let invitationId = UUID(uuidString: "55555555-5555-4555-8555-555555555555") ?? UUID()
-    /// Jeton du lien de test (`parcourses://invitation#…`).
+    /// Jeton du lien de test (`https://<hôte>/i/#…`, ou `parcourses://invitation#…` sans hôte).
     static let token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
 
     private let scenario: Scenario
@@ -226,12 +226,13 @@
           sentCount: 1, expired: false), at: 0)
       // Une adresse « sans-mail » simule un e-mail qui n'est pas parti.
       return SentInvitation(
-        invitationId: id, link: "parcourses://invitation#\(Self.token)", sent: !email.hasPrefix("sans-mail"),
+        invitationId: id, link: InvitationLinks().link(token: Self.token), sent: !email.hasPrefix("sans-mail"),
         expiresAt: .now.addingTimeInterval(7 * 86_400))
     }
 
     func invitationLink(listId: UUID, email: String, role: ListRole) async throws -> String {
-      "parcourses://invitation#\(Self.token)"
+      // Comme `SupabaseGateway` : le lien de la configuration de build (`https://<hôte>/i/#…` depuis le lot 87.7).
+      InvitationLinks().link(token: Self.token)
     }
 
     func revokeInvitation(id: UUID) async throws {

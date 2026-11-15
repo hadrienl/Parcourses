@@ -2043,6 +2043,17 @@ extension Harness {
     #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
   }
 
+  /// Contre-relecture de #100 : le rôle est relu au moment de partir. Passée lecteur (ou disparue) pendant le choix du
+  /// magasin, la liste ne lance pas de courses.
+  @Test func shoppingIsRefusedOnceTheListIsReadOnly() throws {
+    let (environment, harness) = try environment()
+    #expect(environment.canShop(listId: harness.listId))
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+    #expect(!environment.canShop(listId: harness.listId))
+    #expect(!environment.canShop(listId: UUID()))
+  }
+
   @Test func aVisitWhoseListIsGoneIsClosedAtItsLastCheck() async throws {
     let (environment, harness) = try environment()
     let lastCheck = t0.addingTimeInterval(300)

@@ -1,5 +1,6 @@
 import Domain
 import Foundation
+import MachO
 import Supabase
 import SwiftData
 import SwiftUI
@@ -12,6 +13,28 @@ private nonisolated let t0 = syncEpoch
 private let hadrien = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
 private let lea = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
 private let tom = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
+
+/// Hôte https du build (`PARCOURSES_INVITATION_HOST`), jamais écrit en dur dans les tests.
+private nonisolated let buildHost = InvitationLinks(bundle: .main).httpsHost
+
+/// Entitlements signés de l'app hôte : au build simulateur, Xcode les écrit dans la section `__TEXT,__entitlements` de
+/// l'exécutable (XML), que l'on relit ici plutôt que le fichier source.
+private func signedEntitlements() throws -> [String: Any] {
+  let executable = try #require(Bundle.main.executableURL?.lastPathComponent)
+  for index in 0..<_dyld_image_count() {
+    guard let name = _dyld_get_image_name(index), String(cString: name).hasSuffix(".app/\(executable)"),
+      let header = _dyld_get_image_header(index)
+    else { continue }
+    var size: UInt = 0
+    let header64 = UnsafeRawPointer(header).assumingMemoryBound(to: mach_header_64.self)
+    let section = try #require(getsectiondata(header64, "__TEXT", "__entitlements", &size))
+    // Section complétée de zéros : le XML s'arrête au premier.
+    let data = Data(bytes: section, count: Int(size)).prefix { $0 != 0 }
+    return try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+  }
+  Issue.record("exécutable \(executable) introuvable parmi les images chargées")
+  return [:]
+}
 
 /// Attend qu'une condition devienne vraie (tâches de fond, 2 s au plus).
 @MainActor
@@ -109,20 +132,119 @@ struct SharingValueTests {
     #expect(!ListAccess().isShared && ListAccess().authorMark(updatedBy: lea) == nil)
   }
 
-  @Test func invitationLinksUseTheSchemeUntilAHostIsConfigured() throws {
+  @Test func anEmptyHostKeepsOnlyTheScheme() throws {
     let token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
-    let scheme = InvitationLinks(httpsHost: "  ")
-    #expect(scheme.httpsHost == nil)
-    #expect(scheme.link(token: token) == "parcourses://invitation#\(token)")
-    let schemeURL = try #require(URL(string: "parcourses://invitation#\(token)"))
-    let httpsURL = try #require(URL(string: "https://parcourses.example/i/#\(token)"))
-    #expect(scheme.token(in: schemeURL) == token)
-    #expect(scheme.token(in: httpsURL) == nil)
+    for empty in ["", "  ", nil] {
+      let scheme = InvitationLinks(httpsHost: empty)
+      #expect(scheme.httpsHost == nil)
+      #expect(scheme.link(token: token) == "parcourses://invitation#\(token)")
+      let schemeURL = try #require(URL(string: "parcourses://invitation#\(token)"))
+      let httpsURL = try #require(URL(string: "https://parcourses.example/i/#\(token)"))
+      #expect(scheme.token(in: schemeURL) == token)
+      #expect(scheme.token(in: httpsURL) == nil)
+    }
     let host = InvitationLinks(httpsHost: "parcourses.example")
     #expect(host.link(token: token) == "https://parcourses.example/i/#\(token)")
-    #expect(host.token(in: httpsURL) == token)
-    // Aucun domaine écrit en dur : l'Info.plist de l'app ne porte pas d'hôte par défaut.
-    #expect(InvitationLinks(bundle: .main).httpsHost == nil)
+  }
+
+  /// Lot 87.7 : le domaine associé effectivement signé (section `__TEXT,__entitlements` de l'exécutable, posée par Xcode
+  /// au build simulateur) suit l'hôte du build ; sans hôte, l'hôte réservé `invitation.invalid`.
+  @Test func theSignedAssociatedDomainFollowsTheBuildHost() throws {
+    let entitlements = try signedEntitlements()
+    let domains = entitlements["com.apple.developer.associated-domains"] as? [String]
+    #expect(domains == ["applinks:\(buildHost ?? "invitation.invalid")"])
+  }
+
+  /// Lot 87.7 (Q2) : avec un hôte de build, « Copier le lien » donne `https://<hôte>/i/#<jeton>`.
+  @Test(.enabled(if: buildHost != nil)) func theBuildHostMakesHttpsLinks() throws {
+    let host = try #require(buildHost)
+    let token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    #expect(InvitationLinks(bundle: .main).link(token: token) == "https://\(host)/i/#\(token)")
+  }
+
+  /// Vecteur `001` rejoué avec l'hôte du build à la place de `parcourses.example` : mêmes réponses.
+  @Test(.enabled(if: buildHost != nil)) func vector001HoldsWithTheBuildHost() throws {
+    let build = InvitationLinks(bundle: .main)
+    let host = try #require(buildHost)
+    let file = try #require(SharingVectorFile.all.first { $0.name.hasPrefix("001-") })
+    let object = try #require(try JSONSerialization.jsonObject(with: file.data) as? [String: Any])
+    let cases = try #require(object["cases"] as? [[String: Any]])
+    var played = 0
+    for testCase in cases {
+      let input = try #require(testCase["input"] as? [String: Any])
+      // Cas « sans hôte configuré » : sans objet, le build en a un.
+      guard input["httpsHost"] is String else { continue }
+      let raw = try #require(input["url"] as? String).replacingOccurrences(of: "parcourses.example", with: host)
+        .replacingOccurrences(of: "Parcourses.Example", with: host.uppercased())
+      let url = try #require(URL(string: raw))
+      #expect(build.token(in: url) == testCase["expected"] as? String, "\(testCase["name"] ?? "?")")
+      played += 1
+    }
+    #expect(played >= 6)
+  }
+
+  /// Seul `https://<hôte du build>/i/#<jeton>` ouvre une invitation : autre hôte, http, autre chemin (même proche),
+  /// paramètres, port ou jeton hors du fragment sont refusés, comme sur Android. `HOST` : l'hôte du build.
+  @Test(
+    .enabled(if: buildHost != nil),
+    arguments: [
+      "https://evil.example/i/#",
+      "https://HOST.evil.example/i/#",
+      "https://evil.example/HOST/i/#",
+      "http://HOST/i/#",
+      "https://HOST/#",
+      "https://HOST/i#",
+      "https://HOST/i/x#",
+      "https://HOST/i//#",
+      "https://HOST/x/i/#",
+      "https://HOST/I/#",
+      "https://HOST/i/?ref=mail#",
+      "https://HOST:8443/i/#",
+      "https://user@HOST/i/#",
+    ])
+  func otherHttpsLinksAreRefused(_ pattern: String) throws {
+    let host = try #require(buildHost)
+    let url = try #require(
+      URL(string: pattern.replacingOccurrences(of: "HOST", with: host) + UITestSharingGateway.token))
+    #expect(InvitationLinks(bundle: .main).token(in: url) == nil)
+  }
+
+  /// Lien universel livré par `onContinueUserActivity` (navigation web) : même carte que le schéma. Un second lien
+  /// remplace le premier ; le même lien livré deux fois garde la feuille présentée ; une autre activité est ignorée.
+  @Test(.enabled(if: buildHost != nil)) func aUniversalLinkOpensTheSameCardAsTheScheme() throws {
+    let host = try #require(buildHost)
+    let center = SharingCenter(
+      gateway: nil, transport: nil, links: InvitationLinks(bundle: .main), monitorsNetwork: false)
+    let first = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
+    let second = "ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-ZyXwV"
+
+    let web = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+    web.webpageURL = URL(string: "https://\(host)/i/#\(first)")
+    #expect(center.open(userActivity: web))
+    let opened = try #require(center.openedLink)
+    #expect(opened.token == first)
+    // Même lien par `onOpenURL` : la feuille déjà présentée reste.
+    #expect(center.open(url: try #require(web.webpageURL)))
+    #expect(center.openedLink == opened)
+
+    // Second lien, par le schéma : il remplace le premier.
+    #expect(center.open(url: try #require(URL(string: "parcourses://invitation#\(second)"))))
+    #expect(center.openedLink?.token == second)
+    #expect(center.openedLink != opened)
+    // Puis de nouveau le premier, en lien universel.
+    #expect(center.open(url: try #require(URL(string: "https://\(host)/i/#\(first)"))))
+    #expect(center.openedLink?.token == first)
+
+    // Lien refusé ou autre activité : la feuille présentée ne change pas.
+    let shown = center.openedLink
+    let foreign = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+    foreign.webpageURL = URL(string: "https://evil.example/i/#\(second)")
+    #expect(!center.open(userActivity: foreign))
+    let handoff = NSUserActivity(activityType: "app.parcourses.other")
+    handoff.webpageURL = URL(string: "https://\(host)/i/#\(second)")
+    #expect(!center.open(userActivity: handoff))
+    #expect(!center.open(userActivity: NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)))
+    #expect(center.openedLink == shown)
   }
 
   @Test func serverErrorsBecomeTheInputsOfVector003() {
@@ -223,6 +345,23 @@ private actor FakeTransport: RealtimeTransport {
   }
 }
 
+/// Attentes injectées dans `RealtimeSignals` : suspendues jusqu'à leur annulation, comptées.
+@MainActor
+private final class SleepProbe {
+  private(set) var started = 0
+  private(set) var cancelled = 0
+
+  func sleep(_ duration: Duration) async throws {
+    started += 1
+    do {
+      try await Task.sleep(for: .seconds(3600))
+    } catch {
+      cancelled += 1
+      throw error
+    }
+  }
+}
+
 @MainActor
 private final class SignalProbe {
   var pulls = 0
@@ -237,7 +376,7 @@ private final class SignalProbe {
   private func make(
     _ transport: FakeTransport?, probe: SignalProbe, account: UUID = lea, groupingWaits: Bool = true
   ) -> RealtimeSignals {
-    RealtimeSignals(
+    let signals = RealtimeSignals(
       transport: transport,
       dependencies: RealtimeSignals.Dependencies(
         accountId: { account }, isEmailAccount: { probe.isEmail },
@@ -246,6 +385,9 @@ private final class SignalProbe {
         reloadSharing: { probe.sharingReloads.append($0) },
         // Fenêtre de regroupement tenue ouverte : le test décide quand elle se ferme (`flush`).
         sleep: { duration in if groupingWaits { try await Task.sleep(for: .seconds(3600)) } else { _ = duration } }))
+    // Scène active, comme après `.active`.
+    signals.enteredForeground()
+    return signals
   }
 
   /// Signaux d'une même fenêtre de 300 ms : une seule descente, une seule relecture (vecteur `006` appliqué).
@@ -575,7 +717,7 @@ private final class SignalProbe {
     await model.send()
     #expect(model.mailFailure != nil)
     model.copyFailedMailLink()
-    #expect(copied == ["parcourses://invitation#\(UITestSharingGateway.token)"])
+    #expect(copied == [InvitationLinks().link(token: UITestSharingGateway.token)])
 
     let pending = try #require(model.invitations.first { $0.email == "c.martin@exemple.fr" })
     await model.copyLink(pending)
@@ -747,6 +889,64 @@ private final class SignalProbe {
     #expect(session.summary?.checkedCount == 1)
     #expect(try visits.visit(id: visitId)?.endedAt != nil)
   }
+
+  /// Contre-relecture de #100 : le rôle passe lecteur pendant le choix du magasin ou la préparation. `start()` relit
+  /// l'accès : aucune visite ne s'ouvre, « Terminer » seulement. `resume()` aussi : la visite reprise se clôt avec les
+  /// coches déjà faites.
+  @Test func aRoleLoweredBeforeTheShoppingStartsOpensNoVisit() async throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let lists = SwiftDataListRepository(context: context, author: { lea })
+    let visits = SwiftDataVisitRepository(context: context, author: { lea })
+    let stores = SwiftDataStoreRepository(context: context)
+    let categories = SwiftDataCategoryRepository(context: context)
+    try categories.seedIfNeeded()
+    let analyzer = try EntryAnalyzer()
+    let list = try lists.createList(name: "Courses de la semaine", at: t0)
+    list.ownerId = hadrien
+    list.role = .editor
+    list.participants = [
+      ListParticipant(userId: hadrien, displayName: "Hadrien", role: .owner, isMe: false, joinedAt: nil),
+      ListParticipant(userId: lea, displayName: "Léa", role: .editor, isMe: true, joinedAt: t0),
+    ]
+    try context.save()
+    _ = try lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy", at: t0
+    )
+    let storeId = UUID()
+    try stores.upsertStore(
+      id: storeId, name: "Leclerc", chain: nil, address: nil, lastDistanceM: nil, organicAisle: false)
+    func session() -> ShoppingSession {
+      ShoppingSession(
+        listId: list.id, storeId: storeId, lists: lists, visits: visits, stores: stores, categories: categories,
+        analyzer: analyzer, cache: GraphSnapshotCache(graphs: SwiftDataGraphRepository(context: context), gateway: nil),
+        settleDelay: .milliseconds(1), highlightDelay: .milliseconds(1), accountId: { lea })
+    }
+
+    // Visite en cours, une coche faite.
+    let shopping = session()
+    await shopping.start()
+    let visitId = try #require(shopping.visitId)
+    shopping.toggle(try #require(shopping.toBuy.first))
+    await shopping.waitUntilSettled()
+    // Passée lecteur pendant que l'app était fermée, après la vérification du lancement : la reprise s'arrête.
+    list.role = .viewer
+    try context.save()
+    let visit = try #require(try visits.openVisit())
+    let resumed = session()
+    await resumed.resume(visit: visit)
+    #expect(resumed.accessEnd == .readOnly(ownerName: "Hadrien"))
+    resumed.finish(keepRemaining: true)
+    #expect(try visits.visit(id: visitId)?.endedAt != nil)
+    #expect(try visits.checks(visitId: visitId).count == 1)
+
+    // Nouveau départ, lecteur : aucune visite.
+    let refused = session()
+    await refused.start()
+    #expect(refused.accessEnd == .readOnly(ownerName: "Hadrien"))
+    #expect(refused.visitId == nil)
+    #expect(try visits.openVisit() == nil)
+  }
 }
 
 // MARK: - Relecture de #100
@@ -766,12 +966,43 @@ private actor AccountGate {
   }
 }
 
+/// Transport dont l'ouverture du canal reste suspendue jusqu'à `release()` : un `close()` peut arriver pendant ce temps.
+private actor SlowJoinTransport: RealtimeTransport {
+  enum Step: Equatable {
+    case joined
+    case closed
+  }
+
+  private(set) var steps: [Step] = []
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  var waiting: Int { waiters.count }
+
+  func userSignals(userId: UUID) async -> AsyncStream<RealtimeEvent> {
+    await withCheckedContinuation { waiters.append($0) }
+    steps.append(.joined)
+    return AsyncStream { _ in
+      // Canal sans événement.
+    }
+  }
+
+  func closeUserSignals() async {
+    steps.append(.closed)
+  }
+
+  func release() {
+    for waiter in waiters { waiter.resume() }
+    waiters = []
+  }
+}
+
 @MainActor
 @Suite(.serialized) struct SharingReviewTests {
   private func gated(_ transport: FakeTransport, gate: AccountGate) -> RealtimeSignals {
-    RealtimeSignals(
+    let signals = RealtimeSignals(
       transport: transport,
       dependencies: RealtimeSignals.Dependencies(accountId: { await gate.wait() }, isEmailAccount: { true }))
+    signals.enteredForeground()
+    return signals
   }
 
   /// Mineur 3 : l'app passe en arrière-plan pendant que le compte est relu ; le canal ne s'ouvre pas après coup.
@@ -795,6 +1026,90 @@ private actor AccountGate {
     #expect(signals.isOpen)
     #expect(await transport.opened == [lea])
     await signals.background()
+  }
+
+  /// Contre-relecture de #100 : tant que la scène n'est pas passée à `.active`, aucun canal ne s'ouvre (scène connectée
+  /// en arrière-plan).
+  @Test func noChannelOpensBeforeTheSceneIsActive() async {
+    let transport = FakeTransport()
+    let signals = RealtimeSignals(
+      transport: transport,
+      dependencies: RealtimeSignals.Dependencies(accountId: { lea }, isEmailAccount: { true }))
+    #expect(!signals.isInForeground)
+    await signals.foreground()
+    #expect(!signals.isOpen)
+    #expect(await transport.opened.isEmpty)
+    signals.enteredForeground()
+    await signals.foreground()
+    #expect(signals.isOpen)
+    await eventually { await transport.opened == [lea] }
+    await signals.background()
+  }
+
+  /// Contre-relecture de #100 : l'arrière-plan arrive pendant que le canal se rejoint. Le canal rejoint après coup se
+  /// referme : la dernière opération du transport est une fermeture.
+  @Test func closingWhileTheChannelIsJoiningClosesIt() async {
+    let transport = SlowJoinTransport()
+    let signals = RealtimeSignals(
+      transport: transport,
+      dependencies: RealtimeSignals.Dependencies(
+        accountId: { lea }, isEmailAccount: { true }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    signals.enteredForeground()
+    await signals.foreground()
+    await eventually { await transport.waiting == 1 }
+    let closing = Task { await signals.background() }
+    // La fermeture attend la fin de l'ouverture : rien n'est encore fermé.
+    try? await Task.sleep(for: .milliseconds(50))
+    #expect(await transport.steps.isEmpty)
+    await transport.release()
+    await closing.value
+    #expect(!signals.isOpen)
+    let steps = await transport.steps
+    #expect(steps.first == .joined)
+    #expect(steps.last == .closed)
+  }
+
+  /// Relecture de #107 : une coche faite juste après l'abonnement peut suivre la première descente sans que son signal
+  /// arrive. Une seconde descente part 2,5 s après `.subscribed`.
+  @Test func aSecondPullFollowsEachSubscription() async {
+    let probe = SignalProbe()
+    var waits: [Duration] = []
+    let signals = RealtimeSignals(
+      transport: nil,
+      dependencies: RealtimeSignals.Dependencies(pull: { probe.pulls += 1 }, sleep: { waits.append($0) }))
+    signals.handle(.subscribed)
+    #expect(probe.pulls == 1)
+    await eventually { probe.pulls == 2 }
+    #expect(probe.pulls == 2)
+    #expect(waits == [RealtimeSignals.subscribedFollowUpDelay])
+    #expect(RealtimeSignals.subscribedFollowUpDelay == .milliseconds(2500))
+  }
+
+  /// Relecture de #107 : la seconde descente est unique (un nouvel abonnement remplace celle en attente) et annulée à la
+  /// fermeture du canal.
+  @Test func theFollowUpPullIsUniqueAndCancelledOnClose() async {
+    let probe = SignalProbe()
+    let sleeps = SleepProbe()
+    let transport = FakeTransport()
+    let signals = RealtimeSignals(
+      transport: transport,
+      dependencies: RealtimeSignals.Dependencies(
+        accountId: { lea }, isEmailAccount: { true }, pull: { probe.pulls += 1 },
+        sleep: { duration in try await sleeps.sleep(duration) }))
+    signals.enteredForeground()
+    await signals.foreground()
+    await eventually { await transport.opened == [lea] }
+    await transport.send(.subscribed)
+    await eventually { sleeps.started == 1 }
+    await transport.send(.subscribed)
+    await eventually { sleeps.started == 2 && sleeps.cancelled == 1 }
+    #expect(sleeps.cancelled == 1)
+    #expect(probe.pulls == 2)
+    await signals.background()
+    await eventually { sleeps.cancelled == 2 }
+    #expect(sleeps.cancelled == 2)
+    // Aucune descente de plus : celle qui était due est annulée.
+    #expect(probe.pulls == 2)
   }
 
   /// Mineur 3 : deux ouvertures concurrentes (premier plan et compte relu) n'ouvrent qu'une écoute.
@@ -869,6 +1184,7 @@ private actor AccountGate {
         accountId: { lea }, isEmailAccount: { true }, pull: { probe.pulls += 1 },
         sleep: { _ in try await Task.sleep(for: .seconds(3600)) },
         echoDelay: { writes.echoDelay($0, at: t0.addingTimeInterval(0.5)) }))
+    held.enteredForeground()
     await held.foreground()
     held.handle(.signal(RealtimeSignal(listId: list, kind: "items")))
     await held.background()
@@ -959,7 +1275,7 @@ private actor AccountGate {
     func screen(_ listId: UUID) -> ListDetailModel {
       let model = ListDetailModel(
         listId: listId, lists: lists, products: SwiftDataProductRepository(context: context), categories: categories,
-        analyzer: analyzer, accountId: { lea }, wasLeft: { departures.contains($0) })
+        analyzer: analyzer, accountId: { lea }, departures: departures)
       model.load()
       return model
     }
@@ -984,6 +1300,55 @@ private actor AccountGate {
     removing.load()
     #expect(removing.wasRemoved)
     #expect(!removing.didLeave)
+  }
+
+  /// Contre-relecture de #100 : un départ ne sert qu'une fois. Quittée, réinvitée, puis retirée par le propriétaire,
+  /// la liste annonce le retrait ; de même si elle a été quittée depuis Mes listes, sans écran Liste ouvert.
+  @Test func aDepartureIsConsumedSoALaterRemovalIsAnnounced() throws {
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let context = container.mainContext
+    let lists = SwiftDataListRepository(context: context)
+    let categories = SwiftDataCategoryRepository(context: context)
+    try categories.seedIfNeeded()
+    let analyzer = try EntryAnalyzer()
+    let departures = ListDepartures()
+    func screen(_ listId: UUID) -> ListDetailModel {
+      let model = ListDetailModel(
+        listId: listId, lists: lists, products: SwiftDataProductRepository(context: context), categories: categories,
+        analyzer: analyzer, accountId: { lea }, departures: departures)
+      model.load()
+      return model
+    }
+    func arrive(_ id: UUID) throws {
+      context.insert(ShoppingList(id: id, name: "Partagée", syncState: .synced, ownerId: hadrien, role: .editor))
+      try context.save()
+    }
+
+    // Quittée depuis l'écran Liste : départ, consommé.
+    let id = UUID()
+    try arrive(id)
+    let first = screen(id)
+    departures.record(id)
+    try lists.forgetList(id: id)
+    first.load()
+    first.load()
+    #expect(first.didLeave && !first.wasRemoved)
+    #expect(!departures.consume(id))
+    // Réinvitée, puis retirée par le propriétaire : un retrait.
+    try arrive(id)
+    let second = screen(id)
+    try lists.forgetList(id: id)
+    second.load()
+    #expect(second.wasRemoved && !second.didLeave)
+
+    // Quittée depuis Mes listes (aucun écran Liste), réinvitée : le départ ne vaut plus dès que la liste revient.
+    let other = UUID()
+    departures.record(other)
+    try arrive(other)
+    let reopened = screen(other)
+    try lists.forgetList(id: other)
+    reopened.load()
+    #expect(reopened.wasRemoved && !reopened.didLeave)
   }
 
   /// Mineur 6 : aucune invitation en attente, les deux phrases de la maquette (`inv.none`, `inv.none.body`).

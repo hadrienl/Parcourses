@@ -7,7 +7,7 @@ déjà vers `hadrienl.github.io`. Le site sert quatre choses :
 | --- | --- |
 | `/` | Page d'accueil qui annonce l'app : promesse, fonctionnement, histoire, confidentialité, « Bientôt sur l'App Store et Google Play ». Statique et sans script : le tri du ticket se joue en CSS (deux boutons radio, `:has()`). Styles dans `landing.css`, identité B3 « Ticket filé ». Image de partage `og.png` (1200 × 630), icônes `icon.svg`, `favicon-32.png` et `apple-touch-icon.png`, tirées de `design/app-icon/`. |
 | `/i/#<jeton>` | Page d'une invitation quand l'app n'est pas installée : trois étapes, puis « Déjà installée ? Ouvrir dans l'app » (`parcourses://invitation#<jeton>`). Elle est statique et ne fait aucun appel réseau. Le jeton reste dans le fragment : il n'est jamais envoyé à l'hébergeur. |
-| `/.well-known/apple-app-site-association` | Liens universels iOS : `QMJKZ67Z3H.app.parcourses`, chemin `/i/*`. |
+| `/.well-known/apple-app-site-association` | Liens universels iOS : `QMJKZ67Z3H.app.parcourses`, chemin exact `/i/` avec un fragment non vide (`{"/": "/i/", "#": "?*"}`). |
 | `/.well-known/assetlinks.json` | App Links Android : `fr.parcourses.app` et les empreintes SHA-256 des certificats de signature. |
 
 `scripts/check-site.ts` vérifie le site à chaque PR (workflow `pages`) :

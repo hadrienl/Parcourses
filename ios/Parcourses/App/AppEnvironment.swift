@@ -177,7 +177,7 @@ final class AppEnvironment {
   func makeListDetailModel(listId: UUID) -> ListDetailModel {
     ListDetailModel(
       listId: listId, lists: lists, products: products, categories: categories, analyzer: entryAnalyzer,
-      accountId: accountId, wasLeft: { [departures] in departures.contains($0) })
+      accountId: accountId, departures: departures)
   }
 
   /// Partage (#87, lot 87.4) : invitations, liens, feuille « Partager », signaux temps réel.
@@ -239,6 +239,13 @@ final class AppEnvironment {
   /// disparue pendant que l'app était fermée, crash) est retirée tout de suite.
   func endOrphanActivities(keeping visitId: UUID?) {
     shoppingActivity.endAll(except: visitId)
+  }
+
+  /// La liste existe et mon rôle permet les courses (Q5) : relu au moment de partir, le rôle a pu baisser pendant le
+  /// choix du magasin.
+  func canShop(listId: UUID) -> Bool {
+    guard let list = try? lists.list(id: listId) else { return false }
+    return SharingDecisions.roleCapabilities(list.role).canShop
   }
 
   /// `storeId` à `nil` : ordre générique, sans visite (#9 §8).

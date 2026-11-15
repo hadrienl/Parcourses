@@ -245,6 +245,12 @@ final class ShoppingSession: Identifiable {
   func start() async {
     startedAt = now()
     await prepare()
+    // Rôle relu après la préparation (jusqu'à 3 s) : passé lecteur pendant le choix du magasin, aucune visite ne
+    // s'ouvre (Q5).
+    guard allowsShopping() else {
+      isPrepared = true
+      return
+    }
     guard let storeId else {
       isPrepared = true
       isActivityReady = true
@@ -277,6 +283,9 @@ final class ShoppingSession: Identifiable {
     await prepare()
     // Avant `foregrounded()` : une visite expirée sans article restant s'y termine d'elle-même.
     isPrepared = true
+    // Rôle relu après la préparation : passé lecteur entre-temps, « Terminer » seulement, la visite se clôt avec les
+    // coches déjà faites.
+    guard allowsShopping() else { return }
     foregrounded()
     isActivityReady = true
     publishActivity()
@@ -724,17 +733,10 @@ final class ShoppingSession: Identifiable {
   /// visite reste celle de qui a coché.
   func syncDidChange() {
     guard summary == nil, !expired else { return }
-    guard let list = try? lists.list(id: listId) else {
-      // Liste retirée de l'appareil : les courses s'arrêtent, les coches déjà faites restent les miennes.
-      endForAccess(.removed)
-      return
-    }
-    let access = ListAccess(list: list, me: accountId())
-    guard access.capabilities.canShop else {
-      // Passé lecteur : plus aucune coche ni visite (Q5) ; celles déjà faites restent.
-      endForAccess(.readOnly(ownerName: access.ownerName))
-      return
-    }
+    // Liste retirée de l'appareil, ou passée lecteur : les courses s'arrêtent, plus aucune coche ni visite (Q5) ; les
+    // coches déjà faites restent les miennes.
+    guard allowsShopping() else { return }
+    let access = currentAccess()
     guard !hasUnsettledChange else { return }
     let shown = Dictionary(toBuy.map { ($0.id, $0) }) { first, _ in first }
     let items = (try? lists.items(listId: listId)) ?? []
@@ -748,6 +750,20 @@ final class ShoppingSession: Identifiable {
     announce(
       checked: checkedElsewhere.map { (name: access.otherName($0.updatedBy), label: $0.label) },
       returned: returned.map { (name: access.otherName($0.updatedBy), label: $0.label) })
+  }
+
+  /// Accès relu dans le stockage local : liste disparue ou passée en lecture seule, les courses s'arrêtent d'office.
+  private func allowsShopping() -> Bool {
+    guard let list = try? lists.list(id: listId) else {
+      endForAccess(.removed)
+      return false
+    }
+    let access = ListAccess(list: list, me: accountId())
+    guard access.capabilities.canShop else {
+      endForAccess(.readOnly(ownerName: access.ownerName))
+      return false
+    }
+    return true
   }
 
   /// Courses arrêtées d'office : la Live Activity se termine tout de suite (« Cocher le suivant » n'a plus d'effet) et
