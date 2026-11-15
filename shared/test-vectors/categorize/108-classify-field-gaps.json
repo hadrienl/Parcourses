@@ -24,12 +24,12 @@
       }
     },
     {
-      "input": "chocolat en poudre Nesquick",
+      "input": "Nesquick 1 kg",
       "expected": {
-        "normalized": "chocolat poudre nesquick",
+        "normalized": "nesquick",
         "category_id": "breakfast",
-        "matched_keyword": "chocolat poudre",
-        "match": "keyword",
+        "matched_keyword": "nesquick",
+        "match": "brand",
         "organic": false
       }
     },
@@ -49,6 +49,16 @@
         "normalized": "speculoo",
         "category_id": "sweet-grocery",
         "matched_keyword": "speculoo",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "Lotus spéculos",
+      "expected": {
+        "normalized": "lotu speculo",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "speculo",
         "match": "keyword",
         "organic": false
       }
@@ -109,6 +119,16 @@
         "normalized": "croque madame",
         "category_id": "deli",
         "matched_keyword": "croque madame",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "croque-en-bouche",
+      "expected": {
+        "normalized": "croque bouche",
+        "category_id": "bakery",
+        "matched_keyword": "croque bouche",
         "match": "keyword",
         "organic": false
       }
@@ -184,6 +204,26 @@
       }
     },
     {
+      "input": "feuilletés apéritif",
+      "expected": {
+        "normalized": "feuillete aperitif",
+        "category_id": "snacks",
+        "matched_keyword": "feuillete aperitif",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "feuilletés apéro",
+      "expected": {
+        "normalized": "feuillete apero",
+        "category_id": "snacks",
+        "matched_keyword": "feuillete apero",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
       "input": "friands à la viande",
       "expected": {
         "normalized": "friand viande",
@@ -209,6 +249,16 @@
         "normalized": "gratin dauphinoi",
         "category_id": "deli",
         "matched_keyword": "gratin",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "plat à gratin",
+      "expected": {
+        "normalized": "plat gratin",
+        "category_id": "household",
+        "matched_keyword": "plat gratin",
         "match": "keyword",
         "organic": false
       }
@@ -404,6 +454,16 @@
       }
     },
     {
+      "input": "barres Special K",
+      "expected": {
+        "normalized": "barre special k",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "barre special k",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
       "input": "Trésor",
       "expected": {
         "normalized": "tresor",
@@ -534,6 +594,36 @@
       }
     },
     {
+      "input": "Poulain",
+      "expected": {
+        "normalized": "poulain",
+        "category_id": "breakfast",
+        "matched_keyword": "poulain",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "tablette Poulain",
+      "expected": {
+        "normalized": "tablette poulain",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "tablette poulain",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
+      "input": "chocolat Poulain",
+      "expected": {
+        "normalized": "chocolat poulain",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "chocolat",
+        "match": "keyword",
+        "organic": false
+      }
+    },
+    {
       "input": "crêpes dentelle",
       "expected": {
         "normalized": "crepe dentelle",
@@ -597,6 +687,26 @@
       "input": "Pim's",
       "expected": {
         "normalized": "pim s",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pim s",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pim's orange",
+      "expected": {
+        "normalized": "pim s orange",
+        "category_id": "sweet-grocery",
+        "matched_keyword": "pim s",
+        "match": "brand",
+        "organic": false
+      }
+    },
+    {
+      "input": "Pims",
+      "expected": {
+        "normalized": "pim",
         "category_id": "sweet-grocery",
         "matched_keyword": "pim",
         "match": "brand",

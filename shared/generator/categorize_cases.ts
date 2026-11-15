@@ -351,6 +351,19 @@ export function categorizeGroups(): CategorizeGroup[] {
       ],
     },
     {
+      id: "106-classify-other",
+      description: "Saisies non reconnues : catégorie « other ».",
+      cases: lines(`
+        truc => other
+        cadeau mamie => other
+        ??? => other
+        2 kg => other
+        xyzzy => other
+        piles de journaux => household
+        rendez-vous dentiste => other
+      `),
+    },
+    {
       id: "108-classify-field-gaps",
       description:
         "Saisies ratées lors d'un test en magasin (#98) et mots courants voisins : variantes " +
@@ -359,15 +372,17 @@ export function categorizeGroups(): CategorizeGroup[] {
       cases: lines(`
         Nesquick => breakfast
         Nesquik => breakfast
-        chocolat en poudre Nesquick => breakfast
+        Nesquick 1 kg => breakfast
         Spéculos => sweet-grocery
         Spéculoos => sweet-grocery
+        Lotus spéculos => sweet-grocery
         biscuits spéculos Lotus => sweet-grocery
         pâte de spéculoos => breakfast
         pâte de spéculos => breakfast
         pâte à tartiner spéculoos => breakfast
         Croque monsieur => deli
         Croque-madame => deli
+        croque-en-bouche => bakery
         2 croques => deli
         croque monsieur surgelé => frozen
         pain croque monsieur => bakery
@@ -375,9 +390,12 @@ export function categorizeGroups(): CategorizeGroup[] {
         croquettes chien => pets
         croquettes de pommes de terre => frozen
         Feuilleté fromage => deli
+        feuilletés apéritif => snacks
+        feuilletés apéro => snacks
         friands à la viande => deli
         bouchées à la reine => deli
         gratin dauphinois => deli
+        plat à gratin => household
         parmentier de canard => deli
         tartiflette => deli
         fromage à tartiflette => cheese
@@ -397,6 +415,7 @@ export function categorizeGroups(): CategorizeGroup[] {
         tourte => deli
         Chocapic => breakfast
         Kellogg's Special K => breakfast
+        barres Special K => sweet-grocery
         Trésor => breakfast
         Miel Pops => breakfast
         miel => breakfast
@@ -410,6 +429,9 @@ export function categorizeGroups(): CategorizeGroup[] {
         boisson riz => dairy
         pain d'épices => breakfast
         Nocciolata => breakfast
+        Poulain => breakfast
+        tablette Poulain => sweet-grocery
+        chocolat Poulain => sweet-grocery
         crêpes dentelle => sweet-grocery
         crêpes => breakfast
         palets bretons => sweet-grocery
@@ -417,6 +439,8 @@ export function categorizeGroups(): CategorizeGroup[] {
         meringues => sweet-grocery
         Pépito => sweet-grocery
         Pim's => sweet-grocery
+        Pim's orange => sweet-grocery
+        Pims => sweet-grocery
         yoghourt => dairy
         yogourt => dairy
         mayo => savory-grocery
@@ -426,19 +450,6 @@ export function categorizeGroups(): CategorizeGroup[] {
         papier WC => hygiene
         iced tea => beverages
         Fuze Tea => beverages
-      `),
-    },
-    {
-      id: "106-classify-other",
-      description: "Saisies non reconnues : catégorie « other ».",
-      cases: lines(`
-        truc => other
-        cadeau mamie => other
-        ??? => other
-        2 kg => other
-        xyzzy => other
-        piles de journaux => household
-        rendez-vous dentiste => other
       `),
     },
   ];
