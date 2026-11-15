@@ -39,6 +39,25 @@ class SharingNotices {
 
     fun acknowledge(change: AccessChange) = pending.update { old -> old - change }
 
+    /** Listes vues à l'émission précédente de [listsPresent] ; `null` avant la première. */
+    private var known: Set<String>? = null
+
+    /**
+     * Listes présentes sur l'appareil, à chaque changement (un seul appelant). Une liste retirée qui **revient**
+     * (réinvitée, puis acceptée) n'a plus de message « n'est plus partagée ». Seule une arrivée compte : une émission
+     * en retard qui montre encore la liste juste retirée n'efface rien.
+     */
+    @Synchronized
+    fun listsPresent(ids: Set<String>) {
+        val back = known?.let { ids - it }.orEmpty()
+        known = ids
+        if (back.isNotEmpty()) {
+            pending.update { old ->
+                old.filterNot { it is AccessChange.Removed && it.listId in back }
+            }
+        }
+    }
+
     /** Purge des données (déconnexion, suppression) : plus rien à montrer. */
     fun clear() = pending.update { emptyList() }
 }

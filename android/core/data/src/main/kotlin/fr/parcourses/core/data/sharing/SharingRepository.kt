@@ -13,6 +13,8 @@ import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.SentInvitation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlin.uuid.Uuid
 
@@ -81,6 +83,10 @@ class SharingRepository(
     private val isOnline: () -> Boolean = { true },
     /** Descente complète, attendue (accès gagné : la liste est téléchargée avant d'être ouverte). */
     private val pull: suspend () -> Unit = {},
+    /** Moteur de la session (sous son verrou) ; `null` : la base seule, sans moteur (tests). */
+    private val access: () -> SharingAccess? = { null },
+    /** Portée de l'app : « Quitter » va au bout même si l'écran qui l'a lancé se ferme. */
+    private val scope: CoroutineScope? = null,
 ) : SharingService {
     private val store = SyncStore(db)
 
@@ -106,7 +112,10 @@ class SharingRepository(
 
     /** `list_sharing`, appliquée aussi à la base : personnes et rôle à jour pour la liste ouverte. */
     override suspend fun listSharing(listId: String): ListSharing =
-        call { it.listSharing(Uuid.parse(listId)) }.also { store.applySharing(it) }
+        call { it.listSharing(Uuid.parse(listId)) }.also { sharing ->
+            // Abaissement vu par la feuille : même traitement qu'à la descente (entrées jetées, un seul message).
+            access()?.applySharing(sharing) ?: store.applySharing(sharing)
+        }
 
     override suspend fun myInvitations(): List<ReceivedInvitation> = call { it.myInvitations() }
 
@@ -135,8 +144,15 @@ class SharingRepository(
 
     /** « Quitter la liste » : retrait de son propre compte, puis la liste quitte l'appareil avec ses entrées. */
     override suspend fun leaveList(listId: String) {
-        call { it.removeMember(Uuid.parse(listId), it.currentAccountId()) }
-        store.removeLists(listOf(listId))
+        val leave: suspend () -> Unit = {
+            call { remote ->
+                access()?.leaveList(listId) ?: run {
+                    remote.removeMember(Uuid.parse(listId), remote.currentAccountId())
+                    store.removeLists(listOf(listId))
+                }
+            }
+        }
+        scope?.async { leave() }?.await() ?: leave()
     }
 
     /**

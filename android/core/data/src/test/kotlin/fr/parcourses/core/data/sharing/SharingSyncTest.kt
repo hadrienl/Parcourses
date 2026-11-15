@@ -35,6 +35,7 @@ class SharingSyncTest : DataTest() {
     private val gateway = fakeGateway()
     private val cursors = InMemorySyncCursors()
     private val changes = mutableListOf<AccessChange>()
+    private val itemsSent = mutableListOf<String>()
     private val emailDependencies =
         SyncDependencies(
             now = { now },
@@ -42,11 +43,12 @@ class SharingSyncTest : DataTest() {
             isOnline = { online },
             accountKind = { AccountKind.Email },
             onAccessChange = { changes += it },
+            onItemsSent = { itemsSent += it },
         )
     private val engine by lazy { SyncEngine(gateway, db, cursors, classify, emailDependencies) }
     private val repository by lazy { RoomListRepository(db) }
     private val sharing by lazy {
-        SharingRepository(gateway, db, isOnline = { online }, pull = { engine.drain(pull = true) })
+        SharingRepository(gateway, db, isOnline = { online }, pull = { engine.drain(pull = true) }, access = { engine })
     }
 
     private val me get() = gateway.account
@@ -95,6 +97,41 @@ class SharingSyncTest : DataTest() {
             gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Editor) }
             engine.drain(pull = true)
             assertEquals(AccessChange.Upgraded(listId, "Hadrien"), changes.last())
+        }
+
+    @Test
+    fun aDowngradeSeenByTheSheetDropsTheEntriesAndIsNoticedOnce() =
+        runBlocking {
+            val (listId, itemId) = sharedList(ListRole.Editor)
+            repository.setChecked(itemId, now, now)
+            repository.addItem(listId, "beurre", "beurre", null, null, "dairy", now)
+            gateway.roles[Uuid.parse(listId)] = ListRole.Viewer
+            gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Viewer) }
+
+            // La feuille « Partager » ouverte lit le nouveau rôle avant la descente.
+            sharing.listSharing(listId)
+
+            assertEquals(ListRole.Viewer, db.lists().get(listId)?.role)
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(listOf(itemId), db.items().getByList(listId).map { it.id })
+            assertNull(db.items().get(itemId)?.checkedAt)
+            assertEquals(listOf(AccessChange.Downgraded(listId, "Hadrien", 2)), changes)
+
+            // La descente suivante voit le même rôle : pas de seconde bannière.
+            engine.drain(pull = true)
+            assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun aSentItemIsReportedForItsList() =
+        runBlocking {
+            val (listId, itemId) = sharedList(ListRole.Editor)
+            repository.setChecked(itemId, now, now)
+
+            engine.drain()
+
+            // Avant et après l'envoi : l'écho du signal `items` peut précéder la réponse.
+            assertEquals(listOf(listId, listId), itemsSent)
         }
 
     @Test

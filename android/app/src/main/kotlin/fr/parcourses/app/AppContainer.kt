@@ -35,6 +35,7 @@ import fr.parcourses.core.data.repository.RoomVisitRepository
 import fr.parcourses.core.data.repository.StoreRepository
 import fr.parcourses.core.data.repository.VisitRepository
 import fr.parcourses.core.data.sharing.RealtimeSignals
+import fr.parcourses.core.data.sharing.RecentSends
 import fr.parcourses.core.data.sharing.SharingNotices
 import fr.parcourses.core.data.sharing.SharingRepository
 import fr.parcourses.core.data.sync.AccountKind
@@ -51,6 +52,7 @@ import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.location.LocationProvider
 import fr.parcourses.core.location.SystemLocationProvider
+import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.network.AuthBootstrap
 import fr.parcourses.core.network.InvitationLinks
 import fr.parcourses.core.network.RemoteError
@@ -201,6 +203,7 @@ class AppContainer(
                             accountKind = { accountKind.kind.value },
                             // Liste retirée, accès abaissé ou remonté par un autre membre (#87, lot 87.6).
                             onAccessChange = sharingNotices::post,
+                            onItemsSent = recentSends::record,
                         ),
                 )
             }
@@ -372,10 +375,10 @@ class AppContainer(
     val launchResume = LaunchResume()
 
     /**
-     * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître, ou elle est restée sans coche
-     * depuis plus de [expiry] : elle est alors abandonnée (close à sa dernière coche, supprimée si elle n'en a
-     * aucune et n'est jamais partie, ses introuvables remis à acheter : voir `VisitRepository.abandonVisit`) et rien
-     * n'est rouvert.
+     * Visite ouverte à reprendre au lancement, vérifiée. Sa liste a pu disparaître ou passer en lecture seule, ou elle
+     * est restée sans coche depuis plus de [expiry] : elle est alors abandonnée (close à sa dernière coche, supprimée
+     * si elle n'en a aucune et n'est jamais partie, ses introuvables remis à acheter : voir
+     * `VisitRepository.abandonVisit`) et rien n'est rouvert.
      * L'abandon ne lève rien sur une visite disparue entre-temps (reprise de compte) : le lancement ne plante pas,
      * et une visite redevenue active entre la lecture et l'abandon reste ouverte.
      */
@@ -386,10 +389,13 @@ class AppContainer(
         val visit = (if (pending) null else visits.openVisit()) ?: return null
         val now = Clock.System.now()
         val last = visits.lastActivity(visit.id) ?: visit.startedAt
-        val listExists = lists.list(visit.listId) != null
-        val usable = listExists && now - last < expiry
-        // Liste disparue : abandon sans condition. Sinon seulement si la visite est encore périmée dans la transaction.
-        if (!usable) visits.abandonVisit(visit.id, now, staleAfter = if (listExists) expiry else Duration.ZERO)
+        val list = lists.list(visit.listId)
+        // Liste passée en lecture seule (#87, Q5) : pas de mode courses, la visite est abandonnée comme sans liste.
+        val listUsable = list != null && list.role != ListRole.Viewer
+        val usable = listUsable && now - last < expiry
+        // Liste disparue ou en lecture seule : abandon sans condition. Sinon seulement si la visite est encore
+        // périmée dans la transaction.
+        if (!usable) visits.abandonVisit(visit.id, now, staleAfter = if (listUsable) expiry else Duration.ZERO)
         return if (usable) ResumableVisit(visit.listId, visit.storeId, visit.id) else null
     }
 
@@ -398,8 +404,15 @@ class AppContainer(
      * données a été interrompue (drapeau présent), ni synchronisation ni connexion : elle reprend d'abord.
      */
     fun start(scope: CoroutineScope) {
+        // Une liste retirée qui revient (réinvitation acceptée) n'a plus de message « n'est plus partagée ».
+        scope.launch {
+            lists.observeSummaries().collect { all ->
+                sharingNotices.listsPresent(all.map { it.id }.toSet())
+            }
+        }
         scope.launch {
             categories.seedIfNeeded()
+            repairRoles()
             if (gateway != null) startNetworkMonitor()
             if (accountDeletion.resumeAtLaunch()) return@launch
             // Déconnexion interrompue (#87) : la purge reprend, voile affiché.
@@ -415,6 +428,12 @@ class AppContainer(
                 notifySessionChange()
             }
         }
+    }
+
+    /** Rôles d'une base d'avant la version 3 (#87) : mes listes à moi, celles des autres en lecture seule. */
+    private suspend fun repairRoles() {
+        val me = withContext(IO) { cursors.accountId } ?: return
+        database.lists().repairRoles(me.toString())
     }
 
     private fun startNetworkMonitor() {
@@ -585,6 +604,9 @@ class AppContainer(
     /** Messages d'accès à montrer (liste retirée, lecture seule), en mémoire. */
     val sharingNotices = SharingNotices()
 
+    /** Envois d'articles récents : l'écho de ses propres écritures ne relance pas de descente (#87 §6.2). */
+    private val recentSends = RecentSends()
+
     /** Partage d'une liste : réseau exigé, rien en file ; `null` sans Supabase. */
     val sharing: SharingRepository? by lazy {
         gateway?.let { remote ->
@@ -594,6 +616,8 @@ class AppContainer(
                 isOnline = { networkMonitor.isOnline },
                 // Accès gagné : la liste est descendue entièrement avant d'être ouverte.
                 pull = { engine?.drain(pull = true) },
+                access = { engine },
+                scope = maintenanceScope,
             )
         }
     }
@@ -612,6 +636,7 @@ class AppContainer(
             accountKind = accountKind.kind,
             requestPull = { coordinator?.requestSync(pull = true) },
             scope = maintenanceScope,
+            isEcho = recentSends::isEcho,
         )
     }
 

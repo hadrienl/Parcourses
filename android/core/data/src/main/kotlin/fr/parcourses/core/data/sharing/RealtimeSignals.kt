@@ -47,6 +47,8 @@ class RealtimeSignals(
     private val window: Duration = WINDOW,
     /** Attente avant de rouvrir un canal tombé en erreur (refus, session illisible). */
     private val retryDelay: Duration = RETRY_DELAY,
+    /** Envoi d'articles en cours ou récent vers cette liste ([RecentSends]) : son signal `items` est un écho. */
+    private val isEcho: (String) -> Boolean = { false },
 ) {
     private val isForeground = MutableStateFlow(false)
     private val session = MutableStateFlow(0)
@@ -141,6 +143,8 @@ class RealtimeSignals(
 
             is RealtimeEvent.Changed -> {
                 val listId = event.listId?.toString()
+                // Écho de mes propres envois : rien de neuf à descendre.
+                if (event.kind == ITEMS && listId != null && isEcho(listId)) return
                 val sheets = openSheets.value.keys
                 // Signal d'invitation sans liste : vaut pour toute feuille ouverte.
                 val open = if (listId == null) sheets.isNotEmpty() else listId in sheets
@@ -184,6 +188,7 @@ class RealtimeSignals(
     companion object {
         private const val TAG = "RealtimeSignals"
         private const val BUFFER = 8
+        private const val ITEMS = "items"
 
         /** Regroupement des signaux (#87 §6.2). */
         val WINDOW: Duration = 300.milliseconds

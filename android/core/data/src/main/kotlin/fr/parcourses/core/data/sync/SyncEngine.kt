@@ -9,6 +9,7 @@ import fr.parcourses.core.data.outbox.ServerClock
 import fr.parcourses.core.data.outbox.VisitClosePayload
 import fr.parcourses.core.data.outbox.carriesDeviceTime
 import fr.parcourses.core.data.sharing.AccessChange
+import fr.parcourses.core.data.sharing.SharingAccess
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.syncedOnce
@@ -19,6 +20,7 @@ import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.SharingRequestError
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
+import fr.parcourses.core.network.dto.ListSharing
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
@@ -55,6 +57,8 @@ class SyncDependencies(
     val accountKind: () -> AccountKind = { AccountKind.Anonymous },
     /** Accès d'une liste partagée changé par un autre membre (#87, lot 87.6) : message à montrer. */
     val onAccessChange: (AccessChange) -> Unit = {},
+    /** Un envoi d'article vers cette liste commence ou a réussi (écho des signaux temps réel, [RecentSends]). */
+    val onItemsSent: (String) -> Unit = {},
 ) {
     private companion object {
         const val JITTER_MIN = 0.8
@@ -86,7 +90,7 @@ class SyncEngine(
     private val cursors: SyncCursors,
     private val classify: (String) -> PulledItemClassification,
     private val dependencies: SyncDependencies = SyncDependencies(),
-) {
+) : SharingAccess {
     private val store = SyncStore(db)
     private val rekey = AccountRekey(db)
     private val reconciliation = OutboxReconciliation(db)
@@ -193,6 +197,24 @@ class SyncEngine(
      */
     suspend fun refreshAccess(listId: String) {
         passLock.withLock { refreshAccessLocked(listId) }
+    }
+
+    override suspend fun applySharing(sharing: ListSharing) {
+        passLock.withLock {
+            val change = store.applySharing(sharing) ?: return@withLock
+            roleChanged(change, sharing.owner.displayName)
+        }
+    }
+
+    /**
+     * Sous le verrou : une descente déclenchée par le signal de ce départ ne voit pas la liste disparaître du serveur
+     * avant qu'elle ne quitte l'appareil (elle la donnerait pour « retirée par un autre membre »).
+     */
+    override suspend fun leaveList(listId: String) {
+        passLock.withLock {
+            gateway.removeMember(parse(listId), gateway.currentAccountId())
+            store.removeLists(listOf(listId))
+        }
     }
 
     /** Note qu'une passe est due. `pull` : lancement, premier plan, retour du réseau ; lève aussi le délai. */
@@ -426,8 +448,12 @@ class SyncEngine(
         try {
             while (currentCoroutineContext().isActive) {
                 val work = store.nextWork(dependencies.now(), singleChecks) ?: return sent
+                val itemsOf = itemListOf(work)
                 try {
+                    // Avant et après l'envoi : l'écho du signal `items` peut arriver avant la réponse.
+                    itemsOf?.let(dependencies.onItemsSent)
                     send(work)
+                    itemsOf?.let(dependencies.onItemsSent)
                     store.complete(work)
                     isWaitingForSession = false
                     releaseParkedIfRecovered()
@@ -497,6 +523,27 @@ class SyncEngine(
     }
 
     private fun parse(id: String) = Uuid.parse(id)
+
+    /** Liste d'un envoi d'article (ajout, modification, coche, suppression) ; `null` pour le reste. */
+    private fun itemListOf(work: OutboxWork): String? =
+        when (work.kind) {
+            OutboxKind.UpsertItem -> {
+                OutboxCoding
+                    .decode(
+                        ListItemUpsert.serializer(),
+                        work.payloads.first(),
+                    ).listId
+                    .toString()
+            }
+
+            OutboxKind.DeleteItem -> {
+                OutboxCoding.decode(ItemDeletionPayload.serializer(), work.payloads.first()).listId
+            }
+
+            else -> {
+                null
+            }
+        }
 
     /**
      * Article (#87 §6.4, vecteur `001`) : insertion complète s'il n'a jamais atteint le serveur, sinon mise à jour des
@@ -589,17 +636,45 @@ class SyncEngine(
         // Liste à soi : ses articles jamais envoyés restent, avec leurs entrées (ils partiront ensuite).
         val mine = sharing.role == ListRole.Owner
         store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify, keepUnsent = mine) { lost = it }
-        val ownerName = sharing.owner.displayName
+        // Rôle inchangé mais déjà lecteur : des modifications faites avant l'abaissement viennent d'être jetées.
+        roleChanged(
+            change ?: RoleChange(listId, sharing.role, sharing.role),
+            sharing.owner.displayName,
+            alreadyDropped = lost,
+            reloaded = true,
+        )
+        Log.i(TAG, "Liste rechargée après un refus d'écriture")
+    }
+
+    /**
+     * Seul endroit où un changement de mon rôle est traité, qu'il vienne de la descente, de la feuille « Partager » ou
+     * de [refreshAccess] (sous [passLock]). Passage en lecture seule : les entrées en attente de la liste sont jetées
+     * et ses articles rechargés (sauf s'ils l'ont déjà été, [reloaded], avec [alreadyDropped] entrées jetées), puis
+     * **un** message avec leur nombre. Retour à la modification : un message aussi.
+     */
+    private suspend fun roleChanged(
+        change: RoleChange,
+        ownerName: String?,
+        alreadyDropped: Int = 0,
+        reloaded: Boolean = false,
+    ) {
         when {
-            sharing.role == ListRole.Viewer && (lost > 0 || change != null) -> {
-                notify(AccessChange.Downgraded(listId, ownerName, lost))
+            change.to == ListRole.Viewer -> {
+                var dropped = alreadyDropped
+                if (!reloaded && change.from != ListRole.Viewer) {
+                    store.replaceItems(change.listId, gateway.fetchItems(parse(change.listId)), classify) {
+                        dropped += it
+                    }
+                }
+                if (change.from != ListRole.Viewer || dropped > 0) {
+                    notify(AccessChange.Downgraded(change.listId, ownerName, dropped))
+                }
             }
 
-            change?.from == ListRole.Viewer -> {
-                notify(AccessChange.Upgraded(listId, ownerName))
+            change.from == ListRole.Viewer -> {
+                notify(AccessChange.Upgraded(change.listId, ownerName))
             }
         }
-        Log.i(TAG, "Liste rechargée après un refus d'écriture")
     }
 
     /** `ownerId` nul : liste jamais descendue, donc à soi. */
@@ -1015,11 +1090,7 @@ class SyncEngine(
         val names = profiles.associate { it.userId.toString() to it.displayName }
         val owners = store.lists().associate { it.id to it.ownerId }
         for (change in store.replaceParticipants(members, profiles, me)) {
-            val ownerName = owners[change.listId]?.let(names::get)
-            when {
-                change.to == ListRole.Viewer -> notify(AccessChange.Downgraded(change.listId, ownerName, 0))
-                change.from == ListRole.Viewer -> notify(AccessChange.Upgraded(change.listId, ownerName))
-            }
+            roleChanged(change, owners[change.listId]?.let(names::get))
         }
     }
 

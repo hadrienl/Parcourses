@@ -128,7 +128,7 @@ class SharingIntegrationTest {
                 engine,
                 RoomListRepository(db),
                 cursors,
-                SharingRepository(gateway, db, pull = { engine.drain(pull = true) }),
+                SharingRepository(gateway, db, pull = { engine.drain(pull = true) }, access = { engine }),
                 changes,
             )
         engine.drain(pull = true)

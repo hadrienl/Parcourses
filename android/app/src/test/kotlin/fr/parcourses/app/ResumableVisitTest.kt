@@ -5,6 +5,7 @@ import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.repository.CheckSubject
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
+import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -90,6 +91,18 @@ class ResumableVisitTest {
 
             assertNull(container.resumableVisit())
             assertNotNull(container.visits.visit(visitId)?.endedAt)
+        }
+
+    @Test
+    fun aVisitWhoseListBecameReadOnlyIsAbandonedEvenIfRecent() =
+        runBlocking {
+            val (listId, visitId, _) = visitWithAMissingItem(lastCheckAgo = 1.minutes)
+            // Rôle abaissé entre deux lancements : un lecteur ne fait pas les courses (#87, Q5).
+            container.database.lists().setRole(listId, ListRole.Viewer)
+
+            assertNull(container.resumableVisit())
+            assertNotNull(container.visits.visit(visitId)?.endedAt)
+            assertNull(container.visits.openVisit())
         }
 
     @Test

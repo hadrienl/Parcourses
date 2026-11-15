@@ -27,6 +27,8 @@ import kotlin.uuid.Uuid
 @RunWith(AndroidJUnit4::class)
 class RealtimeSignalsTest {
     private val me = Uuid.random()
+    private var account = me
+    private var echoes = emptySet<String>()
     private val list = Uuid.random()
     private val kind = MutableStateFlow(AccountKind.Email)
     private var pulls = 0
@@ -56,10 +58,11 @@ class RealtimeSignalsTest {
     private fun TestScope.signals(): RealtimeSignals =
         RealtimeSignals(
             source = source,
-            accountId = { me },
+            accountId = { account },
             accountKind = kind,
             requestPull = { pulls += 1 },
             scope = backgroundScope,
+            isEcho = { it in echoes },
         )
 
     private fun changed(
@@ -207,9 +210,34 @@ class RealtimeSignalsTest {
             val signals = signals()
             signals.foreground()
             runCurrent()
+            val other = Uuid.random()
+            account = other
             signals.sessionChanged()
             runCurrent()
             assertEquals(2, source.opened)
             assertEquals(1, source.open)
+            // Le canal rouvert est celui du nouveau compte, l'ancien est fermé.
+            assertEquals(listOf(me, other), source.users)
+        }
+
+    @Test
+    fun theEchoOfMyOwnItemWritesAsksForNoPull() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            echoes = setOf(list.toString())
+
+            source.events.emit(changed("items"))
+            advanceTimeBy(400)
+            assertEquals(0, pulls)
+
+            // Un autre type de signal, ou une autre liste, passe.
+            source.events.emit(changed("members"))
+            advanceTimeBy(400)
+            assertEquals(1, pulls)
+            source.events.emit(changed("items", Uuid.random()))
+            advanceTimeBy(400)
+            assertEquals(2, pulls)
         }
 }
