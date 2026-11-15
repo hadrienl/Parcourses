@@ -22,10 +22,10 @@ actor SupabaseGateway: RemoteGateway {
   /// Filtre `in` des pierres tombales : au-delà, l'URL deviendrait trop longue.
   private static let idsPerRequest = 100
 
-  private let client: SupabaseClient
-  private let rest: PostgrestClient
-  private let restURL: URL
-  private let publishableKey: String
+  let client: SupabaseClient
+  let rest: PostgrestClient
+  let restURL: URL
+  let publishableKey: String
   private let store: any SecureStore
   /// Suppression de compte en cours : `ensureSession` ne crée plus de compte (#68 §5.3).
   private let deletionFlags: any AccountDeletionFlagStore
@@ -34,12 +34,26 @@ actor SupabaseGateway: RemoteGateway {
   /// Connexion en cours : l'acteur est réentrant, deux appels ne doivent pas créer deux comptes.
   private var signIn: Task<UUID, any Error>?
   private var categoryMap: CategoryMap?
+  /// Edge Function `send-invitation` (#87) ; les tests d'intégration la lancent avec Deno, ailleurs que la pile.
+  let sendInvitationURL: URL
+  /// Liens construits pour « Copier le lien ».
+  let invitationLinks: InvitationLinks
+  /// Canal temps réel `user:<uid>` ouvert, `nil` en arrière-plan ou pour un compte anonyme.
+  var signalChannel: RealtimeChannelV2?
+  /// Tâche qui relaie les événements de ce canal.
+  var signalRelay: Task<Void, Never>?
+  /// Flux rendu à `RealtimeSignals`, terminé à la fermeture.
+  var signalContinuation: AsyncStream<RealtimeEvent>.Continuation?
 
   init(
     configuration: SupabaseConfiguration, store: any SecureStore = KeychainStore(),
     deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
-    accountKinds: any AccountKindStore = UserDefaultsAccountKindStore()
+    accountKinds: any AccountKindStore = UserDefaultsAccountKindStore(),
+    sendInvitationURL: URL? = nil, invitationLinks: InvitationLinks = InvitationLinks()
   ) {
+    self.sendInvitationURL =
+      sendInvitationURL ?? configuration.url.appending(path: "functions/v1/send-invitation")
+    self.invitationLinks = invitationLinks
     self.store = store
     self.deletionFlags = deletionFlags
     self.accountKinds = accountKinds
@@ -202,7 +216,7 @@ actor SupabaseGateway: RemoteGateway {
     return id
   }
 
-  private func resolveExistingSession() async throws -> UUID {
+  func resolveExistingSession() async throws -> UUID {
     let id = try await existingSessionUser()
     let known = try store.data(forKey: Self.lastAccountKey).flatMap { String(bytes: $0, encoding: .utf8) }
     if let known {
@@ -665,7 +679,7 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
-  private func fetchAllPages<Row: Sendable>(
+  func fetchAllPages<Row: Sendable>(
     _ page: @Sendable (_ from: Int, _ to: Int) async throws -> [Row]
   ) async throws -> [Row] {
     var rows: [Row] = []
@@ -676,7 +690,7 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
-  private static func selection<Row: TableDTO>(of type: Row.Type) -> String {
+  static func selection<Row: TableDTO>(of type: Row.Type) -> String {
     Row.columns.joined(separator: ",")
   }
 
@@ -688,7 +702,7 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   /// Toute requête passe par une session valide du même compte, puis ses erreurs sont classées.
-  private func authorized<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+  func authorized<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
     try await mapped {
       // Jamais de compte créé ici : sans session, l'appelant reçoit `unauthorized` et attend.
       _ = try await self.resolveExistingSession()
@@ -696,7 +710,7 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
-  private func mapped<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+  func mapped<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
     do {
       return try await operation()
     } catch {

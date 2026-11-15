@@ -31,7 +31,10 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     row(app, "tomates", "non coché").tap()
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
 
-    row(app, "xyzzy", "non coché").swipeLeft()
+    // Dernière ligne : avec le titre de la liste en tête du ticket, elle peut passer sous le dock et le clavier.
+    let xyzzy = row(app, "xyzzy", "non coché")
+    reveal(xyzzy, in: app, betweenBars: true)
+    xyzzy.swipeLeft()
     app.buttons["Supprimer"].firstMatch.tap()
     XCTAssertTrue(row(app, "xyzzy", "non coché").waitForNonExistence(timeout: 15))
 
@@ -211,6 +214,8 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     type("\n", into: entry, app)
     XCTAssertTrue(row(app, "kiwi melon", "non coché").waitForExistence(timeout: 15))
     app.navigationBars.buttons.firstMatch.tap()
+    // Écran de la liste parti : son titre (« Semaine », dans le ticket) ne répond plus à la recherche.
+    XCTAssertTrue(app.descendants(matching: .any)["listTitle"].waitForNonExistence(timeout: 15))
     let list = app.staticTexts["Semaine"]
     XCTAssertTrue(list.waitForExistence(timeout: 15))
     list.tap()

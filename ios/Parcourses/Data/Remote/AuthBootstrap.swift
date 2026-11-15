@@ -17,6 +17,8 @@ enum AuthBootstrap {
     #if DEBUG
       // Tests UI : build sans passerelle, quel que soit `Local.xcconfig`.
       if ProcessInfo.processInfo.arguments.contains(localOnlyArgument) { return nil }
+      // Tests UI du partage (#87, lot 87.4) : serveur en mémoire.
+      if let gateway = UITestSharingGateway.fromEnvironment() { return gateway }
     #endif
     guard let configuration = SupabaseConfiguration(bundle: bundle) else { return nil }
     return SupabaseGateway(configuration: configuration, store: keychain)

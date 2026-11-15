@@ -136,6 +136,17 @@ struct ShoppingView: View {
     } message: {
       Text(session.errorMessage ?? "")
     }
+    // Liste retirée pendant les courses : feuille non fermable, « Terminer » clôt la visite (#87 §1.5).
+    .sheet(isPresented: accessLostIsPresented) {
+      AccessLostSheet(end: session.accessEnd ?? .removed) { session.finish(keepRemaining: true) }
+        .presentationDetents([.medium])
+        .presentationBackground(Palette.paper)
+        .interactiveDismissDisabled()
+    }
+  }
+
+  private var accessLostIsPresented: Binding<Bool> {
+    Binding(get: { session.accessLost && session.summary == nil }, set: { _ in })
   }
 
   /// En ordre appris, un rayon qui remonte après un tri porte « ↑ appris » pendant 3 s : le mouvement s'explique.
@@ -270,7 +281,9 @@ struct ShoppingView: View {
         Bead(state: bead)
       } content: {
         // L'état se lit sans couleur : case pleine avec coche, et texte barré.
-        ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked, isNext: isNext)
+        ItemLine(
+          label: row.label, quantity: row.quantity, isChecked: row.isChecked, isNext: isNext,
+          authorMark: row.authorMark)
       }
     }
     .buttonStyle(.plain)
@@ -313,12 +326,15 @@ struct ShoppingView: View {
       uncheckTrigger += 1
       session.toggle(row)
     } label: {
-      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
+      ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark)
     }
     .buttonStyle(.plain)
     .ticketRow()
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(row.accessibilityLabel)
+    // « Lait entier, 2, dans le panier, par Léa » : l'article pris par un autre membre (#87).
+    .accessibilityLabel(
+      row.authorName.map { "\(row.accessibilityLabel), dans le panier, par \($0)" } ?? row.accessibilityLabel
+    )
     .accessibilityValue(row.isChecked ? "coché" : "non coché")
     .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
     .accessibilityAddTraits(.isToggle)
@@ -455,6 +471,42 @@ struct ShoppingView: View {
 }
 
 /// « 2 articles non cochés : les garder pour la prochaine fois ? » (#6)
+/// Accès retiré ou passé en lecture seule pendant les courses (maquette, écran 6) : le titre prend le focus,
+/// « Terminer » clôt la visite.
+private struct AccessLostSheet: View {
+  let end: ShoppingSession.AccessEnd
+  let onFinish: () -> Void
+  @AccessibilityFocusState private var titleFocused: Bool
+
+  private var title: String {
+    switch end {
+    case .removed: "Vous n'avez plus accès à cette liste"
+    case .readOnly(let ownerName): SharingFormat.downgradedTitle(ownerName: ownerName)
+    }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Space.m) {
+      Text(title)
+        .font(.title2.weight(.bold))
+        .foregroundStyle(Palette.ink)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityFocused($titleFocused)
+      Text("Les courses s'arrêtent ici. Vos coches comptent quand même pour le trajet du magasin.")
+        .foregroundStyle(Palette.ink)
+        .fixedSize(horizontal: false, vertical: true)
+      Button(action: onFinish) {
+        Text("Terminer").frame(maxWidth: .infinity)
+      }
+      .prominentButton()
+      .accessibilityIdentifier("finishAfterAccessLost")
+    }
+    .padding(Space.l)
+    .onAppear { titleFocused = true }
+    .accessibilityIdentifier("accessLost")
+  }
+}
+
 private struct RemainingItemsSheet: View {
   let count: Int
   let canCancel: Bool

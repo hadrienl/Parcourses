@@ -1186,6 +1186,30 @@ private func rows(_ labels: [String], checked: Set<String> = [], aisle: String =
     #expect(state.nextItemLabel == labels[1])
   }
 
+  /// Contre-relecture de #101 (2) : rôle abaissé en lecteur pendant les courses. La Live Activity se termine tout de
+  /// suite et ne réapparaît pas à la publication suivante.
+  @Test func aRoleLoweredWhileShoppingEndsTheActivityForGood() async throws {
+    let harness = try Harness()
+    try harness.add("lait")
+    try harness.add("tomates")
+    let activity = RecordingActivity()
+    let session = harness.session(activity: activity)
+    await session.start()
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+    session.syncDidChange()
+    #expect(session.accessLost)
+    guard case .end? = activity.calls.last else {
+      Issue.record("activité non terminée")
+      return
+    }
+    let calls = activity.calls.count
+    // Une nouvelle descente ou un retour au premier plan ne la republie pas.
+    session.syncDidChange()
+    session.foregrounded()
+    #expect(activity.calls.count == calls)
+  }
+
   @Test func undoAndUncheckGoBack() async throws {
     let harness = try Harness()
     try harness.add("lait")
@@ -1982,6 +2006,43 @@ extension Harness {
     #expect(calls.contains(.end("b", immediate: true)))
   }
 
+  /// Contre-relecture de #101 (4) : juste après la migration V4→V5, la réparation des rôles passe à la construction de
+  /// l'environnement, avant la reprise. Ma liste reste à moi et sa visite reprend ; celle d'un autre passe en lecture
+  /// seule.
+  @Test func theRoleRepairRunsBeforeTheResumeAndKeepsMyLists() async throws {
+    let harness = try Harness()
+    let me = UUID()
+    let mine = try #require(try harness.lists.list(id: harness.listId))
+    mine.ownerId = me
+    let foreign = ShoppingList(name: "De quelqu'un", syncState: .synced, ownerId: UUID())
+    harness.context.insert(foreign)
+    try harness.context.save()
+    try harness.add("lait")
+    let visit = try harness.visitElsewhere(checkedAt: t0.addingTimeInterval(60))
+    let cursors = MemorySyncCursors()
+    cursors.accountId = me
+
+    let environment = try AppEnvironment(container: harness.container, cursors: cursors)
+    #expect(foreign.role == .viewer)
+    #expect(mine.role == .owner)
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(120))
+    #expect(session?.visitId == visit)
+  }
+
+  /// #87 (relecture de #100) : la liste est passée en lecture seule pendant que l'app était fermée. La visite n'est pas
+  /// reprise : elle est close à sa dernière coche, un lecteur ne fait pas de courses (Q5).
+  @Test func aVisitOnAListNowReadOnlyIsAbandonedAtLaunch() async throws {
+    let (environment, harness) = try environment()
+    let lastCheck = t0.addingTimeInterval(300)
+    let visit = try harness.visitElsewhere(checkedAt: lastCheck)
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+
+    let session = await environment.resumeShopping(now: t0.addingTimeInterval(400))
+    #expect(session == nil)
+    #expect(try harness.visits.visit(id: visit)?.endedAt == lastCheck)
+  }
+
   @Test func aVisitWhoseListIsGoneIsClosedAtItsLastCheck() async throws {
     let (environment, harness) = try environment()
     let lastCheck = t0.addingTimeInterval(300)
@@ -2125,6 +2186,22 @@ extension Harness {
     #expect(try harness.visits.checks(visitId: visit).isEmpty)
     #expect(activity.states.last?.nextItemId == bread)
     #expect(activity.states.last?.remaining == 1)
+  }
+
+  /// #87 (relecture de #100) : liste passée en lecture seule pendant les courses. « Cocher le suivant » ne coche rien,
+  /// et l'activité part.
+  @Test func aListNowReadOnlyRefusesCheckNext() async throws {
+    let harness = try Harness()
+    let (visit, milk, bread) = try seed(harness)
+    let activity = RecordingActivity()
+    activity.restored[visit] = ActivityState(remaining: 2, total: 2, pendingItemIds: [milk, bread])
+    try #require(try harness.lists.list(id: harness.listId)).role = .viewer
+    try harness.context.save()
+
+    await actions(harness, activity: activity).checkNext(visitId: visit, itemId: milk)
+    #expect(try harness.visits.checks(visitId: visit).isEmpty)
+    #expect(try harness.item(milk).checkedAt == nil)
+    #expect(activity.endAllKeeping == [nil])
   }
 
   @Test func aStaleClosedOrUnknownVisitIsLeftAlone() async throws {

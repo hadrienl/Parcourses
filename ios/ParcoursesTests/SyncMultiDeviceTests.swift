@@ -122,7 +122,7 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(try freshItem(harness, item.id) == nil)
     #expect(try freshItem(harness, other.id) != nil)
     #expect(try harness.entries().map(\.entityId) == [other.id])
-    #expect(await !harness.gateway.calls.contains("accessibleListIds"))
+    #expect(await !harness.gateway.calls.contains("listSharing"))
   }
 
   /// Vecteur `002` : une entrée remplacée avant l'envoi garde sa place et l'union des champs.
@@ -174,7 +174,7 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     #expect(local.label == "Lait demi-écrémé")
     #expect(try harness.entries().isEmpty)
     let calls = await harness.gateway.calls
-    #expect(calls.contains("accessibleListIds") && calls.contains("fetchItems(listId:)"))
+    #expect(calls.contains("listSharing") && calls.contains("fetchItems(listId:)"))
   }
 
   /// Vecteur `004` : un ajout refusé dans la liste d'un autre (rôle abaissé) recharge la liste, sans abandon en file.
@@ -185,6 +185,11 @@ private func serverItem(_ id: UUID, listId: UUID, label: String, checkedAt: Date
     await harness.gateway.setPull(
       lists: [serverList(listId, owner: UUID(), name: "Partagée", at: t0)],
       items: [serverItem(kept, listId: listId, label: "Pain", at: t0)])
+    // Éditeur sur cet appareil : l'ajout part, c'est le serveur qui le refuse (lecteur, l'appareil le refuserait).
+    let me = await harness.gateway.account
+    await harness.gateway.setMembers([
+      ListMemberRow(listId: listId, userId: me, role: "editor", createdAt: t0, updatedAt: t0)
+    ])
     await harness.engine.drain(pull: true)
     #expect(try harness.fresh(ShoppingList.self).first?.ownerId != nil)
     await harness.gateway.setRefusedLists([listId])

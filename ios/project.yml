@@ -49,6 +49,12 @@ targets:
         AppGroupIdentifier: $(APP_GROUP_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
+        # Hôte des liens d'invitation https (#87, lot 87.7) : vide jusqu'au lot 87.7 (liens universels).
+        ParcoursesInvitationHost: $(PARCOURSES_INVITATION_HOST)
+        # Liens d'invitation par le schéma de l'app : parcourses://invitation#<jeton> (#87 §5).
+        CFBundleURLTypes:
+          - CFBundleURLName: app.parcourses.invitation
+            CFBundleURLSchemes: [parcourses]
         UILaunchScreen: {}
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.parcourses.sync]
@@ -90,6 +96,10 @@ targets:
         buildPhase: resources
       # Vecteurs de synchro partagés avec Android (#87), lus tous par SyncDecisionVectorTests.
       - path: ../shared/test-vectors/sync
+        type: folder
+        buildPhase: resources
+      # Vecteurs du partage (#87, lot 87.4), lus tous par SharingDecisionVectorTests.
+      - path: ../shared/test-vectors/sharing
         type: folder
         buildPhase: resources
       - path: ../supabase/migrations

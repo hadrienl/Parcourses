@@ -111,6 +111,17 @@ jobs:
       - name: Charge du runner pendant les tests
         if: failure()
         run: cat "$RUNNER_TEMP/charge.log" || true
+      - name: Captures des tests UI (preuve visuelle des PR, iOS 18)
+        if: always() && matrix.ios == '18'
+        run: |
+          mkdir -p captures
+          xcrun xcresulttool export attachments --path TestResults.xcresult --output-path captures || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.ios == '18'
+        with:
+          name: captures-ios-18
+          path: ios/captures
+          retention-days: 7
       - name: Bundle iPhone signable (un bundle mal formé empêche l'installation)
         if: matrix.ios != '18'
         # xcodebuild refuse la signature ad hoc pour iphoneos : on compile sans signer, puis on signe à la main.

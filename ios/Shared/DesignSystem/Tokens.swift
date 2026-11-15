@@ -38,6 +38,16 @@ enum Palette {
     static let bio = dynamic(light: 0x4F6F12, dark: 0xC3DC6A)
   }
 
+  /// Partage (#87, `variants.ticketFile.color.*.sharing`) : avertissements (e-mail non parti, autre adresse, accès
+  /// abaissé) et bordure de la carte d'invitation. `caution` tient 6,4:1 sur `paper` et 5,8:1 sur `cautionFill`.
+  enum Sharing {
+    static let caution = dynamic(light: 0x8A4B00, dark: 0xF5BF62)
+    static let cautionFill = dynamic(light: 0xFCEBC9, dark: 0x2E2615)
+    static let accentFill = dynamic(light: 0xE3E7FA, dark: 0x1E2540)
+    /// Erreur de champ et action destructive en texte : 4,5:1 au moins sur `paper` (iOS #60).
+    static let destructive = dynamic(light: 0xD70015, dark: 0xFF6961)
+  }
+
   // Hors acteur : UIKit peut résoudre une couleur dynamique hors du fil principal.
   nonisolated private static func dynamic(
     light: UInt32, dark: UInt32, lightHigh: UInt32? = nil, darkHigh: UInt32? = nil

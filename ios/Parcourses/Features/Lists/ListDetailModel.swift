@@ -10,10 +10,15 @@ struct ItemRow: Identifiable, Equatable {
   let categoryId: String
   let normalizedName: String
   let isChecked: Bool
+  /// Initiale de l'auteur de la dernière modification, s'il est un autre membre (vecteur `008`).
+  var authorMark: String?
+  /// Son prénom, lu par VoiceOver.
+  var authorName: String?
 
-  /// « Tomates, 2 », suivi par VoiceOver de `accessibilityState` (#9 §11).
+  /// « Tomates, 2 », suivi par VoiceOver de `accessibilityState` (#9 §11), et de l'auteur sur une liste partagée.
   var accessibilityLabel: String {
-    [label, quantity].compactMap(\.self).joined(separator: ", ")
+    let author = authorName.map { "dernière modification par \($0)" }
+    return [label, quantity, author].compactMap(\.self).joined(separator: ", ")
   }
 
   var accessibilityState: String {
@@ -40,6 +45,14 @@ final class ListDetailModel {
   private(set) var isLoaded = false
   /// Liste inconnue ou supprimée.
   private(set) var isMissing = false
+  /// Mon rôle et les participants (#87, lot 87.4).
+  private(set) var access = ListAccess()
+  /// Liste partagée avec moi, puis retirée de l'appareil par un autre (retrait, suppression par le propriétaire).
+  private(set) var wasRemoved = false
+  /// Liste quittée ici (« Quitter la liste ») : l'écran revient à Mes listes, sans message.
+  private(set) var didLeave = false
+  /// Dernière modification d'un autre membre : « Modifiée par Léa · il y a 2 min ».
+  private(set) var lastChange: (name: String, date: Date)?
   var input = ""
   var errorMessage: String?
 
@@ -53,11 +66,17 @@ final class ListDetailModel {
   private var categories: [(id: String, label: String)] = []
   private var index = ItemSuggestionIndex(history: [], products: [], normalizeFallback: { $0 })
   private var pendingNames: Set<String> = []
+  private let accountId: () -> UUID?
+  /// Liste quittée volontairement ici (« Quitter la liste »).
+  private let wasLeft: (UUID) -> Bool
 
   init(
     listId: UUID, lists: any ListRepository, products: any ProductRepository, categories: any CategoryRepository,
-    analyzer: EntryAnalyzer, now: @escaping () -> Date = { .now }
+    analyzer: EntryAnalyzer, now: @escaping () -> Date = { .now }, accountId: @escaping () -> UUID? = { nil },
+    wasLeft: @escaping (UUID) -> Bool = { _ in false }
   ) {
+    self.accountId = accountId
+    self.wasLeft = wasLeft
     self.listId = listId
     self.lists = lists
     self.products = products
@@ -82,8 +101,14 @@ final class ListDetailModel {
     perform {
       categories = try categoryRepository.categories().map { ($0.id, $0.label) }
       let list = try lists.list(id: listId)
-      name = list?.name ?? ""
+      // Une liste partagée avec moi qui disparaît a été retirée : la maquette l'annonce en plein écran. Quittée par moi,
+      // l'écran revient simplement à Mes listes.
+      if list == nil, isLoaded, access.role != .owner {
+        if wasLeft(listId) { didLeave = true } else { wasRemoved = true }
+      }
+      name = list?.name ?? name
       isMissing = list == nil
+      if let list { access = ListAccess(list: list, me: accountId()) }
     }
     reloadItems()
     rebuildIndex()
@@ -93,11 +118,17 @@ final class ListDetailModel {
   /// Articles affichés. Ne relit pas l'historique : une coche ne change pas les propositions possibles.
   private func reloadItems() {
     perform {
-      let rows = try lists.items(listId: listId).map {
+      let items = try lists.items(listId: listId)
+      let access = access
+      let rows = items.map {
         ItemRow(
           id: $0.id, label: $0.label, quantity: $0.quantity, categoryId: $0.categoryId,
-          normalizedName: $0.normalizedName, isChecked: $0.checkedAt != nil)
+          normalizedName: $0.normalizedName, isChecked: $0.checkedAt != nil,
+          authorMark: access.authorMark(updatedBy: $0.updatedBy), authorName: access.otherName($0.updatedBy))
       }
+      // La plus récente modification, si elle vient d'un autre membre ; masquée si c'est la mienne.
+      let latest = items.max { $0.updatedAt < $1.updatedAt }
+      lastChange = latest.flatMap { item in access.otherName(item.updatedBy).map { ($0, item.updatedAt) } }
       isEmpty = rows.isEmpty
       sections = Self.group(rows, categories: categories)
       pendingNames = Set(rows.filter { !$0.isChecked }.map(\.normalizedName))
@@ -132,12 +163,15 @@ final class ListDetailModel {
   }
 
   func toggle(_ row: ItemRow) {
+    // Lecteur : la liste ne se modifie pas ici (Q5).
+    guard access.capabilities.canEditItems else { return }
     let date = now()
     perform { try lists.setChecked(itemId: row.id, checkedAt: row.isChecked ? nil : date, at: date) }
     reloadItems()
   }
 
   func delete(_ row: ItemRow) {
+    guard access.capabilities.canEditItems else { return }
     perform { try lists.deleteItem(id: row.id) }
     reloadItems()
     rebuildIndex()
@@ -156,6 +190,7 @@ final class ListDetailModel {
   }
 
   private func add(label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String) {
+    guard access.capabilities.canEditItems else { return }
     let succeeded = perform {
       try lists.addItem(
         listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,

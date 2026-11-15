@@ -25,8 +25,17 @@ struct ParcoursesApp: App {
       switch phase {
       case .active:
         app.sync?.foreground()
-        Task { await app.foreground() }
+        app.sharing?.scenePhaseChanged(isActive: true)
+        Task {
+          await app.foreground()
+          // Canal temps réel et invitations, une fois le compte relu (#87, lot 87.4).
+          await app.sharing?.foreground()
+        }
       case .background:
+        let sharing = app.sharing
+        // Drapeau posé tout de suite : une ouverture qui attend encore le compte ne rouvre pas le canal.
+        sharing?.scenePhaseChanged(isActive: false)
+        Task { await sharing?.background() }
         guard let sync = app.sync else { break }
         sync.enteredBackground()
         SyncRuntime.scheduleBackgroundRefresh()
@@ -46,6 +55,9 @@ struct ParcoursesApp: App {
       RootView(environment: environment)
         .environment(app.deletion)
         .environment(app.account)
+        .environment(app.sharing)
+        // Lien d'invitation par le schéma de l'app (#87 §5) : la racine présente la carte.
+        .onOpenURL { url in _ = app.sharing?.open(url: url) }
         .task {
           await app.resumePendingSwitch()
           environment.sync?.start()
@@ -54,6 +66,7 @@ struct ParcoursesApp: App {
             environment.sync?.sessionDidChange()
           }
           await app.account?.refresh()
+          await app.sharing?.foreground()
         }
         // Après une suppression : environnement neuf, écrans et modèles repartent de zéro.
         .id(app.generation)
@@ -93,11 +106,15 @@ struct StoreFailureView: View {
 /// Routes de la pile de navigation (#9 §9). Les suivantes arrivent avec leurs écrans.
 enum Route: Hashable {
   case list(UUID)
+  /// « Invitations (n) » : invitations reçues (#87, lot 87.4).
+  case invitations
 }
 
 /// Racine : une seule `NavigationStack`, un seul point de destination.
 struct RootView: View {
   let environment: AppEnvironment
+  @Environment(SharingCenter.self) private var sharing: SharingCenter?
+  @Environment(AccountSession.self) private var account: AccountSession?
   @State private var path: [Route] = []
   /// Liste pour laquelle on choisit le magasin.
   @State private var pickingFor: PickerRequest?
@@ -110,13 +127,18 @@ struct RootView: View {
 
   var body: some View {
     NavigationStack(path: $path) {
-      ListsView(model: environment.makeListsModel()) { id in
-        // Un double appui ne doit pas empiler deux fois le même écran.
-        guard path.last != .list(id) else { return }
-        path.append(.list(id))
+      ListsView(model: environment.makeListsModel(), onOpen: open) {
+        guard path.last != .invitations else { return }
+        path.append(.invitations)
       }
       .navigationDestination(for: Route.self) { route in
         switch route {
+        case .invitations:
+          if let sharing {
+            ReceivedInvitationsScreen(center: sharing) { listId in
+              path = [.list(listId)]
+            }
+          }
         case .list(let id):
           // L'identifiant vient du modèle, qui suit la liste : celui de la route a pu changer.
           ListDetailView(model: environment.makeListDetailModel(listId: id)) { listId in
@@ -145,6 +167,17 @@ struct RootView: View {
           pickingFor = nil
         })
     }
+    // Lien d'invitation ouvert dans l'app : la carte, en feuille. Acceptée, la liste s'ouvre.
+    .sheet(item: Binding(get: { sharing?.openedLink }, set: { sharing?.openedLink = $0 })) { opened in
+      if let sharing {
+        InvitationLinkSheet(model: sharing.makeCard(token: opened.token), center: sharing) { listId in
+          path = [.list(listId)]
+        }
+      }
+    }
+    // Compte relu (connexion, déconnexion) : canal temps réel et invitations suivent.
+    .onChange(of: account?.kind) { Task { await sharing?.foreground() } }
+    .onChange(of: account?.needsSignIn) { Task { await sharing?.foreground() } }
     .fullScreenCover(item: $session) { session in
       ShoppingView(session: session) {
         self.session = nil
@@ -163,6 +196,7 @@ struct RootView: View {
       path = path.map { route in
         switch route {
         case .list(let id): .list(remap[id])
+        case .invitations: .invitations
         }
       }
       pickingFor?.listId = remap[pickingFor?.listId ?? UUID()]
@@ -176,6 +210,12 @@ struct RootView: View {
       environment.endOrphanActivities(keeping: session?.visitId)
       isStarting = false
     }
+  }
+
+  /// Un double appui ne doit pas empiler deux fois le même écran.
+  private func open(_ id: UUID) {
+    guard path.last != .list(id) else { return }
+    path.append(.list(id))
   }
 
   private func beginPendingShopping() {

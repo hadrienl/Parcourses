@@ -199,6 +199,10 @@ struct ItemLine: View {
   let isChecked: Bool
   /// Prochain article du trajet : libellé plus grand et plus gras.
   var isNext = false
+  /// Initiale de l'auteur sur une liste partagée (#87), après la quantité. Décorative.
+  var authorMark: String?
+  /// Lecture seule (lecteur) : pas de case ; un article coché porte une coche ✓, un article à prendre rien.
+  var readOnly = false
   @ScaledMetric(relativeTo: .body) private var box = TicketMetrics.checkBox
   /// Demi-hauteur des capitales du libellé : la case s'aligne sur le milieu de la première ligne.
   @ScaledMetric(relativeTo: .body) private var capHalf: CGFloat = 6
@@ -215,17 +219,29 @@ struct ItemLine: View {
         DottedRule()
         quantityText
       }
+      if let authorMark { AuthorMark(initial: authorMark) }
     }
     .padding(.vertical, Space.xs)
     .frame(minHeight: TicketMetrics.rowMin)
     .contentShape(Rectangle())
   }
 
-  private var checkBox: some View {
+  @ViewBuilder private var checkBox: some View {
     let offset = isNext ? capHalfNext : capHalf
-    return CheckBox(isChecked: isChecked, size: min(box, 44))
-      .threadAnchor()
-      .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
+    if readOnly {
+      Image(systemName: "checkmark")
+        .font(.body.weight(.bold))
+        .foregroundStyle(Palette.inkMuted)
+        .opacity(isChecked ? 1 : 0)
+        .frame(width: min(box, 44), height: min(box, 44))
+        .accessibilityHidden(true)
+        .threadAnchor()
+        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
+    } else {
+      CheckBox(isChecked: isChecked, size: min(box, 44))
+        .threadAnchor()
+        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
+    }
   }
 
   private var title: some View {

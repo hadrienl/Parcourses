@@ -32,8 +32,32 @@ delete from public.store_graph_snapshots where store_id = '$store';
 delete from public.stores where id = '$store';
 SQL
 }
+# Edge Function send-invitation (#87, lot 87.4) : l'image Edge Runtime manque en local, elle tourne avec Deno, comme
+# dans supabase/tests/e2e/sharing.test.ts. Sans Deno, le test passe par create_invitation (sans e-mail).
+function_port=54988
+function_pid=
+stop_function() {
+  [[ -n "$function_pid" ]] && kill "$function_pid" 2>/dev/null || true
+}
 cleanup
-trap cleanup EXIT
+trap 'stop_function; cleanup' EXIT
+send_invitation=
+if command -v deno >/dev/null; then
+  # Depuis ios/ : la racine du dépôt est le dossier parent. `exec` : le PID gardé est celui de Deno.
+  (cd .. && SUPABASE_URL="$url" SUPABASE_ANON_KEY="$key" MAILPIT_API_URL="$mailpit" \
+    SEND_INVITATION_PORT="$function_port" \
+    exec deno run --allow-net=127.0.0.1 --allow-env supabase/functions/send-invitation/index.ts >/dev/null 2>&1) &
+  function_pid=$!
+  for _ in $(seq 1 100); do
+    status_code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$function_port" || true)
+    if [[ "$status_code" == 405 ]]; then
+      send_invitation="http://127.0.0.1:$function_port"
+      break
+    fi
+    sleep 0.1
+  done
+  [[ -n "$send_invitation" ]] || echo "send-invitation ne répond pas : le test passera par create_invitation" >&2
+fi
 # Erreur serveur sur une seule ligne, pour la mise de côté. Local et temporaire : retirée par cleanup.
 sql <<SQL
 create function public.it_fail_list() returns trigger language plpgsql as \$\$
@@ -69,6 +93,7 @@ xcodegen generate --quiet
 TEST_RUNNER_PARCOURSES_IT_URL="$url" TEST_RUNNER_PARCOURSES_IT_KEY="$key" \
   TEST_RUNNER_PARCOURSES_IT_SNAPSHOT_STORE="$store" TEST_RUNNER_PARCOURSES_IT_DELETION_OUT="$deletion_out" \
   TEST_RUNNER_PARCOURSES_IT_MAILPIT="$mailpit" TEST_RUNNER_PARCOURSES_IT_ACCOUNTS_OUT="$accounts_out" \
+  TEST_RUNNER_PARCOURSES_IT_SEND_INVITATION="$send_invitation" \
   xcodebuild test -project Parcourses.xcodeproj -scheme Parcourses -destination "id=$udid" \
   -derivedDataPath DerivedData -only-testing:ParcoursesTests
 

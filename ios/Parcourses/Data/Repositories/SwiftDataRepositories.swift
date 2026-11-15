@@ -8,6 +8,13 @@ extension ModelContext {
     try commit(using: save)
   }
 
+  /// Liste en lecture seule sur cet appareil (rôle `viewer`).
+  func isReadOnly(listId: UUID) throws -> Bool {
+    let viewer = ListRole.viewer.rawValue
+    return try fetchCount(
+      FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId && $0.roleRaw == viewer })) > 0
+  }
+
   /// Exécute des écritures et les enregistre ; toute erreur les annule, enregistrement ou mise en file.
   func atomically<Result>(_ body: () throws -> Result) throws -> Result {
     do {
@@ -44,16 +51,20 @@ extension ModelContext {
 final class SwiftDataListRepository: ListRepository {
   private let context: ModelContext
   private let onEnqueue: () -> Void
+  private let author: () -> UUID?
 
-  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file. `author` : compte de l'appareil, posé sur
+  /// un article modifié ici (`updatedBy`), comme le serveur le fera à la réception (#87, lot 87.4).
   init(
     context: ModelContext,
     onEnqueue: @escaping () -> Void = {
       // Aucun moteur à réveiller.
-    }
+    },
+    author: @escaping () -> UUID? = { nil }
   ) {
     self.context = context
     self.onEnqueue = onEnqueue
+    self.author = author
   }
 
   func lists() throws -> [ShoppingList] {
@@ -80,7 +91,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func renameList(id: UUID, name: String, at date: Date) throws {
-    let list = try requireActiveList(id)
+    let list = try requireActiveList(id, writing: true)
     try context.atomically {
       list.name = name
       list.updatedAt = date
@@ -91,7 +102,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func deleteList(id: UUID, at date: Date) throws {
-    let list = try requireActiveList(id)
+    let list = try requireActiveList(id, writing: true)
     try context.atomically {
       list.deletedAt = date
       list.updatedAt = date
@@ -111,12 +122,12 @@ final class SwiftDataListRepository: ListRepository {
     listId: UUID, label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String,
     at date: Date
   ) throws -> ListItem {
-    _ = try requireActiveList(listId)
+    _ = try requireActiveList(listId, writing: true)
     let position = (try items(listId: listId).last?.position ?? -1) + 1
     let item = try context.atomically {
       let item = ListItem(
         listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
-        categoryId: categoryId, position: position, updatedAt: date)
+        categoryId: categoryId, position: position, updatedAt: date, updatedBy: author())
       context.insert(item)
       try context.enqueueUpsert(of: item, at: date, changedFields: ListItemFields.all)
       return item
@@ -126,10 +137,11 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws {
-    let item = try requireWritableItem(itemId)
+    let item = try requireWritableItem(itemId, shared: true)
     try context.atomically {
       item.checkedAt = checkedAt
       item.updatedAt = date
+      item.updatedBy = author()
       item.syncState = .pending
       try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
     }
@@ -144,7 +156,7 @@ final class SwiftDataListRepository: ListRepository {
   }
 
   func deleteItem(id: UUID) throws {
-    let item = try requireWritableItem(id)
+    let item = try requireWritableItem(id, shared: true)
     try context.atomically {
       try context.enqueueDeletion(ofItem: id, listId: item.listId, isOnServer: item.isOnServer, at: .now)
       context.delete(item)
@@ -152,15 +164,33 @@ final class SwiftDataListRepository: ListRepository {
     onEnqueue()
   }
 
+  func forgetList(id: UUID) throws {
+    try context.atomically {
+      for entry in try context.fetch(FetchDescriptor<OutboxEntry>()) {
+        let touches =
+          switch entry.kind {
+          case .upsertList, .deleteList: entry.entityId == id
+          case .upsertItem, .deleteItem: OutboxDependencies.listId(of: entry) == id
+          default: false
+          }
+        if touches { context.delete(entry) }
+      }
+      try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.listId == id })).forEach(context.delete)
+      try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).forEach(context.delete)
+    }
+  }
+
   func itemHistory() throws -> [ListItem] {
     let active = Set(try lists().map(\.id))
     return try context.fetch(FetchDescriptor<ListItem>()).filter { active.contains($0.listId) }
   }
 
-  private func requireActiveList(_ id: UUID) throws -> ShoppingList {
+  /// `writing` : une écriture partagée (envoyée au serveur), refusée sur une liste en lecture seule.
+  private func requireActiveList(_ id: UUID, writing: Bool = false) throws -> ShoppingList {
     guard let list = try context.fetch(FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == id })).first
     else { throw RepositoryError.notFound(id) }
     guard list.deletedAt == nil else { throw RepositoryError.listDeleted(id) }
+    guard !writing || list.role != .viewer else { throw RepositoryError.readOnly(id) }
     return list
   }
 
@@ -170,11 +200,14 @@ final class SwiftDataListRepository: ListRepository {
     return try context.fetchCount(descriptor) > 0
   }
 
-  private func requireWritableItem(_ id: UUID) throws -> ListItem {
+  /// `shared` : écriture envoyée au serveur, refusée sur une liste en lecture seule. `setNotFound`, champ local, reste
+  /// permis (les introuvables remis à acheter en fin de courses).
+  private func requireWritableItem(_ id: UUID, shared: Bool = false) throws -> ListItem {
     guard let item = try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first else {
       throw RepositoryError.notFound(id)
     }
     guard try !isDeleted(item.listId) else { throw RepositoryError.listDeleted(item.listId) }
+    if shared, try context.isReadOnly(listId: item.listId) { throw RepositoryError.readOnly(item.listId) }
     return item
   }
 }
@@ -243,16 +276,19 @@ final class SwiftDataStoreRepository: StoreRepository {
 final class SwiftDataVisitRepository: VisitRepository {
   private let context: ModelContext
   private let onEnqueue: () -> Void
+  private let author: () -> UUID?
 
-  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file.
+  /// `onEnqueue` : appelé après chaque enregistrement qui allonge la file. `author` : voir `SwiftDataListRepository`.
   init(
     context: ModelContext,
     onEnqueue: @escaping () -> Void = {
       // Aucun moteur à réveiller.
-    }
+    },
+    author: @escaping () -> UUID? = { nil }
   ) {
     self.context = context
     self.onEnqueue = onEnqueue
+    self.author = author
   }
 
   func visit(id: UUID) throws -> Visit? {
@@ -426,6 +462,8 @@ final class SwiftDataVisitRepository: VisitRepository {
   ) throws -> Check {
     guard let visit = try visit(id: visitId) else { throw RepositoryError.notFound(visitId) }
     guard visit.endedAt == nil else { throw RepositoryError.visitClosed(visitId) }
+    // Lecteur : aucune coche ne part (Q5), même par `addCheck`.
+    guard try !context.isReadOnly(listId: visit.listId) else { throw RepositoryError.readOnly(visit.listId) }
     let check: Check
     switch subject {
     case .product(let productId):
@@ -446,6 +484,7 @@ final class SwiftDataVisitRepository: VisitRepository {
   private func write(checkedAt: Date?, to item: ListItem, at date: Date) throws {
     item.checkedAt = checkedAt
     item.updatedAt = date
+    item.updatedBy = author()
     item.syncState = .pending
     try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
   }
@@ -457,6 +496,8 @@ final class SwiftDataVisitRepository: VisitRepository {
     let listId = item.listId
     let deleted = FetchDescriptor<ShoppingList>(predicate: #Predicate { $0.id == listId && $0.deletedAt != nil })
     guard try context.fetchCount(deleted) == 0 else { throw RepositoryError.listDeleted(listId) }
+    // Lecteur : ni coche ni visite (Q5).
+    guard try !context.isReadOnly(listId: listId) else { throw RepositoryError.readOnly(listId) }
     return item
   }
 

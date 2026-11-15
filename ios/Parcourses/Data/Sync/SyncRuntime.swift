@@ -27,7 +27,8 @@ final class SyncRuntime {
     deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
     signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore(),
     switchFlags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore(),
-    cursors: any SyncCursors = UserDefaultsSyncCursors()
+    cursors: any SyncCursors = UserDefaultsSyncCursors(),
+    echoes: RecentItemWrites = RecentItemWrites()
   ) throws {
     let monitor = NetworkMonitor()
     self.monitor = monitor
@@ -37,7 +38,8 @@ final class SyncRuntime {
     engine = SyncEngine(
       gateway: gateway, container: container, cursors: cursors,
       classify: try PulledItemClassifier.make(),
-      dependencies: SyncEngine.Dependencies(isOnline: { monitor.isOnline }),
+      dependencies: SyncEngine.Dependencies(
+        isOnline: { monitor.isOnline }, itemSent: { listId in echoes.record(listId: listId) }),
       suspended: deletionFlags.isDeletionPending || signOutFlags.isPending || switchFlags.isPending)
   }
 

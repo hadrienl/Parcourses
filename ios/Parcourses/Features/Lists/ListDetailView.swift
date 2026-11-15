@@ -19,6 +19,17 @@ struct ListDetailView: View {
   @FocusState private var inputIsFocused: Bool
   @ScaledMetric(relativeTo: .largeTitle) private var totalSize: CGFloat = 52
   private let onShop: (UUID) -> Void
+  /// Absents sans serveur : ni partage ni membres.
+  @Environment(SharingCenter.self) private var sharing: SharingCenter?
+  @Environment(AccountSession.self) private var account: AccountSession?
+  @Environment(\.dismiss) private var dismiss
+  @State private var shareModel: ShareListModel?
+  @State private var signIn: AccountLink?
+  /// Lecteur : la capsule « Lecture seule… » ne s'affiche qu'une fois par ouverture.
+  @State private var readOnlyNoticeShown = false
+  @State private var toast: String?
+  @State private var toastRevision = 0
+  @AccessibilityFocusState private var badgeFocused: Bool
 
   init(
     model: ListDetailModel,
@@ -37,8 +48,18 @@ struct ListDetailView: View {
     // Écran de préparation : le fil est tracé, rien n'est encore parcouru.
     let places = ThreadPlace.places(count: lines.count, reached: nil, progress: false)
     List {
+      if !model.isMissing { titleLine.ticketRow() }
+      if let change = accessChange { accessBanner(change).ticketRow() }
+      if isOffline { offlineBanner.ticketRow() }
+      if model.access.isReadOnly {
+        SharingBadge(kind: .readOnly)
+          .padding(.top, Space.xs)
+          .accessibilityFocused($badgeFocused)
+          .ticketRow()
+      }
       if !model.isEmpty {
         header.ticketRow()
+        lastChangeLine.ticketRow()
       }
       ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
         switch line {
@@ -56,7 +77,9 @@ struct ListDetailView: View {
     .accessibilityIdentifier("itemList")
     .scrollDismissesKeyboard(.interactively)
     .overlay {
-      if model.isMissing {
+      if model.wasRemoved {
+        removedState
+      } else if model.isMissing {
         EmptyState(
           title: "Liste introuvable", systemImage: "questionmark.folder", description: "Cette liste a été supprimée.")
       } else if model.isLoaded && model.isEmpty {
@@ -65,32 +88,78 @@ struct ListDetailView: View {
           description: "Ajoutez un article, par exemple « 2 laits demi-écrémé ».")
       }
     }
-    .navigationTitle(model.name)
+    // Titre dans le ticket (`titleLine`), pas dans la barre : elle porte les pastilles et le chariot, un titre y serait
+    // tronqué (maquette sharing-v1, décision « Titre de la liste sur iOS »).
     .navigationBarTitleDisplayMode(.inline)
+    .navigationBarBackButtonHidden(model.wasRemoved)
     .toolbar {
-      ToolbarItem(placement: .primaryAction) {
+      ToolbarItemGroup(placement: .primaryAction) {
         if !model.isMissing {
-          Button("Faire mes courses", systemImage: "cart") { onShop(model.listId) }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.isEmpty)
-            .accessibilityIdentifier("startShopping")
+          membersButton
+          if model.access.capabilities.canShop {
+            Button("Faire mes courses", systemImage: "cart") { onShop(model.listId) }
+              .labelStyle(.titleAndIcon)
+              .disabled(model.isEmpty)
+              .accessibilityIdentifier("startShopping")
+          }
         }
       }
     }
     .safeAreaInset(edge: .bottom) {
-      if !model.isMissing { dock }
+      if !model.isMissing {
+        if model.access.capabilities.canEditItems { dock } else { readOnlyNote }
+      }
     }
     .opaqueBottomBar()
+    .sharingToast(toast, revision: toastRevision) { toast = nil }
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in model.load() }
     .task {
       model.load()
-      inputIsFocused = model.isEmpty && !model.isMissing
+      inputIsFocused = model.isEmpty && !model.isMissing && model.access.capabilities.canEditItems
+    }
+    // « Quitter la liste » : retour à Mes listes (la feuille se ferme d'elle-même).
+    .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
+    .onChange(of: accessChange) { _, change in
+      // Accès changé : annonce de la bannière, puis focus sur le badge « Lecture seule » (maquette, écran 1).
+      guard let change else { return }
+      model.load()
+      AccessibilityNotification.Announcement(accessMessage(change)).post()
+      if model.access.isReadOnly { badgeFocused = true }
+    }
+    .sheet(item: $shareModel) { share in
+      if let sharing { ShareListSheet(model: share, center: sharing) }
+    }
+    .sheet(item: $signIn) { link in
+      AccountSignInView(link: link, context: .share) {
+        Task {
+          await account?.linkDidFinish()
+          await sharing?.foreground()
+          // Adresse liée : la feuille « Partager » s'ouvre ensuite.
+          if sharing?.isEmailAccount == true { openShare() }
+        }
+      }
     }
     .alert("Erreur", isPresented: errorIsPresented) {
       Button("OK", role: .cancel) { model.errorMessage = nil }
     } message: {
       Text(model.errorMessage ?? "")
     }
+  }
+
+  /// Nom de la liste en tête du ticket, en mono majuscules comme le magasin du mode courses ; passe sur plusieurs
+  /// lignes plutôt que d'être tronqué. Lu comme l'en-tête de l'écran, avec la casse saisie.
+  private var titleLine: some View {
+    Text(model.name)
+      .font(TicketFont.title)
+      .tracking(TicketFont.titleTracking)
+      .textCase(.uppercase)
+      .foregroundStyle(Palette.ink)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, Space.xs)
+      .accessibilityLabel(Text(model.name))
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityIdentifier("listTitle")
   }
 
   /// Compteur du ticket : « ARTICLES 06 ».
@@ -114,23 +183,53 @@ struct ListDetailView: View {
     .accessibilityLabel(count <= 1 ? "\(count) article" : "\(count) articles")
   }
 
+  /// « Modifiée par Léa · il y a 2 min », sous le compteur ; masquée si la dernière modification est la mienne.
+  @ViewBuilder private var lastChangeLine: some View {
+    if let change = model.lastChange {
+      TimelineView(.periodic(from: .now, by: 30)) { context in
+        Text(SharingFormat.modifiedBy(change.name, at: change.date, now: context.date))
+          .font(TicketFont.meta)
+          .foregroundStyle(Palette.inkMuted)
+          // Passe à la ligne aux grandes tailles au lieu d'être rognée.
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityLabel(SharingFormat.modifiedByAccessibility(change.name, at: change.date, now: context.date))
+      }
+      .accessibilityIdentifier("lastChange")
+    }
+  }
+
   /// Nœud d'un rayon sur le fil, lu comme un en-tête.
   private func aisleRow(_ section: ItemSection, place: ThreadPlace) -> some View {
     AisleLine(
       aisleId: section.categoryId, title: section.title, identifier: "aisle-\(section.categoryId)", place: place)
   }
 
-  private func itemRow(_ row: ItemRow, place: ThreadPlace) -> some View {
+  @ViewBuilder private func itemRow(_ row: ItemRow, place: ThreadPlace) -> some View {
+    if model.access.isReadOnly {
+      readOnlyRow(row, place: place)
+    } else {
+      editableRow(row, place: place)
+    }
+  }
+
+  private func line(_ row: ItemRow, place: ThreadPlace, readOnly: Bool) -> some View {
+    ThreadRow(place: place) {
+      // Préparation : rien n'est parcouru, la case seule porte l'état coché.
+      Bead(state: .idle)
+    } content: {
+      // L'état se lit sans couleur : case pleine avec coche, et texte barré.
+      ItemLine(
+        label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark,
+        readOnly: readOnly)
+    }
+  }
+
+  private func editableRow(_ row: ItemRow, place: ThreadPlace) -> some View {
     Button {
       model.toggle(row)
     } label: {
-      ThreadRow(place: place) {
-        // Préparation : rien n'est parcouru, la case seule porte l'état coché.
-        Bead(state: .idle)
-      } content: {
-        // L'état se lit sans couleur : case pleine avec coche, et texte barré.
-        ItemLine(label: row.label, quantity: row.quantity, isChecked: row.isChecked)
-      }
+      line(row, place: place, readOnly: false)
     }
     .buttonStyle(.plain)
     .ticketRow()
@@ -146,6 +245,163 @@ struct ListDetailView: View {
     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
       Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
     }
+  }
+
+  /// Lecteur : ni case ni coche ; toucher un article le rappelle une fois (maquette, écran 7).
+  private func readOnlyRow(_ row: ItemRow, place: ThreadPlace) -> some View {
+    line(row, place: place, readOnly: true)
+      .contentShape(Rectangle())
+      .onTapGesture {
+        guard !readOnlyNoticeShown else { return }
+        readOnlyNoticeShown = true
+        show("Lecture seule\u{00A0}: cette liste ne se modifie pas ici.")
+      }
+      .ticketRow()
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(row.accessibilityLabel)
+      .accessibilityValue(row.isChecked ? "dans le panier" : "")
+  }
+
+  // MARK: - Partage (#87, lot 87.4)
+
+  /// Pastilles des autres membres (liste partagée), « Partager la liste » (propriétaire d'une liste à soi seul).
+  @ViewBuilder private var membersButton: some View {
+    if let sharing, sharing.isAvailable {
+      if model.access.isShared {
+        Button(action: shareTapped) {
+          BarAvatarStack(labels: model.access.pillLabels)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.access.membersButtonLabel)
+        // Visionneuse de grand contenu (appui long), comme les boutons système de la barre.
+        .accessibilityShowsLargeContentViewer {
+          Label(model.access.membersButtonLabel, systemImage: "person.2")
+        }
+        .accessibilityIdentifier("listMembers")
+      } else if model.access.capabilities.canShare {
+        Button("Partager la liste", systemImage: "person.badge.plus", action: shareTapped)
+          .accessibilityIdentifier("shareList")
+      }
+    }
+  }
+
+  private func shareTapped() {
+    guard let sharing else { return }
+    // Compte anonyme : lier une adresse d'abord (§1.1), puis la feuille s'ouvre.
+    if !sharing.isEmailAccount, model.access.capabilities.canShare, let account {
+      signIn = account.makeLink()
+      return
+    }
+    openShare()
+  }
+
+  private func openShare() {
+    guard let sharing else { return }
+    shareModel = sharing.makeShareModel(listId: model.listId, listName: model.name)
+  }
+
+  private var accessChange: SharingAccessChange? {
+    guard let change = sharing?.accessChanges[model.listId], change.kind != .removed else { return nil }
+    return change
+  }
+
+  private func accessMessage(_ change: SharingAccessChange) -> String {
+    switch change.kind {
+    case .downgraded(let dropped): SharingFormat.downgraded(ownerName: change.ownerName, dropped: dropped)
+    case .upgraded: SharingFormat.upgraded(ownerName: change.ownerName)
+    case .removed: SharingFormat.removedTitle(change.listName)
+    }
+  }
+
+  private func accessBanner(_ change: SharingAccessChange) -> some View {
+    CautionCard {
+      Label {
+        Text(accessMessage(change)).fixedSize(horizontal: false, vertical: true)
+      } icon: {
+        Image(systemName: "exclamationmark.triangle").foregroundStyle(Palette.Sharing.caution)
+      }
+      HStack {
+        Spacer()
+        Button("Compris") { sharing?.acknowledgeChange(listId: model.listId) }
+          .font(.body.weight(.semibold))
+          .frame(minHeight: 44)
+          .accessibilityIdentifier("acknowledgeAccess")
+      }
+    }
+    .padding(.top, Space.xs)
+    .accessibilityIdentifier("accessBanner")
+  }
+
+  private var isOffline: Bool {
+    model.access.isShared && sharing?.isOnline == false
+  }
+
+  private var offlineBanner: some View {
+    Label("Hors ligne. Vos modifications partiront au retour du réseau.", systemImage: "wifi.slash")
+      .font(.callout)
+      .foregroundStyle(Palette.ink)
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, Space.s)
+      .background(Palette.paperEdge, in: RoundedRectangle(cornerRadius: TicketMetrics.radius * 2, style: .continuous))
+      .padding(.top, Space.xs)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Hors ligne. Vos modifications partiront au retour du réseau.")
+      .accessibilityIdentifier("offlineBanner")
+  }
+
+  /// Note du bas d'un lecteur : un texte, pas un bouton désactivé.
+  private var readOnlyNote: some View {
+    Label(SharingFormat.askOwner(model.access.ownerName), systemImage: "lock")
+      .font(.callout)
+      .foregroundStyle(Palette.ink)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+      .padding(.horizontal, Space.m)
+      .floatingDock()
+      // Un seul élément, le texte seul : sinon l'icône et le texte portent chacun l'identifiant.
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(SharingFormat.askOwner(model.access.ownerName))
+      .accessibilityIdentifier("readOnlyNote")
+  }
+
+  /// Liste retirée pendant qu'elle était ouverte (maquette, écran 1, état « retirée »).
+  private var removedState: some View {
+    VStack(spacing: Space.m) {
+      Image(systemName: "rectangle.portrait.and.arrow.right")
+        .font(.largeTitle)
+        .foregroundStyle(.tint)
+        .accessibilityHidden(true)
+      Text(SharingFormat.removedTitle(model.name))
+        .font(.title2.weight(.bold))
+        .foregroundStyle(Palette.ink)
+        .multilineTextAlignment(.center)
+        .accessibilityAddTraits(.isHeader)
+      Text("Elle a été retirée de cet appareil.")
+        .foregroundStyle(Palette.inkMuted)
+        .multilineTextAlignment(.center)
+      Button {
+        // Déjà annoncée ici : Mes listes ne la répète pas.
+        if let removal = sharing?.removedLists.first(where: { $0.listId == model.listId }) {
+          sharing?.acknowledgeRemoval(removal)
+        }
+        dismiss()
+      } label: {
+        Text("Retour à mes listes").frame(maxWidth: .infinity)
+      }
+      .prominentButton()
+      .accessibilityIdentifier("backToLists")
+    }
+    .padding(Space.l)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Palette.paper)
+  }
+
+  private func show(_ message: String) {
+    toast = message
+    toastRevision += 1
   }
 
   private var dock: some View {

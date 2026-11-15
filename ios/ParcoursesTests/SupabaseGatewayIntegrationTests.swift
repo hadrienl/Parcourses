@@ -1170,3 +1170,189 @@ struct AccountsIntegrationTests {
     try back.keychain.removeAll()
   }
 }
+
+/// Partage d'une liste de bout en bout contre la pile locale (#87, lot 87.4) : deux comptes e-mail, invitation (Edge
+/// Function `send-invitation` lancée avec Deno par `scripts/integration-test.sh`, sinon `create_invitation`),
+/// acceptation par `my_invitations` puis par le lien, coche reçue par un signal Realtime, rôle abaissé, retrait.
+@MainActor
+@Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
+struct SharingIntegrationTests {
+  private struct Device {
+    let remote: SupabaseGateway
+    let keychain: KeychainStore
+    let kinds: UserDefaultsAccountKindStore
+    let container: ModelContainer
+    let engine: SyncEngine
+    let lists: SwiftDataListRepository
+    let link: AccountLink
+
+    func list(_ id: UUID) throws -> ShoppingList? {
+      try ModelContext(container).fetch(FetchDescriptor<ShoppingList>()).first { $0.id == id }
+    }
+
+    func items(_ listId: UUID) throws -> [ListItem] {
+      try ModelContext(container).fetch(FetchDescriptor<ListItem>()).filter { $0.listId == listId }
+    }
+  }
+
+  /// Edge Function lancée hors de la pile (l'image Edge Runtime manque en local) : son adresse, si elle tourne.
+  private static let sendInvitationURL = ProcessInfo.processInfo.environment["PARCOURSES_IT_SEND_INVITATION"]
+    .flatMap(URL.init(string:))
+
+  /// Appareil neuf, lié à `email` (code lu dans Mailpit) avec le prénom `name`.
+  private func makeDevice(email: String, name: String, seen: inout Set<String>) async throws -> Device {
+    let configuration = try #require(LocalSupabase.configuration)
+    let keychain = KeychainStore(service: "app.parcourses.tests.\(UUID().uuidString)")
+    let defaults = try #require(UserDefaults(suiteName: "tests.it.sharing.\(UUID().uuidString)"))
+    let kinds = UserDefaultsAccountKindStore(defaults: defaults)
+    let remote = SupabaseGateway(
+      configuration: configuration, store: keychain,
+      deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults), accountKinds: kinds,
+      sendInvitationURL: Self.sendInvitationURL)
+    try await remote.ensureSession()
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    try SwiftDataCategoryRepository(context: container.mainContext).seedIfNeeded()
+    let cursors = UserDefaultsSyncCursors(defaults: defaults)
+    let engine = SyncEngine(
+      gateway: remote, container: container, cursors: cursors, classify: try PulledItemClassifier.make(),
+      dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+    let link = AccountLink(
+      gateway: remote, kinds: kinds,
+      dependencies: AccountLink.Dependencies(
+        synchronize: { await engine.drain(pull: true) }, sessionDidChange: { Task { await engine.resume() } },
+        previousAccountId: { cursors.accountId }, suspendSync: { await engine.suspend() },
+        resumeSync: { await engine.resume() }))
+    link.email = email
+    link.displayName = name
+    await link.requestCode()
+    #expect(link.phase == .enterCode, "\(String(describing: link.error))")
+    await link.verify(code: try await Mailpit.code(to: email, seen: &seen))
+    #expect(link.outcome == .linked, "\(String(describing: link.error))")
+    await engine.drain(pull: true)
+    return Device(
+      remote: remote, keychain: keychain, kinds: kinds, container: container, engine: engine,
+      lists: SwiftDataListRepository(context: container.mainContext, author: { cursors.accountId }), link: link)
+  }
+
+  @Test func ownerInvitesMemberJoinsReceivesAChangeIsLoweredThenRemoved() async throws {
+    var seen: Set<String> = []
+    let tag = UUID().uuidString.prefix(8).lowercased()
+    let ownerEmail = "it-87-owner-\(tag)@example.com"
+    let memberEmail = "it-87-lea-\(tag)@example.com"
+    let owner = try await makeDevice(email: ownerEmail, name: "Hadrien", seen: &seen)
+    let member = try await makeDevice(email: memberEmail, name: "Léa", seen: &seen)
+    let ownerId = try await owner.remote.currentAccountId()
+    let memberId = try await member.remote.currentAccountId()
+
+    // La liste d'Hadrien, partie au serveur.
+    let list = try owner.lists.createList(name: "IT-87.4", at: .now)
+    let milk = try owner.lists.addItem(
+      listId: list.id, label: "Lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: .now)
+    await owner.engine.drain(pull: true)
+
+    // Invitation : l'Edge Function si elle tourne (e-mail dans Mailpit), sinon la RPC sans e-mail.
+    if Self.sendInvitationURL != nil {
+      let sent = try await owner.remote.sendInvitation(listId: list.id, email: memberEmail, role: .editor)
+      #expect(sent.sent)
+      #expect(sent.link.hasPrefix("parcourses://invitation#"))
+      let sentURL = try #require(URL(string: sent.link))
+      #expect(InvitationLinks(httpsHost: nil).token(in: sentURL) != nil)
+    } else {
+      _ = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .editor)
+    }
+    // Refus relayés au format du vecteur 003.
+    await #expect(throws: SharingRequestError(error: "self_invitation")) {
+      _ = try await owner.remote.invitationLink(listId: list.id, email: ownerEmail, role: .editor)
+    }
+    await #expect(throws: SharingRequestError(error: "invalid_email")) {
+      _ = try await owner.remote.invitationLink(listId: list.id, email: "pas-une-adresse", role: .editor)
+    }
+    let pending = try await owner.remote.listSharing(listId: list.id)
+    #expect(pending.role == .owner && pending.invitations.map(\.email) == [memberEmail])
+
+    // Léa retrouve l'invitation par son adresse et l'accepte ; la liste descend entièrement.
+    let received = try await member.remote.myInvitations()
+    let invitation = try #require(received.first { $0.listId == list.id })
+    #expect(invitation.inviterName == "Hadrien" && invitation.role == .editor)
+    let accepted = try await member.remote.acceptInvitation(id: invitation.id)
+    #expect(accepted.outcome == .joined && accepted.listId == list.id)
+    await member.engine.drain(pull: true)
+    let joined = try #require(try member.list(list.id))
+    #expect(joined.role == .editor)
+    #expect(Set(joined.participants.compactMap(\.displayName)) == ["Hadrien", "Léa"])
+    #expect(try member.items(list.id).map(\.label) == ["Lait"])
+
+    // Un membre ne se réinvite pas : le serveur refuse (already_member), au format du vecteur 003.
+    await #expect(throws: SharingRequestError(error: "already_member")) {
+      _ = try await owner.remote.invitationLink(listId: list.id, email: memberEmail, role: .viewer)
+    }
+    #expect(try await member.remote.listSharing(listId: list.id).role == .editor)
+
+    // Par le lien, sur une seconde liste : aperçu « en attente » à la même adresse, acceptation, puis le même lien
+    // rouvert dit « déjà membre ».
+    let second = try owner.lists.createList(name: "IT-87.4 lien", at: .now)
+    await owner.engine.drain(pull: true)
+    let link = try await owner.remote.invitationLink(listId: second.id, email: memberEmail, role: .viewer)
+    let linkURL = try #require(URL(string: link))
+    let token = try #require(InvitationLinks(httpsHost: nil).token(in: linkURL))
+    let preview = try await member.remote.previewInvitation(token: token)
+    // L'aperçu ne donne l'id de la liste qu'à un membre ; à la bonne adresse, il en donne le nom.
+    #expect(preview.cardState == .acceptable && preview.listName == "IT-87.4 lien" && preview.listId == nil)
+    let byLink = try await member.remote.acceptInvitation(token: token)
+    #expect(byLink.outcome == .joined && byLink.listId == second.id)
+    let again = try await member.remote.acceptInvitation(token: token)
+    #expect(again.outcome == .alreadyMember)
+    #expect(try await member.remote.listSharing(listId: second.id).role == .viewer)
+
+    // Temps réel : Léa écoute son canal, Hadrien coche, le signal arrive et la descente apporte la coche.
+    let stream = await member.remote.userSignals(userId: memberId)
+    // Garde : sans signal en 20 s, le canal se ferme et son flux se termine. Le test échoue au lieu d'attendre sans fin.
+    let remote = member.remote
+    let watchdog = Task {
+      try await Task.sleep(for: .seconds(20))
+      await remote.closeUserSignals()
+    }
+    defer { watchdog.cancel() }
+    var iterator = stream.makeAsyncIterator()
+    #expect(await iterator.next() == .subscribed)
+    try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
+    await owner.engine.drain()
+    var signal: RealtimeSignal?
+    while let event = await iterator.next() {
+      if case .signal(let received) = event, received.kind == "items" {
+        signal = received
+        break
+      }
+    }
+    #expect(signal?.listId == list.id)
+    await member.engine.drain(pull: true)
+    let checked = try #require(try member.items(list.id).first { $0.id == milk.id })
+    #expect(checked.checkedAt != nil && checked.updatedBy == ownerId)
+    await member.remote.closeUserSignals()
+
+    // Rôle abaissé pendant que Léa décoche encore (éditrice sur son appareil) : le serveur refuse (0 ligne),
+    // `refreshAccess` relit le rôle, l'écriture est jetée et la valeur du serveur revient.
+    try await owner.remote.setMemberRole(listId: list.id, userId: memberId, role: .viewer)
+    try member.lists.setChecked(itemId: milk.id, checkedAt: nil, at: .now)
+    await member.engine.drain(pull: true)
+    #expect(try member.list(list.id)?.role == .viewer)
+    #expect(try ModelContext(member.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+    #expect(try member.items(list.id).first { $0.id == milk.id }?.checkedAt != nil)
+    // Lectrice désormais : l'appareil refuse toute écriture sur la liste.
+    #expect(throws: RepositoryError.readOnly(list.id)) {
+      try member.lists.setChecked(itemId: milk.id, checkedAt: nil, at: .now)
+    }
+
+    // Retrait : la liste quitte l'appareil de Léa.
+    try await owner.remote.removeMember(listId: list.id, userId: memberId)
+    await member.engine.drain(pull: true)
+    #expect(try member.list(list.id) == nil)
+    await #expect(throws: RemoteError.forbidden) { _ = try await member.remote.listSharing(listId: list.id) }
+
+    try await member.remote.deleteAccount()
+    try await owner.remote.deleteAccount()
+    try owner.keychain.removeAll()
+    try member.keychain.removeAll()
+  }
+}
