@@ -26,7 +26,8 @@ final class SyncRuntime {
     gateway: any RemoteGateway, container: ModelContainer,
     deletionFlags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
     signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore(),
-    switchFlags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore()
+    switchFlags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore(),
+    cursors: any SyncCursors = UserDefaultsSyncCursors()
   ) throws {
     let monitor = NetworkMonitor()
     self.monitor = monitor
@@ -34,7 +35,7 @@ final class SyncRuntime {
     self.signOutFlags = signOutFlags
     self.switchFlags = switchFlags
     engine = SyncEngine(
-      gateway: gateway, container: container, cursors: UserDefaultsSyncCursors(),
+      gateway: gateway, container: container, cursors: cursors,
       classify: try PulledItemClassifier.make(),
       dependencies: SyncEngine.Dependencies(isOnline: { monitor.isOnline }),
       suspended: deletionFlags.isDeletionPending || signOutFlags.isPending || switchFlags.isPending)
@@ -54,10 +55,16 @@ final class SyncRuntime {
     foreground()
   }
 
+  /// Une suppression de compte, une déconnexion ou un changement de compte attend sa purge : rien ne relance le moteur,
+  /// sinon il enverrait les données de l'appareil avec la session d'un autre compte.
+  var isHeldForPurge: Bool {
+    deletionFlags.isDeletionPending || signOutFlags.isPending || switchFlags.isPending
+  }
+
   /// À appeler dès qu'une session valide est disponible. Sans effet pendant une suppression de compte : la
   /// connexion lancée avant elle ne doit pas relancer le moteur.
   func sessionDidChange() {
-    guard !isStopped, !deletionFlags.isDeletionPending, !signOutFlags.isPending, !switchFlags.isPending else { return }
+    guard !isStopped, !isHeldForPurge else { return }
     let engine = engine
     Task { await engine.resume() }
   }
@@ -68,9 +75,10 @@ final class SyncRuntime {
     await engine.suspend()
   }
 
-  /// Suppression abandonnée ou refusée : la synchronisation reprend où elle en était.
+  /// Suppression abandonnée ou refusée : la synchronisation reprend où elle en était. Sans effet tant qu'un drapeau de
+  /// purge est posé : il est effacé avant toute reprise légitime.
   func resume() {
-    guard !isStopped else { return }
+    guard !isStopped, !isHeldForPurge else { return }
     let engine = engine
     Task { await engine.resume() }
     Self.scheduleBackgroundRefresh()
@@ -88,7 +96,7 @@ final class SyncRuntime {
 
   /// Comme `resume`, en attendant que le moteur soit reparti : une passe demandée juste après n'est pas perdue.
   func resumeAndWait() async {
-    guard !isStopped else { return }
+    guard !isStopped, !isHeldForPurge else { return }
     await engine.resume()
     Self.scheduleBackgroundRefresh()
   }

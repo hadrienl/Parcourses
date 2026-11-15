@@ -72,6 +72,9 @@ final class AccountLink {
     var markSwitch: (Bool) -> Void = { _ in
       // Sans drapeau durable (aperçus, tests).
     }
+    /// Drapeau `account.switch` déjà posé (essai précédent interrompu) : un code refusé ne l'efface pas, la purge
+    /// qu'il protège reste due.
+    var isSwitchPending: () -> Bool = { false }
     /// Compte e-mail qui se connecte à un autre compte e-mail : l'appareil est purgé, session gardée, et le nouveau
     /// compte adopté. Rien de l'ancien compte n'est renvoyé.
     var switchAccount: (UUID) async throws -> Void = { _ in
@@ -106,11 +109,17 @@ final class AccountLink {
   private let gateway: any RemoteGateway
   private let kinds: any AccountKindStore
   private let dependencies: Dependencies
+  /// Partagée avec `AccountSession` : la vérification ne chevauche ni un rejeu de lancement ni une déconnexion.
+  private let operations: AccountOperationQueue
 
-  init(gateway: any RemoteGateway, kinds: any AccountKindStore, dependencies: Dependencies = Dependencies()) {
+  init(
+    gateway: any RemoteGateway, kinds: any AccountKindStore, dependencies: Dependencies = Dependencies(),
+    operations: AccountOperationQueue = AccountOperationQueue()
+  ) {
     self.gateway = gateway
     self.kinds = kinds
     self.dependencies = dependencies
+    self.operations = operations
     canLink = kinds.kind == .anonymous
   }
 
@@ -185,14 +194,18 @@ final class AccountLink {
   }
 
   /// Validation au 6ᵉ chiffre. La vérification et la reprise tournent dans une tâche à part : ni la fermeture de
-  /// l'écran ni l'annulation de l'appelant ne les interrompent (README des vecteurs).
+  /// l'écran ni l'annulation de l'appelant ne les interrompent (README des vecteurs). Elles attendent leur tour dans la
+  /// file des opérations de compte.
   func verify(code raw: String) async {
     let code = raw.filter(\.isASCII).filter(\.isNumber)
     guard phase == .enterCode, !isWorking, code.count == Self.codeLength, let purpose, let sentTo else { return }
     guard dependencies.isOnline() else { return publish(.offline) }
     isWorking = true
     error = nil
-    let work = Task { await self.runVerification(code: code, purpose: purpose, sentTo: sentTo) }
+    let operations = operations
+    let work = Task {
+      await operations.run { await self.runVerification(code: code, purpose: purpose, sentTo: sentTo) }
+    }
     await work.value
     isWorking = false
   }
@@ -218,6 +231,8 @@ final class AccountLink {
     let gateway = gateway
     // Connexion depuis un compte e-mail : le changement de compte éventuel doit survivre à un arrêt de l'app.
     let fromEmailAccount = !canLink && purpose == .signIn
+    // Déjà posé par un essai interrompu : la purge qu'il protège reste due tant que ce code n'a pas abouti.
+    let ownsSwitchFlag = fromEmailAccount && !dependencies.isSwitchPending()
     if fromEmailAccount { dependencies.markSwitch(true) }
     let verified: VerifiedCode
     do {
@@ -225,7 +240,7 @@ final class AccountLink {
         try await gateway.verifyCode(email: sentTo, code: code, purpose: purpose)
       }
     } catch {
-      if fromEmailAccount { dependencies.markSwitch(false) }
+      if ownsSwitchFlag { dependencies.markSwitch(false) }
       return publish(classifyVerification(error))
     }
     kinds.save(.email)

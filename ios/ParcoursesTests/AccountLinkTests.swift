@@ -18,6 +18,10 @@ actor AccountGateway: RemoteGateway {
   var email: String?
   var localSession: UUID? = UUID()
   var signOutFailure: (any Error)?
+  /// `localSessionAccountId` lève (Keychain verrouillé).
+  var sessionReadFailure: (any Error)?
+  /// `accountEmail` lève sans session, comme la passerelle Android : le rejeu ne doit pas en dépendre.
+  var emailFailsWithoutSession = false
 
   func setLinkFailure(_ error: (any Error)?) { linkFailure = error }
   func setSignInFailure(_ error: (any Error)?) { signInFailure = error }
@@ -27,6 +31,8 @@ actor AccountGateway: RemoteGateway {
   func setDeleteFailure(_ error: (any Error)?) { deleteFailure = error }
   func setEmail(_ value: String?) { email = value }
   func setLocalSession(_ value: UUID?) { localSession = value }
+  func setSessionReadFailure(_ error: (any Error)?) { sessionReadFailure = error }
+  func setEmailFailsWithoutSession(_ value: Bool) { emailFailsWithoutSession = value }
 
   func linkEmail(_ email: String) async throws {
     calls.append("linkEmail:\(email)")
@@ -58,7 +64,10 @@ actor AccountGateway: RemoteGateway {
     if let deleteFailure { throw deleteFailure }
     deletedTokens.append(accessToken)
   }
-  func accountEmail() async throws -> String? { email }
+  func accountEmail() async throws -> String? {
+    if emailFailsWithoutSession, localSession == nil { throw RemoteError.unauthorized }
+    return email
+  }
   func signOut() async throws {
     calls.append("signOut")
     if let signOutFailure { throw signOutFailure }
@@ -81,7 +90,10 @@ actor AccountGateway: RemoteGateway {
   func serverDate() async throws -> Date? { nil }
   func deleteAccount() async throws { throw RemoteError.unauthorized }
   func signOutLocally() async throws { localSession = nil }
-  func localSessionAccountId() async throws -> UUID? { localSession }
+  func localSessionAccountId() async throws -> UUID? {
+    if let sessionReadFailure { throw sessionReadFailure }
+    return localSession
+  }
   func confirmAccountDeleted() async throws -> Bool { false }
   func saveList(_ list: ListUpsert) async throws { throw RemoteError.unauthorized }
   func deleteList(id: UUID) async throws { throw RemoteError.unauthorized }
@@ -124,6 +136,8 @@ final class LinkProbe {
   /// Ordre des étapes demandées à l'app : arrêt et reprise de la synchro, changement de compte, synchro.
   var steps: [String] = []
   var switchFailure: (any Error)?
+  /// Drapeau `account.switch`.
+  var switchFlag = false
 
   func dependencies(_ gateway: AccountGateway) -> AccountLink.Dependencies {
     AccountLink.Dependencies(
@@ -140,6 +154,8 @@ final class LinkProbe {
         self.steps.append("suspend:\(calls.count)")
       },
       resumeSync: { self.steps.append("resume") },
+      markSwitch: { self.switchFlag = $0 },
+      isSwitchPending: { self.switchFlag },
       switchAccount: { id in
         self.steps.append("switch")
         if let failure = self.switchFailure { throw failure }
@@ -270,6 +286,19 @@ final class LinkProbe {
     await link.verify(code: "333333")
     #expect(probe.steps == ["suspend:1", "switch", "resume", "synchronize"])
     #expect(link.outcome == .signedIn(displayName: nil, addedLists: 0))
+  }
+
+  /// Un code refusé n'efface `account.switch` que si cet essai l'a posé : celui d'un essai interrompu protège une purge
+  /// encore due.
+  @Test(arguments: [false, true]) func aRefusedCodeClearsOnlyTheSwitchFlagItSet(alreadyPending: Bool) async {
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    probe.switchFlag = alreadyPending
+    link.email = "lea@exemple.fr"
+    await link.requestCode()
+    await gateway.setVerifyFailures([AuthRequestError(status: 403, code: "otp_expired")])
+    await link.verify(code: "000000")
+    #expect(link.error == .invalidCode)
+    #expect(probe.switchFlag == alreadyPending)
   }
 
   /// Même compte (reconnexion) : pas de purge.
@@ -442,10 +471,11 @@ private final class SignOutHost: AccountDeletionHost {
     let previous: Previous
   }
 
-  private func makeSetup(kind: AccountKind) throws -> Setup {
+  private func makeSetup(kind: AccountKind, signOutPending: Bool = false) throws -> Setup {
     let defaults = try #require(UserDefaults(suiteName: "tests.account.\(UUID().uuidString)"))
     let kinds = UserDefaultsAccountKindStore(defaults: defaults)
     kinds.save(kind)
+    if signOutPending { UserDefaultsAccountSignOutFlagStore(defaults: defaults).save() }
     let container = try PersistenceStack.makeContainer(storage: .inMemory)
     let gateway = AccountGateway()
     let purge = LocalDataPurge(
@@ -457,6 +487,7 @@ private final class SignOutHost: AccountDeletionHost {
       gateway: gateway, kinds: kinds, purge: purge,
       signOutFlags: UserDefaultsAccountSignOutFlagStore(defaults: defaults),
       switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults),
+      cursors: UserDefaultsSyncCursors(defaults: defaults),
       dependencies: AccountSession.Dependencies(
         // Comme l'app : `pending` et `failed`.
         pendingChanges: { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 },
@@ -517,11 +548,92 @@ private final class SignOutHost: AccountDeletionHost {
     let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
     flags.save()
     setup.previous.value = UUID()
-    await setup.gateway.setLocalSession(UUID())
+    let accountB = UUID()
+    await setup.gateway.setLocalSession(accountB)
+    await setup.gateway.setEmail("b@exemple.fr")
     #expect(await setup.session.resumePendingSwitch())
     #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
     #expect(!flags.isPending)
     #expect(setup.kinds.kind == .email)
+    // B est aussitôt le compte des données : une connexion à C avant la première passe ne reprendrait rien de B.
+    let cursors = UserDefaultsSyncCursors(defaults: setup.defaults)
+    #expect(cursors.accountId == accountB)
+    #expect(cursors.accountKind == .email)
+  }
+
+  /// Compte e-mail reconnecté par « Se reconnecter » (jamais de session), app tuée pendant `verifyCode` : sans session,
+  /// rien à protéger. Le drapeau est effacé sans lire l'adresse (qui lève sans session sur Android), rien n'est purgé,
+  /// et le bandeau « Reconnectez-vous » revient.
+  @Test func anInterruptedSwitchWithoutSessionClearsTheFlagAndShowsTheBanner() async throws {
+    let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "De A", at: .now)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    setup.previous.value = UUID()
+    await setup.gateway.setLocalSession(nil)
+    await setup.gateway.setEmailFailsWithoutSession(true)
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(!flags.isPending)
+    #expect(!setup.session.switchResumeFailed)
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 1)
+    await setup.session.refresh()
+    #expect(setup.session.needsSignIn)
+  }
+
+  /// Session anonyme avec le drapeau : aucun compte e-mail n'a été ouvert, rien n'est purgé ni adopté.
+  @Test func anAnonymousSessionClearsTheSwitchFlagWithoutPurging() async throws {
+    let setup = try makeSetup(kind: .email)
+    _ = try SwiftDataListRepository(context: setup.container.mainContext).createList(name: "De A", at: .now)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    setup.previous.value = UUID()
+    await setup.gateway.setLocalSession(UUID())
+    await setup.gateway.setEmail(nil)
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(!flags.isPending)
+    #expect(try ModelContext(setup.container).fetchCount(FetchDescriptor<ShoppingList>()) == 1)
+    #expect(UserDefaultsSyncCursors(defaults: setup.defaults).accountId == nil)
+  }
+
+  /// Rejeu en échec (Keychain verrouillé) : la synchro reste arrêtée et l'app réessaie au retour au premier plan.
+  @Test func aFailedSwitchReplayIsRetriedLater() async throws {
+    let setup = try makeSetup(kind: .email)
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    flags.save()
+    await setup.gateway.setSessionReadFailure(RemoteError.keychainLocked)
+    #expect(await setup.session.resumePendingSwitch() == false)
+    #expect(setup.session.switchResumeFailed)
+    #expect(setup.session.hasPendingSwitch)
+    await setup.gateway.setSessionReadFailure(nil)
+    setup.previous.value = await setup.gateway.localSession
+    #expect(await setup.session.resumePendingSwitch())
+    #expect(!setup.session.switchResumeFailed)
+    #expect(!flags.isPending)
+  }
+
+  /// Le rejeu de lancement attend la fin d'une vérification de code en cours : jamais de purge en plein milieu.
+  @Test func aSwitchReplayWaitsForACodeBeingVerified() async throws {
+    let setup = try makeSetup(kind: .email)
+    let account = UUID()
+    setup.previous.value = account
+    await setup.gateway.setLocalSession(nil)
+    await setup.gateway.setVerified(VerifiedCode(accountId: account, previousAnonymousToken: nil))
+    await setup.gateway.setVerifyDelay(.milliseconds(300))
+    let link = try #require(setup.session.makeLink())
+    link.email = "lea@exemple.fr"
+    await link.requestCode()
+    #expect(link.purpose == .signIn)
+    let verifying = Task { await link.verify(code: "123456") }
+    while await !setup.gateway.calls.contains(where: { $0.hasPrefix("verifyCode") }) {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    let flags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    #expect(flags.isPending)
+    #expect(await setup.session.resumePendingSwitch())
+    // Le rejeu n'a tourné qu'après la vérification et sa reprise.
+    #expect(link.phase == .done)
+    #expect(!flags.isPending)
+    await verifying.value
   }
 
   /// Même compte : le drapeau est effacé, rien n'est purgé.
@@ -587,6 +699,19 @@ private final class SignOutHost: AccountDeletionHost {
     #expect(!UserDefaultsAccountSignOutFlagStore(defaults: setup.defaults).isPending)
   }
 
+  /// La purge de la déconnexion efface aussi `account.switch` : plus rien à purger pour un changement de compte.
+  @Test func theSignOutPurgeClearsTheSwitchFlag() async throws {
+    let setup = try makeSetup(kind: .email, signOutPending: true)
+    let switchFlags = UserDefaultsAccountSwitchFlagStore(defaults: setup.defaults)
+    switchFlags.save()
+    #expect(setup.session.isSignOutPending)
+    #expect(setup.session.makeLink() == nil)
+    #expect(setup.session.resumePendingSignOut())
+    #expect(!switchFlags.isPending)
+    #expect(!setup.session.isSignOutPending)
+    #expect(setup.session.makeLink() != nil)
+  }
+
   /// Arrêt de l'app après la pose du drapeau : la purge est faite au lancement suivant.
   @Test func anInterruptedSignOutIsFinishedAtLaunch() async throws {
     let setup = try makeSetup(kind: .email)
@@ -630,13 +755,55 @@ private final class SignOutHost: AccountDeletionHost {
     await session.signOut()
     #expect(session.signOutFailed)
     #expect(flags.isPending)
+    // Seul « Réessayer » : un compte ouvert maintenant serait effacé par la purge rejouée au lancement.
+    #expect(session.isSignOutPending)
+    #expect(session.makeLink() == nil)
     #expect(!host.steps.contains("restart"))
     #expect(await !gateway.calls.contains("ensureSession"))
     await session.retrySignOut()
     withExtendedLifetime(host) {}
     #expect(!session.signOutFailed)
     #expect(!flags.isPending)
+    #expect(!session.isSignOutPending)
     #expect(host.steps.last == "restart")
     #expect(await gateway.calls.last == "ensureSession")
+  }
+}
+
+/// Tant qu'un drapeau de purge est posé (déconnexion, changement de compte, suppression), aucune reprise ne relance le
+/// moteur : la purge rejouée au lancement suivant effacerait ce qu'il aurait envoyé ou reçu.
+@MainActor
+@Suite(.serialized) struct SyncRuntimeHoldTests {
+  private nonisolated final class MemoryFlag: AccountSignOutFlagStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+    init(_ value: Bool) { self.value = value }
+    var isPending: Bool { lock.withLock { value } }
+    func save() { lock.withLock { value = true } }
+    func clear() { lock.withLock { value = false } }
+  }
+
+  @Test(arguments: ["signOut", "switch"]) func aPendingPurgeFlagKeepsTheEngineSuspended(flag: String) async throws {
+    let defaults = try #require(UserDefaults(suiteName: "tests.runtime.\(UUID().uuidString)"))
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    let gateway = ScriptedSyncGateway()
+    let signOut = MemoryFlag(flag == "signOut")
+    let switching = MemoryFlag(flag == "switch")
+    let runtime = try SyncRuntime(
+      gateway: gateway, container: container, deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults),
+      signOutFlags: signOut, switchFlags: switching, cursors: MemorySyncCursors())
+    #expect(runtime.isHeldForPurge)
+    runtime.resume()
+    await runtime.resumeAndWait()
+    runtime.sessionDidChange()
+    await runtime.synchronize()
+    #expect(await gateway.calls.isEmpty)
+    // Drapeau effacé par la purge : la reprise passe.
+    signOut.clear()
+    switching.clear()
+    await runtime.resumeAndWait()
+    await runtime.synchronize()
+    #expect(await !gateway.calls.isEmpty)
+    await runtime.stop()
   }
 }

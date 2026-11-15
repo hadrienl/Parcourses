@@ -82,7 +82,7 @@ final class AppEnvironment {
   }
 
   /// Compte de l'appareil (#87) : liaison d'une adresse, connexion, déconnexion.
-  func makeAccountSession() -> AccountSession {
+  func makeAccountSession(operations: AccountOperationQueue = AccountOperationQueue()) -> AccountSession {
     let sync = sync
     let container = container
     let cursors = UserDefaultsSyncCursors()
@@ -103,6 +103,7 @@ final class AppEnvironment {
       resumeSync: { await sync?.resumeAndWait() })
     return AccountSession(
       gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: LocalDataPurge(container: container),
+      cursors: cursors, operations: operations,
       dependencies: AccountSession.Dependencies(
         isOnline: { sync?.isOnline ?? true },
         pendingChanges: pendingChanges,

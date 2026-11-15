@@ -15,6 +15,9 @@ final class AppModel {
   /// sans synchronisation ni `ensureSession`.
   private(set) var isResumingDeletion: Bool
   let gateway: (any RemoteGateway)?
+  /// Une opération de compte à la fois (vérification d'un code, rejeux, déconnexion), même d'une reconstruction à
+  /// l'autre de l'app.
+  private let accountOperations = AccountOperationQueue()
 
   init(
     flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
@@ -27,7 +30,7 @@ final class AppModel {
     let current = try? environment.get()
     deletion = current?.makeAccountDeletion()
     deletion?.host = self
-    account = current?.makeAccountSession()
+    account = current?.makeAccountSession(operations: accountOperations)
     account?.host = self
     // Déconnexion interrompue par un arrêt de l'app : la purge est achevée avant toute synchro, qui reste arrêtée sinon.
     if signOutFlags.isPending, account?.resumePendingSignOut() == true { current?.sync?.resume() }
@@ -37,10 +40,16 @@ final class AppModel {
   }
 
   /// Au lancement, avant la synchro : changement de compte interrompu (drapeau `account.switch`), achevé puis synchro
-  /// reprise. Sinon la synchro reste arrêtée jusqu'au lancement suivant.
-  func resumePendingSwitch(flags: any AccountSignOutFlagStore = UserDefaultsAccountSwitchFlagStore()) async {
-    guard flags.isPending, let account else { return }
+  /// reprise. Sinon la synchro reste arrêtée, et `foreground()` réessaie.
+  func resumePendingSwitch() async {
+    guard let account, account.hasPendingSwitch else { return }
     if await account.resumePendingSwitch() { sync?.resume() }
+  }
+
+  /// Retour au premier plan : un rejeu de changement de compte en échec est retenté, puis le compte relu.
+  func foreground() async {
+    if account?.switchResumeFailed == true { await resumePendingSwitch() }
+    await account?.refresh()
   }
 
   var sync: SyncRuntime? {
@@ -81,7 +90,7 @@ extension AppModel: AccountDeletionHost {
     let next = try? environment.get()
     deletion = next?.makeAccountDeletion()
     deletion?.host = self
-    account = next?.makeAccountSession()
+    account = next?.makeAccountSession(operations: accountOperations)
     account?.host = self
     CheckNextItemRouter.handler = next?.activityActions
     // Aucune visite ne survit à la purge : toute activité encore affichée est orpheline.
