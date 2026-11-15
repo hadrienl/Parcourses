@@ -23,6 +23,8 @@
     <string name="about_account_body_local">Vous pouvez effacer vos listes et vos visites de cet appareil.</string>
     <!-- Confidentialité, seulement avec un serveur. -->
     <string name="about_privacy_deletion">Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l\'app.</string>
+    <!-- Compte e-mail (#108) : « Vos données » est dans l'écran Compte, plus sous la confidentialité. -->
+    <string name="about_privacy_deletion_account">Vous pouvez supprimer ces données à tout moment depuis l\'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l\'app.</string>
     <string name="about_account_action">Supprimer mes données…</string>
     <string name="about_account_confirm_title">Supprimer toutes vos données ?</string>
     <string name="about_account_confirm_body">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
@@ -58,15 +60,16 @@
     <string name="about_session_done">Session réinitialisée. Vos listes se synchronisent de nouveau dès que le réseau le permet.</string>
     <string name="about_session_failed">La réinitialisation n\'a pas abouti. Réessayez plus tard.</string>
 
-    <!-- Compte e-mail (#87, lot 87.5) : textes des maquettes (design/sharing-v1.html, écran 4). -->
+    <!-- Écran Compte (#87, lot 87.5 ; #108) : textes des maquettes (design/sharing-v1.html, §9.4). -->
     <string name="account_title">Compte</string>
+    <string name="account_back">Retour</string>
+    <string name="account_session_lost">Reconnectez-vous pour synchroniser.</string>
+    <string name="account_reconnect">Se reconnecter</string>
     <string name="account_email">Adresse e-mail</string>
     <string name="account_name">Prénom</string>
     <string name="account_name_missing">Ajouter un prénom</string>
     <string name="account_name_edit">Modifier le prénom</string>
     <string name="account_note">Votre adresse ne sert qu’à vous connecter. Les membres de vos listes voient votre prénom.</string>
-    <string name="account_anonymous_body">Retrouvez vos listes et celles qu\'on partage avec vous.</string>
-    <string name="account_sign_in">Se connecter</string>
     <string name="account_sign_out">Se déconnecter</string>
     <string name="account_sign_out_title">Se déconnecter ?</string>
     <string name="account_sign_out_body">Vos listes restent dans votre compte. Elles seront retirées de cet appareil.</string>

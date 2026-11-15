@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// À propos : attribution des données, confidentialité, suppression des données, version.
+/// À propos : attribution des données, confidentialité, version. Rien sur le compte (#108) : l'adresse, le prénom et
+/// la déconnexion sont dans l'écran Compte. Seul un compte anonyme, qui n'a pas d'écran Compte, trouve ici « Vos
+/// données » (#68).
 struct AboutView: View {
   @Environment(\.dismiss) private var dismiss
   /// Absent dans les aperçus et les tests sans app : la section « Vos données » est alors masquée.
   @Environment(AccountDeletion.self) private var deletion: AccountDeletion?
-  /// Absent sans serveur, dans les aperçus et les tests : la section « Compte » est masquée.
+  /// Absent sans serveur, dans les aperçus et les tests : le texte de confidentialité est celui d'un compte anonyme.
   @Environment(AccountSession.self) private var account: AccountSession?
   @State private var confirmsDeletion = false
-  @State private var accountPrompts = AccountPrompts()
   /// Lu à l'ouverture de la confirmation : une visite ouverte ajoute une phrase.
   @State private var interruptsShopping = false
 
@@ -43,17 +44,19 @@ struct AboutView: View {
           )
           if deletion?.deletesServerData == true {
             Text(
-              "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
+              isEmailAccount
+                ? "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
+                : "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
             )
           }
         } header: {
           Text("Confidentialité")
         }
-        if let account, account.isAvailable {
-          AccountSection(account: account, isBlocked: isBlocking, prompts: $accountPrompts)
-        }
-        if let deletion {
-          yourData(deletion)
+        if let deletion, !isEmailAccount {
+          YourDataSection(deletion: deletion, isEmailAccount: false, isBlocked: isBlocking) {
+            interruptsShopping = deletion.interruptsShopping
+            confirmsDeletion = true
+          }
         }
         Section {
           LabeledContent("Version", value: Self.version)
@@ -68,76 +71,23 @@ struct AboutView: View {
             .accessibilityIdentifier("closeAbout")
         }
       }
-      .alert("Supprimer toutes vos données ?", isPresented: $confirmsDeletion) {
-        Button("Supprimer", role: .destructive) {
-          guard let deletion else { return }
-          Task { await deletion.delete() }
-        }
-        .accessibilityIdentifier("confirmDeletion")
-        Button("Annuler", role: .cancel) {}
-          .accessibilityIdentifier("cancelDeletion")
-      } message: {
-        Text(confirmationMessage)
-      }
+      .accountDeletionConfirmation(
+        $confirmsDeletion, deletion: deletion,
+        message: AccountDeletionTexts.confirmation(
+          deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: false,
+          interruptsShopping: interruptsShopping))
     }
     .accountDeletionPresentation(deletion)
-    .accountPrompts($accountPrompts, account: account)
-    .signOutFailurePresentation(account)
-    .overlay {
-      if account?.isSigningOut == true { SignOutVeil() }
-    }
     // Une fois la requête partie, et tant qu'un doute attend « Réessayer » ou « Annuler », la feuille reste ouverte.
     .interactiveDismissDisabled(isBlocking)
   }
 
-  private func yourData(_ deletion: AccountDeletion) -> some View {
-    Section {
-      Text(
-        deletion.deletesServerData
-          ? "Vous pouvez effacer vos listes, vos visites et \(accountWords), sur cet appareil et sur nos serveurs."
-          : "Vous pouvez effacer vos listes et vos visites de cet appareil."
-      )
-      Button(role: .destructive) {
-        interruptsShopping = deletion.interruptsShopping
-        confirmsDeletion = true
-      } label: {
-        Text("Supprimer mes données…")
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .touchTarget()
-      }
-      .disabled(isBlocking)
-      .accessibilityHint("Demande une confirmation avant d'effacer")
-      .accessibilityIdentifier("deleteMyData")
-    } header: {
-      Text("Vos données")
-    }
-  }
-
-  /// Suppression ou déconnexion en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
+  /// Suppression en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
   private var isBlocking: Bool {
-    deletion?.status == .deleting || deletion?.status == .failed(.unknown) || account?.isSigningOut == true
+    deletion?.status == .deleting || deletion?.status == .failed(.unknown)
   }
 
   private var isEmailAccount: Bool { account?.kind == .email }
-
-  /// Compte e-mail : l'adresse et le prénom partent aussi.
-  private var accountWords: String {
-    isEmailAccount ? "votre compte (adresse e-mail et prénom)" : "votre identifiant anonyme"
-  }
-
-  /// Textes de #68 §5.2 et §5.7.
-  private var confirmationMessage: String {
-    var sentences =
-      deletion?.deletesServerData ?? false
-      ? [
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que \(accountWords).",
-        "Votre contribution anonyme au plan des rayons des magasins est conservée.",
-        "C'est définitif.",
-      ]
-      : ["Vos listes et vos visites seront effacées de cet appareil."]
-    if interruptsShopping { sentences.append("Vos courses en cours seront interrompues.") }
-    return sentences.joined(separator: " ")
-  }
 
   private static var version: String {
     let info = Bundle.main.infoDictionary

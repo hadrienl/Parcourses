@@ -20,6 +20,8 @@ class RouteTest {
     fun everyRouteSurvivesTheSavedState() {
         val detail = Route.ListDetail("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11")
         assertEquals(Route.Lists, roundTrip(Route.Lists))
+        assertEquals(Route.About, roundTrip(Route.About))
+        assertEquals(Route.Account, roundTrip(Route.Account))
         assertEquals(detail, roundTrip(detail))
         val picker = Route.StorePicker("0d3f2a6e-9d3b-4a39-b3d6-0e8a0d2d9b11")
         assertEquals(picker, roundTrip(picker))

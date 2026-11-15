@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Ce que la section « Compte » demande à l'écran qui la porte : les présentations vivent au niveau de l'écran, une
-/// feuille ou une alerte posée dans une ligne de `List` étant fragile.
+/// Ce que l'écran Compte demande : les présentations vivent au niveau de l'écran, une feuille ou une alerte posée dans
+/// une ligne de `List` étant fragile.
 struct AccountPrompts {
   var signIn: AccountLink?
   var confirmsSignOut = false
@@ -13,7 +13,7 @@ struct AccountPrompts {
 }
 
 extension View {
-  /// Feuille de connexion et alertes de la section « Compte ».
+  /// Feuille de reconnexion et alertes de l'écran Compte.
   func accountPrompts(_ prompts: Binding<AccountPrompts>, account: AccountSession?) -> some View {
     modifier(AccountPromptsPresentation(prompts: prompts, account: account))
   }
@@ -67,98 +67,6 @@ private struct AccountPromptsPresentation: ViewModifier {
       sentences.append("Les modifications pas encore envoyées seront perdues.")
     }
     return sentences.joined(separator: " ")
-  }
-}
-
-/// Section « Compte » d'À propos (#87, écran 4) : adresse, prénom modifiable, Se déconnecter ; « Se connecter » pour un
-/// compte anonyme. Ses feuilles et alertes sont posées par `accountPrompts` sur l'écran.
-struct AccountSection: View {
-  let account: AccountSession
-  /// Suppression en cours : rien d'autre ne se lance.
-  let isBlocked: Bool
-  @Binding var prompts: AccountPrompts
-
-  var body: some View {
-    Section {
-      if account.kind == .email {
-        emailRows
-      } else {
-        Text("Connectez-vous avec votre adresse e-mail pour retrouver vos listes sur un autre appareil.")
-        // Déconnexion en attente de sa purge : seul « Réessayer » est proposé.
-        if !account.isSignOutPending {
-          Button {
-            prompts.signIn = account.makeLink()
-          } label: {
-            Label("Se connecter", systemImage: "person.crop.circle")
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .touchTarget(minHeight: TicketMetrics.rowMin)
-          }
-          .disabled(isBlocked)
-          .accessibilityIdentifier("aboutSignIn")
-        }
-      }
-    } header: {
-      Text("Compte")
-    }
-  }
-
-  @ViewBuilder private var emailRows: some View {
-    if account.needsSignIn, !account.isSignOutPending {
-      Text("Reconnectez-vous pour synchroniser.")
-      Button {
-        prompts.signIn = account.makeLink()
-      } label: {
-        Text("Se reconnecter").frame(maxWidth: .infinity, alignment: .leading).touchTarget()
-      }
-      .disabled(isBlocked)
-      .accessibilityIdentifier("aboutReconnect")
-    }
-    VStack(alignment: .leading, spacing: 2) {
-      Text("Adresse e-mail").font(.footnote).foregroundStyle(Palette.inkMuted)
-      Text(account.email ?? "—")
-    }
-    .frame(minHeight: TicketMetrics.rowMin, alignment: .leading)
-    .accessibilityElement(children: .combine)
-    .accessibilityIdentifier("accountEmail")
-    Button {
-      prompts.nameInput = account.displayName ?? ""
-      prompts.editsName = true
-    } label: {
-      HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Prénom").font(.footnote).foregroundStyle(Palette.inkMuted)
-          Text(account.displayName ?? "Ajouter un prénom").foregroundStyle(Palette.ink)
-        }
-        Spacer()
-        Image(systemName: "pencil").foregroundStyle(Palette.accent).accessibilityHidden(true)
-      }
-      .frame(minHeight: TicketMetrics.rowMin)
-      .contentShape(Rectangle())
-    }
-    .disabled(isBlocked || account.needsSignIn)
-    .accessibilityHint("Modifie le prénom affiché aux membres de vos listes")
-    .accessibilityIdentifier("accountName")
-    Label(
-      "Votre adresse ne sert qu'à vous connecter. Les membres de vos listes voient votre prénom.", systemImage: "lock"
-    )
-    .font(.footnote)
-    .foregroundStyle(Palette.inkMuted)
-    if !account.needsSignIn {
-      Button(role: .destructive) {
-        // Synchro suspendue avant de compter ce qui reste dans la file.
-        Task {
-          prompts.losesChanges = await account.prepareToLeave()
-          prompts.confirmsSignOut = true
-        }
-      } label: {
-        Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .touchTarget()
-      }
-      .disabled(isBlocked)
-      .accessibilityHint("Demande une confirmation avant de retirer vos listes de cet appareil")
-      .accessibilityIdentifier("signOut")
-    }
   }
 }
 

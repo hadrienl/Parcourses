@@ -31,6 +31,7 @@
     private var members: [ListMemberRow] = []
     private var invitations: [PendingInvitation] = []
     private var invitationPending: Bool
+    private var signedOut = false
 
     /// `nil` hors scénario de partage.
     static func fromEnvironment() -> UITestSharingGateway? {
@@ -196,7 +197,9 @@
     // MARK: - Comptes
 
     func accountEmail() async throws -> String? {
-      switch scenario {
+      // Après « Se déconnecter » (#108) : la session repart anonyme.
+      if signedOut { return nil }
+      return switch scenario {
       case .anonymous: nil
       case .owner: "hadrien@exemple.fr"
       case .viewer: "tom@exemple.fr"
@@ -208,9 +211,9 @@
     func verifyCode(email: String, code: String, purpose: EmailCodePurpose) async throws -> VerifiedCode {
       throw RemoteError.network
     }
-    func displayName() async throws -> String? { scenario == .anonymous ? nil : names()[me] }
+    func displayName() async throws -> String? { scenario == .anonymous || signedOut ? nil : names()[me] }
     func setDisplayName(_ name: String) async throws {}
-    func signOut() async throws {}
+    func signOut() async throws { signedOut = true }
     func deleteAccount(accessToken: String) async throws {}
 
     // MARK: - Partage

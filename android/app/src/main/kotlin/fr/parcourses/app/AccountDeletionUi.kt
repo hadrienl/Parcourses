@@ -403,9 +403,9 @@ private fun Unconfirmed(
 /** Opacité Material d'un élément désactivé. */
 private const val DISABLED_ALPHA = 0.38f
 
-internal const val TAG_ACCOUNT_DELETE = "about-account-delete"
-internal const val TAG_ACCOUNT_DELETE_CONFIRM = "about-account-delete-confirm"
-internal const val TAG_ACCOUNT_DELETE_CANCEL = "about-account-delete-cancel"
+internal const val TAG_ACCOUNT_DELETE = "account-delete"
+internal const val TAG_ACCOUNT_DELETE_CONFIRM = "account-delete-confirm"
+internal const val TAG_ACCOUNT_DELETE_CANCEL = "account-delete-cancel"
 internal const val TAG_ACCOUNT_RUNNING = "account-deletion-running"
 internal const val TAG_ACCOUNT_MESSAGE = "account-deletion-message"
 internal const val TAG_ACCOUNT_OK = "account-deletion-ok"
