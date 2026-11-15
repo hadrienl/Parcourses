@@ -351,6 +351,84 @@ export function categorizeGroups(): CategorizeGroup[] {
       ],
     },
     {
+      id: "108-classify-field-gaps",
+      description:
+        "Saisies ratées lors d'un test en magasin (#98) et mots courants voisins : variantes " +
+        "d'orthographe, plats préparés, céréales, pâtes à tartiner. « croque » ne déborde pas sur " +
+        "« croquette ».",
+      cases: lines(`
+        Nesquick => breakfast
+        Nesquik => breakfast
+        chocolat en poudre Nesquick => breakfast
+        Spéculos => sweet-grocery
+        Spéculoos => sweet-grocery
+        biscuits spéculos Lotus => sweet-grocery
+        pâte de spéculoos => breakfast
+        pâte de spéculos => breakfast
+        pâte à tartiner spéculoos => breakfast
+        Croque monsieur => deli
+        Croque-madame => deli
+        2 croques => deli
+        croque monsieur surgelé => frozen
+        pain croque monsieur => bakery
+        croquettes => pets
+        croquettes chien => pets
+        croquettes de pommes de terre => frozen
+        Feuilleté fromage => deli
+        friands à la viande => deli
+        bouchées à la reine => deli
+        gratin dauphinois => deli
+        parmentier de canard => deli
+        tartiflette => deli
+        fromage à tartiflette => cheese
+        brandade de morue => deli
+        paëlla => deli
+        moussaka => deli
+        gnocchis => deli
+        hummus => deli
+        salade de pâtes => deli
+        salade de riz => deli
+        plats préparés => deli
+        quenelles => deli
+        samosas => deli
+        accras de morue => deli
+        blinis => deli
+        tarte flambée => deli
+        tourte => deli
+        Chocapic => breakfast
+        Kellogg's Special K => breakfast
+        Trésor => breakfast
+        Miel Pops => breakfast
+        miel => breakfast
+        cornflakes => breakfast
+        Weetabix => breakfast
+        flocons d'avoine => breakfast
+        avoine => breakfast
+        lait d'avoine => dairy
+        boisson à l'avoine => dairy
+        boisson soja => dairy
+        boisson riz => dairy
+        pain d'épices => breakfast
+        Nocciolata => breakfast
+        crêpes dentelle => sweet-grocery
+        crêpes => breakfast
+        palets bretons => sweet-grocery
+        langues de chat => sweet-grocery
+        meringues => sweet-grocery
+        Pépito => sweet-grocery
+        Pim's => sweet-grocery
+        yoghourt => dairy
+        yogourt => dairy
+        mayo => savory-grocery
+        apéro => snacks
+        biscuits apéro => snacks
+        PQ => hygiene
+        papier WC => hygiene
+        iced tea => beverages
+        Fuze Tea => beverages
+      `),
+    },
+    {
       id: "106-classify-other",
       description: "Saisies non reconnues : catégorie « other ».",
       cases: lines(`
