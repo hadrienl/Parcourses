@@ -14,9 +14,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.account.AccountLinkError
+import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.AccountLinkState
 import fr.parcourses.core.designsystem.ParcoursesTheme
@@ -58,11 +60,22 @@ class AccountLinkScreenTest {
         rule.onNodeWithText("Se connecter").assertExists()
         rule.onNodeWithTag(TAG_LINK_SEND).assertIsNotEnabled()
         rule.onNodeWithTag(TAG_LINK_EMAIL).performTextInput("lea@exemple.fr")
+        // Prénom facultatif ; s'il est saisi, il doit être valable.
+        rule.onNodeWithTag(TAG_LINK_SEND).assertIsEnabled()
+        rule.onNodeWithTag(TAG_LINK_NAME).performTextInput("lea@exemple.fr")
         rule.onNodeWithTag(TAG_LINK_SEND).assertIsNotEnabled()
+        rule.onNodeWithTag(TAG_LINK_NAME).performTextClearance()
         rule.onNodeWithTag(TAG_LINK_NAME).performTextInput("Léa")
         rule.onNodeWithTag(TAG_LINK_SEND).assertIsEnabled().performClick()
         assertEquals(listOf("lea@exemple.fr" to "Léa"), requested)
         rule.onNodeWithTag(TAG_LINK_EMAIL).assert(hasContentType(ContentType.EmailAddress))
+    }
+
+    @Test
+    fun aReconnectionToAnAddressWithoutAccountSaysSo() {
+        show { AccountLinkUiState(AccountLinkState(asksDisplayName = false, error = AccountLinkError.InvalidEmail)) }
+        rule.onNodeWithTag(TAG_LINK_EMAIL).performTextInput("lea@exemple.fr")
+        rule.onNodeWithText("Aucun compte n'utilise cette adresse.").assertExists()
     }
 
     @Test
@@ -105,9 +118,7 @@ class AccountLinkScreenTest {
             AccountLinkUiState(
                 AccountLinkState(
                     phase = AccountLinkPhase.Done,
-                    welcomeBack = true,
-                    listsAdded = 2,
-                    displayName = "Léa",
+                    outcome = AccountLinkOutcome.SignedIn("Léa", addedLists = 2),
                 ),
             )
         }

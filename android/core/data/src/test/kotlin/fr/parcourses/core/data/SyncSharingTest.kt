@@ -4,11 +4,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.outbox.ItemFields
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.data.repository.RoomListRepository
+import fr.parcourses.core.data.sync.AccountRekey
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.network.RemoteError
+import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.TombstoneRow
@@ -21,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
@@ -40,6 +43,8 @@ class SyncSharingTest : DataTest() {
         val itemId = Uuid.random()
         gateway.remoteLists = listOf(ListRow(listId, owner, "Partagée", now, now))
         gateway.remoteItems = listOf(ListItemRow(itemId, listId, null, "lait", "1", null, now, now, owner))
+        // Heure du serveur : curseur des pierres tombales posé par la réconciliation complète.
+        gateway.serverDate = now - 1.minutes
         engine.drain(pull = true)
         // Premier passage : réconciliation complète des suppressions, curseur posé.
         check(gateway.callsOf("fetchItemIds").isNotEmpty() && cursors.tombstones != null)
@@ -60,7 +65,7 @@ class SyncSharingTest : DataTest() {
             engine.drain()
 
             assertTrue(gateway.callsOf("insertItem").isEmpty())
-            assertEquals(listOf(ItemFields.CHECKED_AT), gateway.patches.single().names)
+            assertEquals(listOf(ItemFields.CHECKED_AT), gateway.patches.single().columns)
             assertTrue(db.outbox().all().isEmpty())
         }
 
@@ -83,7 +88,7 @@ class SyncSharingTest : DataTest() {
 
             engine.drain()
 
-            assertEquals(listOf(ItemFields.CHECKED_AT, ItemFields.QUANTITY), gateway.patches.single().names)
+            assertEquals(listOf(ItemFields.CHECKED_AT, ItemFields.QUANTITY), gateway.patches.single().columns)
         }
 
     @Test
@@ -118,7 +123,7 @@ class SyncSharingTest : DataTest() {
                 4 + 1,
                 gateway.patches
                     .single()
-                    .names.size,
+                    .columns.size,
             )
             assertEquals(1, gateway.callsOf("insertItem").size)
             assertTrue(gateway.callsOf("fetchTombstonesOf").isEmpty())
@@ -286,5 +291,84 @@ class SyncSharingTest : DataTest() {
             assertTrue(gateway.callsOf("fetchItemsOfList").isEmpty())
             assertTrue(db.outbox().all().isEmpty())
             assertFalse(gateway.callsOf("deleteItem").isEmpty())
+        }
+
+    /** Les dates du serveur : la liste « Courses » jamais modifiée reste « vide intacte » pour la reprise (iOS). */
+    @Test
+    fun aPulledListTakesBothServerDatesAndAnUntouchedOneIsNotResent() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            engine.drain()
+            val serverAt = now - 1.hours
+            gateway.remoteLists = listOf(ListRow(Uuid.parse(list.id), me, "Courses", serverAt, serverAt))
+            engine.drain(pull = true)
+            val pulled = checkNotNull(db.lists().get(list.id))
+            assertEquals(serverAt, pulled.createdAt)
+            assertEquals(serverAt, pulled.updatedAt)
+
+            val result = AccountRekey(db).run(now, previousAccountId = me.toString())
+            assertEquals(0, result.resentLists)
+            assertTrue(db.lists().getAll().isEmpty())
+        }
+
+    /** Sans ancien compte connu, une liste au propriétaire connu n'est pas renvoyée (même règle qu'iOS). */
+    @Test
+    fun withoutAPreviousAccountAListWithAKnownOwnerIsDropped() =
+        runBlocking {
+            pulled()
+            val draft = repository.createList("Brouillon", now - 1.minutes)
+            repository.renameList(draft.id, "Brouillon", now)
+
+            val result = AccountRekey(db).run(now, previousAccountId = null)
+
+            assertEquals(1, result.resentLists)
+            assertEquals(listOf("Brouillon"), db.lists().getAll().map { it.name })
+        }
+
+    /**
+     * Règle 1 (relecture de #93) : une insertion qui n'insère rien (réponse d'une insertion précédente perdue) enchaîne
+     * une mise à jour des champs de l'entrée ; une mise à jour sans ligne suit le chemin « 0 ligne ».
+     */
+    @Test
+    fun anInsertThatInsertsNothingSendsItsFieldsAsAnUpdate() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            val item = repository.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            repository.setChecked(item.id, now, now)
+            gateway.inserted = { it.toString() != item.id }
+
+            engine.drain()
+
+            assertEquals(1, gateway.callsOf("insertItem").size)
+            assertEquals(ListItemFields.ALL, gateway.patches.single().columns)
+            assertTrue(checkNotNull(db.items().get(item.id)).isOnServer)
+            assertTrue(db.outbox().all().isEmpty())
+
+            // Enterré ailleurs : rien d'inséré, rien de mis à jour, la pierre tombale tranche.
+            val other = repository.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            gateway.inserted = { false }
+            gateway.rowTouched = { false }
+            gateway.tombstones = listOf(TombstoneRow(Uuid.parse(other.id), Uuid.parse(list.id), now))
+            engine.drain()
+            assertNull(db.items().get(other.id))
+            assertTrue(db.outbox().all().isEmpty())
+        }
+
+    /** Règle 4 : `refreshAccess` sur une liste à soi garde les articles jamais envoyés et leurs entrées. */
+    @Test
+    fun refreshingTheAccessOfMyListKeepsItsUnsentItems() =
+        runBlocking {
+            val (listId, itemId) = pulled()
+            val draft = repository.addItem(listId, "beurre", "beurre", null, null, "dairy", now)
+            db.outbox().pendingFor(draft.id).forEach { db.outbox().setNextAttempt(it.id, now + 1.days) }
+            repository.setChecked(itemId, now, now)
+            gateway.rowTouched = { false }
+
+            engine.drain()
+
+            assertTrue(gateway.callsOf("fetchItemsOfList").isNotEmpty())
+            assertNull(checkNotNull(db.items().get(itemId)).checkedAt)
+            assertNotNull(db.items().get(draft.id))
+            assertEquals(listOf(draft.id), db.outbox().pending().map { it.entityId })
         }
 }

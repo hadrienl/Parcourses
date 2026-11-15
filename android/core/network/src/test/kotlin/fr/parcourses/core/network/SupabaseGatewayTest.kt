@@ -5,7 +5,6 @@ package fr.parcourses.core.network
 import fr.parcourses.core.network.FakeSupabase.Reply
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
@@ -554,8 +553,8 @@ class SupabaseGatewayTest {
             val values = ListItemUpsert(id, id, null, "Lait", "2", null)
             server.reply("PATCH list_items", Reply(body = "[]"), Reply(body = """[{"id":"$id"}]"""))
 
-            assertFalse(gateway.updateItem(id, ListItemFields(listOf(ListItemFields.CHECKED_AT), values)))
-            assertTrue(gateway.updateItem(id, ListItemFields(listOf(ListItemFields.CHECKED_AT), values)))
+            assertFalse(gateway.updateItem(id, ListItemFields(values, listOf(ListItemFields.CHECKED_AT))))
+            assertTrue(gateway.updateItem(id, ListItemFields(values, listOf(ListItemFields.CHECKED_AT))))
 
             val patch = server.restRequests().first { it.method.value == "PATCH" }
             assertEquals("""{"checked_at":null}""", server.bodyOf(patch))
@@ -596,19 +595,22 @@ class SupabaseGatewayTest {
         runBlocking<Unit> {
             val anonymous = gateway.ensureSession()
             server.authRefusals["user"] = HttpStatusCode.UnprocessableEntity to "email_exists"
-            val taken = gateway.linkEmail("lea@exemple.fr")
-            assertEquals(EmailCodeStatus(422, "email_exists"), taken)
+            val taken = expectError<AuthRequestError> { gateway.linkEmail("lea@exemple.fr") }
+            assertEquals(422, taken.status)
+            assertEquals("email_exists", taken.code)
 
-            assertTrue(gateway.signInWithEmail("lea@exemple.fr").isSent)
+            gateway.signInWithEmail("lea@exemple.fr")
             val otp = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/otp") }
             val body = json(server.bodyOf(otp)).jsonObject
             assertEquals("false", body["create_user"]?.jsonPrimitive?.content)
-            val token = checkNotNull(gateway.accessToken())
 
             val existing = "bbbbbbbb-0000-4000-8000-000000000002"
             server.verifiedUserId = existing
             server.email = "lea@exemple.fr"
-            assertEquals(Uuid.parse(existing), gateway.verifyCode("lea@exemple.fr", "123456", EmailCodePurpose.SignIn))
+            val verified = gateway.verifyCode("lea@exemple.fr", "123456", EmailCodePurpose.SignIn)
+            assertEquals(Uuid.parse(existing), verified.accountId)
+            // Le jeton de l'anonyme quitté est gardé avant la vérification.
+            val token = checkNotNull(verified.previousAnonymousToken)
             val verify = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/verify") }
             assertEquals("email", json(server.bodyOf(verify)).jsonObject["type"]?.jsonPrimitive?.content)
             // Le dernier compte connu est l'anonyme : la synchronisation reprendra les données.
@@ -626,15 +628,15 @@ class SupabaseGatewayTest {
         runBlocking<Unit> {
             gateway.ensureSession()
             server.authRefusals["otp"] = HttpStatusCode.TooManyRequests to "over_email_send_rate_limit"
-            assertEquals(429, gateway.signInWithEmail("lea@exemple.fr").status)
+            assertEquals(429, expectError<AuthRequestError> { gateway.signInWithEmail("lea@exemple.fr") }.status)
             server.authRefusals["verify"] = HttpStatusCode.Forbidden to "otp_expired"
             val error =
-                expectError<RemoteError.Unauthorized> {
+                expectError<AuthRequestError> {
                     gateway.verifyCode("lea@exemple.fr", "000000", EmailCodePurpose.Link)
                 }
-            assertEquals("otp_expired", error.authCode)
+            assertEquals("otp_expired", error.code)
             // La session anonyme reste.
-            assertNotNull(gateway.accessToken())
+            assertNotNull(harness.store.read().session)
             val verify = server.requests.last { it.url.encodedPath.endsWith("/auth/v1/verify") }
             assertEquals("email_change", json(server.bodyOf(verify)).jsonObject["type"]?.jsonPrimitive?.content)
         }

@@ -55,11 +55,11 @@ internal fun Uuid.asId(): String = toString()
 
 internal fun String.asUuid(): Uuid = Uuid.parse(this)
 
-/** [wasOnServer] : absent des entrées d'avant #87, donc vrai par défaut (doute levé par la pierre tombale). */
+/** [isOnServer] : absent des entrées d'avant #87, donc vrai par défaut (doute levé par la pierre tombale). */
 @Serializable
 data class ItemDeletionPayload(
     val listId: String,
-    val wasOnServer: Boolean = true,
+    val isOnServer: Boolean = true,
 )
 
 @Serializable

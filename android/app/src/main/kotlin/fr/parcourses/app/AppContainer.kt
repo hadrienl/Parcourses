@@ -11,10 +11,12 @@ import fr.parcourses.core.data.account.AccountLink
 import fr.parcourses.core.data.account.AccountLinkHost
 import fr.parcourses.core.data.account.AccountSession
 import fr.parcourses.core.data.account.AccountSignOut
+import fr.parcourses.core.data.account.AccountSignOutFlag
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
+import fr.parcourses.core.data.account.SharedPreferencesAccountSignOutFlag
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
@@ -106,6 +108,9 @@ class AppContainer(
     /** Drapeau durable de « Supprimer mes données » (#68) : tant qu'il existe, ni synchronisation ni compte créé. */
     val deletionFlag: AccountDeletionFlag by lazy { SharedPreferencesAccountDeletionFlag(context) }
 
+    /** Drapeau durable de « Se déconnecter » (#87) : la purge est rejouée au lancement tant qu'il existe. */
+    val signOutFlag: AccountSignOutFlag by lazy { SharedPreferencesAccountSignOutFlag(context) }
+
     /** Drapeau durable `account.kind` (#87) : un compte e-mail sans session attend la reconnexion. */
     val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
 
@@ -144,7 +149,8 @@ class AppContainer(
                     dependencies =
                         SyncDependencies(
                             isOnline = { networkMonitor.isOnline },
-                            isAccountDeletionPending = { deletionFlag.isPending },
+                            // Suppression du compte (#68) ou déconnexion (#87) en cours : aucune passe.
+                            isAccountDeletionPending = { deletionFlag.isPending || signOutFlag.isPending },
                         ),
                 )
             }
@@ -220,6 +226,26 @@ class AppContainer(
         override fun sessionDidChange() {
             accountSession.forget()
             coordinator?.sessionDidChange()
+        }
+
+        override suspend fun suspendSync() {
+            coordinator?.suspend()
+        }
+
+        override fun resumeSync() {
+            coordinator?.sessionDidChange()
+        }
+
+        override suspend fun dataAccount(): Uuid? = withContext(IO) { cursors.accountId }
+
+        override suspend fun pendingChanges(): Int = database.outbox().pendingCount()
+
+        override suspend fun purgeLocalData() {
+            val host = DeletionHost()
+            host.endShopping()
+            purge.run()
+            // Pas de `reset()` : l'écran de connexion reste ouvert. Le moteur, arrêté, relit les curseurs effacés.
+            host.clearLocalState()
         }
     }
 
@@ -314,6 +340,8 @@ class AppContainer(
             categories.seedIfNeeded()
             if (gateway != null) startNetworkMonitor()
             if (accountDeletion.resumeAtLaunch()) return@launch
+            // Déconnexion interrompue (#87) : la purge reprend, voile affiché.
+            if (accountSignOut?.resumeAtLaunch() == true) return@launch
             // Une Live Update restée d'un lancement précédent ne survit que si sa visite est encore ouverte.
             liveUpdates.reconcile()
             gateway?.let { remote ->
@@ -357,6 +385,7 @@ class AppContainer(
                     gateway = remote,
                     purge = purge,
                     host = DeletionHost(),
+                    flag = signOutFlag,
                     isOnline = { networkMonitor.isOnline },
                     flush = {
                         engine?.drain()

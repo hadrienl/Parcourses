@@ -1,11 +1,11 @@
 package fr.parcourses.core.data
 
+import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
@@ -18,6 +18,7 @@ import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TombstoneRow
+import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Instant
@@ -51,12 +52,15 @@ class FakeRemoteGateway(
     private val savedLists = mutableSetOf<Uuid>()
     private val deletedItems = mutableSetOf<Uuid>()
 
+    /** Réponse de `insertItem` : `false` = rien d'inséré (article déjà là, ou enterré). */
+    var inserted: (Uuid) -> Boolean = { true }
+
     /** Réponse de `updateItem` / `deleteItem` : `false` = aucune ligne touchée. */
     var rowTouched: (Uuid) -> Boolean = { true }
 
     /** Réponses de GoTrue aux demandes de code. */
-    var linkStatus: EmailCodeStatus = EmailCodeStatus.Sent
-    var signInStatus: EmailCodeStatus = EmailCodeStatus.Sent
+    var linkRefusal: AuthRequestError? = null
+    var signInRefusal: AuthRequestError? = null
 
     /** Compte ouvert par `verifyCode` : `null` = le même ([EmailCodePurpose.Link]). */
     var codeAccount: Uuid? = null
@@ -164,9 +168,9 @@ class FakeRemoteGateway(
 
     override suspend fun deleteList(id: Uuid) = enter("deleteList", id.toString())
 
-    override suspend fun insertItem(item: ListItemUpsert) {
+    override suspend fun insertItem(item: ListItemUpsert): Boolean {
         enter("insertItem", item.id.toString())
-        savedItems += item
+        return inserted(item.id).also { if (it) savedItems += item }
     }
 
     override suspend fun updateItem(
@@ -235,29 +239,30 @@ class FakeRemoteGateway(
         deletedTokens += accessToken
     }
 
-    override suspend fun accessToken(): String? = if (hasSession) "token-$account" else null
-
-    override suspend fun linkEmail(email: String): EmailCodeStatus {
+    override suspend fun linkEmail(email: String) {
         enter("linkEmail", email)
         requireSession()
-        return linkStatus
+        linkRefusal?.let { throw it }
     }
 
-    override suspend fun signInWithEmail(email: String): EmailCodeStatus {
+    override suspend fun signInWithEmail(email: String) {
         enter("signInWithEmail", email)
-        return signInStatus
+        signInRefusal?.let { throw it }
     }
 
     override suspend fun verifyCode(
         email: String,
         code: String,
         purpose: EmailCodePurpose,
-    ): Uuid {
+    ): VerifiedCode {
         enter("verifyCode", purpose.wireName)
+        // Jeton de l'anonyme quitté, gardé avant la vérification (comme la vraie passerelle).
+        val previous = if (hasSession && this.email == null) "token-$account" else null
+        val before = account
         codeAccount?.let { account = it }
         hasSession = true
         this.email = email
-        return account
+        return VerifiedCode(account, previous.takeIf { before != account })
     }
 
     override suspend fun setDisplayName(name: String) {

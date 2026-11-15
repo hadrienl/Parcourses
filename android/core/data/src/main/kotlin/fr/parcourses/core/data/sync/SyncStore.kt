@@ -355,8 +355,11 @@ class SyncStore(
                     else -> {
                         merge.changed = merge.changed || local.name != row.name
                         db.lists().upsert(
+                            // Les deux dates du serveur : égales tant que la liste n'a pas changé (règle `skip` du
+                            // vecteur 008 à la reprise de compte).
                             local.copy(
                                 name = row.name,
+                                createdAt = row.createdAt,
                                 updatedAt = row.updatedAt,
                                 syncState = SyncState.SYNCED,
                                 ownerId = row.ownerId.toString(),
@@ -569,9 +572,24 @@ class SyncStore(
         listId: String,
         rows: List<ListItemRow>,
         classify: (String) -> PulledItemClassification,
+        keepUnsent: Boolean = false,
     ): PullMerge {
         db.withWriteTransaction {
+            // [keepUnsent] (liste à soi) : les articles jamais arrivés au serveur et leurs entrées restent.
+            val unsent =
+                if (keepUnsent) {
+                    db
+                        .items()
+                        .getByList(
+                            listId,
+                        ).filter { !it.isOnServer }
+                        .map { it.id }
+                        .toSet()
+                } else {
+                    emptySet()
+                }
             for (entry in outbox.all()) {
+                if (entry.entityId in unsent) continue
                 val tied =
                     when (entry.kind()) {
                         OutboxKind.UpsertList, OutboxKind.DeleteList -> entry.entityId == listId
@@ -581,7 +599,9 @@ class SyncStore(
                 if (tied) outbox.delete(entry.id)
             }
             val alive = rows.map { it.id.toString() }.toSet()
-            for (item in db.items().getByList(listId)) if (item.id !in alive) db.items().delete(item.id)
+            for (item in db.items().getByList(listId)) {
+                if (item.id !in alive && item.id !in unsent) db.items().delete(item.id)
+            }
             db.lists().get(listId)?.takeIf { it.syncState != SyncState.SYNCED }?.let {
                 db.lists().setSyncState(listId, SyncState.SYNCED)
             }

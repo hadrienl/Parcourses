@@ -99,7 +99,11 @@ fun ParcoursesNavHost(
         ),
         localOnly = container.isLocalOnly,
     )
-    AccountSignOutOverlay(signOut, onAcknowledge = { container.accountSignOut?.acknowledge() })
+    AccountSignOutOverlay(
+        signOut,
+        onAcknowledge = { container.accountSignOut?.acknowledge() },
+        onRetry = { container.accountSignOut?.start() },
+    )
 
     val openSignIn = { if (backStack.lastOrNull() != Route.SignIn) backStack.add(Route.SignIn) }
 

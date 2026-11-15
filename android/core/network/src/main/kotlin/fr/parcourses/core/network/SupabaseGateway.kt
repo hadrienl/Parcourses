@@ -4,7 +4,6 @@ import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckInsert
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
 import fr.parcourses.core.network.dto.IdRow
 import fr.parcourses.core.network.dto.ListItemFields
@@ -23,6 +22,7 @@ import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TableSpec
 import fr.parcourses.core.network.dto.TombstoneRow
+import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitClose
 import fr.parcourses.core.network.dto.VisitInsert
@@ -157,22 +157,17 @@ class SupabaseGateway internal constructor(
         }
     }
 
-    override suspend fun accessToken(): String? =
-        mapped {
-            if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
-            auth.currentAccessTokenOrNull()
-        }
-
-    override suspend fun linkEmail(email: String): EmailCodeStatus =
+    override suspend fun linkEmail(email: String) {
         mapped {
             // La session du dernier compte connu : c'est elle qui reçoit l'adresse.
             resolveExistingSession()
-            emailCodeStatus { auth.updateUser { this.email = email } }
+            authRequest { auth.updateUser { this.email = email } }
         }
+    }
 
-    override suspend fun signInWithEmail(email: String): EmailCodeStatus =
+    override suspend fun signInWithEmail(email: String) {
         mapped {
-            emailCodeStatus {
+            authRequest {
                 auth.signInWith(OTP) {
                     this.email = email
                     // Un compte ne naît qu'anonyme (87.1) : la connexion ne vise qu'un compte existant.
@@ -180,16 +175,21 @@ class SupabaseGateway internal constructor(
                 }
             }
         }
+    }
 
     override suspend fun verifyCode(
         email: String,
         code: String,
         purpose: EmailCodePurpose,
-    ): Uuid =
+    ): VerifiedCode =
         mapped {
             // Sous le verrou de connexion : aucun compte anonyme ne se crée pendant l'adoption de la session.
             signInLock.withLock {
                 store.checkWritable()
+                if (auth.currentSessionOrNull() == null) auth.loadFromStorage()
+                // Avant la vérification : la session anonyme quittée ne sera plus lisible ensuite.
+                val previous = auth.currentUserOrNull()
+                val previousToken = auth.currentAccessTokenOrNull().takeIf { previous?.isAnonymous == true }
                 val type =
                     when (purpose) {
                         EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
@@ -197,9 +197,10 @@ class SupabaseGateway internal constructor(
                     }
                 // La session ouverte par le code est importée par le SDK, puis enregistrée chiffrée. Pas de garde du
                 // dernier compte : un autre compte est attendu après `SignIn`, la synchronisation le reprendra.
-                auth.verifyEmailOtp(type = type, email = email, token = code)
+                authRequest { auth.verifyEmailOtp(type = type, email = email, token = code) }
                 if (auth.currentSessionOrNull() == null) throw RemoteError.Unauthorized()
-                userId()
+                val id = userId()
+                VerifiedCode(id, previousToken.takeIf { previous?.id != id.toString() })
             }
         }
 
@@ -252,13 +253,12 @@ class SupabaseGateway internal constructor(
         }
     }
 
-    /** Un refus de GoTrue est rendu avec son statut et son code ; le reste (réseau…) est levé puis classé. */
-    private suspend fun emailCodeStatus(request: suspend () -> Unit): EmailCodeStatus =
+    /** Un refus de GoTrue devient [AuthRequestError] (statut et code) ; le reste (réseau…) est classé par `mapped`. */
+    private suspend fun <T> authRequest(request: suspend () -> T): T =
         try {
             request()
-            EmailCodeStatus.Sent
         } catch (e: AuthRestException) {
-            EmailCodeStatus(e.statusCode, e.errorCode?.value ?: e.error)
+            throw AuthRequestError(e.statusCode, e.errorCode?.value ?: e.error, e)
         }
 
     override val isSessionStorageStuck: StateFlow<Boolean> get() = store.isStuck
@@ -367,9 +367,20 @@ class SupabaseGateway internal constructor(
         authorized { rest.from(ListUpsert.spec.table).delete { filter { eq("id", id.toString()) } } }
     }
 
-    override suspend fun insertItem(item: ListItemUpsert) {
-        authorized { insertIgnoringDuplicates(ListItemUpsert.spec, listOf(item)) }
-    }
+    override suspend fun insertItem(item: ListItemUpsert): Boolean =
+        authorized {
+            val body = RemoteJson.encodeToJsonElement(ListSerializer(ListItemUpsert.serializer()), listOf(item))
+            // `on conflict do nothing returning id` : une ligne rendue = insérée ; aucune = déjà là, ou enterrée.
+            val inserted =
+                rest
+                    .from(ListItemUpsert.spec.table)
+                    .upsert(body as JsonArray) {
+                        onConflict = "id"
+                        ignoreDuplicates = true
+                        select(Columns.list("id"))
+                    }.data
+            !isEmptyResult(inserted)
+        }
 
     override suspend fun updateItem(
         id: Uuid,

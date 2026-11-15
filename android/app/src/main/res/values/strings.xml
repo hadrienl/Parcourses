@@ -74,6 +74,7 @@
     <string name="account_sign_out_offline">Il faut du réseau pour se déconnecter. Rien n\'a été retiré.</string>
     <string name="account_sign_out_unsynced">Vos dernières modifications ne sont pas encore enregistrées dans votre compte. Réessayez dans un instant.</string>
     <string name="account_sign_out_failed">La déconnexion n\'a pas abouti. Réessayez.</string>
+    <string name="account_retry">Réessayer</string>
     <string name="account_cancel">Annuler</string>
     <string name="account_ok">OK</string>
     <string name="account_name_save_failed">Le prénom n\'a pas pu être enregistré. Réessayez avec du réseau.</string>
@@ -86,6 +87,7 @@
     <string name="link_email_placeholder">prenom@exemple.fr</string>
     <string name="link_name_label">Prénom</string>
     <string name="link_name_help">Les personnes avec qui vous partagez une liste verront ce prénom.</string>
+    <string name="link_name_optional">Facultatif. Les personnes avec qui vous partagez une liste verront ce prénom.</string>
     <string name="link_name_error">Entre 1 et 40 caractères, sans adresse ni lien.</string>
     <string name="link_cta">Recevoir un code</string>
     <string name="link_sending">Envoi…</string>
@@ -97,6 +99,7 @@
     <string name="code_ready">Vous pouvez renvoyer le code</string>
     <string name="code_change">Changer d\'adresse</string>
     <string name="code_verifying">Vérification…</string>
+    <string name="link_error_no_account">Aucun compte n\'utilise cette adresse.</string>
     <string name="link_error_invalid_email">Cette adresse ne semble pas valide.</string>
     <string name="link_error_invalid_code">Ce code ne correspond pas. Vérifiez le dernier e-mail reçu.</string>
     <string name="link_error_expired_code">Ce code a expiré. Demandez-en un nouveau.</string>
@@ -104,6 +107,7 @@
     <string name="link_error_too_many_codes">Trop d’essais. Patientez une minute avant de réessayer.</string>
     <string name="link_error_offline">Il faut du réseau pour recevoir un code.</string>
     <string name="link_error_unknown">Le code n\'a pas pu être envoyé. Vérifiez l\'adresse et réessayez.</string>
+    <string name="link_unsent_warning">Des modifications de cet appareil ne sont pas encore envoyées. Si vous vous connectez avec l\'adresse d\'un autre compte, elles seront perdues.</string>
     <string name="link_merging">Rapprochement de vos listes…</string>
     <string name="link_welcome_title">Bon retour, %1$s !</string>
     <string name="link_welcome_title_plain">Bon retour !</string>

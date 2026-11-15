@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.account.AccountLink
 import fr.parcourses.core.data.account.AccountLinkHost
+import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.outbox.ItemFields
@@ -23,6 +24,7 @@ import fr.parcourses.core.network.createInMemorySupabaseGateway
 import fr.parcourses.core.network.dto.EmailCodePurpose
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -37,6 +39,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
@@ -73,6 +76,7 @@ class SyncIntegrationTest {
         val gateway: RemoteGateway,
         val engine: SyncEngine,
         val lists: RoomListRepository,
+        val cursors: InMemorySyncCursors,
     )
 
     private fun device(gateway: RemoteGateway): Device {
@@ -84,8 +88,9 @@ class SyncIntegrationTest {
                     AndroidSQLiteDriver(),
                 ).also { databases += it }
         runBlocking { db.categories().seedIfNeeded(CategorySeed.bundled()) }
-        val engine = SyncEngine(gateway, db, InMemorySyncCursors(), classify)
-        return Device(db, gateway, engine, RoomListRepository(db))
+        val cursors = InMemorySyncCursors()
+        val engine = SyncEngine(gateway, db, cursors, classify)
+        return Device(db, gateway, engine, RoomListRepository(db), cursors)
     }
 
     @Test
@@ -168,6 +173,16 @@ class SyncIntegrationTest {
                 override suspend fun adoptAccount(expected: Uuid): Int? = device.engine.adoptSessionAccount(expected)
 
                 override fun sessionDidChange() = Unit
+
+                override suspend fun suspendSync() = device.engine.suspend()
+
+                override fun resumeSync() = device.engine.resume()
+
+                override suspend fun dataAccount(): Uuid? = device.cursors.accountId
+
+                override suspend fun pendingChanges(): Int = device.db.outbox().pendingCount()
+
+                override suspend fun purgeLocalData() = error("pas de changement de compte e-mail ici")
             },
             isOnline = { true },
         )
@@ -198,8 +213,7 @@ class SyncIntegrationTest {
             phoneLink.requestCode(email, "Léa IT")
             assertEquals(EmailCodePurpose.Link, phoneLink.state.value.purpose)
             phoneLink.verify(Mailpit.code(email, since))
-            assertEquals(AccountLinkPhase.Done, phoneLink.state.value.phase)
-            assertFalse(phoneLink.state.value.welcomeBack)
+            assertEquals(AccountLinkOutcome.Linked, phoneLink.state.value.outcome)
             assertEquals(account, phoneGateway.currentAccountId())
             assertEquals("Léa IT", phoneGateway.displayName())
 
@@ -211,16 +225,14 @@ class SyncIntegrationTest {
             tablet.lists.addItem(own.id, "riz", "riz", null, null, "savory-grocery", Clock.System.now())
             tablet.engine.drain()
             val tabletLink = link(tablet)
+            // `max_frequency` local de 1 s entre deux codes : les demandes sont espacées de 2 s.
+            delay(2.seconds)
             since = java.time.Instant.now()
             tabletLink.requestCode(email, "Autre")
             assertEquals(EmailCodePurpose.SignIn, tabletLink.state.value.purpose)
             tabletLink.verify(Mailpit.code(email, since))
-            val welcome = tabletLink.state.value
-            assertEquals(AccountLinkPhase.Done, welcome.phase)
-            assertTrue(welcome.welcomeBack)
-            assertEquals(1, welcome.listsAdded)
-            // Le prénom du compte existant est gardé.
-            assertEquals("Léa IT", welcome.displayName)
+            // Le prénom du compte existant est gardé ; la liste de la tablette est ajoutée au compte.
+            assertEquals(AccountLinkOutcome.SignedIn("Léa IT", addedLists = 1), tabletLink.state.value.outcome)
             assertNotEquals(anonymous, account)
 
             tablet.engine.drain(pull = true)

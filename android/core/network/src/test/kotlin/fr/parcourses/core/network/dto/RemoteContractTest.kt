@@ -148,8 +148,9 @@ class RemoteContractTest {
             value: T,
         ) = RemoteJson.encodeToJsonElement(serializer, value).jsonObject.keys
         assertEquals(granted("update", "lists"), keysOf(ListPatch.serializer(), ListPatch("n")))
-        assertEquals(granted("update", "list_items"), ListItemFields.PATCHABLE)
-        val all = ListItemFields(ListItemFields.PATCHABLE.toList(), ListItemUpsert(id, id, null, "l", null, null))
+        assertEquals(granted("update", "list_items"), ListItemFields.ALL.toSet())
+        assertEquals(ListItemFields.ALL.sorted(), ListItemFields.ALL)
+        val all = ListItemFields(ListItemUpsert(id, id, null, "l", null, null), ListItemFields.ALL)
         assertEquals(granted("update", "list_items"), all.toJson().keys)
         assertEquals(granted("update", "visits"), keysOf(VisitClose.serializer(), VisitClose(now)))
         assertEquals(granted("update", "profiles"), keysOf(ProfilePatch.serializer(), ProfilePatch("Léa")))
@@ -160,14 +161,14 @@ class RemoteContractTest {
     @Test
     fun itemFieldsEncodeOnlyTheChangedColumns() {
         val values = ListItemUpsert(id, id, null, "Lait", "2", null)
-        val json = ListItemFields(listOf(ListItemFields.CHECKED_AT), values).toJson()
+        val json = ListItemFields(values, listOf(ListItemFields.CHECKED_AT)).toJson()
         assertEquals(setOf("checked_at"), json.keys)
         assertEquals(JsonNull, json["checked_at"])
-        val two = ListItemFields(listOf(ListItemFields.LABEL, ListItemFields.QUANTITY), values).toJson()
+        val two = ListItemFields(values, listOf(ListItemFields.LABEL, ListItemFields.QUANTITY)).toJson()
         assertEquals("Lait", two["label"]!!.jsonPrimitive.content)
         assertEquals("2", two["quantity"]!!.jsonPrimitive.content)
-        assertTrue(runCatching { ListItemFields(listOf("id"), values) }.isFailure)
-        assertTrue(runCatching { ListItemFields(emptyList(), values) }.isFailure)
+        assertTrue(runCatching { ListItemFields(values, listOf("id")) }.isFailure)
+        assertTrue(runCatching { ListItemFields(values, emptyList()) }.isFailure)
     }
 
     @Test

@@ -3,7 +3,6 @@ package fr.parcourses.core.network
 import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.CheckUpload
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.GraphSnapshotResponse
 import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemRow
@@ -16,6 +15,7 @@ import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TombstoneRow
+import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Instant
@@ -65,30 +65,30 @@ interface RemoteGateway {
      */
     suspend fun deleteAccount(accessToken: String)
 
-    /** Jeton d'accès de la session courante, `null` sans session. Jamais journalisé ni écrit sur le disque. */
-    suspend fun accessToken(): String?
-
     // region Comptes e-mail (#87, lot 87.5)
 
     /**
      * Demande un code pour lier [email] au compte anonyme de la session (`updateUser({ email })`). Exige une session
-     * du dernier compte connu. Un refus HTTP est rendu, pas levé (vecteur `010`).
+     * du dernier compte connu. Un refus lève [AuthRequestError] (`422 email_exists` : adresse prise, vecteur `010`).
      */
-    suspend fun linkEmail(email: String): EmailCodeStatus
-
-    /** Demande un code de connexion au compte existant de [email] (`signInWithOtp`, sans création de compte). */
-    suspend fun signInWithEmail(email: String): EmailCodeStatus
+    suspend fun linkEmail(email: String)
 
     /**
-     * Vérifie le code reçu et adopte la session qu'il ouvre. Renvoie son compte : le même pour [EmailCodePurpose.Link],
-     * celui de l'adresse pour [EmailCodePurpose.SignIn] (la synchronisation reprend alors les données, `AccountRekey`).
-     * Code faux ou expiré : [RemoteError.Unauthorized] avec `authCode = "otp_expired"`.
+     * Demande un code de connexion au compte existant de [email] (`signInWithOtp`, sans création de compte). Un refus
+     * lève [AuthRequestError] (`otp_disabled` : aucun compte pour cette adresse).
+     */
+    suspend fun signInWithEmail(email: String)
+
+    /**
+     * Vérifie le code reçu et adopte la session qu'il ouvre : le même compte pour [EmailCodePurpose.Link], celui de
+     * l'adresse pour [EmailCodePurpose.SignIn] (la synchronisation reprend alors les données, `AccountRekey`). Le jeton
+     * d'un compte anonyme quitté est gardé **avant** la vérification. Code faux ou expiré : [AuthRequestError].
      */
     suspend fun verifyCode(
         email: String,
         code: String,
         purpose: EmailCodePurpose,
-    ): Uuid
+    ): VerifiedCode
 
     /** Écrit le prénom du compte e-mail (`profiles.display_name`), affiché aux membres de ses listes partagées. */
     suspend fun setDisplayName(name: String)
@@ -122,8 +122,12 @@ interface RemoteGateway {
 
     suspend fun deleteList(id: Uuid)
 
-    /** Insertion complète d'un article jamais arrivé au serveur, idempotente (`on conflict do nothing`). */
-    suspend fun insertItem(item: ListItemUpsert)
+    /**
+     * Insertion complète d'un article jamais accusé par le serveur, idempotente (`on conflict do nothing`). `false` si
+     * rien n'a été inséré (l'article existait déjà, réponse d'un envoi précédent perdue, ou il est enterré) :
+     * l'appelant enchaîne alors une mise à jour de ses champs.
+     */
+    suspend fun insertItem(item: ListItemUpsert): Boolean
 
     /**
      * Met à jour les seuls champs [fields] (#87 §6.4), sans jamais insérer. `false` si aucune ligne n'a été touchée :

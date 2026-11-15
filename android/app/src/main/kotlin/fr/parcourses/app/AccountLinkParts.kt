@@ -185,7 +185,7 @@ internal fun DisplayNameField(
         label = { Text(stringResource(R.string.link_name_label)) },
         singleLine = true,
         isError = wrong,
-        supportingText = { Text(stringResource(if (wrong) R.string.link_name_error else R.string.link_name_help)) },
+        supportingText = { Text(stringResource(if (wrong) R.string.link_name_error else R.string.link_name_optional)) },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { onSend() }),
         modifier =
@@ -233,24 +233,43 @@ internal fun ErrorMessage(text: String) {
     )
 }
 
+/** [noAccount] : reconnexion d'un compte e-mail, l'adresse bien formée refusée n'a pas de compte (`otp_disabled`). */
 @Composable
-internal fun requestErrorText(error: AccountLinkError): String =
+internal fun requestErrorText(
+    error: AccountLinkError,
+    noAccount: Boolean = false,
+): String =
     stringResource(
         when (error) {
-            AccountLinkError.InvalidEmail -> R.string.link_error_invalid_email
-            AccountLinkError.RateLimited -> R.string.link_error_rate_limited
-            AccountLinkError.Offline -> R.string.link_error_offline
-            AccountLinkError.InvalidCode -> R.string.link_error_invalid_code
-            AccountLinkError.ExpiredCode -> R.string.link_error_expired_code
-            AccountLinkError.Unknown -> R.string.link_error_unknown
+            AccountLinkError.InvalidEmail -> {
+                if (noAccount) R.string.link_error_no_account else R.string.link_error_invalid_email
+            }
+
+            AccountLinkError.RateLimited -> {
+                R.string.link_error_rate_limited
+            }
+
+            AccountLinkError.Offline -> {
+                R.string.link_error_offline
+            }
+
+            AccountLinkError.InvalidCode -> {
+                R.string.link_error_invalid_code
+            }
+
+            AccountLinkError.ExpiredCode -> {
+                R.string.link_error_expired_code
+            }
+
+            AccountLinkError.Unknown -> {
+                R.string.link_error_unknown
+            }
         },
     )
 
 @Composable
 internal fun codeErrorText(error: AccountLinkError): String =
-    if (error ==
-        AccountLinkError.RateLimited
-    ) {
+    if (error == AccountLinkError.RateLimited) {
         stringResource(R.string.link_error_too_many_codes)
     } else {
         requestErrorText(error)

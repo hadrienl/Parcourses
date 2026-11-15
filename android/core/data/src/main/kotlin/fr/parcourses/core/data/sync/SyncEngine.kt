@@ -11,6 +11,7 @@ import fr.parcourses.core.data.outbox.carriesDeviceTime
 import fr.parcourses.core.database.ParcoursesDatabase
 import fr.parcourses.core.database.entity.OutboxKind
 import fr.parcourses.core.database.entity.syncedOnce
+import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.ListItemFields
@@ -33,7 +34,6 @@ import kotlinx.serialization.SerializationException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -449,7 +449,7 @@ class SyncEngine(
             OutboxKind.DeleteItem -> {
                 val deletion = OutboxCoding.decode(ItemDeletionPayload.serializer(), payload)
                 // Jamais arrivé au serveur : aucune ligne à supprimer, rien d'ambigu.
-                if (!gateway.deleteItem(parse(work.entityId)) && deletion.wasOnServer) {
+                if (!gateway.deleteItem(parse(work.entityId)) && deletion.isOnServer) {
                     resolveZeroRow(parse(work.entityId), deletion.listId)
                 }
             }
@@ -484,26 +484,40 @@ class SyncEngine(
     ) {
         val fields = work.changedFields
         if (fields == null) {
-            val all = ListItemFields(ListItemFields.PATCHABLE.sorted(), row)
-            if (!gateway.updateItem(row.id, all)) gateway.insertItem(row)
+            // Entrée d'avant la version 2 : tout, puis insertion si aucune ligne (seul repli sur l'insertion).
+            val all = ListItemFields(row, ListItemFields.ALL)
+            if (!gateway.updateItem(row.id, all) &&
+                !gateway.insertItem(row)
+            ) {
+                resolveZeroRow(row.id, row.listId.toString())
+            }
             return
         }
         val isOnServer = store.item(work.entityId)?.isOnServer ?: false
-        when (val request = SyncDecisions.itemSaveRequest(isOnServer, ItemFields.decode(fields))) {
+        val changed = ItemFields.decode(fields)
+        when (val request = SyncDecisions.itemSaveRequest(isOnServer, changed)) {
             ItemSaveRequest.Insert -> {
-                gateway.insertItem(row)
+                // Rien d'inséré : l'article est déjà sur le serveur (réponse d'une insertion perdue). Ses champs
+                // partent en mise à jour, sinon une coche faite depuis n'arriverait jamais ; 0 ligne suit le chemin
+                // habituel.
+                if (!gateway.insertItem(row)) patch(row, changed.ifEmpty { ListItemFields.ALL })
             }
 
             is ItemSaveRequest.Patch -> {
-                if (!gateway.updateItem(row.id, ListItemFields(request.fields, row))) {
-                    resolveZeroRow(row.id, row.listId.toString())
-                }
+                patch(row, request.fields)
             }
 
             ItemSaveRequest.None -> {
                 Unit
             }
         }
+    }
+
+    private suspend fun patch(
+        row: ListItemUpsert,
+        columns: List<String>,
+    ) {
+        if (!gateway.updateItem(row.id, ListItemFields(row, columns))) resolveZeroRow(row.id, row.listId.toString())
     }
 
     /**
@@ -534,7 +548,10 @@ class SyncEngine(
             store.removeLists(listOf(listId))
             return
         }
-        store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify)
+        // Liste à soi : ses articles jamais envoyés restent, avec leurs entrées (ils partiront ensuite).
+        val owner = store.list(listId)?.ownerId
+        val mine = owner == null || owner == cursors.accountId?.toString()
+        store.replaceItems(listId, gateway.fetchItems(parse(listId)), classify, keepUnsent = mine)
         Log.i(TAG, "Liste rechargée après un refus d'écriture")
     }
 
@@ -581,7 +598,7 @@ class SyncEngine(
                 handleForbidden(work)
             }
 
-            is RemoteError.Constraint, is RemoteError.Rejected -> {
+            is RemoteError.Constraint, is RemoteError.Rejected, is AuthRequestError -> {
                 handleRefusal(error, work, singleChecks)
             }
         }
@@ -761,6 +778,8 @@ class SyncEngine(
             }
 
             InsertRefusedOutcome.Reconcile -> {
+                // Comme avant : abandon ; la descente qui suit dira si la liste existe encore.
+                isPullRequested.set(true)
                 failForbidden(work)
             }
 
@@ -931,8 +950,9 @@ class SyncEngine(
             }
 
             TombstonePullMode.FullReconcile -> {
-                // Lue avant la liste des articles : une suppression faite entre-temps sera relue (recouvrement).
-                val serverNow = gateway.serverDate() ?: (now - FULL_RECONCILE_FALLBACK)
+                // Lue avant la liste des articles : une suppression faite entre-temps sera relue (recouvrement). Sans
+                // heure du serveur, le curseur reste nul : la passe suivante réconcilie encore en entier.
+                val serverNow = gateway.serverDate()
                 for (listId in store.syncedListIds()) {
                     store.reconcileItems(listId, gateway.fetchItemIds(parse(listId)).map { it.toString() })
                 }
@@ -970,8 +990,5 @@ class SyncEngine(
     private companion object {
         const val TAG = "SyncEngine"
         const val CLOCK_CONSTRAINT = "23514"
-
-        /** Heure du serveur illisible : le curseur des suppressions recule d'autant pour couvrir l'écart d'horloge. */
-        val FULL_RECONCILE_FALLBACK = 10.minutes
     }
 }

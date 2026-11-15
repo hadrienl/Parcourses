@@ -1,5 +1,7 @@
 package fr.parcourses.core.network.dto
 
+import kotlin.uuid.Uuid
+
 /**
  * Usage d'un code reçu par e-mail (#87 §2.2). [Link] : lier une adresse au compte anonyme de la session (type GoTrue
  * `email_change`, même compte). [SignIn] : se connecter à un compte e-mail existant (type `email`, nouveau compte de
@@ -13,20 +15,19 @@ enum class EmailCodePurpose(
 }
 
 /**
- * Réponse de GoTrue à une demande de code (`updateUser({ email })` ou `signInWithOtp`). Un refus HTTP n'est pas une
- * exception : son statut et son code (`email_exists`, `over_email_send_rate_limit`…) décident de la suite
- * (`SyncDecisions.linkEmailNextStep`). Le réseau, lui, lève `RemoteError.Network`.
+ * Code accepté (même nom qu'iOS). [previousAnonymousToken] : connexion depuis un compte anonyme vers un autre compte,
+ * le jeton d'accès de l'anonyme (valable une heure), gardé en mémoire pour le supprimer après la reprise
+ * (`deleteAccount(accessToken)`, #87 §2.3) ; `null` sinon.
  */
-data class EmailCodeStatus(
-    val status: Int,
-    val errorCode: String?,
+class VerifiedCode(
+    val accountId: Uuid,
+    val previousAnonymousToken: String?,
 ) {
-    val isSent: Boolean get() = status in HTTP_SUCCESS
+    override fun equals(other: Any?): Boolean =
+        other is VerifiedCode && accountId == other.accountId && previousAnonymousToken == other.previousAnonymousToken
 
-    companion object {
-        private val HTTP_SUCCESS = 200..299
-        const val HTTP_OK = 200
+    override fun hashCode(): Int = accountId.hashCode()
 
-        val Sent = EmailCodeStatus(HTTP_OK, null)
-    }
+    // Le jeton n'apparaît jamais dans un journal.
+    override fun toString(): String = "VerifiedCode($accountId)"
 }

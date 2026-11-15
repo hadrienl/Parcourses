@@ -4,10 +4,11 @@ import android.util.Log
 import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.LinkEmailNextStep
 import fr.parcourses.core.data.sync.SyncDecisions
+import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
+import fr.parcourses.core.network.dto.VerifiedCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,12 +63,26 @@ data class AccountLinkState(
     val codeSentAt: Instant? = null,
     val error: AccountLinkError? = null,
     val busy: Boolean = false,
-    /** Fin d'une connexion à un compte existant : « Bon retour ». */
-    val welcomeBack: Boolean = false,
-    /** Listes de ce téléphone ajoutées au compte (Q8). */
-    val listsAdded: Int = 0,
-    val displayName: String? = null,
+    /** Fin du déroulé ([AccountLinkPhase.Done]). */
+    val outcome: AccountLinkOutcome? = null,
+    /**
+     * Compte e-mail qui se reconnecte avec des modifications pas encore envoyées : elles seront perdues si l'adresse
+     * est celle d'un autre compte (ses données ne lui sont jamais ajoutées).
+     */
+    val unsentChanges: Int = 0,
 )
+
+/** Fin de la liaison (même nom qu'iOS). */
+sealed interface AccountLinkOutcome {
+    /** Adresse liée au compte anonyme : même compte. */
+    data object Linked : AccountLinkOutcome
+
+    /** Connexion à un compte existant : « Bon retour », [addedLists] listes de ce téléphone ajoutées au compte (Q8). */
+    data class SignedIn(
+        val displayName: String?,
+        val addedLists: Int,
+    ) : AccountLinkOutcome
+}
 
 /** Ce que la liaison demande à l'app autour du serveur. */
 interface AccountLinkHost {
@@ -79,6 +94,24 @@ interface AccountLinkHost {
 
     /** Nouvelle session : la synchronisation reprend avec une descente. */
     fun sessionDidChange()
+
+    /** Synchronisation arrêtée pendant la vérification du code (rien ne part sous une session qui change). */
+    suspend fun suspendSync()
+
+    /** Reprise après [suspendSync]. */
+    fun resumeSync()
+
+    /** Compte auquel appartiennent les données de l'appareil (`SyncCursors.accountId`), `null` s'il est inconnu. */
+    suspend fun dataAccount(): Uuid?
+
+    /** Entrées de file pas encore envoyées. */
+    suspend fun pendingChanges(): Int
+
+    /**
+     * Données de l'appareil effacées ([LocalDataPurge], mode courses fermé) : connexion d'un compte e-mail à un autre
+     * compte, qui ne reçoit aucune liste du premier.
+     */
+    suspend fun purgeLocalData()
 }
 
 /**
@@ -105,8 +138,13 @@ class AccountLink(
     val state: StateFlow<AccountLinkState> = current.asStateFlow()
 
     private var pendingName: String? = null
-    private var previousToken: String? = null
-    private var previousAccount: Uuid? = null
+
+    /** À l'ouverture de l'écran : avertissement des modifications non envoyées d'un compte e-mail. */
+    suspend fun prepare() {
+        if (kind.kind.value != AccountKind.Email) return
+        val pending = runCatching { host.pendingChanges() }.getOrDefault(0)
+        current.update { it.copy(unsentChanges = pending) }
+    }
 
     /** « Recevoir un code ». [displayName] : prénom saisi, écrit une fois le compte e-mail ouvert. */
     suspend fun requestCode(
@@ -146,17 +184,48 @@ class AccountLink(
             if (digits.length != CODE_LENGTH) return@withLock fail(AccountLinkError.InvalidCode)
             if (!isOnline()) return@withLock fail(AccountLinkError.Offline)
             current.update { it.copy(busy = true, error = null) }
-            rememberPreviousAccount(purpose)
-            val account =
+            // Compte e-mail qui se reconnecte : ses données ne vont jamais à un autre compte.
+            val previousEmailAccount = if (kind.kind.value == AccountKind.Email) host.dataAccount() else null
+            // Rien ne part pendant que la session change : synchronisation arrêtée, reprise ensuite.
+            host.suspendSync()
+            val verified =
                 try {
                     gateway.verifyCode(state.email, digits, purpose)
                 } catch (e: RemoteError) {
                     Log.i(TAG, "Code refusé : ${e.message}")
+                    host.resumeSync()
                     return@withLock fail(codeError(e, state.codeSentAt))
                 }
             kind.write(AccountKind.Email)
             current.update { it.copy(phase = AccountLinkPhase.Merging, error = null) }
-            finish(account, purpose)
+            if (previousEmailAccount != null && previousEmailAccount != verified.accountId &&
+                !replaceDeviceData(verified.accountId)
+            ) {
+                // Purge inachevée : la synchronisation reste arrêtée, les données de A ne partent pas vers B.
+                return@withLock fail(AccountLinkError.Unknown)
+            }
+            host.resumeSync()
+            finish(verified, purpose)
+        }
+
+    /**
+     * Compte e-mail A vers un autre compte B : aucune liste de A n'est renvoyée à B. L'appareil est purgé, puis B est
+     * adopté sans reprise ; la descente apporte ses listes.
+     */
+    @Suppress("TooGenericExceptionCaught") // Toute panne locale arrête le déroulé, synchronisation suspendue.
+    private suspend fun replaceDeviceData(account: Uuid): Boolean =
+        try {
+            host.purgeLocalData()
+            // La purge efface `account.kind` : c'est toujours un compte e-mail.
+            kind.write(AccountKind.Email)
+            gateway.acknowledgeAccount(account)
+            Log.i(TAG, "Autre compte e-mail : données de l'appareil remplacées")
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Données de l'appareil non remplacées : ${e.javaClass.simpleName}")
+            false
         }
 
     private suspend fun send(address: String) {
@@ -167,63 +236,52 @@ class AccountLink(
                 request(address)
             } catch (e: RemoteError) {
                 Log.i(TAG, "Code non envoyé : ${e.message}")
-                return fail(if (e is RemoteError.Network) AccountLinkError.Offline else AccountLinkError.Unknown)
+                return fail(requestError(e))
             }
-        purpose.fold(
-            onSuccess = { usage ->
-                current.update {
-                    it.copy(
-                        phase = AccountLinkPhase.EnterCode,
-                        purpose = usage,
-                        codeSentAt = now(),
-                        busy = false,
-                        error = null,
-                    )
-                }
-            },
-            onFailure = { fail((it as LinkFailure).error) },
-        )
+        current.update {
+            it.copy(
+                phase = AccountLinkPhase.EnterCode,
+                purpose = purpose,
+                codeSentAt = now(),
+                busy = false,
+                error = null,
+            )
+        }
     }
 
-    /** Usage du code envoyé, ou l'erreur à montrer. */
-    private suspend fun request(address: String): Result<EmailCodePurpose> {
+    /** Usage du code envoyé. Un refus lève [AuthRequestError], classé par [requestError]. */
+    private suspend fun request(address: String): EmailCodePurpose {
         // Reconnexion d'un compte e-mail sans session : jamais de compte anonyme (vecteur `009`).
         if (kind.kind.value == AccountKind.Email) return signIn(address)
         // Un compte anonyme est nécessaire pour recevoir l'adresse (premier lancement hors ligne, par exemple).
         gateway.ensureSession()
-        val status = gateway.linkEmail(address)
-        return when (SyncDecisions.linkEmailNextStep(status.status, status.errorCode)) {
-            LinkEmailNextStep.EnterLinkCode -> Result.success(EmailCodePurpose.Link)
+        val refusal =
+            try {
+                gateway.linkEmail(address)
+                null
+            } catch (e: AuthRequestError) {
+                e
+            }
+        return when (SyncDecisions.linkEmailNextStep(refusal?.status ?: HTTP_OK, refusal?.code)) {
+            LinkEmailNextStep.EnterLinkCode -> EmailCodePurpose.Link
             LinkEmailNextStep.SignInExisting -> signIn(address)
-            LinkEmailNextStep.RateLimited -> failure(AccountLinkError.RateLimited)
-            LinkEmailNextStep.Retry -> failure(requestError(status))
+            LinkEmailNextStep.RateLimited, LinkEmailNextStep.Retry -> throw checkNotNull(refusal)
         }
     }
 
-    private suspend fun signIn(address: String): Result<EmailCodePurpose> {
-        val status = gateway.signInWithEmail(address)
-        return when {
-            status.isSent -> Result.success(EmailCodePurpose.SignIn)
-            status.status == HTTP_TOO_MANY_REQUESTS -> failure(AccountLinkError.RateLimited)
-            else -> failure(requestError(status))
-        }
-    }
-
-    /** Avant le code de connexion d'un appareil anonyme : le jeton de l'ancien compte, pour le supprimer ensuite. */
-    private suspend fun rememberPreviousAccount(purpose: EmailCodePurpose) {
-        if (purpose != EmailCodePurpose.SignIn || kind.kind.value != AccountKind.Anonymous) return
-        previousToken = runCatching { gateway.accessToken() }.getOrNull()
-        previousAccount = runCatching { gateway.sessionAccountId() }.getOrNull()
+    private suspend fun signIn(address: String): EmailCodePurpose {
+        gateway.signInWithEmail(address)
+        return EmailCodePurpose.SignIn
     }
 
     @Suppress("TooGenericExceptionCaught") // Le compte est ouvert : rien de ce qui suit ne doit l'empêcher.
     private suspend fun finish(
-        account: Uuid,
+        verified: VerifiedCode,
         purpose: EmailCodePurpose,
     ) {
         val added =
             try {
-                withTimeoutOrNull(mergeTimeout) { host.adoptAccount(account) }
+                withTimeoutOrNull(mergeTimeout) { host.adoptAccount(verified.accountId) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -232,17 +290,13 @@ class AccountLink(
             }
         host.sessionDidChange()
         val name = writeDisplayName(purpose)
-        deletePreviousAccount(account)
-        current.update {
-            it.copy(
-                phase = AccountLinkPhase.Done,
-                busy = false,
-                error = null,
-                welcomeBack = purpose == EmailCodePurpose.SignIn,
-                listsAdded = added ?: 0,
-                displayName = name,
-            )
-        }
+        verified.previousAnonymousToken?.let { deletePreviousAccount(it) }
+        val outcome =
+            when (purpose) {
+                EmailCodePurpose.Link -> AccountLinkOutcome.Linked
+                EmailCodePurpose.SignIn -> AccountLinkOutcome.SignedIn(name, added ?: 0)
+            }
+        current.update { it.copy(phase = AccountLinkPhase.Done, busy = false, error = null, outcome = outcome) }
     }
 
     /** Le prénom saisi est écrit pour un nouveau compte, ou pour un compte existant qui n'en a pas encore. */
@@ -260,12 +314,7 @@ class AccountLink(
     }
 
     /** Règle 3 du §2.3 : l'ancien compte anonyme part, un échec est sans conséquence (purge à 365 jours, #68). */
-    private suspend fun deletePreviousAccount(account: Uuid) {
-        val token = previousToken ?: return
-        val previous = previousAccount
-        previousToken = null
-        previousAccount = null
-        if (previous == account) return
+    private suspend fun deletePreviousAccount(token: String) {
         try {
             gateway.deleteAccount(token)
             Log.i(TAG, "Ancien compte anonyme supprimé")
@@ -276,15 +325,14 @@ class AccountLink(
 
     private fun fail(error: AccountLinkError) = current.update { it.copy(error = error, busy = false) }
 
-    private fun failure(error: AccountLinkError): Result<EmailCodePurpose> = Result.failure(LinkFailure(error))
-
-    private class LinkFailure(
-        val error: AccountLinkError,
-    ) : Exception(error.wireName)
-
-    /** Une adresse refusée par GoTrue est invalide ; une adresse sans compte (`otp_disabled`) aussi, pour l'écran. */
-    private fun requestError(status: EmailCodeStatus): AccountLinkError =
-        if (status.errorCode in ADDRESS_REFUSALS) AccountLinkError.InvalidEmail else AccountLinkError.Unknown
+    /** Refus d'une demande de code : trop de demandes, adresse refusée (ou sans compte), réseau. */
+    private fun requestError(error: RemoteError): AccountLinkError =
+        when {
+            error is AuthRequestError && error.status == HTTP_TOO_MANY_REQUESTS -> AccountLinkError.RateLimited
+            error is AuthRequestError && error.code in ADDRESS_REFUSALS -> AccountLinkError.InvalidEmail
+            error is RemoteError.Network -> AccountLinkError.Offline
+            else -> AccountLinkError.Unknown
+        }
 
     /** GoTrue ne distingue pas un code faux d'un code expiré (`otp_expired`) : l'heure d'envoi tranche. */
     private fun codeError(
@@ -296,11 +344,11 @@ class AccountLink(
                 AccountLinkError.Offline
             }
 
-            error is RemoteError.Server && error.code == HTTP_TOO_MANY_REQUESTS.toString() -> {
+            error is AuthRequestError && error.status == HTTP_TOO_MANY_REQUESTS -> {
                 AccountLinkError.RateLimited
             }
 
-            error is RemoteError.Unauthorized || error is RemoteError.Server -> {
+            error is AuthRequestError && error.status in HTTP_CLIENT_ERRORS -> {
                 if (sentAt != null && now() - sentAt >= CODE_LIFETIME) {
                     AccountLinkError.ExpiredCode
                 } else {
@@ -316,7 +364,11 @@ class AccountLink(
     companion object {
         private const val TAG = "AccountLink"
         const val CODE_LENGTH = 6
+        private const val HTTP_OK = 200
         private const val HTTP_TOO_MANY_REQUESTS = 429
+        private const val HTTP_CLIENT_MIN = 400
+        private const val HTTP_CLIENT_MAX = 499
+        private val HTTP_CLIENT_ERRORS = HTTP_CLIENT_MIN..HTTP_CLIENT_MAX
 
         /** Délai avant « Renvoyer le code » (plafond `/otp` de GoTrue). */
         val RESEND_DELAY: Duration = 60.seconds
@@ -328,7 +380,16 @@ class AccountLink(
         val MERGE_TIMEOUT: Duration = 20.seconds
 
         private const val MAX_DISPLAY_NAME = 40
-        private val ADDRESS_REFUSALS = setOf("email_address_invalid", "validation_failed", "otp_disabled")
+
+        /** Adresse refusée par GoTrue ; `otp_disabled` : aucun compte pour cette adresse (même liste qu'iOS). */
+        private val ADDRESS_REFUSALS =
+            setOf(
+                "email_address_invalid",
+                "validation_failed",
+                "otp_disabled",
+                "email_address_not_authorized",
+                "signup_disabled",
+            )
 
         // Même forme que celle acceptée par le serveur pour une invitation (ASCII imprimable, 87.2).
         private val EMAIL = Regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$")

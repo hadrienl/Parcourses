@@ -82,8 +82,8 @@ class AccountRekey(
                             createdAt = list.createdAt,
                             updatedAt = list.updatedAt,
                         )
-                    // Sans compte connu, les listes descendues sont tenues pour les nôtres.
-                    list.id to SyncDecisions.rekeyPlan(previousAccountId ?: list.ownerId.orEmpty(), state)
+                    // Sans ancien compte connu, une liste au propriétaire connu n'est pas renvoyée (même règle qu'iOS).
+                    list.id to SyncDecisions.rekeyPlan(previousAccountId.orEmpty(), state)
                 }
             // Supprimée par l'utilisateur (sa suppression s'achève), d'un autre propriétaire, ou vide jamais modifiée :
             // retirée de l'appareil avec ses articles, jamais renvoyée.

@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
+import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.AccountLinkState
 import fr.parcourses.core.data.account.AccountState
@@ -344,7 +345,7 @@ class ScreenshotTest {
     @Test
     fun signInWelcomeLight() =
         capture("sign-in-welcome-light") {
-            val done = AccountLinkState(AccountLinkPhase.Done, welcomeBack = true, listsAdded = 2, displayName = "Léa")
+            val done = AccountLinkState(AccountLinkPhase.Done, outcome = AccountLinkOutcome.SignedIn("Léa", 2))
             AccountLinkScreen(AccountLinkUiState(done), AccountLinkActions(), {})
         }
 

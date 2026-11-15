@@ -69,6 +69,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.data.account.AccountLink
 import fr.parcourses.core.data.account.AccountLinkError
+import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.AccountLinkState
 import fr.parcourses.core.designsystem.MonoFamily
@@ -123,6 +124,7 @@ class AccountLinkViewModel(
         )
 
     init {
+        viewModelScope.launch { link.prepare() }
         viewModelScope.launch {
             while (isActive) {
                 delay(1.seconds)
@@ -215,9 +217,12 @@ private fun EmailStep(
     var email by rememberSaveable { mutableStateOf(state.email) }
     var name by rememberSaveable { mutableStateOf("") }
     val emailValid = AccountLink.normalizedEmail(email) != null
-    val nameValid = !state.asksDisplayName || AccountLink.cleanedDisplayName(name) != null
+    // Prénom facultatif (même règle qu'iOS) : vide, ou valable.
+    val nameValid = !state.asksDisplayName || name.isBlank() || AccountLink.cleanedDisplayName(name) != null
     val canSend = emailValid && nameValid && !state.busy
-    val send = { if (canSend) actions.onRequestCode(email, name.takeIf { state.asksDisplayName }) }
+    val send = {
+        if (canSend) actions.onRequestCode(email, name.takeIf { state.asksDisplayName && it.isNotBlank() })
+    }
     Title(stringResource(R.string.link_title))
     Body(stringResource(R.string.link_body))
     OutlinedTextField(
@@ -245,7 +250,18 @@ private fun EmailStep(
                 .testTag(TAG_LINK_EMAIL),
     )
     if (state.asksDisplayName) DisplayNameField(name, valid = nameValid, onChange = { name = it }, onSend = send)
-    state.error?.let { ErrorMessage(requestErrorText(it)) }
+    if (!state.asksDisplayName && state.unsentChanges > 0) {
+        // Avertissement avant de lancer : un autre compte ne reçoit pas les données de celui-ci.
+        Text(
+            stringResource(R.string.link_unsent_warning),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Ticket.colors.ink,
+            modifier = Modifier.testTag(TAG_LINK_UNSENT),
+        )
+    }
+    // Compte e-mail qui se reconnecte (pas de prénom demandé) : une adresse bien formée refusée n'a pas de compte.
+    val noAccount = !state.asksDisplayName && emailValid
+    state.error?.let { ErrorMessage(requestErrorText(it, noAccount)) }
     Spacer(Modifier.heightIn(min = TicketDimens.spaceXs))
     PrimaryButton(
         text = stringResource(if (state.busy) R.string.link_sending else R.string.link_cta),
@@ -356,9 +372,10 @@ private fun DoneStep(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(size = 64.dp).border(2.dp, colors.accent, CircleShape),
         ) { Icon(Icons.Default.Check, contentDescription = null, tint = colors.accent) }
-        if (state.welcomeBack) {
+        val signedIn = state.outcome as? AccountLinkOutcome.SignedIn
+        if (signedIn != null) {
             val title =
-                state.displayName?.let { stringResource(R.string.link_welcome_title, it) }
+                signedIn.displayName?.let { stringResource(R.string.link_welcome_title, it) }
                     ?: stringResource(R.string.link_welcome_title_plain)
             Text(
                 title,
@@ -367,9 +384,9 @@ private fun DoneStep(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { heading() }.testTag(TAG_LINK_DONE_TITLE),
             )
-            if (state.listsAdded > 0) {
+            if (signedIn.addedLists > 0) {
                 Text(
-                    pluralStringResource(R.plurals.link_welcome_body, state.listsAdded, state.listsAdded),
+                    pluralStringResource(R.plurals.link_welcome_body, signedIn.addedLists, signedIn.addedLists),
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.inkMuted,
                     textAlign = TextAlign.Center,
@@ -385,7 +402,7 @@ private fun DoneStep(
             )
         }
         PrimaryButton(
-            text = stringResource(if (state.welcomeBack) R.string.link_welcome_cta else R.string.link_done_cta),
+            text = stringResource(if (signedIn != null) R.string.link_welcome_cta else R.string.link_done_cta),
             enabled = true,
             busy = false,
             onClick = onClose,
@@ -395,6 +412,7 @@ private fun DoneStep(
 }
 
 internal const val TAG_LINK_CLOSE = "link-close"
+internal const val TAG_LINK_UNSENT = "link-unsent"
 internal const val TAG_LINK_EMAIL = "link-email"
 internal const val TAG_LINK_NAME = "link-name"
 internal const val TAG_LINK_SEND = "link-send"

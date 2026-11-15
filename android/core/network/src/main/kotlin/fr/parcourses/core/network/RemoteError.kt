@@ -89,7 +89,7 @@ sealed class RemoteError(
                 is AccountChanged, is UnknownCategory, is SecureStorageLocked,
                 -> true
 
-                is Forbidden, is Constraint, is Rejected -> false
+                is Forbidden, is Constraint, is Rejected, is AuthRequestError -> false
             }
 
     /** 4xx sans code : ni réessai sans fin, ni abandon immédiat. 403, 408 et 429 restent passagers. */
@@ -144,3 +144,13 @@ sealed class RemoteError(
         ): RemoteError = if (status == HTTP_UNAUTHORIZED) Unauthorized(cause) else Server(status.toString(), cause)
     }
 }
+
+/**
+ * Refus de GoTrue à une demande de code ou à sa vérification (#87, même nom qu'iOS) : [status] HTTP et [code]
+ * `error_code` (`email_exists`, `over_email_send_rate_limit`, `otp_expired`…), entrées du vecteur `010`.
+ */
+class AuthRequestError(
+    val status: Int,
+    val code: String?,
+    cause: Throwable? = null,
+) : RemoteError("auth request $status ${code.orEmpty()}", cause)

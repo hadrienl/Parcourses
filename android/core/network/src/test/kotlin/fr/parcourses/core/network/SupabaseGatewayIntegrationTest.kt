@@ -15,6 +15,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -109,7 +110,7 @@ class SupabaseGatewayIntegrationTest {
             // Un `null` vide bien la colonne ; seuls les champs nommés partent.
             val cleared = item.copy(label = "Ignoré", quantity = null, checkedAt = null)
             val fields = listOf(ListItemFields.CHECKED_AT, ListItemFields.QUANTITY)
-            assertTrue(gateway.updateItem(item.id, ListItemFields(fields, cleared)))
+            assertTrue(gateway.updateItem(item.id, ListItemFields(cleared, fields)))
             items = gateway.fetchItems(null)
             assertNull(items.single().quantity)
             assertNull(items.single().checkedAt)
@@ -126,7 +127,7 @@ class SupabaseGatewayIntegrationTest {
             assertTrue(gateway.deleteItem(item.id))
             // Supprimé : plus aucune ligne, ni à supprimer ni à mettre à jour ; la pierre tombale le dit.
             assertFalse(gateway.deleteItem(item.id))
-            assertFalse(gateway.updateItem(item.id, ListItemFields(fields, cleared)))
+            assertFalse(gateway.updateItem(item.id, ListItemFields(cleared, fields)))
             assertEquals(listOf(item.id), gateway.fetchTombstones(listOf(item.id)).map { it.id })
             assertTrue(gateway.fetchTombstones(after = Clock.System.now() - 1.hours).any { it.id == item.id })
             assertTrue(stranger.fetchTombstones(listOf(item.id)).isEmpty())
@@ -238,8 +239,11 @@ class SupabaseGatewayIntegrationTest {
             first.saveList(list)
 
             val linkAt = java.time.Instant.now()
-            assertTrue(first.linkEmail(email).isSent)
-            assertEquals(account, first.verifyCode(email, Mailpit.code(email, linkAt), EmailCodePurpose.Link))
+            first.linkEmail(email)
+            val linked = first.verifyCode(email, Mailpit.code(email, linkAt), EmailCodePurpose.Link)
+            assertEquals(account, linked.accountId)
+            // Même compte : aucun ancien compte à supprimer.
+            assertNull(linked.previousAnonymousToken)
             assertEquals(account, first.currentAccountId())
             assertEquals(email, first.accountEmail())
             assertTrue(first.fetchLists(null).any { it.id == list.id })
@@ -251,17 +255,20 @@ class SupabaseGatewayIntegrationTest {
             // Seconde installation : l'adresse est prise, connexion au compte existant.
             val second = signedIn()
             val anonymous = second.currentAccountId()
-            val taken = second.linkEmail(email)
+            val taken = runCatching { second.linkEmail(email) }.exceptionOrNull() as AuthRequestError
             assertEquals(422, taken.status)
-            assertEquals("email_exists", taken.errorCode)
+            assertEquals("email_exists", taken.code)
+            // `max_frequency` local de 1 s entre deux codes de la même adresse : les demandes sont espacées de 2 s.
+            delay(2.seconds)
             val signInAt = java.time.Instant.now()
-            assertTrue(second.signInWithEmail(email).isSent)
-            val oldToken = checkNotNull(second.accessToken())
+            second.signInWithEmail(email)
             // Code faux : refusé sans toucher à la session.
             val wrong = runCatching { second.verifyCode(email, "000000", EmailCodePurpose.SignIn) }.exceptionOrNull()
-            assertTrue("$wrong", wrong is RemoteError.Unauthorized || wrong is RemoteError.Server)
+            assertTrue("$wrong", wrong is AuthRequestError)
             val code = Mailpit.code(email, signInAt)
-            assertEquals(account, second.verifyCode(email, code, EmailCodePurpose.SignIn))
+            val verified = second.verifyCode(email, code, EmailCodePurpose.SignIn)
+            assertEquals(account, verified.accountId)
+            val oldToken = checkNotNull(verified.previousAnonymousToken)
             // Le dernier compte connu reste l'anonyme : la synchronisation reprendra les données (AccountRekey).
             assertTrue(runCatching { second.currentAccountId() }.exceptionOrNull() is RemoteError.AccountChanged)
             assertEquals(account, second.sessionAccountId())
@@ -277,7 +284,8 @@ class SupabaseGatewayIntegrationTest {
             second.signOut()
             assertTrue(runCatching { second.currentAccountId() }.exceptionOrNull() is RemoteError.Unauthorized)
             // Un compte e-mail ne naît jamais d'une connexion : une adresse inconnue est refusée.
-            assertTrue(!newGateway().signInWithEmail(Mailpit.address("unknown")).isSent)
+            val unknown = runCatching { newGateway().signInWithEmail(Mailpit.address("unknown")) }.exceptionOrNull()
+            assertTrue("$unknown", unknown is AuthRequestError)
             first.deleteAccount()
         }
 

@@ -251,30 +251,31 @@ internal data class ListPatch(
 )
 
 /**
- * Champs d'un article à mettre à jour (#87 §6.4) : [names] sont des noms de colonnes serveur, leurs valeurs viennent
- * de [values]. Seuls ces champs partent : la coche d'un autre appareil n'est pas écrasée par un changement de quantité.
+ * Champs d'un article à mettre à jour (#87 §6.4, même nom qu'iOS) : [columns] sont des noms de colonnes serveur, leurs
+ * valeurs viennent de [values]. Seuls ces champs partent : la coche d'un autre appareil n'est pas écrasée par un
+ * changement de quantité.
  */
 class ListItemFields(
-    val names: List<String>,
     val values: ListItemUpsert,
+    val columns: List<String>,
 ) {
     init {
-        require(names.isNotEmpty()) { "aucun champ" }
-        require(names.all { it in PATCHABLE }) { "champ non modifiable" }
+        require(columns.isNotEmpty()) { "aucun champ" }
+        require(columns.all { it in ALL }) { "champ non modifiable" }
     }
 
-    /** Corps du `PATCH` : uniquement [names], `null` explicites compris. */
+    /** Corps du `PATCH` : uniquement [columns], `null` explicites compris. */
     internal fun toJson(): JsonObject {
         val all = RemoteJson.encodeToJsonElement(ListItemUpsert.serializer(), values).jsonObject
-        return JsonObject(names.associateWith { all.getValue(it) })
+        return JsonObject(columns.associateWith { all.getValue(it) })
     }
 
     override fun equals(other: Any?): Boolean =
-        other is ListItemFields && names == other.names && values == other.values
+        other is ListItemFields && columns == other.columns && values == other.values
 
-    override fun hashCode(): Int = 31 * names.hashCode() + values.hashCode()
+    override fun hashCode(): Int = 31 * columns.hashCode() + values.hashCode()
 
-    override fun toString(): String = "ListItemFields($names)"
+    override fun toString(): String = "ListItemFields($columns)"
 
     companion object {
         const val CHECKED_AT = "checked_at"
@@ -283,8 +284,11 @@ class ListItemFields(
         const val PRODUCT_ID = "product_id"
         const val QUANTITY = "quantity"
 
-        /** Colonnes accordées en mise à jour à `authenticated` (contrôlé par le test de contrat). */
-        val PATCHABLE: Set<String> = setOf(CHECKED_AT, LABEL, LIST_ID, PRODUCT_ID, QUANTITY)
+        /**
+         * Colonnes accordées en mise à jour à `authenticated` (contrôlé par le test de contrat), triées : celles d'un
+         * article créé et d'une entrée d'avant la version 2 de la base.
+         */
+        val ALL: List<String> = listOf(CHECKED_AT, LABEL, LIST_ID, PRODUCT_ID, QUANTITY)
     }
 }
 

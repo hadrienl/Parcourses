@@ -170,7 +170,7 @@ class RoomListRepository(
     ) {
         db.withWriteTransaction {
             val item = requireWritableItem(id)
-            queue.enqueueDeletion(ofItem = id, listId = item.listId, at = at, wasOnServer = item.isOnServer)
+            queue.enqueueDeletion(ofItem = id, listId = item.listId, at = at, isOnServer = item.isOnServer)
             db.items().delete(id)
         }
         onEnqueue()

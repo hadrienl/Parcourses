@@ -97,21 +97,21 @@ class OutboxQueue(
     }
 
     /**
-     * [wasOnServer] : l'article avait atteint le serveur. Sinon une suppression sans ligne n'a rien d'ambigu : il
+     * [isOnServer] : l'article avait atteint le serveur. Sinon une suppression sans ligne n'a rien d'ambigu : il
      * n'y est jamais arrivé (#87).
      */
     suspend fun enqueueDeletion(
         ofItem: String,
         listId: String,
         at: Instant,
-        wasOnServer: Boolean = true,
+        isOnServer: Boolean = true,
     ) {
         dao.cancelPending(ofItem, setOf(OutboxKind.UpsertItem))
         dao.enqueue(
             newId(),
             OutboxKind.DeleteItem,
             ofItem,
-            OutboxCoding.encode(ItemDeletionPayload.serializer(), ItemDeletionPayload(listId, wasOnServer)),
+            OutboxCoding.encode(ItemDeletionPayload.serializer(), ItemDeletionPayload(listId, isOnServer)),
             at,
         )
     }
@@ -182,8 +182,8 @@ object ItemFields {
     const val PRODUCT_ID = ListItemFields.PRODUCT_ID
     const val QUANTITY = ListItemFields.QUANTITY
 
-    /** Tout ce que l'app modifie : l'article déplacé d'une liste à l'autre n'existe pas (`list_id` jamais changé). */
-    val ALL: List<String> = listOf(CHECKED_AT, LABEL, PRODUCT_ID, QUANTITY)
+    /** Un article créé, ou une entrée reconstruite sans rien savoir des champs changés : tout (même règle qu'iOS). */
+    val ALL: List<String> = ListItemFields.ALL
 
     private const val SEPARATOR = ","
 

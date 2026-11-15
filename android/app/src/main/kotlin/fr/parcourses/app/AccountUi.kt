@@ -104,6 +104,13 @@ class AccountSignOutController(
         current.update { if (it == AccountSignOutState.Running) it else AccountSignOutState.Idle }
     }
 
+    /** Au lancement, si le drapeau existe : la purge reprend, voile affiché. Lit le disque : hors du fil principal. */
+    fun resumeAtLaunch(): Boolean {
+        if (!signOut.isPending) return false
+        start()
+        return true
+    }
+
     @Suppress("TooGenericExceptionCaught") // Le voile ne doit jamais rester : toute panne devient un échec.
     private suspend fun outcome(): AccountSignOutState =
         try {
@@ -384,6 +391,7 @@ private fun NameDialog(
 internal fun AccountSignOutOverlay(
     state: AccountSignOutState,
     onAcknowledge: () -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     when (state) {
         AccountSignOutState.Idle -> {
@@ -414,6 +422,10 @@ internal fun AccountSignOutOverlay(
         }
 
         is AccountSignOutState.Failed -> {
+            if (state.error == AccountSignOutError.Unknown) {
+                SignOutRetry(onRetry)
+                return
+            }
             val text =
                 when (state.error) {
                     AccountSignOutError.Offline -> R.string.account_sign_out_offline
@@ -442,6 +454,28 @@ internal fun AccountSignOutOverlay(
     }
 }
 
+/** Purge inachevée (drapeau posé) : ni Retour ni appui à côté, « Réessayer » seulement, sans redémarrer l'app. */
+@Composable
+private fun SignOutRetry(onRetry: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        text = {
+            Text(
+                stringResource(R.string.account_sign_out_failed),
+                modifier = Modifier.testTag(TAG_SIGN_OUT_MESSAGE).semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_SIGN_OUT_RETRY),
+            ) { Text(stringResource(R.string.account_retry)) }
+        },
+    )
+}
+
+internal const val TAG_SIGN_OUT_RETRY = "account-sign-out-retry"
 internal const val TAG_ACCOUNT_SIGN_IN = "about-account-sign-in"
 internal const val TAG_ACCOUNT_SIGN_OUT = "about-account-sign-out"
 internal const val TAG_ACCOUNT_SIGN_OUT_CONFIRM = "about-account-sign-out-confirm"

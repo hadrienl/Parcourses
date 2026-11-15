@@ -5,6 +5,7 @@ import fr.parcourses.core.data.account.AccountDeletionHost
 import fr.parcourses.core.data.account.AccountLink
 import fr.parcourses.core.data.account.AccountLinkError
 import fr.parcourses.core.data.account.AccountLinkHost
+import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.AccountSignOutError
@@ -12,6 +13,7 @@ import fr.parcourses.core.data.account.AccountSignOutOutcome
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
 import fr.parcourses.core.data.account.InMemoryAccountKindFlag
+import fr.parcourses.core.data.account.InMemoryAccountSignOutFlag
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.sync.AccountKind
@@ -20,9 +22,9 @@ import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.SyncEngine
 import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.SyncState
+import fr.parcourses.core.network.AuthRequestError
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.dto.EmailCodePurpose
-import fr.parcourses.core.network.dto.EmailCodeStatus
 import fr.parcourses.core.network.dto.ListRow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -46,6 +48,7 @@ class AccountLinkTest : DataTest() {
     private val engine by lazy { SyncEngine(guarded, db, cursors, classify, dependencies) }
     private val repository by lazy { RoomListRepository(db) }
     private var sessionChanges = 0
+    private val syncSteps = mutableListOf<String>()
 
     private val host =
         object : AccountLinkHost {
@@ -53,6 +56,25 @@ class AccountLinkTest : DataTest() {
 
             override fun sessionDidChange() {
                 sessionChanges++
+            }
+
+            override suspend fun suspendSync() {
+                syncSteps += "suspend"
+                engine.suspend()
+            }
+
+            override fun resumeSync() {
+                syncSteps += "resume"
+                engine.resume()
+            }
+
+            override suspend fun dataAccount(): Uuid? = cursors.accountId
+
+            override suspend fun pendingChanges(): Int = db.outbox().pendingCount()
+
+            override suspend fun purgeLocalData() {
+                syncSteps += "purge"
+                LocalDataPurge(db, cursors, accountKind = kind).run()
             }
         }
 
@@ -76,7 +98,7 @@ class AccountLinkTest : DataTest() {
 
             val done = link.state.value
             assertEquals(AccountLinkPhase.Done, done.phase)
-            assertFalse(done.welcomeBack)
+            assertEquals(AccountLinkOutcome.Linked, done.outcome)
             assertEquals(anonymous, gateway.account)
             assertEquals(AccountKind.Email, kind.kind.value)
             assertEquals("Léa", gateway.displayName)
@@ -93,7 +115,7 @@ class AccountLinkTest : DataTest() {
             repository.createList("Courses", now)
             engine.drain()
             val anonymous = gateway.account
-            gateway.linkStatus = EmailCodeStatus(422, "email_exists")
+            gateway.linkRefusal = AuthRequestError(422, "email_exists")
             val existing = Uuid.random()
             gateway.codeAccount = existing
             gateway.displayName = null
@@ -108,9 +130,7 @@ class AccountLinkTest : DataTest() {
 
             val done = link.state.value
             assertEquals(AccountLinkPhase.Done, done.phase)
-            assertTrue(done.welcomeBack)
-            assertEquals(1, done.listsAdded)
-            assertEquals("Léa B", done.displayName)
+            assertEquals(AccountLinkOutcome.SignedIn("Léa B", addedLists = 1), done.outcome)
             assertEquals(existing, cursors.accountId)
             assertEquals(listOf("Apéro"), db.lists().getAll().map { it.name })
             assertNotEquals(
@@ -158,7 +178,7 @@ class AccountLinkTest : DataTest() {
             assertEquals(AccountLinkError.InvalidEmail, link.state.value.error)
             assertTrue(gateway.callsOf("linkEmail").isEmpty())
 
-            gateway.linkStatus = EmailCodeStatus(429, "over_email_send_rate_limit")
+            gateway.linkRefusal = AuthRequestError(429, "over_email_send_rate_limit")
             link.requestCode("lea@exemple.fr")
             assertEquals(AccountLinkError.RateLimited, link.state.value.error)
             assertEquals(AccountLinkPhase.EnterEmail, link.state.value.phase)
@@ -168,14 +188,14 @@ class AccountLinkTest : DataTest() {
             assertEquals(AccountLinkError.Offline, link.state.value.error)
 
             online = true
-            gateway.linkStatus = EmailCodeStatus.Sent
+            gateway.linkRefusal = null
             link.requestCode("lea@exemple.fr")
-            gateway.failNext("verifyCode", RemoteError.Unauthorized(authCode = "otp_expired"))
+            gateway.failNext("verifyCode", AuthRequestError(403, "otp_expired"))
             link.verify("000000")
             assertEquals(AccountLinkError.InvalidCode, link.state.value.error)
             // 15 minutes plus tard, le même refus veut dire « expiré ».
             advance(16.minutes)
-            gateway.failNext("verifyCode", RemoteError.Unauthorized(authCode = "otp_expired"))
+            gateway.failNext("verifyCode", AuthRequestError(403, "otp_expired"))
             link.verify("000000")
             assertEquals(AccountLinkError.ExpiredCode, link.state.value.error)
             link.verify("12")
@@ -260,11 +280,13 @@ class AccountLinkTest : DataTest() {
                     }
                 }
             var flushed = 1
+            val flag = InMemoryAccountSignOutFlag()
             val signOut =
                 AccountSignOut(
                     guarded,
                     LocalDataPurge(db, cursors, accountKind = kind),
                     host,
+                    flag,
                     isOnline = { online },
                     flush = { flushed },
                 )
@@ -287,7 +309,8 @@ class AccountLinkTest : DataTest() {
             val before = gateway.account
             assertEquals(AccountSignOutOutcome.SignedOut, signOut.run())
 
-            assertEquals(listOf("suspend", "shopping", "clear", "rebuild"), steps)
+            assertEquals(listOf("suspend", "shopping", "suspend", "clear", "rebuild"), steps)
+            assertFalse(flag.isPending)
             assertEquals(1, gateway.callsOf("signOut").size)
             assertTrue(db.lists().getAll().isEmpty())
             assertEquals(AccountKind.Anonymous, kind.kind.value)
@@ -313,5 +336,107 @@ class AccountLinkTest : DataTest() {
 
             assertTrue(db.lists().getAll().isEmpty())
             assertTrue(gateway.callsOf("saveList").isEmpty())
+        }
+
+    /** Règle 4 : la synchronisation est suspendue pendant la vérification du code, puis reprise. */
+    @Test
+    fun theSyncIsSuspendedWhileTheCodeIsVerified() =
+        runBlocking {
+            engine.drain()
+            var suspendedDuringVerify = false
+            gateway.beforeCall = { if (it == "verifyCode") suspendedDuringVerify = syncSteps.lastOrNull() == "suspend" }
+            val link = link()
+            link.requestCode("lea@exemple.fr")
+            link.verify("123456")
+            assertTrue(suspendedDuringVerify)
+            assertEquals(listOf("suspend", "resume"), syncSteps)
+
+            // Code refusé : reprise aussi.
+            val other = link()
+            other.requestCode("tom@exemple.fr")
+            gateway.failNext("verifyCode", AuthRequestError(403, "otp_expired"))
+            other.verify("000000")
+            assertEquals(listOf("suspend", "resume", "suspend", "resume"), syncSteps)
+        }
+
+    /**
+     * Règle 2 : un compte e-mail A qui se connecte à un autre compte B ne lui renvoie aucune liste. L'appareil est
+     * purgé, B est adopté sans reprise, et l'écran prévient d'abord des modifications non envoyées.
+     */
+    @Test
+    fun anEmailAccountSigningInToAnotherAccountSendsItNothing() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            val list = repository.createList("Courses de A", now - 1.minutes)
+            repository.renameList(list.id, "Courses de A", now)
+            engine.drain()
+            val accountA = gateway.account
+            repository.addItem(list.id, "pain", "pain", null, null, "bakery", now)
+            gateway.hasSession = false
+            val saved = gateway.callsOf("saveList").size
+            val accountB = Uuid.random()
+            gateway.codeAccount = accountB
+            val link = link()
+            link.prepare()
+            assertEquals(1, link.state.value.unsentChanges)
+
+            link.requestCode("tom@exemple.fr")
+            link.verify("123456")
+
+            assertEquals(AccountLinkOutcome.SignedIn(null, addedLists = 0), link.state.value.outcome)
+            assertTrue(db.lists().getAll().isEmpty())
+            assertEquals(AccountKind.Email, kind.kind.value)
+            assertEquals(listOf(accountB), gateway.acknowledged.takeLast(1))
+            assertEquals(listOf("suspend", "purge", "resume"), syncSteps)
+            engine.drain(pull = true)
+            assertEquals(saved, gateway.callsOf("saveList").size)
+            assertEquals(accountB, cursors.accountId)
+            assertNotEquals(accountA, accountB)
+            assertTrue(gateway.deletedTokens.isEmpty())
+        }
+
+    /** Règle 3 : drapeau posé avant `signOut`, purge rejouée tant qu'il existe, « Réessayer » sans redémarrage. */
+    @Test
+    fun anInterruptedSignOutIsReplayedUntilThePurgeEnds() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            repository.createList("Courses", now)
+            var failures = 1
+            var flagAtSignOut = false
+            val flag = InMemoryAccountSignOutFlag()
+            gateway.beforeCall = { if (it == "signOut") flagAtSignOut = flag.isPending }
+            val failingHost =
+                object : AccountDeletionHost {
+                    override suspend fun suspendSync() = Unit
+
+                    override suspend fun endShopping() = Unit
+
+                    override suspend fun clearLocalState() {
+                        if (failures-- > 0) error("préférences illisibles")
+                    }
+
+                    override fun resumeSync() = Unit
+
+                    override suspend fun rebuild() = Unit
+                }
+            val signOut =
+                AccountSignOut(
+                    guarded,
+                    LocalDataPurge(db, cursors, accountKind = kind),
+                    failingHost,
+                    flag,
+                    isOnline = { online },
+                    flush = { 0 },
+                )
+
+            assertEquals(AccountSignOutOutcome.Failed(AccountSignOutError.Unknown), signOut.run())
+            assertTrue(flagAtSignOut)
+            assertTrue(flag.isPending)
+
+            // Relance : la purge reprend, sans demander ni réseau ni file vide.
+            online = false
+            assertEquals(AccountSignOutOutcome.SignedOut, signOut.resumePending())
+            assertFalse(flag.isPending)
+            assertNull(signOut.resumePending())
         }
 }
