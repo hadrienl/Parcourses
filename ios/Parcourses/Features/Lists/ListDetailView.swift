@@ -343,6 +343,8 @@ struct ListDetailView: View {
       .padding(.horizontal, Space.s)
       .background(Palette.paperEdge, in: RoundedRectangle(cornerRadius: TicketMetrics.radius * 2, style: .continuous))
       .padding(.top, Space.xs)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Hors ligne. Vos modifications partiront au retour du réseau.")
       .accessibilityIdentifier("offlineBanner")
   }
 
@@ -355,6 +357,9 @@ struct ListDetailView: View {
       .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
       .padding(.horizontal, Space.m)
       .floatingDock()
+      // Un seul élément, le texte seul : sinon l'icône et le texte portent chacun l'identifiant.
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(SharingFormat.askOwner(model.access.ownerName))
       .accessibilityIdentifier("readOnlyNote")
   }
 

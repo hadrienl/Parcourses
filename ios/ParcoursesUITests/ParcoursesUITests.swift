@@ -31,7 +31,10 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     row(app, "tomates", "non coché").tap()
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
 
-    row(app, "xyzzy", "non coché").swipeLeft()
+    // Dernière ligne : avec le titre de la liste en tête du ticket, elle peut passer sous le dock et le clavier.
+    let xyzzy = row(app, "xyzzy", "non coché")
+    reveal(xyzzy, in: app, betweenBars: true)
+    xyzzy.swipeLeft()
     app.buttons["Supprimer"].firstMatch.tap()
     XCTAssertTrue(row(app, "xyzzy", "non coché").waitForNonExistence(timeout: 15))
 
