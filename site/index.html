@@ -3,16 +3,346 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Page d'accueil (landing de lancement). Statique : aucun script, aucune ressource distante, CSP stricte. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
-  <title>Parcourses</title>
-  <link rel="stylesheet" href="/assets.css">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons</title>
+  <meta name="description" content="Parcourses range votre liste de courses dans l'ordre des rayons de votre magasin, appris avec les courses de tous. Partage en temps réel, hors ligne, sans publicité. Bientôt sur l'App Store et Google Play.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#E3DCCF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#08090C" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:site_name" content="Parcourses">
+  <meta property="og:url" content="https://parcourses.hadrien.eu/">
+  <meta property="og:title" content="Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons">
+  <meta property="og:description" content="Votre liste se range dans l'ordre des rayons du magasin, appris avec les courses de tous. Bientôt sur l'App Store et Google Play.">
+  <meta property="og:image" content="https://parcourses.hadrien.eu/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Un ticket de caisse Parcourses&nbsp;: la liste rangée par rayon, reliée par le fil du trajet.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Parcourses&nbsp;: votre liste de courses, dans l'ordre des rayons">
+  <meta name="twitter:description" content="Votre liste se range dans l'ordre des rayons du magasin, appris avec les courses de tous. Bientôt sur l'App Store et Google Play.">
+  <meta name="twitter:image" content="https://parcourses.hadrien.eu/og.png">
+  <meta name="twitter:image:alt" content="Un ticket de caisse Parcourses&nbsp;: la liste rangée par rayon, reliée par le fil du trajet.">
+  <link rel="stylesheet" href="/landing.css">
 </head>
 <body>
-  <main>
-    <p class="brand">Parcourses</p>
-    <h1>La liste de courses dans l'ordre des rayons</h1>
-    <p>Parcourses range votre liste dans l'ordre où vous croisez les rayons du magasin, et la partage avec les vôtres.</p>
-    <p class="note">Bientôt sur l'App Store et Google Play.</p>
+  <a class="skip" href="#contenu">Aller au contenu</a>
+
+  <!-- Icônes de rayon (design/icons/categories/, grille 24, trait 1,5) et icônes des étapes. Toutes décoratives. -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="c-produce" viewBox="0 0 24 24"><path d="M12 8c-4-1-7 1.5-7 6s3 7 7 7 7-2.5 7-7-3-7-7-6Z"/><path d="M12 8V4.5"/><path d="M12 6c1-2 3-3 5-2.5-.5 2-2.5 3-5 2.5Z"/></symbol>
+    <symbol id="c-dairy" viewBox="0 0 24 24"><path d="M8 3.5h8"/><path d="M9 3.5v3L7 9.5v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-10l-2-3v-3"/><path d="M7 13h10"/></symbol>
+    <symbol id="c-savory" viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="13.5" rx="2"/><path d="M7 7V4.5h10V7"/><path d="M5 11h14M5 16.5h14"/></symbol>
+    <symbol id="c-breakfast" viewBox="0 0 24 24"><path d="M4.5 10h12v4.5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5Z"/><path d="M16.5 11.5h1.5a2 2 0 0 1 0 4h-1.8"/><path d="M8.5 3.5c-.8 1 .8 2 0 3.5M12.5 3.5c-.8 1 .8 2 0 3.5"/></symbol>
+    <symbol id="c-bakery" viewBox="0 0 24 24"><path d="M3.5 15c0-4.5 3.8-8 8.5-8s8.5 3.5 8.5 8v1.5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M8.5 9.5 10 13"/><path d="M12 8.5V13"/><path d="M15.5 9.5 14 13"/></symbol>
+    <symbol id="c-cheese" viewBox="0 0 24 24"><path d="M3.5 17V11l14-6.5 3 6.5v6.5H3.5Z"/><path d="M3.5 11h17"/><circle cx="9" cy="14.5" r="1.3"/><circle cx="15" cy="15" r=".9"/></symbol>
+    <symbol id="c-household" viewBox="0 0 24 24"><path d="M8 10h7l1.5 9.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1Z"/><path d="M9.5 10V6h3.5l2 2v2"/><path d="M13 6V4h5l-2 2"/></symbol>
+    <symbol id="i-write" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><path d="M3.5 5.5c4.5 0 4.5 6.5 9 6.5M3.5 18.5c4.5 0 4.5-6.5 9-6.5M3.5 12h17"/><path d="m17.5 9 3 3-3 3"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="16.5" cy="9" r="2.5"/><path d="M15.5 14.1a4.5 4.5 0 0 1 5 4.9"/></symbol>
+    <symbol id="i-offline" viewBox="0 0 24 24"><path d="M8.5 18H7a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 9.9-2.6"/><path d="M18.6 10.4A3.5 3.5 0 0 1 17.5 18H12"/><path d="m4 4 16 16"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><rect x="8.5" y="11" width="7" height="4" rx="1"/><path d="M10.5 6.5h3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4.5v15M6 13.5l6 6 6-6"/></symbol>
+  </svg>
+
+  <header class="site-head">
+    <div class="wrap head-row">
+      <a class="brand" href="/" aria-label="Parcourses, accueil">
+        <img src="/icon.svg" alt="" width="36" height="36">
+        <span>Parcourses</span>
+      </a>
+      <nav aria-label="Sections">
+        <ul>
+          <li><a href="#comment">Comment ça marche</a></li>
+          <li><a href="#histoire">L'histoire</a></li>
+          <li><a href="#confidentialite">Confidentialité</a></li>
+        </ul>
+      </nav>
+      <span class="head-soon">Bientôt</span>
+    </div>
+  </header>
+
+  <main id="contenu">
+    <!-- 1. Promesse -->
+    <section class="hero" aria-labelledby="titre">
+      <div class="wrap hero-grid">
+        <div class="hero-text">
+          <p class="kicker">Bientôt sur iPhone et Android · d'abord dans le Gers</p>
+          <h1 id="titre">Votre liste de courses, dans l'ordre des rayons</h1>
+          <p class="lead">Parcourses range votre liste dans l'ordre où vous croisez les rayons de votre magasin. Vous traversez le magasin une seule fois, sans revenir sur vos pas ni oublier le beurre.</p>
+          <div class="stores" role="group" aria-label="Téléchargement, bientôt disponible">
+            <a class="store" role="link" aria-disabled="true"><span class="store-name">App Store</span><span class="store-soon">bientôt</span></a>
+            <a class="store" role="link" aria-disabled="true"><span class="store-name">Google Play</span><span class="store-soon">bientôt</span></a>
+          </div>
+          <a class="more" href="#comment">Voir comment ça marche<svg aria-hidden="true"><use href="#i-down"/></svg></a>
+        </div>
+
+        <figure class="demo">
+          <fieldset class="switch">
+            <legend class="sr-only">Afficher l'exemple de liste</legend>
+            <input type="radio" name="ordre" id="ordre-saisie" value="saisie">
+            <label for="ordre-saisie">Comme je l'ai écrite</label>
+            <input type="radio" name="ordre" id="ordre-rayons" value="rayons" checked>
+            <label for="ordre-rayons">Dans l'ordre des rayons</label>
+          </fieldset>
+
+          <div class="paper-shadow ticket-wrap"><div class="ticket" aria-hidden="true">
+            <div class="tk-head">
+              <p class="tk-store">Supermarché · Auch</p>
+              <p class="tk-meta"><span class="m-rayons">Samedi · trajet connu à 82&nbsp;%</span><span class="m-saisie">Samedi · liste écrite à la va-vite</span></p>
+            </div>
+            <div class="tk-total"><span>Reste</span><b>05</b></div>
+            <div class="tk-list">
+              <div class="tk-thread"><i></i></div>
+              <div class="tk-aisle fresh"><span class="tk-node"><svg><use href="#c-produce"/></svg></span>Fruits et légumes</div>
+              <div class="tk-row done r-tomates"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Tomates</span><span class="tk-qty">6</span></div>
+              <div class="tk-row next r-basilic"><span class="tk-box"></span><span class="tk-name">Basilic</span><span class="tk-qty">1</span></div>
+              <div class="tk-aisle dairy"><span class="tk-node"><svg><use href="#c-dairy"/></svg></span>Crèmerie, œufs</div>
+              <div class="tk-row r-lait"><span class="tk-box"></span><span class="tk-name">Lait entier</span><span class="tk-qty">2</span></div>
+              <div class="tk-row r-beurre"><span class="tk-box"></span><span class="tk-name">Beurre doux</span><span class="tk-qty">1</span></div>
+              <div class="tk-aisle grocery"><span class="tk-node"><svg><use href="#c-savory"/></svg></span>Épicerie salée</div>
+              <div class="tk-row r-pates"><span class="tk-box"></span><span class="tk-name">Pâtes</span><span class="tk-qty">500&nbsp;g</span></div>
+              <div class="tk-aisle grocery"><span class="tk-node"><svg><use href="#c-breakfast"/></svg></span>Petit-déjeuner</div>
+              <div class="tk-row r-cafe"><span class="tk-box"></span><span class="tk-name">Café moulu</span><span class="tk-qty">1</span></div>
+            </div>
+          </div>
+          </div>
+          <figcaption class="sr-only">Exemple&nbsp;: une liste écrite dans le désordre (lait, pâtes, tomates, beurre, café, basilic) devient, dans l'ordre des rayons&nbsp;: fruits et légumes (tomates, déjà cochées, puis basilic), crèmerie (lait, beurre), épicerie salée (pâtes), petit-déjeuner (café). Il reste 5 articles.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 2. Comment -->
+    <section class="how" id="comment" aria-labelledby="titre-comment">
+      <div class="wrap">
+        <p class="kicker">Comment ça marche</p>
+        <h2 id="titre-comment">De la liste à la caisse, sans détour</h2>
+
+        <ol class="steps">
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-write"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">01 · La saisie</p>
+              <h3>Vous écrivez, Parcourses range</h3>
+              <p>Tapez «&nbsp;nesqick&nbsp;»&nbsp;: Parcourses comprend Nesquik et le range au petit-déjeuner. Le rayon de chaque article est deviné dès l'ajout, faute de frappe comprise.</p>
+            </div>
+            <div class="step-visual" aria-hidden="true">
+              <div class="card">
+                <div class="field"><span>nesqick</span><i class="caret"></i></div>
+                <ul class="suggest">
+                  <li class="new"><span>nesqick</span><span class="chip grocery"><svg><use href="#c-breakfast"/></svg>Petit-déjeuner</span></li>
+                  <li><span>Comté</span><span class="chip dairy"><svg><use href="#c-cheese"/></svg>Fromages</span></li>
+                  <li><span>Pain de campagne</span><span class="chip fresh"><svg><use href="#c-bakery"/></svg>Boulangerie</span></li>
+                </ul>
+              </div>
+            </div>
+          </li>
+
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-pin"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">02 · Le magasin</p>
+              <h3>Au magasin, cochez au fil des rayons</h3>
+              <p>Parcourses propose le magasin où vous êtes. Votre liste prend l'ordre de ses rayons, et chaque coche fait avancer le fil jusqu'au prochain article.</p>
+            </div>
+            <div class="step-visual" aria-hidden="true">
+              <div class="card">
+                <div class="store-opt sel">
+                  <b>Supermarché · Auch</b>
+                  <small>À 350&nbsp;m · trajet connu à 82&nbsp;%</small>
+                  <span class="meter"><i class="m82"></i></span>
+                </div>
+                <div class="store-opt">
+                  <b>Supérette · centre-ville</b>
+                  <small>À 1,2&nbsp;km · en apprentissage, 24&nbsp;%</small>
+                  <span class="meter"><i class="m24"></i></span>
+                </div>
+                <span class="btn-mock">Commencer les courses</span>
+              </div>
+            </div>
+          </li>
+
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-merge"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">03 · L'apprentissage</p>
+              <h3>Le trajet s'apprend avec les courses de tous</h3>
+              <p>Personne ne dessine le plan du magasin. Parcourses le déduit de l'ordre dans lequel chacun coche ses articles. Plus il y a de passages, plus l'ordre est juste.</p>
+              <p>Ce qui est mis en commun, c'est l'ordre des rayons, sans identifiant de personne. Dans un magasin encore inconnu, la liste suit un ordre courant, et votre passage aide à le corriger.</p>
+            </div>
+            <div class="step-visual">
+              <svg class="learn" viewBox="0 0 320 212" role="img" aria-labelledby="learn-t">
+                <title id="learn-t">Trois passages anonymes cochent les mêmes rayons dans des ordres un peu différents&nbsp;; Parcourses en tire un seul trajet&nbsp;: fruits et légumes, crèmerie, épicerie salée, entretien.</title>
+                <g class="lt-label">
+                  <text x="0" y="28">Passage 1</text><text x="0" y="62">Passage 2</text><text x="0" y="96">Passage 3</text>
+                </g>
+                <g class="lt-trace">
+                  <path d="M92 24h180"/><path d="M92 58h180"/><path d="M92 92h180"/>
+                  <circle class="fresh" cx="92" cy="24" r="7"/><circle class="dairy" cx="152" cy="24" r="7"/><circle class="grocery" cx="212" cy="24" r="7"/><circle class="hygiene" cx="272" cy="24" r="7"/>
+                  <circle class="fresh" cx="92" cy="58" r="7"/><circle class="grocery" cx="152" cy="58" r="7"/><circle class="dairy" cx="212" cy="58" r="7"/><circle class="hygiene" cx="272" cy="58" r="7"/>
+                  <circle class="fresh" cx="92" cy="92" r="7"/><circle class="dairy" cx="152" cy="92" r="7"/><circle class="hygiene" cx="212" cy="92" r="7"/><circle class="grocery" cx="272" cy="92" r="7"/>
+                </g>
+                <path class="lt-merge" d="M182 108v34"/>
+                <path class="lt-merge-head" d="m175 135 7 7 7-7"/>
+                <path class="lt-thread" d="M40 176h240"/>
+                <g class="lt-node fresh"><circle cx="40" cy="176" r="16"/><use href="#c-produce" x="30" y="166" width="20" height="20"/></g>
+                <g class="lt-node dairy"><circle cx="120" cy="176" r="16"/><use href="#c-dairy" x="110" y="166" width="20" height="20"/></g>
+                <g class="lt-node grocery"><circle cx="200" cy="176" r="16"/><use href="#c-savory" x="190" y="166" width="20" height="20"/></g>
+                <g class="lt-node hygiene"><circle cx="280" cy="176" r="16"/><use href="#c-household" x="270" y="166" width="20" height="20"/></g>
+                <text class="lt-caption" x="160" y="210" text-anchor="middle">Un trajet, sans identifiant</text>
+              </svg>
+            </div>
+          </li>
+
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-people"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">04 · Le partage</p>
+              <h3>Une liste pour toute la maison</h3>
+              <p>Partagez une liste avec les vôtres. Ce que l'un ajoute ou coche apparaît chez l'autre en temps réel, même quand chacun fait un bout du magasin. Chaque membre peut modifier la liste ou seulement la lire.</p>
+            </div>
+            <div class="step-visual" aria-hidden="true">
+              <div class="card">
+                <div class="share-head"><span class="share-title">Courses de la semaine</span><span class="stack"><span class="av">C</span><span class="av">M</span></span></div>
+                <div class="mini-row done"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Lait entier</span><span class="av sm">C</span></div>
+                <div class="mini-row"><span class="tk-box"></span><span class="tk-name">Beurre doux</span><span class="tk-qty">1</span></div>
+                <div class="mini-row added"><span class="tk-box"></span><span class="tk-name">Crème fraîche</span><span class="av sm">C</span></div>
+              </div>
+            </div>
+          </li>
+
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-offline"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">05 · Hors ligne</p>
+              <h3>Même au fond du magasin, sans réseau</h3>
+              <p>Entre les surgelés et les packs d'eau, la 4G disparaît souvent. La liste et l'ordre des rayons sont déjà sur votre téléphone, et vos coches partent dès que le réseau revient.</p>
+            </div>
+            <div class="step-visual" aria-hidden="true">
+              <div class="card">
+                <p class="offline"><svg><use href="#i-offline"/></svg>Hors ligne · 3 coches en attente</p>
+                <div class="mini-row done"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Petits pois</span><span class="tk-qty">1</span></div>
+                <div class="mini-row done"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Glace vanille</span><span class="tk-qty">1</span></div>
+                <div class="mini-row done"><span class="tk-box"><svg><use href="#i-check"/></svg></span><span class="tk-name">Eau gazeuse</span><span class="tk-qty">6</span></div>
+                <div class="mini-row"><span class="tk-box"></span><span class="tk-name">Lessive</span><span class="tk-qty">1</span></div>
+              </div>
+            </div>
+          </li>
+
+          <li class="step">
+            <span class="step-node" aria-hidden="true"><svg><use href="#i-lock"/></svg></span>
+            <div class="step-text">
+              <p class="step-num">06 · L'écran verrouillé</p>
+              <h3>Le prochain article, sans déverrouiller</h3>
+              <p>Sur iPhone, une Live Activity affiche le prochain article et ce qu'il reste à prendre, et vous laisse cocher depuis l'écran verrouillé. Sur Android, une notification de progression suit vos courses.</p>
+            </div>
+            <div class="step-visual" aria-hidden="true">
+              <div class="live">
+                <div class="live-top"><span class="live-store">Supermarché · Auch</span><span class="live-left">Reste <b>02</b></span></div>
+                <div class="live-track"><i></i><span class="b done"></span><span class="b cur"></span><span class="b"></span></div>
+                <div class="live-body">
+                  <span class="live-node"><svg><use href="#c-bakery"/></svg></span>
+                  <span class="live-item"><small>Boulangerie</small>Pain de campagne</span>
+                  <span class="live-btn"><svg><use href="#i-check"/></svg>Cocher</span>
+                </div>
+              </div>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 3. Histoire -->
+    <section class="story" id="histoire" aria-labelledby="titre-histoire">
+      <div class="wrap story-grid">
+        <div>
+          <p class="kicker">L'histoire</p>
+          <h2 id="titre-histoire">Né un samedi, entre deux rayons inconnus</h2>
+          <p class="story-intro">Parcourses n'est pas sorti d'un bureau. Il vient d'un samedi de courses raté, comme tout le monde en a connu.</p>
+        </div>
+        <div class="paper-shadow receipt-wrap"><article class="receipt" aria-label="Le samedi où l'idée est née">
+          <p class="rc-head">Un samedi matin</p>
+          <ol class="rc-lines">
+            <li><span class="rc-t">09&nbsp;h&nbsp;50</span><p>La liste est tapée à la va-vite, sur le pas de la porte. Rien n'est classé&nbsp;: tout tombe dans «&nbsp;Autres&nbsp;».</p></li>
+            <li><span class="rc-t">10&nbsp;h&nbsp;20</span><p>Le magasin est bondé, et ses rayons, inconnus. On remonte trois fois la même allée, on cherche la farine, on oublie le beurre.</p></li>
+            <li><span class="rc-t">11&nbsp;h&nbsp;45</span><p>Sur la route du retour, une idée&nbsp;: si chacun cochait sa liste dans l'ordre où il passe, le magasin finirait par nous apprendre son chemin. Ensemble.</p></li>
+          </ol>
+          <p class="rc-total"><span>Rendu</span><b>Parcourses</b></p>
+        </article></div>
+      </div>
+    </section>
+
+    <!-- 4. Confiance -->
+    <section class="trust" id="confidentialite" aria-labelledby="titre-confiance">
+      <div class="wrap trust-grid">
+        <div>
+          <p class="kicker">Confidentialité</p>
+          <h2 id="titre-confiance">Ce que Parcourses garde, et ce qu'il oublie</h2>
+          <p class="trust-intro">Pour apprendre l'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l'heure de vos visites et les articles que vous cochez. Voici le détail.</p>
+          <p class="note">La politique de confidentialité complète sera publiée ici avec la sortie de l'app.</p>
+        </div>
+        <div class="trust-lists">
+          <h3>Jamais</h3>
+          <ul class="nolist">
+            <li>
+              <p class="li-title"><span class="sr-only">Pas de publicité</span><span class="struck" aria-hidden="true">La publicité</span></p>
+              <p>Aucune publicité ni aucun outil d'analyse tiers, dans l'app comme sur ce site.</p>
+            </li>
+            <li>
+              <p class="li-title"><span class="sr-only">Votre position n'est pas conservée</span><span class="struck" aria-hidden="true">Votre position</span></p>
+              <p>Le GPS sert une seule fois à trouver le magasin où vous êtes, puis la position est oubliée.</p>
+            </li>
+          </ul>
+          <h3>Gardé, et pourquoi</h3>
+          <ul class="keeplist">
+            <li>
+              <p class="li-title">Vos visites et vos coches</p>
+              <p>Elles sont rattachées à un identifiant anonyme, sans nom ni e-mail, et servent à apprendre le trajet. Le plan commun qui en sort ne contient aucun identifiant de personne.</p>
+            </li>
+            <li>
+              <p class="li-title">Votre adresse e-mail, si vous la donnez</p>
+              <p>Pas de compte à créer pour commencer. L'adresse n'est demandée que pour partager une liste ou la retrouver sur un autre appareil, et seul votre prénom est montré aux membres de vos listes.</p>
+            </li>
+            <li id="supprimer-mes-donnees">
+              <p class="li-title">Jusqu'à ce que vous les supprimiez</p>
+              <p>Dans l'app, «&nbsp;À propos&nbsp;», puis «&nbsp;Supprimer mes données…&nbsp;» efface votre compte, vos listes, vos visites et vos coches. Une liste partagée passe à son plus ancien membre, et votre contribution anonyme au plan des rayons reste. Sans utilisation de l'app pendant 365&nbsp;jours, vos données sont aussi supprimées.</p>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Appel à l'action -->
+    <section class="soon" aria-labelledby="titre-bientot">
+      <div class="wrap soon-box">
+        <img src="/icon.svg" alt="" width="72" height="72">
+        <h2 id="titre-bientot">Bientôt sur l'App&nbsp;Store et Google&nbsp;Play</h2>
+        <p>Parcourses arrive d'abord dans le Gers, où les premiers magasins apprennent leur trajet.</p>
+        <div class="stores" role="group" aria-label="Téléchargement, bientôt disponible">
+          <a class="store" role="link" aria-disabled="true"><span class="store-name">App Store</span><span class="store-soon">bientôt</span></a>
+          <a class="store" role="link" aria-disabled="true"><span class="store-name">Google Play</span><span class="store-soon">bientôt</span></a>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer class="site-foot">
+    <div class="wrap foot-row">
+      <p class="brand small"><img src="/icon.svg" alt="" width="24" height="24"><span>Parcourses</span></p>
+      <ul>
+        <li><a href="#confidentialite">Confidentialité</a></li>
+        <li><a href="#supprimer-mes-donnees">Supprimer mes données</a></li>
+      </ul>
+      <p class="foot-note">© 2026 Parcourses · Ce site n'utilise ni cookie ni traceur.</p>
+    </div>
+  </footer>
 </body>
 </html>

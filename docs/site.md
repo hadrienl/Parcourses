@@ -1,10 +1,11 @@
 # Site parcourses.hadrien.eu et liens d'invitation (#87, lot 87.7)
 
 Le site statique `site/` est publié sur GitHub Pages, sous le domaine `parcourses.hadrien.eu`. Le CNAME DNS pointe
-déjà vers `hadrienl.github.io`. Le site sert trois choses :
+déjà vers `hadrienl.github.io`. Le site sert quatre choses :
 
 | Chemin | Rôle |
 | --- | --- |
+| `/` | Page d'accueil qui annonce l'app : promesse, fonctionnement, histoire, confidentialité, « Bientôt sur l'App Store et Google Play ». Statique et sans script : le tri du ticket se joue en CSS (deux boutons radio, `:has()`). Styles dans `landing.css`, identité B3 « Ticket filé ». Image de partage `og.png` (1200 × 630), icônes `icon.svg`, `favicon-32.png` et `apple-touch-icon.png`, tirées de `design/app-icon/`. |
 | `/i/#<jeton>` | Page d'une invitation quand l'app n'est pas installée : trois étapes, puis « Déjà installée ? Ouvrir dans l'app » (`parcourses://invitation#<jeton>`). Elle est statique et ne fait aucun appel réseau. Le jeton reste dans le fragment : il n'est jamais envoyé à l'hébergeur. |
 | `/.well-known/apple-app-site-association` | Liens universels iOS : `QMJKZ67Z3H.app.parcourses`, chemin `/i/*`. |
 | `/.well-known/assetlinks.json` | App Links Android : `fr.parcourses.app` et les empreintes SHA-256 des certificats de signature. |
@@ -13,7 +14,8 @@ déjà vers `hadrienl.github.io`. Le site sert trois choses :
 - le CNAME, et `.nojekyll` (utile seulement si le site était un jour publié depuis une branche : publié par Actions,
   Jekyll ne tourne pas, et c'est `include-hidden-files` de l'artefact qui fait publier `.well-known/`) ;
 - la forme de l'AASA et de `assetlinks.json`, et leur accord avec `APP_BUNDLE_ID` et `applicationId` ;
-- aucune ressource distante, avec une CSP `default-src 'none'` ;
+- aucune ressource distante dans les fichiers du site (pages, styles, scripts, SVG), avec une CSP `default-src 'none'` ;
+- des ressources locales (`/…`) et des ancres internes (`#…`) qui existent, une image de partage servie depuis le domaine ;
 - la règle du jeton, comparée au vecteur `shared/test-vectors/sharing/001`.
 
 ## Mise en place, une fois
@@ -87,3 +89,13 @@ qu'elle l'a lu. Elle masque « Ouvrir dans l'app » tant que le JavaScript n'a p
 
 Ces réglages viennent dans les PR des apps du lot 87.7. Tant qu'ils ne sont pas publiés, un lien https ouvre la page
 `/i/`, et son bouton « Ouvrir dans l'app » passe par le schéma.
+
+## Page d'accueil
+
+- **Textes à valider** : l'histoire d'origine (section `#histoire`) est une version courte et anonyme, à personnaliser.
+- **Liens des stores** : ce sont des emplacements désactivés (`aria-disabled`, sans `href`). Le jour de la sortie, leur
+  donner un `href` et retirer « bientôt ».
+- **Pages légales** (#87.8) : le pied de page pointe pour l'instant vers `#confidentialite` et `#supprimer-mes-donnees`,
+  dans la page. Les remplacer par les pages dédiées quand elles existeront.
+- **Régénérer `og.png`** après un changement du héros : capture de la page à 1200 × 630, puis palette réduite avec
+  `ffmpeg -i brut.png -vf "split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none" site/og.png`.
