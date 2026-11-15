@@ -26,6 +26,18 @@ interface SyncCursors {
 
     /** Oublie tous les curseurs, compte compris (suppression du compte, #68). Écrit avant de rendre la main. */
     fun clear()
+
+    /**
+     * Données de l'appareil rattachées à [accountId] (purge d'un changement de compte e-mail, #87) : écrit avant de
+     * rendre la main, pour qu'une connexion à un autre compte avant la première passe ne passe pas pour le même.
+     */
+    fun adopt(
+        accountId: Uuid,
+        kind: AccountKind,
+    ) {
+        this.accountId = accountId
+        accountKind = kind
+    }
 }
 
 /** Curseurs en mémoire, pour les tests. */
@@ -76,6 +88,21 @@ class SharedPreferencesSyncCursors(
     override var accountKind: AccountKind?
         get() = AccountKind.fromWireName(prefs.getString(ACCOUNT_KIND, null))
         set(value) = prefs.edit().putString(ACCOUNT_KIND, value?.wireName).apply()
+
+    override fun adopt(
+        accountId: Uuid,
+        kind: AccountKind,
+    ) {
+        val written =
+            prefs
+                .edit()
+                .putString(
+                    ACCOUNT,
+                    accountId.toString(),
+                ).putString(ACCOUNT_KIND, kind.wireName)
+                .commit()
+        check(written) { "Compte des données non écrit" }
+    }
 
     override fun clear() {
         // `commit` : le drapeau de suppression n'est effacé qu'après, il ne doit pas survivre à des curseurs perdus.
