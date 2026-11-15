@@ -65,7 +65,10 @@ CLI doit être connectée (`supabase login` ou `SUPABASE_ACCESS_TOKEN`). Le scri
   pas, la valeur en place ne change pas. `--scheme-links` la retire, et les liens repassent en
   `parcourses://invitation#<jeton>`.
 
-Il déploie la fonction avec `--no-verify-jwt`, puis vérifie qu'elle répond 405 à un GET et 401 à un POST sans JWT.
+Il déploie la fonction avec `--no-verify-jwt` et, par défaut, `--use-api` : l'empaquetage se fait côté serveur,
+sans Docker. La fonction n'a aucune dépendance, et un Docker arrêté (OrbStack, Docker Desktop) faisait échouer le
+déploiement avec « error waiting for container: unexpected EOF ». `--docker` revient à l'empaquetage local. Le script
+vérifie ensuite que la fonction répond 405 à un GET et 401 à un POST sans JWT.
 Les secrets ne sont ni affichés ni passés en argument : ils transitent par un fichier temporaire en mode 600.
 
 Le domaine d'envoi `parcourses.hadrien.eu` doit être vérifié chez Resend (SPF, DKIM), comme pour le SMTP de l'Auth
