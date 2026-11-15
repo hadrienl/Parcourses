@@ -4,7 +4,11 @@
       {
         "appIDs": ["QMJKZ67Z3H.app.parcourses"],
         "components": [
-          { "/": "/i/*", "comment": "Invitation à une liste (#87) : le jeton est dans le fragment." }
+          {
+            "/": "/i/",
+            "#": "?*",
+            "comment": "Invitation à une liste (#87) : chemin exact /i/, comme les deux apps ; le jeton est dans le fragment, non vide."
+          }
         ]
       }
     ]

@@ -47,17 +47,18 @@ struct SupabaseGatewayIntegrationTests {
     return gateway
   }
 
-  /// Contre-relecture de #100 : un compte e-mail laissé dans `UserDefaults.standard` par les tests UI ne bloque plus
-  /// les passerelles d'intégration, qui lisent leur propre suite.
-  @Test func anEmailKindLeftInTheStandardDefaultsDoesNotBlockTheGateways() async throws {
-    let standard = UserDefaults.standard
-    let previous = standard.string(forKey: UserDefaultsAccountKindStore.key)
-    defer { standard.set(previous, forKey: UserDefaultsAccountKindStore.key) }
-    UserDefaultsAccountKindStore().save(.email)
-    #expect(UserDefaultsAccountKindStore().kind == .email)
-    // Compte anonyme créé : la passerelle n'a pas attendu une reconnexion e-mail (vecteur `009`).
-    let gateway = try await makeGateway()
-    _ = try await gateway.currentAccountId()
+  /// Contre-relecture de #100 : chaque passerelle d'intégration lit la nature du compte dans sa propre suite, jamais dans
+  /// `UserDefaults.standard` (que les tests UI laissent à `email`). Vérifié sans toucher à `standard` : une suite qui dit
+  /// `email` empêche la création d'un compte anonyme (vecteur `009`), une suite neuve non.
+  @Test func eachGatewayReadsTheAccountKindOfItsOwnSuite() async throws {
+    let configuration = try #require(LocalSupabase.configuration)
+    let emailSuite = LocalSupabase.isolatedDefaults()
+    UserDefaultsAccountKindStore(defaults: emailSuite).save(.email)
+    let waiting = LocalSupabase.gateway(configuration, service: UUID().uuidString, defaults: emailSuite)
+    await #expect(throws: RemoteError.unauthorized) { try await waiting.ensureSession() }
+    let fresh = LocalSupabase.gateway(configuration, service: UUID().uuidString)
+    _ = try await fresh.ensureSession()
+    _ = try await fresh.currentAccountId()
   }
 
   @Test func withoutSessionARequestCreatesNoAccount() async throws {
@@ -918,6 +919,22 @@ private nonisolated enum Mailpit {
 @Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
 struct AccountsIntegrationTests {
   /// Un appareil : Keychain, préférences, store et moteur isolés.
+  /// Descentes demandées par `RealtimeSignals`.
+  @MainActor
+  private final class PullCounter {
+    var count = 0
+
+    /// Vrai dès que `count` atteint `target`, faux au bout de `limit`.
+    func reach(_ target: Int, within limit: Duration) async -> Bool {
+      let deadline = ContinuousClock.now + limit
+      while count < target {
+        guard ContinuousClock.now < deadline else { return false }
+        try? await Task.sleep(for: .milliseconds(50))
+      }
+      return true
+    }
+  }
+
   private struct Device {
     let remote: SupabaseGateway
     let keychain: KeychainStore
@@ -1205,6 +1222,22 @@ struct AccountsIntegrationTests {
 @MainActor
 @Suite(.serialized, .enabled(if: LocalSupabase.configuration != nil))
 struct SharingIntegrationTests {
+  /// Descentes demandées par `RealtimeSignals`.
+  @MainActor
+  private final class PullCounter {
+    var count = 0
+
+    /// Vrai dès que `count` atteint `target`, faux au bout de `limit`.
+    func reach(_ target: Int, within limit: Duration) async -> Bool {
+      let deadline = ContinuousClock.now + limit
+      while count < target {
+        guard ContinuousClock.now < deadline else { return false }
+        try? await Task.sleep(for: .milliseconds(50))
+      }
+      return true
+    }
+  }
+
   private struct Device {
     let remote: SupabaseGateway
     let keychain: KeychainStore
@@ -1322,8 +1355,8 @@ struct SharingIntegrationTests {
     let second = try owner.lists.createList(name: "IT-87.4 lien", at: .now)
     await owner.engine.drain(pull: true)
     let link = try await owner.remote.invitationLink(listId: second.id, email: memberEmail, role: .viewer)
-    // « Copier le lien » : le lien universel de l'hôte du build (lot 87.7).
-    #expect(link.hasPrefix("https://parcourses.hadrien.eu/i/#"))
+    // « Copier le lien » : le lien de la configuration de build (`https://<hôte>/i/#…` depuis le lot 87.7).
+    #expect(link.hasPrefix(InvitationLinks().link(token: "")))
     let linkURL = try #require(URL(string: link))
     let token = try #require(InvitationLinks().token(in: linkURL))
     let preview = try await member.remote.previewInvitation(token: token)
@@ -1335,43 +1368,34 @@ struct SharingIntegrationTests {
     #expect(again.outcome == .alreadyMember)
     #expect(try await member.remote.listSharing(listId: second.id).role == .viewer)
 
-    // Temps réel : Léa écoute son canal, Hadrien coche, le signal arrive et la descente apporte la coche.
-    let stream = await member.remote.userSignals(userId: memberId)
-    // Garde : sans signal en 40 s, le canal se ferme et son flux se termine. Le test échoue au lieu d'attendre sans fin.
-    let remote = member.remote
-    let watchdog = Task {
-      try await Task.sleep(for: .seconds(40))
-      await remote.closeUserSignals()
-    }
-    defer { watchdog.cancel() }
-    var iterator = stream.makeAsyncIterator()
-    #expect(await iterator.next() == .subscribed)
-    // Juste après `.subscribed`, la première écriture n'est pas toujours acheminée (l'app rattrape alors par la descente
-    // de chaque `.subscribed`). La coche est donc répétée toutes les 2,5 s jusqu'au signal, 12 fois au plus.
-    let writer = Task {
-      for _ in 0..<12 {
-        try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
-        await owner.engine.drain()
-        try await Task.sleep(for: .milliseconds(2500))
-      }
-    }
-    var signal: RealtimeSignal?
-    while let event = await iterator.next() {
-      if case .signal(let received) = event, received.kind == "items" {
-        signal = received
-        break
-      }
-    }
-    writer.cancel()
-    _ = await writer.result
-    #expect(signal?.listId == list.id)
-    // Dernière coche envoyée : rien ne reste dans la file du propriétaire.
+    // Temps réel, par `RealtimeSignals` comme dans l'app : Léa ouvre son canal ; dès `.subscribed` (première descente),
+    // Hadrien coche une seule fois. La coche arrive par le signal ou, s'il n'est pas encore acheminé, par la seconde
+    // descente qui suit chaque `.subscribed`.
+    let pulls = PullCounter()
+    let signals = RealtimeSignals(
+      transport: member.remote,
+      dependencies: RealtimeSignals.Dependencies(
+        accountId: { memberId }, isEmailAccount: { true },
+        pull: {
+          pulls.count += 1
+          Task { await member.engine.drain(pull: true) }
+        }))
+    signals.enteredForeground()
+    await signals.foreground()
+    #expect(await pulls.reach(1, within: .seconds(20)), "canal jamais abonné")
+    try owner.lists.setChecked(itemId: milk.id, checkedAt: .now, at: .now)
     await owner.engine.drain()
+    // Coche envoyée : rien ne reste dans la file du propriétaire.
     #expect(try ModelContext(owner.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
+    var checked: ListItem?
+    for _ in 0..<100 {
+      checked = try member.items(list.id).first { $0.id == milk.id && $0.checkedAt != nil }
+      if checked != nil { break }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    #expect(checked?.updatedBy == ownerId, "coche jamais reçue (\(pulls.count) descentes)")
+    await signals.background()
     await member.engine.drain(pull: true)
-    let checked = try #require(try member.items(list.id).first { $0.id == milk.id })
-    #expect(checked.checkedAt != nil && checked.updatedBy == ownerId)
-    await member.remote.closeUserSignals()
 
     // Rôle abaissé pendant que Léa décoche encore (éditrice sur son appareil) : le serveur refuse (0 ligne),
     // `refreshAccess` relit le rôle, l'écriture est jetée et la valeur du serveur revient.

@@ -1,5 +1,6 @@
 import Domain
 import Foundation
+import MachO
 import Supabase
 import SwiftData
 import SwiftUI
@@ -13,7 +14,27 @@ private let hadrien = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
 private let lea = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
 private let tom = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
 
-private final class SharingTestsBundleToken {}
+/// Hôte https du build (`PARCOURSES_INVITATION_HOST`), jamais écrit en dur dans les tests.
+private nonisolated let buildHost = InvitationLinks(bundle: .main).httpsHost
+
+/// Entitlements signés de l'app hôte : au build simulateur, Xcode les écrit dans la section `__TEXT,__entitlements` de
+/// l'exécutable (XML), que l'on relit ici plutôt que le fichier source.
+private func signedEntitlements() throws -> [String: Any] {
+  let executable = try #require(Bundle.main.executableURL?.lastPathComponent)
+  for index in 0..<_dyld_image_count() {
+    guard let name = _dyld_get_image_name(index), String(cString: name).hasSuffix(".app/\(executable)"),
+      let header = _dyld_get_image_header(index)
+    else { continue }
+    var size: UInt = 0
+    let header64 = UnsafeRawPointer(header).assumingMemoryBound(to: mach_header_64.self)
+    let section = try #require(getsectiondata(header64, "__TEXT", "__entitlements", &size))
+    // Section complétée de zéros : le XML s'arrête au premier.
+    let data = Data(bytes: section, count: Int(size)).prefix { $0 != 0 }
+    return try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+  }
+  Issue.record("exécutable \(executable) introuvable parmi les images chargées")
+  return [:]
+}
 
 /// Attend qu'une condition devienne vraie (tâches de fond, 2 s au plus).
 @MainActor
@@ -118,7 +139,7 @@ struct SharingValueTests {
       #expect(scheme.httpsHost == nil)
       #expect(scheme.link(token: token) == "parcourses://invitation#\(token)")
       let schemeURL = try #require(URL(string: "parcourses://invitation#\(token)"))
-      let httpsURL = try #require(URL(string: "https://parcourses.hadrien.eu/i/#\(token)"))
+      let httpsURL = try #require(URL(string: "https://parcourses.example/i/#\(token)"))
       #expect(scheme.token(in: schemeURL) == token)
       #expect(scheme.token(in: httpsURL) == nil)
     }
@@ -126,25 +147,25 @@ struct SharingValueTests {
     #expect(host.link(token: token) == "https://parcourses.example/i/#\(token)")
   }
 
-  /// Lot 87.7 (Q2) : l'hôte du build vaut `parcourses.hadrien.eu`, réglé par xcconfig, sans domaine écrit dans le code.
-  /// Le domaine associé des liens universels vient du même réglage.
-  @Test func theBuildHostIsTheInvitationDomain() throws {
-    let build = InvitationLinks(bundle: .main)
-    #expect(build.httpsHost == "parcourses.hadrien.eu")
+  /// Lot 87.7 : le domaine associé effectivement signé (section `__TEXT,__entitlements` de l'exécutable, posée par Xcode
+  /// au build simulateur) suit l'hôte du build ; sans hôte, l'hôte réservé `invitation.invalid`.
+  @Test func theSignedAssociatedDomainFollowsTheBuildHost() throws {
+    let entitlements = try signedEntitlements()
+    let domains = entitlements["com.apple.developer.associated-domains"] as? [String]
+    #expect(domains == ["applinks:\(buildHost ?? "invitation.invalid")"])
+  }
+
+  /// Lot 87.7 (Q2) : avec un hôte de build, « Copier le lien » donne `https://<hôte>/i/#<jeton>`.
+  @Test(.enabled(if: buildHost != nil)) func theBuildHostMakesHttpsLinks() throws {
+    let host = try #require(buildHost)
     let token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
-    #expect(build.link(token: token) == "https://parcourses.hadrien.eu/i/#\(token)")
-    // Sources de l'app copiées dans le bundle de test (`project.yml`).
-    let resources = try #require(Bundle(for: SharingTestsBundleToken.self).resourceURL)
-    let entitlements = resources.appending(path: "Parcourses/Parcourses.entitlements")
-    let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: entitlements), format: nil)
-    let domains = (plist as? [String: Any])?["com.apple.developer.associated-domains"] as? [String]
-    #expect(domains == ["applinks:$(PARCOURSES_INVITATION_HOST)"])
+    #expect(InvitationLinks(bundle: .main).link(token: token) == "https://\(host)/i/#\(token)")
   }
 
   /// Vecteur `001` rejoué avec l'hôte du build à la place de `parcourses.example` : mêmes réponses.
-  @Test func vector001HoldsWithTheBuildHost() throws {
+  @Test(.enabled(if: buildHost != nil)) func vector001HoldsWithTheBuildHost() throws {
     let build = InvitationLinks(bundle: .main)
-    let host = try #require(build.httpsHost)
+    let host = try #require(buildHost)
     let file = try #require(SharingVectorFile.all.first { $0.name.hasPrefix("001-") })
     let object = try #require(try JSONSerialization.jsonObject(with: file.data) as? [String: Any])
     let cases = try #require(object["cases"] as? [[String: Any]])
@@ -163,37 +184,42 @@ struct SharingValueTests {
   }
 
   /// Seul `https://<hôte du build>/i/#<jeton>` ouvre une invitation : autre hôte, http, autre chemin (même proche),
-  /// paramètres, port ou jeton hors du fragment sont refusés, comme sur Android.
-  @Test(arguments: [
-    "https://evil.example/i/#",
-    "https://parcourses.hadrien.eu.evil.example/i/#",
-    "https://evil.example/parcourses.hadrien.eu/i/#",
-    "http://parcourses.hadrien.eu/i/#",
-    "https://parcourses.hadrien.eu/#",
-    "https://parcourses.hadrien.eu/i#",
-    "https://parcourses.hadrien.eu/i/x#",
-    "https://parcourses.hadrien.eu/i//#",
-    "https://parcourses.hadrien.eu/x/i/#",
-    "https://parcourses.hadrien.eu/I/#",
-    "https://parcourses.hadrien.eu/i/?ref=mail#",
-    "https://parcourses.hadrien.eu:8443/i/#",
-    "https://user@parcourses.hadrien.eu/i/#",
-  ])
-  func otherHttpsLinksAreRefused(_ prefix: String) throws {
-    let url = try #require(URL(string: prefix + UITestSharingGateway.token))
+  /// paramètres, port ou jeton hors du fragment sont refusés, comme sur Android. `HOST` : l'hôte du build.
+  @Test(
+    .enabled(if: buildHost != nil),
+    arguments: [
+      "https://evil.example/i/#",
+      "https://HOST.evil.example/i/#",
+      "https://evil.example/HOST/i/#",
+      "http://HOST/i/#",
+      "https://HOST/#",
+      "https://HOST/i#",
+      "https://HOST/i/x#",
+      "https://HOST/i//#",
+      "https://HOST/x/i/#",
+      "https://HOST/I/#",
+      "https://HOST/i/?ref=mail#",
+      "https://HOST:8443/i/#",
+      "https://user@HOST/i/#",
+    ])
+  func otherHttpsLinksAreRefused(_ pattern: String) throws {
+    let host = try #require(buildHost)
+    let url = try #require(
+      URL(string: pattern.replacingOccurrences(of: "HOST", with: host) + UITestSharingGateway.token))
     #expect(InvitationLinks(bundle: .main).token(in: url) == nil)
   }
 
   /// Lien universel livré par `onContinueUserActivity` (navigation web) : même carte que le schéma. Un second lien
   /// remplace le premier ; le même lien livré deux fois garde la feuille présentée ; une autre activité est ignorée.
-  @Test func aUniversalLinkOpensTheSameCardAsTheScheme() throws {
+  @Test(.enabled(if: buildHost != nil)) func aUniversalLinkOpensTheSameCardAsTheScheme() throws {
+    let host = try #require(buildHost)
     let center = SharingCenter(
       gateway: nil, transport: nil, links: InvitationLinks(bundle: .main), monitorsNetwork: false)
     let first = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCde"
     let second = "ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-ZyXwV"
 
     let web = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
-    web.webpageURL = URL(string: "https://parcourses.hadrien.eu/i/#\(first)")
+    web.webpageURL = URL(string: "https://\(host)/i/#\(first)")
     #expect(center.open(userActivity: web))
     let opened = try #require(center.openedLink)
     #expect(opened.token == first)
@@ -206,7 +232,7 @@ struct SharingValueTests {
     #expect(center.openedLink?.token == second)
     #expect(center.openedLink != opened)
     // Puis de nouveau le premier, en lien universel.
-    #expect(center.open(url: try #require(URL(string: "https://parcourses.hadrien.eu/i/#\(first)"))))
+    #expect(center.open(url: try #require(URL(string: "https://\(host)/i/#\(first)"))))
     #expect(center.openedLink?.token == first)
 
     // Lien refusé ou autre activité : la feuille présentée ne change pas.
@@ -215,7 +241,7 @@ struct SharingValueTests {
     foreign.webpageURL = URL(string: "https://evil.example/i/#\(second)")
     #expect(!center.open(userActivity: foreign))
     let handoff = NSUserActivity(activityType: "app.parcourses.other")
-    handoff.webpageURL = URL(string: "https://parcourses.hadrien.eu/i/#\(second)")
+    handoff.webpageURL = URL(string: "https://\(host)/i/#\(second)")
     #expect(!center.open(userActivity: handoff))
     #expect(!center.open(userActivity: NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)))
     #expect(center.openedLink == shown)
@@ -316,6 +342,23 @@ private actor FakeTransport: RealtimeTransport {
 
   func send(_ event: RealtimeEvent) {
     continuation?.yield(event)
+  }
+}
+
+/// Attentes injectées dans `RealtimeSignals` : suspendues jusqu'à leur annulation, comptées.
+@MainActor
+private final class SleepProbe {
+  private(set) var started = 0
+  private(set) var cancelled = 0
+
+  func sleep(_ duration: Duration) async throws {
+    started += 1
+    do {
+      try await Task.sleep(for: .seconds(3600))
+    } catch {
+      cancelled += 1
+      throw error
+    }
   }
 }
 
@@ -674,7 +717,7 @@ private final class SignalProbe {
     await model.send()
     #expect(model.mailFailure != nil)
     model.copyFailedMailLink()
-    #expect(copied == ["https://parcourses.hadrien.eu/i/#\(UITestSharingGateway.token)"])
+    #expect(copied == [InvitationLinks().link(token: UITestSharingGateway.token)])
 
     let pending = try #require(model.invitations.first { $0.email == "c.martin@exemple.fr" })
     await model.copyLink(pending)
@@ -1024,6 +1067,49 @@ private actor SlowJoinTransport: RealtimeTransport {
     let steps = await transport.steps
     #expect(steps.first == .joined)
     #expect(steps.last == .closed)
+  }
+
+  /// Relecture de #107 : une coche faite juste après l'abonnement peut suivre la première descente sans que son signal
+  /// arrive. Une seconde descente part 2,5 s après `.subscribed`.
+  @Test func aSecondPullFollowsEachSubscription() async {
+    let probe = SignalProbe()
+    var waits: [Duration] = []
+    let signals = RealtimeSignals(
+      transport: nil,
+      dependencies: RealtimeSignals.Dependencies(pull: { probe.pulls += 1 }, sleep: { waits.append($0) }))
+    signals.handle(.subscribed)
+    #expect(probe.pulls == 1)
+    await eventually { probe.pulls == 2 }
+    #expect(probe.pulls == 2)
+    #expect(waits == [RealtimeSignals.subscribedFollowUpDelay])
+    #expect(RealtimeSignals.subscribedFollowUpDelay == .milliseconds(2500))
+  }
+
+  /// Relecture de #107 : la seconde descente est unique (un nouvel abonnement remplace celle en attente) et annulée à la
+  /// fermeture du canal.
+  @Test func theFollowUpPullIsUniqueAndCancelledOnClose() async {
+    let probe = SignalProbe()
+    let sleeps = SleepProbe()
+    let transport = FakeTransport()
+    let signals = RealtimeSignals(
+      transport: transport,
+      dependencies: RealtimeSignals.Dependencies(
+        accountId: { lea }, isEmailAccount: { true }, pull: { probe.pulls += 1 },
+        sleep: { duration in try await sleeps.sleep(duration) }))
+    signals.enteredForeground()
+    await signals.foreground()
+    await eventually { await transport.opened == [lea] }
+    await transport.send(.subscribed)
+    await eventually { sleeps.started == 1 }
+    await transport.send(.subscribed)
+    await eventually { sleeps.started == 2 && sleeps.cancelled == 1 }
+    #expect(sleeps.cancelled == 1)
+    #expect(probe.pulls == 2)
+    await signals.background()
+    await eventually { sleeps.cancelled == 2 }
+    #expect(sleeps.cancelled == 2)
+    // Aucune descente de plus : celle qui était due est annulée.
+    #expect(probe.pulls == 2)
   }
 
   /// Mineur 3 : deux ouvertures concurrentes (premier plan et compte relu) n'ouvrent qu'une écoute.

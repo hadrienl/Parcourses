@@ -32,6 +32,9 @@ final class RealtimeSignals {
   static let groupingDelay: Duration = .milliseconds(300)
   /// Canal refusé ou coupé sans reprise : nouvel essai tant que l'app est au premier plan.
   static let retryDelay: Duration = .seconds(30)
+  /// Seconde descente après `.subscribed` : une écriture d'un autre membre faite juste après l'abonnement peut être
+  /// postérieure à la première descente sans que son signal soit encore acheminé.
+  static let subscribedFollowUpDelay: Duration = .milliseconds(2500)
 
   private static let logger = Logger(subsystem: "app.parcourses", category: "realtime")
 
@@ -43,6 +46,8 @@ final class RealtimeSignals {
   private var flushTask: Task<Void, Never>?
   /// Descente reportée à la fin de la fenêtre d'un écho : un vrai signal d'un autre membre a pu y arriver.
   private var deferredPull: Task<Void, Never>?
+  /// Seconde descente due après le dernier `.subscribed` : une seule à la fois.
+  private var followUpPull: Task<Void, Never>?
   /// Fermeture en cours : une ouverture attend qu'elle soit finie.
   private var closing: Task<Void, Never>?
 
@@ -128,6 +133,9 @@ final class RealtimeSignals {
     if !pending.isEmpty { flush() }
     // Descente reportée encore due : elle part avant la fermeture, comme les signaux en attente.
     if deferredPull != nil { pullNow() }
+    // Seconde descente de l'abonnement : sans canal, plus rien à rattraper ; le retour au premier plan redescend.
+    followUpPull?.cancel()
+    followUpPull = nil
     guard let transport else { return }
     // L'écoute finit d'abord (une ouverture en cours se referme elle-même) : sa fermeture tardive ne peut pas couper le
     // canal d'une ouverture suivante, qui attend `closing`.
@@ -143,8 +151,10 @@ final class RealtimeSignals {
   func handle(_ event: RealtimeEvent) {
     switch event {
     case .subscribed:
-      // (Re)connexion : une descente rattrape ce qui a pu être manqué.
+      // (Re)connexion : une descente rattrape ce qui a pu être manqué, puis une seconde, 2,5 s plus tard, ce qui a été
+      // écrit entre la première et l'acheminement des signaux.
       pullNow()
+      scheduleFollowUpPull()
     case .signal(let signal):
       if let delay = dependencies.echoDelay(signal) {
         deferPull(by: delay)
@@ -169,6 +179,18 @@ final class RealtimeSignals {
       do { try await sleep(.milliseconds(Int((delay * 1000).rounded(.up)))) } catch { return }
       self?.deferredPull = nil
       self?.dependencies.pull()
+    }
+  }
+
+  /// Une seule seconde descente en attente : un nouvel abonnement remplace la précédente.
+  private func scheduleFollowUpPull() {
+    followUpPull?.cancel()
+    let sleep = dependencies.sleep
+    followUpPull = Task { [weak self] in
+      do { try await sleep(Self.subscribedFollowUpDelay) } catch { return }
+      guard !Task.isCancelled else { return }
+      self?.followUpPull = nil
+      self?.pullNow()
     }
   }
 

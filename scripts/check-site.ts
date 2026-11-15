@@ -1,6 +1,6 @@
 // Vérifie le site statique site/ (#87, lot 87.7), publié sur GitHub Pages pour parcourses.hadrien.eu.
 //   - CNAME, .nojekyll (sans lui, Pages ne publie pas .well-known/) ;
-//   - AASA : JSON valide, appID = <équipe>.app.parcourses, chemin /i/* ;
+//   - AASA : JSON valide, appID = <équipe>.app.parcourses, un seul composant : chemin exact /i/ et fragment non vide ;
 //   - assetlinks.json : JSON valide, paquet = applicationId d'android/app/build.gradle.kts, empreintes SHA-256 ;
 //   - aucune ressource distante dans les fichiers du site (CSP stricte, ni police ni image ni script d'un autre hôte),
 //     ressources locales et ancres internes qui existent, image de partage locale ;
@@ -31,8 +31,13 @@ try {
   if (!ids.length || !ids.every((id) => new RegExp(`^[A-Z0-9]{10}\\.${bundle?.replaceAll(".", "\\.")}$`).test(id))) {
     fail(`AASA : appIDs attendus <équipe>.${bundle}, trouvés ${JSON.stringify(ids)}`);
   }
-  const paths = details.flatMap((d: { components?: { "/"?: string }[] }) => (d.components ?? []).map((c) => c["/"]));
-  if (!paths.includes("/i/*")) fail("AASA : le chemin /i/* manque");
+  // Chemin exact /i/ (les deux apps refusent tout autre chemin, vecteur 001) et fragment non vide (le jeton).
+  type Component = { "/"?: string; "#"?: string; "?"?: unknown };
+  const components: Component[] = details.flatMap((d: { components?: Component[] }) => d.components ?? []);
+  const invitation = components.length === 1 && components[0]["/"] === "/i/" && components[0]["#"] === "?*";
+  if (!invitation) {
+    fail(`AASA : un seul composant attendu, { "/": "/i/", "#": "?*" }, trouvés ${JSON.stringify(components)}`);
+  }
 } catch (e) {
   fail(`AASA illisible : ${e instanceof Error ? e.message : e}`);
 }

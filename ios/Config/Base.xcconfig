@@ -15,8 +15,11 @@ SUPABASE_URL =
 SUPABASE_PUBLISHABLE_KEY =
 // Hôte des liens d'invitation https (#87, lot 87.7, Q2), sans schéma ni chemin : Info.plist (`ParcoursesInvitationHost`)
 // et domaine associé (`applinks:`). Surchargeable par Local.xcconfig, Cloud.xcconfig ou la ligne de commande. Vide :
-// aucun lien https construit ni reconnu, seul parcourses:// reste (l'entrée `applinks:` sans hôte ne vise aucun site).
+// aucun lien https construit ni reconnu, seul parcourses:// reste.
 PARCOURSES_INVITATION_HOST = parcourses.hadrien.eu
+// Domaine associé des liens universels : l'hôte, ou l'hôte réservé `invitation.invalid` (RFC 2606, comme Android)
+// quand il est vide, plutôt qu'une entrée `applinks:` sans domaine.
+PARCOURSES_APPLINKS_HOST = $(PARCOURSES_INVITATION_HOST:default=invitation.invalid)
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
 // Simulateur : signature ad hoc, sans certificat. Sans elle, le Keychain renvoie -34018.
 CODE_SIGN_STYLE[sdk=iphonesimulator*] = Manual

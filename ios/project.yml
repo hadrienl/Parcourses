@@ -41,7 +41,8 @@ targets:
           - $(APP_GROUP_ID)
         # Liens universels des invitations (#87, lot 87.7) : `https://<hôte>/i/#<jeton>`, AASA servi par site/.
         com.apple.developer.associated-domains:
-          - applinks:$(PARCOURSES_INVITATION_HOST)
+          # Hôte vide : `invitation.invalid` (Base.xcconfig).
+          - applinks:$(PARCOURSES_APPLINKS_HOST)
     info:
       path: Parcourses/Info.plist
       properties:
