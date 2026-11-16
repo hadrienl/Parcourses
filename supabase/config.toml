@@ -428,6 +428,11 @@ MAILPIT_API_URL = "http://supabase_inbucket_parcourses:8025"
 [functions.send-invitation]
 verify_jwt = false
 
+# Edge Function de la prévenance des comptes e-mail inactifs (#114), appelée par pg_cron via pg_net avec un secret
+# partagé (INACTIVITY_NOTICE_SECRET), sans JWT. Voir docs/hosted-supabase.md.
+[functions.notify-inactive-accounts]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 56327
