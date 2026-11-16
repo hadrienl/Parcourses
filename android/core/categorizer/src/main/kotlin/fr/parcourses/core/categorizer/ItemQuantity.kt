@@ -30,7 +30,8 @@ data class QuantityItem(
 
 /**
  * Quantité d'un article (#110) : fonctions pures, mêmes noms et mêmes résultats qu'iOS (`enum ItemQuantity` du paquet
- * `Domain`), vérifiées par les vecteurs de `shared/test-vectors/quantity/` (référence : `shared/reference/quantity.ts`).
+ * `Domain`), vérifiées par les vecteurs de `shared/test-vectors/quantity/` (référence :
+ * `shared/reference/quantity.ts`).
  *
  * La quantité reste un texte libre (« 2 », « 500 g », « 6x33cl », « un peu »). Le − / + agit sur le nombre en tête,
  * s'il y en a un ; le reste (unité, « x33cl ») et l'écart sont gardés tels quels. Chiffres ASCII seulement, calcul en
@@ -40,6 +41,7 @@ data class QuantityItem(
  * U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF. Ni `\s` des regex Java (ASCII seulement) ni `Char.isWhitespace`
  * (qui compte U+001C à U+001F) ne donnent exactement cet ensemble : il est écrit à la main.
  */
+@Suppress("TooManyFunctions") // port de la référence : cinq fonctions publiques et leurs aides d'analyse
 object ItemQuantity {
     /** Longueur maximale d'une quantité, en points de code (`list_items.quantity`, 50 caractères). */
     const val MAX_QUANTITY_LENGTH = 50
@@ -50,6 +52,7 @@ object ItemQuantity {
 
     private const val GRAM_STEP = 100L
     private const val CENTILITER_STEP = 10L
+    private const val DECIMAL_BASE = 10L
 
     /**
      * Quantité après un appui sur + ([delta] 1) ou − ([delta] -1). Sans quantité, l'article compte pour un : + donne
@@ -74,6 +77,7 @@ object ItemQuantity {
      * « 1 l »). Même unité déjà posée (casse ignorée) : elle est retirée. Sinon, le nombre garde sa valeur et son
      * écriture et prend l'unité. `null` : raccourci inactif (quantité sans nombre en tête).
      */
+    @Suppress("ReturnCount") // port de la référence : gardes de sortie anticipée
     fun setQuantityUnit(
         quantity: String?,
         unit: QuantityUnit,
@@ -194,7 +198,7 @@ object ItemQuantity {
 
     private fun pow10(exponent: Int): Long {
         var result = 1L
-        repeat(exponent) { result *= 10 }
+        repeat(exponent) { result *= DECIMAL_BASE }
         return result
     }
 
