@@ -566,10 +566,14 @@ class ShoppingViewModel(
         return true
     }
 
+    /** Courses arrêtées : accès perdu, expirées ou terminées. Le panneau de l'article ne s'y ouvre plus (#110). */
+    private val shoppingStopped: Boolean
+        get() = accessLost || expired || summary != null
+
     /** Ouvre le panneau de l'article (#110) sur une ligne à prendre. */
     fun openItemEditor(row: ShoppingRow) =
         act {
-            if (row.isChecked || accessLost || expired || summary != null) return@act
+            if (row.isChecked || shoppingStopped) return@act
             editing = ItemEditTarget(row.id, row.label, row.quantity)
             publish()
         }
@@ -1058,7 +1062,7 @@ class ShoppingViewModel(
         // pas seul plus tard avec un instantané périmé.
         editing =
             editing?.takeIf { target ->
-                !accessLost && !expired && summary == null && toBuy.any { it.id == target.id && !it.isChecked }
+                !shoppingStopped && toBuy.any { it.id == target.id && !it.isChecked }
             }
         val groups = mode != SortOutput.Mode.Learned
         val sections = if (groups) sections() else runs()
