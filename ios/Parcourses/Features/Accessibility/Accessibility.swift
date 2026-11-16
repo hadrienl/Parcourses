@@ -9,6 +9,14 @@ enum EntryPrompt {
   static var text: Text {
     Text(placeholder).foregroundStyle(Palette.inkMuted)
   }
+
+  /// Invite courte du dock du mode courses : l'exemple ne tient pas à côté de « Terminer », le dock passerait sur deux
+  /// rangées (Android affiche aussi « Ajouter un article » au repos dans ce dock).
+  static let shortPlaceholder = "Ajouter un article"
+
+  static var shortText: Text {
+    Text(shortPlaceholder).foregroundStyle(Palette.inkMuted)
+  }
 }
 
 /// Champ de saisie : la case visible fait au moins 44 pt, et toute la case donne le focus, marges comprises.

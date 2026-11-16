@@ -462,7 +462,7 @@ struct ShoppingView: View {
   }
 
   private var entryField: some View {
-    TextField(EntryPrompt.placeholder, text: $session.input, prompt: EntryPrompt.text)
+    TextField(EntryPrompt.shortPlaceholder, text: $session.input, prompt: EntryPrompt.shortText)
       .entryField(focus: $inputIsFocused)
       .submitLabel(.done)
       .accessibilityIdentifier("shoppingEntry")
