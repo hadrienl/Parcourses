@@ -111,6 +111,24 @@ interface ListRepository {
         at: Instant,
     )
 
+    /**
+     * Libellé et quantité d'un article (#110, panneau de l'article et saisie sur un article existant). Seuls les champs
+     * qui changent sont écrits et envoyés (triés) : `label`, `quantity`, et `product_id` seulement si le produit est
+     * oublié. Un nouveau libellé prend [normalizedName] et [categoryId] (reclassés par l'appelant) ; si sa forme
+     * normalisée change, le produit est oublié (`productId` nul) : la résolution de produit repassera.
+     * [normalizedName] et [categoryId] sont ignorés si le libellé ne change pas. Rien ne change : aucune écriture.
+     * Refusé en lecture seule.
+     */
+    @Suppress("LongParameterList")
+    suspend fun updateItem(
+        itemId: String,
+        label: String,
+        normalizedName: String,
+        categoryId: String,
+        quantity: String?,
+        at: Instant,
+    )
+
     /** Champ purement local : ni envoi, ni `updatedAt`, qui suit l'état partagé. */
     suspend fun setNotFound(
         itemId: String,

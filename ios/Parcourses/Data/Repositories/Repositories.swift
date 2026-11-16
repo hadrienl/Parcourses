@@ -48,6 +48,12 @@ protocol ListRepository {
     listId: UUID, label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String,
     at date: Date
   ) throws -> ListItem
+  /// Libellé et quantité modifiés dans le panneau de l'article (#110). Seuls les champs changés partent ; un libellé
+  /// de forme normalisée différente perd son produit, qui correspondait à l'ancien libellé (la résolution repassera).
+  /// Sans effet si rien ne change.
+  func updateItem(
+    itemId: UUID, label: String, normalizedName: String, categoryId: String, quantity: String?, at date: Date
+  ) throws
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws
   func deleteItem(id: UUID) throws

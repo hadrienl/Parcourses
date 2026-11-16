@@ -79,6 +79,7 @@ abstract class ListsTest {
     protected fun detailModel(
         listId: String,
         remaps: Flow<IdentifierRemap> = emptyFlow(),
+        quantityTip: QuantityTipMemory = InMemoryQuantityTipMemory(),
     ) = tracked {
         ListDetailViewModel(
             listId = listId,
@@ -89,6 +90,7 @@ abstract class ListsTest {
             remaps = remaps,
             now = { clock },
             computation = Dispatchers.Unconfined,
+            quantityTip = quantityTip,
         )
     }
 

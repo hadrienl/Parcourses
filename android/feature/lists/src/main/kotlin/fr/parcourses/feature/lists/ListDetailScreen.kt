@@ -1,6 +1,7 @@
 package fr.parcourses.feature.lists
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -29,8 +29,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -58,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -70,11 +74,14 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
@@ -82,8 +89,10 @@ import fr.parcourses.core.designsystem.AisleLine
 import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
+import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.ItemLine
 import fr.parcourses.core.designsystem.MemberAvatar
+import fr.parcourses.core.designsystem.NoticeCard
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -96,10 +105,12 @@ import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
+import fr.parcourses.core.designsystem.pressScale
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
 import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.launch
+import fr.parcourses.core.designsystem.R as DesignR
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -124,8 +135,28 @@ fun ListDetailRoute(
         onStartShopping = onStartShopping?.let { start -> { start(viewModel.listId.value) } },
         onShare = onShare?.let { share -> { share(viewModel.listId.value) } },
         onAcknowledge = viewModel::acknowledge,
+        itemEditing =
+            remember(viewModel) {
+                ItemEditing(
+                    onEdit = viewModel::openItemEditor,
+                    onSave = viewModel::saveItem,
+                    onClose = viewModel::closeItemEditor,
+                    onDismissTip = viewModel::dismissQuantityTip,
+                )
+            },
     )
 }
+
+/**
+ * Panneau de l'article (#110) : [onEdit] l'ouvre (appui long, action TalkBack), [onSave] reçoit le texte des deux
+ * champs, [onClose] le referme sans rien écrire. [onDismissTip] ferme l'astuce pour toujours.
+ */
+class ItemEditing(
+    val onEdit: (ItemRow) -> Unit = {},
+    val onSave: (label: String, quantityText: String) -> Unit = { _, _ -> },
+    val onClose: () -> Unit = {},
+    val onDismissTip: () -> Unit = {},
+)
 
 /**
  * Écran Liste (#6, B3) : un ticket, articles groupés par rayon le long du fil, saisie rapide dans la barre flottante en
@@ -147,6 +178,7 @@ fun ListDetailScreen(
     onStartShopping: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onAcknowledge: (AccessChange) -> Unit = {},
+    itemEditing: ItemEditing = ItemEditing(),
 ) {
     val colors = Ticket.colors
     val sharing = state.sharing
@@ -181,10 +213,11 @@ fun ListDetailScreen(
         bottomBar = { DetailBottomBar(state, input, onSubmit, onSuggestion, onStartShopping) },
     ) { padding ->
         TicketSheet(Modifier.padding(padding)) {
-            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap)
-            DetailContent(state, removed, actions, onAcknowledge, onBack)
+            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap, itemEditing.onEdit)
+            DetailContent(state, removed, actions, onAcknowledge, onBack, itemEditing.onDismissTip)
         }
     }
+    state.editing?.let { target -> ItemEditSheet(target, onSave = itemEditing.onSave, onDismiss = itemEditing.onClose) }
     state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
 
@@ -228,6 +261,7 @@ private fun DetailContent(
     actions: ItemActions,
     onAcknowledge: (AccessChange) -> Unit,
     onBack: () -> Unit,
+    onDismissTip: () -> Unit,
 ) {
     when {
         removed != null -> {
@@ -244,6 +278,7 @@ private fun DetailContent(
         else -> {
             Column(Modifier.fillMaxSize()) {
                 SharingBanners(state.sharing, onAcknowledge)
+                if (state.showsQuantityTip) QuantityTip(onDismissTip)
                 Box(Modifier.weight(1f)) {
                     if (state.isLoaded && state.isEmpty) {
                         Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
@@ -256,13 +291,49 @@ private fun DetailContent(
     }
 }
 
-/** Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. */
+/**
+ * Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. [onEdit]
+ * ouvre le panneau de l'article (appui long, action TalkBack), jamais pour un lecteur.
+ */
 private class ItemActions(
     val readOnly: Boolean,
     val onToggle: (ItemRow) -> Unit,
     val onDelete: (ItemRow) -> Unit,
     val onReadOnlyTap: () -> Unit,
+    val onEdit: (ItemRow) -> Unit,
 )
+
+/**
+ * Astuce unique (#110) : discrète, au-dessus des articles, avec un bouton pour la fermer à jamais. Lue comme un texte,
+ * sans déplacer le focus de TalkBack.
+ */
+@Composable
+private fun QuantityTip(onDismiss: () -> Unit) {
+    NoticeCard(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs)
+            .testTag(TAG_QUANTITY_TIP),
+        caution = false,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Info, contentDescription = null, tint = Ticket.colors.ink)
+            Text(
+                stringResource(R.string.detail_quantity_tip),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Ticket.colors.ink,
+                modifier = Modifier.weight(1f).padding(horizontal = TicketDimens.spaceXs),
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.testTag(TAG_QUANTITY_TIP_CLOSE)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.detail_quantity_tip_close),
+                    tint = Ticket.colors.inkMuted,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun Placeholder(
@@ -334,6 +405,7 @@ private fun Sections(
                             piece,
                             onToggle = { actions.onToggle(row) },
                             onDelete = { actions.onDelete(row) },
+                            onEdit = { actions.onEdit(row) },
                         )
                     }
                 }
@@ -364,7 +436,9 @@ private fun SectionHeader(
 
 /**
  * Une ligne : tout le rang est la zone de coche (cible d'au moins 48 dp), l'état se lit sans la couleur (case et
- * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ».
+ * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ». Un appui long ouvre
+ * le panneau de l'article (#110) : la ligne s'enfonce pendant l'appui, une vibration marque le déclenchement ; TalkBack
+ * l'offre aussi en action « Modifier la quantité ».
  */
 @Composable
 private fun ItemRowView(
@@ -372,23 +446,44 @@ private fun ItemRowView(
     piece: ThreadPiece,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val colors = Ticket.colors
     val checkedText = stringResource(R.string.detail_item_checked)
     val uncheckedText = stringResource(R.string.detail_item_unchecked)
     val deleteLabel = stringResource(R.string.detail_delete_item)
+    val editLabel = stringResource(DesignR.string.item_edit_action)
     val label = spokenLabel(row)
+    val interaction = remember { MutableInteractionSource() }
+    val scale = pressScale(interaction)
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .thread(piece, ThreadStyle.Solid)
                 .heightIn(min = TicketDimens.rowMin)
-                .toggleable(value = row.isChecked, role = Role.Checkbox, onValueChange = { onToggle() })
-                .semantics(mergeDescendants = true) {
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = ripple(),
+                    role = Role.Checkbox,
+                    onLongClickLabel = editLabel,
+                    onLongClick = onEdit,
+                    hapticFeedbackEnabled = true,
+                    onClick = onToggle,
+                ).semantics(mergeDescendants = true) {
                     contentDescription = label
+                    toggleableState = ToggleableState(row.isChecked)
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
-                    customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
+                    customActions =
+                        listOf(
+                            CustomAccessibilityAction(deleteLabel) { onDelete().let { true } },
+                            CustomAccessibilityAction(editLabel) { onEdit().let { true } },
+                        )
+                }
+                // Le contenu s'enfonce, pas le fil : il reste continu d'une ligne à l'autre.
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
                 }.padding(start = ThreadLayout.contentStart),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -402,9 +497,10 @@ private fun ItemRowView(
             modifier =
                 Modifier
                     .weight(1f)
+                    .alignByBaseline()
                     .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
         )
-        AuthorMark(row.authorMark)
+        AuthorMark(row.authorMark, Modifier.alignByBaseline())
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
         }
@@ -509,7 +605,15 @@ private fun EntryField(
     DockPill(modifier) {
         TextField(
             state = input,
-            label = { Text(stringResource(R.string.detail_input_label), fontFamily = FontFamily.Default) },
+            // Invite avec exemple (#110) : coupée au besoin à l'écran, lue en entier par TalkBack.
+            label = {
+                Text(
+                    stringResource(R.string.detail_input_label),
+                    fontFamily = FontFamily.Default,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
             textStyle = dockFieldTextStyle(),
             lineLimits = TextFieldLineLimits.SingleLine,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -532,3 +636,5 @@ internal const val TAG_SUGGESTIONS = "suggestions"
 internal const val TAG_QUICK_ENTRY = "quickEntry"
 internal const val TAG_ADD = "add"
 internal const val TAG_SHOP = "startShopping"
+internal const val TAG_QUANTITY_TIP = "quantityTip"
+internal const val TAG_QUANTITY_TIP_CLOSE = "quantityTipClose"

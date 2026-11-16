@@ -169,6 +169,55 @@ class RoomListRepository(
         onEnqueue()
     }
 
+    override suspend fun updateItem(
+        itemId: String,
+        label: String,
+        normalizedName: String,
+        categoryId: String,
+        quantity: String?,
+        at: Instant,
+    ) {
+        val written =
+            db.withWriteTransaction {
+                val item = requireWritableItem(itemId)
+                val relabeled = item.label != label
+                // Le produit correspondait à l'ancien libellé : oublié si la forme normalisée change (la résolution
+                // de produit repassera), gardé pour un simple changement de casse.
+                val forgetsProduct = relabeled && normalizedName != item.normalizedName && item.productId != null
+                val fields =
+                    buildList {
+                        if (relabeled) add(ItemFields.LABEL)
+                        if (forgetsProduct) add(ItemFields.PRODUCT_ID)
+                        if (item.quantity != quantity) add(ItemFields.QUANTITY)
+                    }.sorted()
+                if (fields.isEmpty()) return@withWriteTransaction false
+                val updated =
+                    if (relabeled) {
+                        item.copy(
+                            label = label,
+                            normalizedName = normalizedName,
+                            categoryId = categoryId,
+                            productId = item.productId.takeUnless { forgetsProduct },
+                            quantity = quantity,
+                        )
+                    } else {
+                        item.copy(quantity = quantity)
+                    }
+                db.items().updateContent(
+                    id = itemId,
+                    label = updated.label,
+                    normalizedName = updated.normalizedName,
+                    categoryId = updated.categoryId,
+                    productId = updated.productId,
+                    quantity = updated.quantity,
+                    at = at,
+                )
+                queue.enqueueUpsert(requireNotNull(db.items().get(itemId)), at, fields)
+                true
+            }
+        if (written) onEnqueue()
+    }
+
     override suspend fun setNotFound(
         itemId: String,
         notFoundAt: Instant?,

@@ -1,0 +1,240 @@
+{
+  "id": "001-step-quantity",
+  "function": "stepQuantity",
+  "description": "− / + du panneau de l'article (#110) : agit sur le nombre en tête de la quantité, garde le reste (unité, « x33cl ») et l'écart tel quel. Pas de 100 en g et ml, 10 en cl, 1 sinon. Sans quantité, l'article compte pour un. Calcul en entiers à l'échelle des décimales tapées (même séparateur, même nombre de décimales). null : bouton inactif (résultat nul ou négatif, quantité sans nombre en tête, nombre de plus de 6 chiffres ou de plus de 3 décimales).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "sans quantité, plus",
+      "input": {
+        "quantity": null,
+        "delta": 1
+      },
+      "expected": "2"
+    },
+    {
+      "name": "sans quantité, moins",
+      "input": {
+        "quantity": null,
+        "delta": -1
+      },
+      "expected": null
+    },
+    {
+      "name": "nombre seul, plus",
+      "input": {
+        "quantity": "2",
+        "delta": 1
+      },
+      "expected": "3"
+    },
+    {
+      "name": "nombre seul, moins",
+      "input": {
+        "quantity": "2",
+        "delta": -1
+      },
+      "expected": "1"
+    },
+    {
+      "name": "un, moins : inactif",
+      "input": {
+        "quantity": "1",
+        "delta": -1
+      },
+      "expected": null
+    },
+    {
+      "name": "zéro en tête",
+      "input": {
+        "quantity": "01",
+        "delta": 1
+      },
+      "expected": "2"
+    },
+    {
+      "name": "kilos décimaux, virgule",
+      "input": {
+        "quantity": "1,5 kg",
+        "delta": 1
+      },
+      "expected": "2,5 kg"
+    },
+    {
+      "name": "kilos décimaux, point",
+      "input": {
+        "quantity": "0.5 kg",
+        "delta": 1
+      },
+      "expected": "1.5 kg"
+    },
+    {
+      "name": "demi-kilo, moins : inactif",
+      "input": {
+        "quantity": "0,5 kg",
+        "delta": -1
+      },
+      "expected": null
+    },
+    {
+      "name": "décimales gardées",
+      "input": {
+        "quantity": "2,50 l",
+        "delta": -1
+      },
+      "expected": "1,50 l"
+    },
+    {
+      "name": "grammes : pas de 100",
+      "input": {
+        "quantity": "500 g",
+        "delta": 1
+      },
+      "expected": "600 g"
+    },
+    {
+      "name": "grammes, moins",
+      "input": {
+        "quantity": "500 g",
+        "delta": -1
+      },
+      "expected": "400 g"
+    },
+    {
+      "name": "grammes collés",
+      "input": {
+        "quantity": "250g",
+        "delta": 1
+      },
+      "expected": "350g"
+    },
+    {
+      "name": "100 g, moins : inactif",
+      "input": {
+        "quantity": "100 g",
+        "delta": -1
+      },
+      "expected": null
+    },
+    {
+      "name": "50 g, moins : inactif",
+      "input": {
+        "quantity": "50 g",
+        "delta": -1
+      },
+      "expected": null
+    },
+    {
+      "name": "millilitres",
+      "input": {
+        "quantity": "250 ml",
+        "delta": 1
+      },
+      "expected": "350 ml"
+    },
+    {
+      "name": "centilitres : pas de 10",
+      "input": {
+        "quantity": "33 cl",
+        "delta": 1
+      },
+      "expected": "43 cl"
+    },
+    {
+      "name": "unité en capitales",
+      "input": {
+        "quantity": "500 G",
+        "delta": 1
+      },
+      "expected": "600 G"
+    },
+    {
+      "name": "lot de canettes",
+      "input": {
+        "quantity": "6x33cl",
+        "delta": 1
+      },
+      "expected": "7x33cl"
+    },
+    {
+      "name": "autre unité",
+      "input": {
+        "quantity": "2 paquets",
+        "delta": 1
+      },
+      "expected": "3 paquets"
+    },
+    {
+      "name": "espace insécable gardée",
+      "input": {
+        "quantity": "500 g",
+        "delta": 1
+      },
+      "expected": "600 g"
+    },
+    {
+      "name": "blancs de bord ignorés",
+      "input": {
+        "quantity": "  3  ",
+        "delta": 1
+      },
+      "expected": "4"
+    },
+    {
+      "name": "texte libre : inactif",
+      "input": {
+        "quantity": "un peu",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "multiplicateur en tête : inactif",
+      "input": {
+        "quantity": "x2",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "chiffres non ASCII : inactif",
+      "input": {
+        "quantity": "٣",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "plus de 6 chiffres : inactif",
+      "input": {
+        "quantity": "1234567",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "plus de 3 décimales : inactif",
+      "input": {
+        "quantity": "1,2345 kg",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "plafond de 6 chiffres",
+      "input": {
+        "quantity": "999999",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "juste sous le plafond",
+      "input": {
+        "quantity": "999998",
+        "delta": 1
+      },
+      "expected": "999999"
+    }
+  ]
+}

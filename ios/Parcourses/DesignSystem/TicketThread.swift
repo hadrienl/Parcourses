@@ -112,7 +112,7 @@ struct AisleTitle: View {
   }
 }
 
-/// Filet pointillé du ticket (sous l'en-tête, points de conduite entre l'article et sa quantité).
+/// Filet pointillé du ticket (sous l'en-tête, séparateurs).
 struct DottedRule: View {
   var dash: [CGFloat] = [1, 3]
   var lineWidth: CGFloat = 1

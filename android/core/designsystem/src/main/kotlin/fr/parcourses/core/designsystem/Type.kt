@@ -64,7 +64,7 @@ object TicketType {
     /** Méta du ticket (date, magasin, connaissance du trajet). */
     val meta = TextStyle(fontFamily = MonoFamily, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp)
 
-    /** Quantité, après les pointillés. */
+    /** Quantité, sous le nom de l'article (#110). */
     val quantity =
         TextStyle(fontFamily = MonoFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp)
 }

@@ -8,7 +8,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.categorizer.CategoryClassifier
+import fr.parcourses.core.categorizer.ItemQuantity
+import fr.parcourses.core.categorizer.QuantityEntry
+import fr.parcourses.core.categorizer.QuantityItem
 import fr.parcourses.core.data.EntryAnalyzer
+import fr.parcourses.core.data.ItemEdit
+import fr.parcourses.core.data.applyEdit
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.ProductRepository
@@ -21,6 +26,7 @@ import fr.parcourses.core.database.entity.CategoryEntity
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ListParticipantEntity
 import fr.parcourses.core.database.entity.ShoppingListEntity
+import fr.parcourses.core.designsystem.ItemEditTarget
 import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -157,9 +163,20 @@ data class ListDetailUiState(
     val isMissing: Boolean = false,
     val errorDetail: String? = null,
     val sharing: ListSharingUi = ListSharingUi(),
+    /** Article ouvert dans le panneau de l'article (#110), `null` : panneau fermé. */
+    val editing: ItemEditTarget? = null,
+    /** Astuce « Maintiens un article pour changer sa quantité » (#110), au-dessus des articles. */
+    val showsQuantityTip: Boolean = false,
 ) {
     val isEmpty: Boolean get() = sections.isEmpty()
 }
+
+/** Ce que l'écran montre en plus des articles : erreur, panneau de l'article, astuce. */
+private data class Overlays(
+    val error: String?,
+    val editing: ItemEditTarget?,
+    val tipEligible: Boolean,
+)
 
 /**
  * Modèle de l'écran Liste. Il suit la liste si son identifiant change (reprise de compte, [remaps]) sans perdre la
@@ -176,9 +193,13 @@ class ListDetailViewModel(
     private val now: () -> Instant = { Clock.System.now() },
     computation: CoroutineDispatcher = Dispatchers.Default,
     private val sharingSources: ListSharingSources = ListSharingSources(),
+    private val quantityTip: QuantityTipMemory = InMemoryQuantityTipMemory(),
 ) : ViewModel() {
     private val currentListId = MutableStateFlow(listId)
     private val errorDetail = MutableStateFlow<String?>(null)
+    private val editing = MutableStateFlow<ItemEditTarget?>(null)
+
+    private val overlays: Flow<Overlays> = combine(errorDetail, editing, quantityTip.isEligible, ::Overlays)
 
     /** Champ de saisie rapide, hissé ici pour survivre à la recomposition et à la rotation. */
     val input = TextFieldState()
@@ -243,19 +264,24 @@ class ListDetailViewModel(
             content,
             categories.observeCategories(),
             suggestions,
-            errorDetail,
+            overlays,
             sharingState,
-        ) { content, cats, suggestions, error, sharing ->
+        ) { content, cats, suggestions, overlays, sharing ->
             val items = content?.second.orEmpty()
             val authors = Authors(sharing.people)
+            val sharingUi = sharingUi(sharing, authors, items)
+            val canEdit = content != null && sharingUi.capabilities.canEditItems
             ListDetailUiState(
                 name = content?.first.orEmpty(),
                 sections = group(items.map { row(it, authors) }, cats),
                 suggestions = suggestions,
                 isLoaded = true,
                 isMissing = content == null,
-                errorDetail = error,
-                sharing = sharingUi(sharing, authors, items),
+                errorDetail = overlays.error,
+                sharing = sharingUi,
+                // Panneau fermé si l'article disparaît (supprimé ailleurs) ou si la liste passe en lecture seule.
+                editing = overlays.editing?.takeIf { target -> canEdit && items.any { it.id == target.id } },
+                showsQuantityTip = overlays.tipEligible && canEdit && items.isNotEmpty(),
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), ListDetailUiState())
 
@@ -275,12 +301,24 @@ class ListDetailViewModel(
     /** Les ajouts s'écrivent un par un, dans l'ordre où ils ont été validés. */
     private val writes = Mutex()
 
-    /** Ajoute la saisie en cours. Sans effet si elle est vide (une double Entrée trouve le champ déjà vidé). */
+    /**
+     * Ajoute la saisie en cours. Sans effet si elle est vide (une double Entrée trouve le champ déjà vidé). Une saisie
+     * avec quantité sur un article non coché de même forme normalisée met à jour sa quantité au lieu d'ajouter un
+     * doublon (#110, vecteur `quantity/005`).
+     */
     fun submit() {
         val text = input.text.toString()
         val entry = analyzer.analyze(text)
         if (entry.label.isEmpty()) return
-        add(text, entry.label, entry.normalizedName, entry.quantity, productId = null, categoryId = entry.categoryId)
+        add(
+            text,
+            entry.label,
+            entry.normalizedName,
+            entry.quantity,
+            productId = null,
+            categoryId = entry.categoryId,
+            mergesQuantity = true,
+        )
     }
 
     /** Ajoute une proposition en gardant la quantité déjà tapée. */
@@ -304,10 +342,47 @@ class ListDetailViewModel(
     fun dismissError() = errorDetail.update { null }
 
     /**
+     * Appui long (ou action TalkBack) sur une ligne : ouvre le panneau de l'article (#110). Rien pour un lecteur.
+     * L'astuce a servi : elle ne revient plus.
+     */
+    fun openItemEditor(row: ItemRow) {
+        val state = uiState.value
+        if (state.isMissing || !state.sharing.capabilities.canEditItems) return
+        quantityTip.invalidate()
+        editing.value = ItemEditTarget(row.id, row.label, row.quantity)
+    }
+
+    /** Panneau fermé sans enregistrer : rien n'est écrit. */
+    fun closeItemEditor() = editing.update { null }
+
+    /**
+     * « Enregistrer » du panneau : libellé et quantité, reclassement compris (le rayon peut changer). Rien n'est écrit
+     * si le libellé est vide ou si rien ne change. L'écriture va au bout même si l'écran se ferme entre-temps. Le
+     * panneau se range ensuite de lui-même ([closeItemEditor]) : un second appui n'écrit rien de plus.
+     */
+    fun saveItem(
+        label: String,
+        quantityText: String,
+    ) {
+        val target = editing.value ?: return
+        val edit = ItemEdit.of(label, quantityText) ?: return
+        val at = now()
+        viewModelScope.launch(start = CoroutineStart.ATOMIC) {
+            withContext(NonCancellable) {
+                writes.withLock { perform { lists.applyEdit(edit, target.id, analyzer, at) } }
+            }
+        }
+    }
+
+    /** L'astuce est fermée : elle ne revient plus. */
+    fun dismissQuantityTip() = quantityTip.invalidate()
+
+    /**
      * La saisie est vidée tout de suite (un second appel ne la retrouve pas) et rendue si l'écriture échoue, sauf
      * si l'utilisateur a déjà retapé autre chose. La liste est lue au moment d'écrire : une reprise de compte faite
      * pendant l'attente est suivie.
      */
+    @Suppress("LongParameterList")
     private fun add(
         text: String,
         label: String,
@@ -315,41 +390,69 @@ class ListDetailViewModel(
         quantity: String?,
         productId: String?,
         categoryId: String,
+        mergesQuantity: Boolean = false,
     ) {
         adding += normalizedName
         input.clearText()
+        val entry = Entry(label, normalizedName, quantity, productId, categoryId, mergesQuantity)
         // Ni annulable ni sautée : le texte a déjà quitté le champ, un Retour juste après ne doit pas perdre l'article.
         viewModelScope.launch(start = CoroutineStart.ATOMIC) {
-            withContext(NonCancellable) { write(text, label, normalizedName, quantity, productId, categoryId) }
+            withContext(NonCancellable) { write(text, entry) }
         }
     }
 
+    /** Saisie à écrire. [mergesQuantity] : une saisie rapide, qui peut mettre à jour un article existant (#110). */
+    private class Entry(
+        val label: String,
+        val normalizedName: String,
+        val quantity: String?,
+        val productId: String?,
+        val categoryId: String,
+        val mergesQuantity: Boolean,
+    )
+
     private suspend fun write(
         text: String,
-        label: String,
-        normalizedName: String,
-        quantity: String?,
-        productId: String?,
-        categoryId: String,
+        entry: Entry,
     ) {
         try {
-            val added =
-                writes.withLock {
-                    perform {
-                        lists.addItem(
-                            currentListId.value,
-                            label,
-                            normalizedName,
-                            quantity,
-                            productId,
-                            categoryId,
-                            now(),
-                        )
-                    }
-                }
-            if (added == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
+            val written = writes.withLock { perform { addOrMerge(entry) } }
+            if (written == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
         } finally {
-            adding -= normalizedName
+            adding -= entry.normalizedName
+        }
+    }
+
+    /**
+     * Met à jour la quantité de l'article visé par `entryMergeTarget` (libellé inchangé), sinon ajoute l'article. La
+     * liste est lue au moment d'écrire, dans l'ordre de ses positions.
+     */
+    private suspend fun addOrMerge(entry: Entry) {
+        val listId = currentListId.value
+        val target =
+            if (entry.mergesQuantity) {
+                val items = lists.items(listId)
+                ItemQuantity
+                    .entryMergeTarget(
+                        QuantityEntry(entry.normalizedName, entry.quantity),
+                        items.map { QuantityItem(it.id, it.normalizedName, it.checkedAt != null) },
+                    )?.let { id -> items.first { it.id == id } }
+            } else {
+                null
+            }
+        if (target != null) {
+            lists.updateItem(target.id, target.label, target.normalizedName, target.categoryId, entry.quantity, now())
+        } else {
+            lists.addItem(
+                listId,
+                entry.label,
+                entry.normalizedName,
+                entry.quantity,
+                entry.productId,
+                entry.categoryId,
+                now(),
+            )
+            quantityTip.itemAdded()
         }
     }
 

@@ -11,9 +11,14 @@ dependencies {
 val categorizeVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/categorize")
 val effectiveCategoryVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/effective-category")
 
+// Vecteurs de la quantité d'un article (#110), même règle.
+val quantityVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/quantity")
+
 tasks.withType<Test>().configureEach {
     inputs.dir(categorizeVectors).withPropertyName("categorizeVectors")
     systemProperty("parcourses.categorizeVectors", categorizeVectors.asFile.absolutePath)
     inputs.dir(effectiveCategoryVectors).withPropertyName("effectiveCategoryVectors")
     systemProperty("parcourses.effectiveCategoryVectors", effectiveCategoryVectors.asFile.absolutePath)
+    inputs.dir(quantityVectors).withPropertyName("quantityVectors")
+    systemProperty("parcourses.quantityVectors", quantityVectors.asFile.absolutePath)
 }

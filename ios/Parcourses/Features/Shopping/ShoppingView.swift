@@ -19,6 +19,8 @@ struct ShoppingView: View {
   @Environment(\.colorSchemeContrast) private var contrast
   /// Ligne sous le focus VoiceOver : elle le garde quand la liste se réordonne.
   @AccessibilityFocusState private var focusedRow: UUID?
+  /// Panneau de l'article, ouvert par « Quantité » (#110).
+  @State private var editing: ItemEditTarget?
 
   var body: some View {
     NavigationStack {
@@ -120,6 +122,9 @@ struct ShoppingView: View {
     .sensoryFeedback(.impact(weight: .light), trigger: uncheckTrigger)
     .safeAreaInset(edge: .bottom) { dock }
     .opaqueBottomBar()
+    .sheet(item: $editing) { target in
+      ItemEditSheet(target: target) { edit in session.save(edit, for: target.id) }
+    }
     .sheet(isPresented: remainingIsPresented) {
       RemainingItemsSheet(
         count: session.remainingCount, canCancel: !session.expired,
@@ -301,6 +306,7 @@ struct ShoppingView: View {
       } else {
         Button("Pas trouvé") { session.markNotFound(row) }
       }
+      Button("Modifier la quantité") { edit(row) }
     }
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
@@ -312,7 +318,13 @@ struct ShoppingView: View {
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
       }
+      Button("Quantité", systemImage: "number") { edit(row) }
     }
+  }
+
+  /// Même panneau que l'écran Liste (#110).
+  private func edit(_ row: ShoppingRow) {
+    editing = ItemEditTarget(id: row.id, label: row.label, quantity: row.quantity)
   }
 
   /// Article tout juste ajouté : repéré par un fond d'accent léger.
@@ -436,7 +448,7 @@ struct ShoppingView: View {
   }
 
   private var entryField: some View {
-    TextField("Ajouter un article", text: $session.input, prompt: EntryPrompt.text)
+    TextField(EntryPrompt.placeholder, text: $session.input, prompt: EntryPrompt.text)
       .entryField(focus: $inputIsFocused)
       .submitLabel(.done)
       .accessibilityIdentifier("shoppingEntry")

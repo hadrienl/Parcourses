@@ -181,15 +181,18 @@ internal fun spokenLabel(row: ItemRow): String =
         row.accessibilityLabel + ", " + stringResource(R.string.detail_item_by_a11y, memberName(row.authorName))
     } ?: row.accessibilityLabel
 
-/** Initiale du dernier auteur, après la quantité : avatar de 20 dp au trait, non tactile. */
+/** Initiale du dernier auteur, à droite du nom (sur sa première ligne) : avatar de 20 dp au trait, non tactile. */
 @Composable
-internal fun AuthorMark(mark: String?) {
+internal fun AuthorMark(
+    mark: String?,
+    modifier: Modifier = Modifier,
+) {
     if (mark == null) return
     MemberAvatar(
         mark,
         size = AvatarSize.mark,
         outlined = true,
-        modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_AUTHOR),
+        modifier = modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_AUTHOR),
     )
 }
 
@@ -226,9 +229,13 @@ internal fun ReadOnlyItemRow(
             style = TicketType.item,
             color = if (row.isChecked) colors.checked else colors.ink,
             decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .alignByBaseline()
+                    .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
         )
-        AuthorMark(row.authorMark)
+        AuthorMark(row.authorMark, Modifier.alignByBaseline())
     }
 }
 

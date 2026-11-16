@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import fr.parcourses.core.designsystem.Bead
+import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.OsmAttribution
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadSegment
@@ -156,6 +157,9 @@ internal fun ShoppingContent(
             actions = actions,
             onCancel = { showsRemaining = false },
         )
+    }
+    state.editing?.let { target ->
+        ItemEditSheet(target, onSave = actions.onSaveItem, onDismiss = actions.onCloseItemEditor)
     }
     state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
 }

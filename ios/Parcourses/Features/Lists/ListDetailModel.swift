@@ -35,6 +35,12 @@ struct ItemSection: Identifiable, Equatable {
   var id: String { categoryId }
 }
 
+/// Effet d'une saisie : un article ajouté, ou la quantité d'un article existant mise à jour (#110).
+enum EntryOutcome: Equatable {
+  case added(UUID)
+  case updated(UUID)
+}
+
 /// Modèle de l'écran Liste.
 @Observable
 final class ListDetailModel {
@@ -146,22 +152,60 @@ final class ListDetailModel {
     }
   }
 
-  /// Ajoute la saisie en cours. Sans effet si elle est vide. La saisie n'est effacée qu'en cas de succès.
-  func submit() {
+  /// Ajoute la saisie en cours. Sans effet si elle est vide. La saisie n'est effacée qu'en cas de succès. Une saisie
+  /// avec quantité sur un article non coché de même forme normalisée met à jour sa quantité au lieu d'ajouter un
+  /// doublon (#110, vecteur `quantity/005`).
+  @discardableResult func submit() -> EntryOutcome? {
     let entry = analyzer.analyze(input)
-    guard !entry.label.isEmpty else { return }
-    add(
+    guard !entry.label.isEmpty else { return nil }
+    if let target = mergeTarget(normalizedName: entry.normalizedName, quantity: entry.quantity) {
+      guard access.capabilities.canEditItems else { return nil }
+      let succeeded = perform {
+        try lists.updateItem(
+          itemId: target.id, label: target.label, normalizedName: target.normalizedName,
+          categoryId: target.categoryId, quantity: entry.quantity, at: now())
+      }
+      reloadItems()
+      guard succeeded else { return nil }
+      input = ""
+      return .updated(target.id)
+    }
+    return add(
       label: entry.label, normalizedName: entry.normalizedName, quantity: entry.quantity, productId: nil,
       categoryId: entry.categoryId)
   }
 
   /// Ajoute une proposition en gardant la quantité déjà tapée.
-  func add(_ suggestion: ItemSuggestion) {
+  @discardableResult func add(_ suggestion: ItemSuggestion) -> EntryOutcome? {
     let entry = analyzer.analyze(input)
     let categoryId = suggestion.categoryId ?? analyzer.analyze(suggestion.label).categoryId
-    add(
+    return add(
       label: suggestion.label, normalizedName: suggestion.normalizedName, quantity: entry.quantity,
       productId: suggestion.productId, categoryId: categoryId)
+  }
+
+  /// Article de la liste à mettre à jour plutôt qu'ajouter, dans l'ordre de la liste (`position`).
+  private func mergeTarget(normalizedName: String, quantity: String?) -> ListItem? {
+    guard let items = try? lists.items(listId: listId) else { return nil }
+    let id = ItemQuantity.entryMergeTarget(
+      normalizedName: normalizedName, quantity: quantity,
+      items: items.map { (id: $0.id, normalizedName: $0.normalizedName, checked: $0.checkedAt != nil) })
+    return items.first { $0.id == id }
+  }
+
+  /// Panneau de l'article (#110) : ouvert par un appui long, sauf pour un lecteur.
+  func editTarget(for row: ItemRow) -> ItemEditTarget? {
+    guard access.capabilities.canEditItems else { return nil }
+    return ItemEditTarget(id: row.id, label: row.label, quantity: row.quantity)
+  }
+
+  /// Enregistre le panneau : libellé et quantité, reclassement compris (le rayon peut changer).
+  func save(_ edit: ItemEdit, for itemId: UUID) {
+    guard access.capabilities.canEditItems else { return }
+    let date = now()
+    perform { try lists.apply(edit, to: itemId, analyzer: analyzer, at: date) }
+    reloadItems()
+    rebuildIndex()
   }
 
   func toggle(_ row: ItemRow) {
@@ -191,16 +235,22 @@ final class ListDetailModel {
     }
   }
 
-  private func add(label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String) {
-    guard access.capabilities.canEditItems else { return }
+  private func add(
+    label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String
+  ) -> EntryOutcome? {
+    guard access.capabilities.canEditItems else { return nil }
+    var added: UUID?
     let succeeded = perform {
-      try lists.addItem(
-        listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
-        categoryId: categoryId, at: now())
+      added =
+        try lists.addItem(
+          listId: listId, label: label, normalizedName: normalizedName, quantity: quantity, productId: productId,
+          categoryId: categoryId, at: now()
+        ).id
     }
     if succeeded { input = "" }
     reloadItems()
     rebuildIndex()
+    return added.map(EntryOutcome.added)
   }
 
   @discardableResult private func perform(_ work: () throws -> Void) -> Bool {

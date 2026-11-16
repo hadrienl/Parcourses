@@ -380,6 +380,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
     audit(app, "liste-remplie\(suffix)")
 
+    // Panneau de l'article (#110), ouvert par un appui long, puis refermé sans rien changer.
+    let milk = row(app, "laits demi-écrémé, 2", "non coché")
+    reveal(milk, in: app, betweenBars: true)
+    milk.press(forDuration: 1.0)
+    XCTAssertTrue(app.buttons["saveItem"].waitForExistence(timeout: 15))
+    audit(app, "article\(suffix)", modal: true)
+    app.buttons["cancelItem"].tap()
+    XCTAssertTrue(app.buttons["saveItem"].waitForNonExistence(timeout: 15))
+
     app.navigationBars.buttons.firstMatch.tap()
     XCTAssertTrue(app.buttons["about"].waitForExistence(timeout: 15))
     audit(app, "listes\(suffix)")

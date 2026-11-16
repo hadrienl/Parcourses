@@ -1,6 +1,7 @@
 package fr.parcourses.feature.shopping
 
 import androidx.compose.runtime.Immutable
+import fr.parcourses.core.designsystem.ItemEditTarget
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -133,6 +134,8 @@ data class ShoppingUiState(
     val errorMessage: String? = null,
     /** La liste n'est plus partagée avec moi (#87 §1.5) : les courses s'arrêtent, la visite garde ses coches. */
     val accessLost: Boolean = false,
+    /** Article ouvert dans le panneau de l'article (#110), `null` : panneau fermé. */
+    val editing: ItemEditTarget? = null,
 ) {
     /** Articles ni cochés ni décidés : la feuille de fin demande s'il faut les garder. */
     val remainingCount: Int get() = toBuy.count { !it.isChecked } + notFound.size

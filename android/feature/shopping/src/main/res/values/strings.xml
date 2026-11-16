@@ -13,6 +13,8 @@
     <string name="shopping_action_check">Cocher</string>
     <string name="shopping_action_uncheck">Décocher</string>
     <string name="shopping_action_not_found">Pas trouvé</string>
+    <!-- Menu de l'appui long d'une ligne à prendre (#110) : ouvre le panneau de l'article. -->
+    <string name="shopping_menu_quantity">Quantité</string>
     <string name="shopping_state_checked">coché</string>
     <string name="shopping_state_unchecked">non coché</string>
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// Une ligne du ticket de l'écran Liste : le nœud d'un rayon, ou un article.
 private enum ListLine: Identifiable {
@@ -30,6 +31,13 @@ struct ListDetailView: View {
   @State private var toast: String?
   @State private var toastRevision = 0
   @AccessibilityFocusState private var badgeFocused: Bool
+  /// Panneau de l'article ouvert par un appui long (#110).
+  @State private var editing: ItemEditTarget?
+  /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
+  @State private var pressedRow: UUID?
+  @State private var editTrigger = 0
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  private let quantityTip = QuantityTip()
 
   init(
     model: ListDetailModel,
@@ -60,6 +68,13 @@ struct ListDetailView: View {
       if !model.isEmpty {
         header.ticketRow()
         lastChangeLine.ticketRow()
+        if model.access.capabilities.canEditItems {
+          TipView(quantityTip, arrowEdge: nil)
+            .tipBackground(Palette.paperEdge)
+            .padding(.top, Space.xs)
+            .accessibilityIdentifier("quantityTip")
+            .ticketRow()
+        }
       }
       ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
         switch line {
@@ -126,6 +141,10 @@ struct ListDetailView: View {
       AccessibilityNotification.Announcement(accessMessage(change)).post()
       if model.access.isReadOnly { badgeFocused = true }
     }
+    .sheet(item: $editing) { target in
+      ItemEditSheet(target: target) { edit in model.save(edit, for: target.id) }
+    }
+    .sensoryFeedback(.impact(weight: .medium), trigger: editTrigger)
     .sheet(item: $shareModel) { share in
       if let sharing { ShareListSheet(model: share, center: sharing) }
     }
@@ -225,26 +244,49 @@ struct ListDetailView: View {
     }
   }
 
+  /// Toucher coche, glisser supprime, maintenir ouvre le panneau de l'article (#110). Pendant l'appui, la ligne
+  /// s'enfonce ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au relâcher de l'appui
+  /// long.
   private func editableRow(_ row: ItemRow, place: ThreadPlace) -> some View {
-    Button {
-      model.toggle(row)
-    } label: {
-      line(row, place: place, readOnly: false)
-    }
-    .buttonStyle(.plain)
-    .ticketRow()
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(row.accessibilityLabel)
-    .accessibilityValue(row.accessibilityState)
-    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
-    .accessibilityAddTraits(.isToggle)
-    .accessibilityActions {
-      if row.isChecked { Button("Décocher") { model.toggle(row) } }
-    }
-    .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
-    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-      Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
-    }
+    let pressed = pressedRow == row.id
+    return line(row, place: place, readOnly: false)
+      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1)
+      .opacity(pressed ? 0.85 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
+      .contentShape(Rectangle())
+      .onTapGesture { model.toggle(row) }
+      .onLongPressGesture(minimumDuration: 0.5) {
+        edit(row)
+      } onPressingChanged: { pressing in
+        if pressing {
+          pressedRow = row.id
+        } else if pressedRow == row.id {
+          pressedRow = nil
+        }
+      }
+      .ticketRow()
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(row.accessibilityLabel)
+      .accessibilityValue(row.accessibilityState)
+      .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
+      .accessibilityAddTraits([.isButton, .isToggle])
+      .accessibilityAction { model.toggle(row) }
+      .accessibilityActions {
+        if row.isChecked { Button("Décocher") { model.toggle(row) } }
+        Button("Modifier la quantité") { edit(row) }
+      }
+      .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
+      .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
+      }
+  }
+
+  /// Ouvre le panneau de l'article ; l'astuce a servi, elle ne revient plus.
+  private func edit(_ row: ItemRow) {
+    guard let target = model.editTarget(for: row) else { return }
+    quantityTip.invalidate(reason: .actionPerformed)
+    editTrigger += 1
+    editing = target
   }
 
   /// Lecteur : ni case ni coche ; toucher un article le rappelle une fois (maquette, écran 7).
@@ -412,7 +454,7 @@ struct ListDetailView: View {
           HStack {
             ForEach(suggestions) { suggestion in
               Button {
-                model.add(suggestion)
+                donate(model.add(suggestion))
               } label: {
                 Text(suggestion.label)
                   .font(.system(.body, design: .monospaced).weight(.medium))
@@ -430,7 +472,7 @@ struct ListDetailView: View {
         }
       }
       HStack {
-        TextField("Ajouter un article", text: $model.input, prompt: EntryPrompt.text)
+        TextField(EntryPrompt.placeholder, text: $model.input, prompt: EntryPrompt.text)
           .entryField(focus: $inputIsFocused)
           .submitLabel(.done)
           .accessibilityIdentifier("quickEntry")
@@ -452,8 +494,14 @@ struct ListDetailView: View {
 
   /// Le clavier reste ouvert : on enchaîne les articles.
   private func submit() {
-    model.submit()
+    donate(model.submit())
     inputIsFocused = true
+  }
+
+  /// Un article ajouté rend l'astuce de l'appui long éligible (TipKit).
+  private func donate(_ outcome: EntryOutcome?) {
+    guard case .added = outcome else { return }
+    Task { await QuantityTip.itemAdded.donate() }
   }
 
   private var errorIsPresented: Binding<Bool> {

@@ -5,8 +5,13 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.categorizer.CategoryClassifier
+import fr.parcourses.core.categorizer.ItemQuantity
+import fr.parcourses.core.categorizer.QuantityEntry
+import fr.parcourses.core.categorizer.QuantityItem
 import fr.parcourses.core.categorizer.effectiveCategory
 import fr.parcourses.core.data.EntryAnalyzer
+import fr.parcourses.core.data.ItemEdit
+import fr.parcourses.core.data.applyEdit
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RepositoryException
@@ -18,6 +23,7 @@ import fr.parcourses.core.data.sharing.SharingMember
 import fr.parcourses.core.data.sync.IdentifierRemap
 import fr.parcourses.core.database.entity.ListItemEntity
 import fr.parcourses.core.database.entity.ListParticipantEntity
+import fr.parcourses.core.designsystem.ItemEditTarget
 import fr.parcourses.core.model.ListRole
 import fr.parcourses.core.model.SortCategory
 import fr.parcourses.core.model.SortInput
@@ -187,6 +193,9 @@ class ShoppingViewModel(
     /** La liste n'est plus accessible : feuille « Vous n'avez plus accès à cette liste ». */
     private var accessLost = false
 
+    /** Article ouvert dans le panneau de l'article (#110). */
+    private var editing: ItemEditTarget? = null
+
     init {
         viewModelScope.launch { remaps.collect { remap -> lock.withLock { apply(remap) } } }
         viewModelScope.launch {
@@ -208,6 +217,7 @@ class ShoppingViewModel(
         if (accessLost) return
         lock.withLock {
             accessLost = true
+            editing = null
             // Plus de courses : la Live Update part tout de suite (et « Cocher le suivant » avec elle).
             visitId?.let { deps.liveUpdates?.end(it) }
             publish()
@@ -485,11 +495,16 @@ class ShoppingViewModel(
             publish()
         }
 
-    /** Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie. */
+    /**
+     * Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie. Une saisie
+     * avec quantité sur un article non coché de même forme normalisée met à jour sa quantité au lieu d'ajouter un
+     * doublon (#110) : la ligne est repérée comme un ajout, sans nouveau tri.
+     */
     fun submit() =
         actDurably {
             val entry = deps.analyzer.analyze(input.text.toString())
             if (entry.label.isEmpty()) return@actDurably
+            if (mergeQuantity(entry.normalizedName, entry.quantity)) return@actDurably
             var added: String? = null
             val succeeded =
                 perform {
@@ -520,6 +535,67 @@ class ShoppingViewModel(
             highlight(id)
             publish()
         }
+
+    /**
+     * Met à jour la quantité de l'article visé par `entryMergeTarget` (libellé inchangé). Les articles sont ceux de la
+     * liste dans l'ordre des positions, cochés et introuvables compris (un introuvable non coché est une cible).
+     * Faux : aucun article visé, ou échec montré à la personne ; la saisie s'ajoute alors ou reste dans le champ.
+     */
+    private suspend fun mergeQuantity(
+        normalizedName: String,
+        quantity: String?,
+    ): Boolean {
+        if (quantity == null) return false
+        val items = attempt { deps.lists.items(listId) }.orEmpty()
+        val id =
+            ItemQuantity.entryMergeTarget(
+                QuantityEntry(normalizedName, quantity),
+                items.map { QuantityItem(it.id, it.normalizedName, it.checkedAt != null) },
+            ) ?: return false
+        val target = items.first { it.id == id }
+        val succeeded =
+            perform {
+                deps.lists.updateItem(id, target.label, target.normalizedName, target.categoryId, quantity, now())
+            }
+        if (succeeded) {
+            input.clearText()
+            reloadRows()
+            highlight(id)
+            publish()
+        }
+        return true
+    }
+
+    /** Ouvre le panneau de l'article (#110) sur une ligne à prendre. */
+    fun openItemEditor(row: ShoppingRow) =
+        act {
+            if (row.isChecked || accessLost || summary != null) return@act
+            editing = ItemEditTarget(row.id, row.label, row.quantity)
+            publish()
+        }
+
+    /** Panneau fermé sans enregistrer : rien n'est écrit. */
+    fun closeItemEditor() =
+        act {
+            editing = null
+            publish()
+        }
+
+    /**
+     * « Enregistrer » du panneau : libellé et quantité, reclassement compris. La liste se met à jour et se retrie
+     * (le rayon peut changer) comme après une modification venue de la synchro. Le panneau se range de lui-même.
+     */
+    fun saveItem(
+        label: String,
+        quantityText: String,
+    ) = actDurably {
+        val target = editing ?: return@actDurably
+        val edit = ItemEdit.of(label, quantityText) ?: return@actDurably
+        if (!perform { deps.lists.applyEdit(edit, target.id, deps.analyzer, now()) }) return@actDurably
+        reloadRows()
+        scheduleSettle()
+        publish()
+    }
 
     fun performUndo() =
         actDurably {
@@ -908,6 +984,7 @@ class ShoppingViewModel(
         highlighted = highlighted?.let { remap[it] }
         undo = undo?.renamed(remap)
         expiredVisitId = expiredVisitId?.let { remap[it] }
+        editing = editing?.let { it.copy(id = remap[it.id]) }
 
         fun List<ShoppingRow>.remapped() = map { it.copy(id = remap[it.id]) }
         toBuy = toBuy.remapped()
@@ -994,6 +1071,7 @@ class ShoppingViewModel(
                 reorder = reorder,
                 errorMessage = errorMessage,
                 accessLost = accessLost,
+                editing = editing,
             )
         }
     }

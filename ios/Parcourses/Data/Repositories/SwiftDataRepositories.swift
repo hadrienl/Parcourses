@@ -148,6 +148,34 @@ final class SwiftDataListRepository: ListRepository {
     onEnqueue()
   }
 
+  func updateItem(
+    itemId: UUID, label: String, normalizedName: String, categoryId: String, quantity: String?, at date: Date
+  ) throws {
+    let item = try requireWritableItem(itemId, shared: true)
+    var fields: [String] = []
+    if item.quantity != quantity { fields.append(ListItemFields.quantity) }
+    let renamed = item.label != label
+    if renamed { fields.append(ListItemFields.label) }
+    let forgetsProduct = renamed && item.normalizedName != normalizedName && item.productId != nil
+    if forgetsProduct { fields.append(ListItemFields.productId) }
+    guard !fields.isEmpty else { return }
+    try context.atomically {
+      item.quantity = quantity
+      if renamed {
+        // Reclassé comme à l'ajout : forme normalisée et rayon suivent le libellé (catégorie locale).
+        item.label = label
+        item.normalizedName = normalizedName
+        item.categoryId = categoryId
+      }
+      if forgetsProduct { item.productId = nil }
+      item.updatedAt = date
+      item.updatedBy = author()
+      item.syncState = .pending
+      try context.enqueueUpsert(of: item, at: date, changedFields: fields.sorted())
+    }
+    onEnqueue()
+  }
+
   func setNotFound(itemId: UUID, notFoundAt: Date?, at _: Date) throws {
     let item = try requireWritableItem(itemId)
     // Champ purement local (#9 question 4) : ni envoi, ni `updatedAt`, qui suit l'état partagé.
