@@ -44,6 +44,7 @@ private final class SpyHistory: ListRepository {
     itemsCalls += 1
     return try base.items(listId: listId)
   }
+  func item(id: UUID) throws -> ListItem? { try base.item(id: id) }
   func lists() throws -> [ShoppingList] { try base.lists() }
   func list(id: UUID) throws -> ShoppingList? { try base.list(id: id) }
   func createList(name: String, at date: Date) throws -> ShoppingList { try base.createList(name: name, at: date) }

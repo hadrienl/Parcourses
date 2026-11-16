@@ -8,31 +8,47 @@ struct ItemEditTarget: Identifiable, Equatable {
   let quantity: String?
 }
 
-/// Ce que le panneau enregistre : libellé sans blancs de bord, quantité nettoyée (`ItemQuantity.quantityInput`).
+/// Ce que le panneau enregistre, par rapport à l'article tel qu'il était à l'ouverture : seuls les champs changés par
+/// la personne partent, pour ne pas annuler une modification arrivée d'un autre membre pendant que le panneau était
+/// ouvert.
 struct ItemEdit: Equatable {
-  let label: String
+  /// Nouveau libellé, sans blancs de bord et coupé à 200 points de code ; `nil` s'il n'a pas changé.
+  let label: String?
+  /// Vrai si la quantité a changé ; `quantity` est alors la nouvelle (`nil` : effacée).
+  let changesQuantity: Bool
   let quantity: String?
 
-  /// Valeurs du formulaire ; `nil` si le libellé est vide.
-  init?(label: String, quantityText: String) {
+  /// `nil` si le libellé est vide.
+  init?(target: ItemEditTarget, label: String, quantityText: String) {
     let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
-    self.label = String(trimmed.prefix(ItemEdit.maxLabelLength))
+    var cut = ""
+    cut.unicodeScalars.append(contentsOf: trimmed.unicodeScalars.prefix(ItemEdit.maxLabelLength))
+    self.label = cut == target.label ? nil : cut
     quantity = ItemQuantity.quantityInput(quantityText)
+    changesQuantity = quantity != target.quantity
   }
 
-  /// `list_items.label` : 200 caractères au plus.
+  /// Rien à écrire.
+  var isEmpty: Bool { label == nil && !changesQuantity }
+
+  /// `list_items.label` : 200 caractères au plus (`char_length`, en points de code).
   static let maxLabelLength = 200
 }
 
 extension ListRepository {
-  /// Enregistre le panneau : le libellé est reclassé comme à l'ajout (forme normalisée et rayon), sans en extraire de
-  /// quantité. Même chemin pour l'écran Liste et le mode courses.
+  /// Enregistre le panneau sur l'article **actuel** : un libellé changé est reclassé comme à l'ajout (forme normalisée
+  /// et rayon), sans en extraire de quantité ; un champ inchangé garde la valeur actuelle, même venue d'ailleurs.
+  /// Même chemin pour l'écran Liste et le mode courses.
   func apply(_ edit: ItemEdit, to itemId: UUID, analyzer: EntryAnalyzer, at date: Date) throws {
-    let entry = analyzer.analyze(label: edit.label)
+    guard !edit.isEmpty else { return }
+    guard let current = try item(id: itemId) else { throw RepositoryError.notFound(itemId) }
+    let entry = edit.label.map { analyzer.analyze(label: $0) }
     try updateItem(
-      itemId: itemId, label: entry.label, normalizedName: entry.normalizedName, categoryId: entry.categoryId,
-      quantity: edit.quantity, at: date)
+      itemId: itemId, label: entry?.label ?? current.label,
+      normalizedName: entry?.normalizedName ?? current.normalizedName,
+      categoryId: entry?.categoryId ?? current.categoryId,
+      quantity: edit.changesQuantity ? edit.quantity : current.quantity, at: date)
   }
 }
 
@@ -44,12 +60,15 @@ struct ItemEditSheet: View {
   @Environment(\.dismiss) private var dismiss
   @State private var label: String
   @State private var quantityText: String
+  /// Mi-hauteur, sauf aux tailles de texte d'accessibilité : le panneau s'ouvre alors en grand.
+  @State private var detent: PresentationDetent
 
-  init(target: ItemEditTarget, onSave: @escaping (ItemEdit) -> Void) {
+  init(target: ItemEditTarget, largeText: Bool = false, onSave: @escaping (ItemEdit) -> Void) {
     self.target = target
     self.onSave = onSave
     _label = State(initialValue: target.label)
     _quantityText = State(initialValue: target.quantity ?? "")
+    _detent = State(initialValue: largeText ? .large : .medium)
   }
 
   private var quantity: String? { ItemQuantity.quantityInput(quantityText) }
@@ -67,18 +86,20 @@ struct ItemEditSheet: View {
       .navigationTitle("Article")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
+        // Pictogrammes, comme les autres feuilles : la barre plafonne la taille de ses textes, l'appui long montre la
+        // visionneuse de grand contenu.
         ToolbarItem(placement: .cancellationAction) {
-          Button("Annuler") { dismiss() }
+          Button("Annuler", systemImage: "xmark") { dismiss() }
             .accessibilityIdentifier("cancelItem")
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Enregistrer", action: save)
-            .disabled(ItemEdit(label: label, quantityText: quantityText) == nil)
+          Button("Enregistrer", systemImage: "checkmark", action: save)
+            .disabled(ItemEdit(target: target, label: label, quantityText: quantityText) == nil)
             .accessibilityIdentifier("saveItem")
         }
       }
     }
-    .presentationDetents([.medium, .large])
+    .presentationDetents([.medium, .large], selection: $detent)
     // Fond opaque : le verre de la feuille laisse transparaître la liste et dégrade le contraste.
     .presentationBackground(Palette.paper)
     .accessibilityIdentifier("itemSheet")
@@ -87,11 +108,17 @@ struct ItemEditSheet: View {
   private var labelSection: some View {
     VStack(alignment: .leading, spacing: Space.xs) {
       sectionTitle("Libellé")
-      TextField("Libellé", text: $label)
+      // Sur plusieurs lignes : un long libellé reste lisible en entier aux grandes tailles de texte.
+      TextField("Libellé", text: $label, axis: .vertical)
+        .lineLimit(1...4)
         .sheetField()
         .submitLabel(.done)
         .onChange(of: label) { _, value in
-          if value.count > ItemEdit.maxLabelLength { label = String(value.prefix(ItemEdit.maxLabelLength)) }
+          if value.unicodeScalars.count > ItemEdit.maxLabelLength {
+            var cut = ""
+            cut.unicodeScalars.append(contentsOf: value.unicodeScalars.prefix(ItemEdit.maxLabelLength))
+            label = cut
+          }
         }
         .accessibilityIdentifier("itemLabelField")
     }
@@ -120,6 +147,8 @@ struct ItemEditSheet: View {
       } label: {
         Label("Effacer la quantité", systemImage: "xmark.circle")
           .font(.body.weight(.semibold))
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
           .touchTarget()
       }
       .disabled(quantity == nil)
@@ -133,7 +162,10 @@ struct ItemEditSheet: View {
       .tracking(TicketFont.aisleTracking)
       .textCase(.uppercase)
       .foregroundStyle(Palette.inkMuted)
-      .accessibilityHidden(true)
+      .fixedSize(horizontal: false, vertical: true)
+      // Lu tel quel (pas les capitales, épelées sinon), comme un en-tête.
+      .accessibilityLabel(Text(title))
+      .accessibilityAddTraits(.isHeader)
   }
 
   private func stepButton(delta: Int, systemImage: String, label: String, identifier: String) -> some View {
@@ -163,6 +195,7 @@ struct ItemEditSheet: View {
       Text(unit.rawValue)
         .font(.system(.body, design: .monospaced).weight(.semibold))
         .foregroundStyle(selected ? Palette.paper : (next == nil ? Palette.inkMuted : Palette.ink))
+        .padding(.horizontal, Space.m)
         .frame(minWidth: 56)
         .touchTarget()
         .background(selected ? Palette.ink : Palette.paper, in: Capsule())
@@ -184,8 +217,8 @@ struct ItemEditSheet: View {
   }
 
   private func save() {
-    guard let edit = ItemEdit(label: label, quantityText: quantityText) else { return }
-    if edit.label != target.label || edit.quantity != target.quantity { onSave(edit) }
+    guard let edit = ItemEdit(target: target, label: label, quantityText: quantityText) else { return }
+    if !edit.isEmpty { onSave(edit) }
     dismiss()
   }
 }

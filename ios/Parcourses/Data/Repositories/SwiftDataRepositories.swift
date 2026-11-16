@@ -112,6 +112,10 @@ final class SwiftDataListRepository: ListRepository {
     onEnqueue()
   }
 
+  func item(id: UUID) throws -> ListItem? {
+    try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first
+  }
+
   func items(listId: UUID) throws -> [ListItem] {
     guard try !isDeleted(listId) else { return [] }
     return try context.fetch(
@@ -156,7 +160,9 @@ final class SwiftDataListRepository: ListRepository {
     if item.quantity != quantity { fields.append(ListItemFields.quantity) }
     let renamed = item.label != label
     if renamed { fields.append(ListItemFields.label) }
-    let forgetsProduct = renamed && item.normalizedName != normalizedName && item.productId != nil
+    // Forme normalisée changée : le produit (celui de l'ancien libellé) part à `null`, même s'il est déjà nul ici, le
+    // serveur pouvant en avoir posé un que la descente n'a pas encore apporté.
+    let forgetsProduct = renamed && item.normalizedName != normalizedName
     if forgetsProduct { fields.append(ListItemFields.productId) }
     guard !fields.isEmpty else { return }
     try context.atomically {

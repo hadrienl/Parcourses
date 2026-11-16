@@ -37,6 +37,7 @@ struct ListDetailView: View {
   @State private var pressedRow: UUID?
   @State private var editTrigger = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   private let quantityTip = QuantityTip()
 
   init(
@@ -141,8 +142,15 @@ struct ListDetailView: View {
       AccessibilityNotification.Announcement(accessMessage(change)).post()
       if model.access.isReadOnly { badgeFocused = true }
     }
+    // Article disparu (supprimé ailleurs, liste retirée) ou édition plus permise (passé lecteur) : le panneau se ferme,
+    // plutôt que d'échouer ou de perdre la saisie en silence à l'enregistrement.
+    .onChange(of: editableIds) { _, ids in
+      if let editing, !ids.contains(editing.id) { self.editing = nil }
+    }
     .sheet(item: $editing) { target in
-      ItemEditSheet(target: target) { edit in model.save(edit, for: target.id) }
+      ItemEditSheet(target: target, largeText: dynamicTypeSize.isAccessibilitySize) { edit in
+        model.save(edit, for: target.id)
+      }
     }
     .sensoryFeedback(.impact(weight: .medium), trigger: editTrigger)
     .sheet(item: $shareModel) { share in
@@ -279,6 +287,12 @@ struct ListDetailView: View {
       .swipeActions(edge: .trailing, allowsFullSwipe: false) {
         Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
       }
+  }
+
+  /// Articles que le panneau peut modifier.
+  private var editableIds: Set<UUID> {
+    guard model.access.capabilities.canEditItems, !model.isMissing, !model.wasRemoved else { return [] }
+    return Set(model.sections.flatMap(\.items).map(\.id))
   }
 
   /// Ouvre le panneau de l'article ; l'astuce a servi, elle ne revient plus.

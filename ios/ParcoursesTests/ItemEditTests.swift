@@ -75,8 +75,9 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       at: t0)
     try h.markSent(milk.id)
 
+    let target = ItemEditTarget(id: milk.id, label: "Lait", quantity: "1")
     try h.lists.apply(
-      try #require(ItemEdit(label: "  tomates ", quantityText: "1")), to: milk.id,
+      try #require(ItemEdit(target: target, label: "  tomates ", quantityText: "1")), to: milk.id,
       analyzer: try EntryAnalyzer(), at: t0 + 5)
     let item = try h.item(milk.id)
     #expect(item.label == "tomates")
@@ -95,8 +96,10 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
       at: t0)
     try h.markSent(milk.id)
 
+    let target = ItemEditTarget(id: milk.id, label: "lait", quantity: nil)
     try h.lists.apply(
-      try #require(ItemEdit(label: "Lait", quantityText: "")), to: milk.id, analyzer: try EntryAnalyzer(), at: t0)
+      try #require(ItemEdit(target: target, label: "Lait", quantityText: "")), to: milk.id,
+      analyzer: try EntryAnalyzer(), at: t0)
     #expect(try h.item(milk.id).productId == product)
     #expect(try h.queuedFields(milk.id) == [ListItemFields.label])
   }
@@ -115,11 +118,54 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
   }
 
   @Test func editFormIsCleaned() {
-    #expect(ItemEdit(label: "   ", quantityText: "2") == nil)
-    let edit = ItemEdit(label: " Lait ", quantityText: "  500   g ")
-    #expect(edit?.label == "Lait")
+    let target = ItemEditTarget(id: UUID(), label: "Lait", quantity: "2")
+    #expect(ItemEdit(target: target, label: "   ", quantityText: "2") == nil)
+    // Rien de changé par rapport à l'ouverture : rien à écrire.
+    #expect(ItemEdit(target: target, label: " Lait ", quantityText: " 2 ")?.isEmpty == true)
+    let edit = ItemEdit(target: target, label: " Lait ", quantityText: "  500   g ")
+    #expect(edit?.label == nil)
+    #expect(edit?.changesQuantity == true)
     #expect(edit?.quantity == "500 g")
-    #expect(ItemEdit(label: "Lait", quantityText: "  ")?.quantity == nil)
+    let cleared = ItemEdit(target: target, label: "Lait", quantityText: "  ")
+    #expect(cleared?.changesQuantity == true && cleared?.quantity == nil)
+    // Coupé à 200 points de code (`char_length`), pas à 200 graphèmes : un drapeau en compte deux.
+    let flags = String(repeating: "🇫🇷", count: 150)
+    #expect(ItemEdit(target: target, label: flags, quantityText: "2")?.label?.unicodeScalars.count == 200)
+  }
+
+  /// Le libellé renommé par un autre membre pendant que le panneau était ouvert n'est pas annulé par un changement de
+  /// quantité, et inversement.
+  @Test func onlyTheFieldsChangedInTheSheetAreWritten() throws {
+    let h = try Harness()
+    let milk = try h.lists.addItem(
+      listId: h.listId, label: "lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: t0)
+    let opened = ItemEditTarget(id: milk.id, label: "lait", quantity: nil)
+    // Arrivé d'ailleurs pendant que le panneau est ouvert.
+    milk.label = "lait d'avoine"
+    milk.normalizedName = "lait avoine"
+    try h.context.save()
+    try h.markSent(milk.id)
+
+    try h.lists.apply(
+      try #require(ItemEdit(target: opened, label: "lait", quantityText: "2")), to: milk.id,
+      analyzer: try EntryAnalyzer(), at: t0 + 5)
+    let item = try h.item(milk.id)
+    #expect(item.label == "lait d'avoine")
+    #expect(item.quantity == "2")
+    #expect(try h.queuedFields(milk.id) == [ListItemFields.quantity])
+  }
+
+  /// Forme normalisée changée : `product_id` part à `null` même sans produit local (le serveur peut en avoir un).
+  @Test func aNewFormAlwaysClearsTheServerProduct() throws {
+    let h = try Harness()
+    let milk = try h.lists.addItem(
+      listId: h.listId, label: "lait", normalizedName: "lait", quantity: nil, productId: nil, categoryId: "dairy",
+      at: t0)
+    try h.markSent(milk.id)
+    try h.lists.updateItem(
+      itemId: milk.id, label: "beurre", normalizedName: "beurre", categoryId: "dairy", quantity: nil, at: t0 + 5)
+    #expect(try h.queuedFields(milk.id) == [ListItemFields.label, ListItemFields.productId])
   }
 
   // MARK: - Écran Liste
@@ -164,7 +210,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let target = try #require(model.editTarget(for: row))
     #expect(target == ItemEditTarget(id: row.id, label: "lait", quantity: nil))
 
-    model.save(try #require(ItemEdit(label: "pommes", quantityText: "1,5 kg")), for: target.id)
+    model.save(try #require(ItemEdit(target: target, label: "pommes", quantityText: "1,5 kg")), for: target.id)
     #expect(model.sections.map(\.categoryId) == ["produce"])
     let moved = try #require(model.sections.first?.items.first)
     #expect(moved.label == "pommes")
@@ -181,7 +227,8 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let model = h.detail()
     let row = try #require(model.sections.first?.items.first)
     #expect(model.editTarget(for: row) == nil)
-    model.save(try #require(ItemEdit(label: "Lait", quantityText: "2")), for: milk.id)
+    let target = ItemEditTarget(id: milk.id, label: "Lait", quantity: nil)
+    model.save(try #require(ItemEdit(target: target, label: "Lait", quantityText: "2")), for: milk.id)
     #expect(try h.item(milk.id).quantity == nil)
     model.input = "lait x2"
     #expect(model.submit() == nil)
@@ -210,7 +257,8 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let session = try shopping(h)
     await session.start()
 
-    session.save(try #require(ItemEdit(label: "lait", quantityText: "2")), for: milk.id)
+    let target = ItemEditTarget(id: milk.id, label: "lait", quantity: nil)
+    session.save(try #require(ItemEdit(target: target, label: "lait", quantityText: "2")), for: milk.id)
     #expect(session.toBuy.first?.quantity == "2")
 
     session.input = "lait x4"

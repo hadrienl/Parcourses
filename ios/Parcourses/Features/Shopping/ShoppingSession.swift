@@ -524,11 +524,12 @@ final class ShoppingSession: Identifiable {
     publishActivity()
   }
 
-  /// Panneau de l'article (#110) : libellé et quantité. Un libellé reclassé change de rayon au tri suivant.
+  /// Panneau de l'article (#110) : libellé et quantité. Un libellé reclassé change de rayon au tri suivant. La
+  /// modification porte sur la liste, pas sur la visite : elle s'écrit même si les courses ont expiré entre-temps.
   func save(_ edit: ItemEdit, for itemId: UUID) {
-    guard summary == nil, !expired else { return }
     let date = now()
     guard perform({ try lists.apply(edit, to: itemId, analyzer: analyzer, at: date) }) else { return }
+    guard summary == nil, !expired else { return }
     reloadRows()
     scheduleSettle()
     publishActivity()

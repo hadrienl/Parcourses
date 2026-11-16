@@ -16,6 +16,7 @@ struct ShoppingView: View {
   @FocusState private var inputIsFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorSchemeContrast) private var contrast
   /// Ligne sous le focus VoiceOver : elle le garde quand la liste se réordonne.
   @AccessibilityFocusState private var focusedRow: UUID?
@@ -122,8 +123,14 @@ struct ShoppingView: View {
     .sensoryFeedback(.impact(weight: .light), trigger: uncheckTrigger)
     .safeAreaInset(edge: .bottom) { dock }
     .opaqueBottomBar()
+    // Article disparu (supprimé ailleurs, coché par un autre) ou courses arrêtées : le panneau se ferme.
+    .onChange(of: editableIds) { _, ids in
+      if let editing, !ids.contains(editing.id) { self.editing = nil }
+    }
     .sheet(item: $editing) { target in
-      ItemEditSheet(target: target) { edit in session.save(edit, for: target.id) }
+      ItemEditSheet(target: target, largeText: dynamicTypeSize.isAccessibilitySize) { edit in
+        session.save(edit, for: target.id)
+      }
     }
     .sheet(isPresented: remainingIsPresented) {
       RemainingItemsSheet(
@@ -305,8 +312,8 @@ struct ShoppingView: View {
         Button("Décocher") { session.toggle(row) }
       } else {
         Button("Pas trouvé") { session.markNotFound(row) }
+        Button("Modifier la quantité") { edit(row) }
       }
-      Button("Modifier la quantité") { edit(row) }
     }
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
       if !row.isChecked {
@@ -315,11 +322,18 @@ struct ShoppingView: View {
       }
     }
     .contextMenu {
+      // Lignes à prendre seulement, comme Android.
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
+        Button("Quantité", systemImage: "number") { edit(row) }
       }
-      Button("Quantité", systemImage: "number") { edit(row) }
     }
+  }
+
+  /// Articles que le panneau peut modifier : ceux à prendre, tant que les courses continuent.
+  private var editableIds: Set<UUID> {
+    guard session.accessEnd == nil, !session.expired else { return [] }
+    return Set(session.toBuy.filter { !$0.isChecked }.map(\.id))
   }
 
   /// Même panneau que l'écran Liste (#110).

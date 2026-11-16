@@ -41,6 +41,8 @@ protocol ListRepository {
   /// Suppression douce : la liste disparaît de `lists()` et reste en base jusqu'à l'envoi (9.7).
   func deleteList(id: UUID, at date: Date) throws
 
+  /// Un article, quelle que soit sa liste ; `nil` s'il n'existe plus.
+  func item(id: UUID) throws -> ListItem?
   /// Articles d'une liste, triés par `position`. Vide si la liste est supprimée.
   func items(listId: UUID) throws -> [ListItem]
   @discardableResult
