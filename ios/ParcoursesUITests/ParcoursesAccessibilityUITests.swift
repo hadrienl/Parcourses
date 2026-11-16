@@ -38,6 +38,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
     let sheetIsShown: Bool
+    /// Audit du panneau de l'article (#110, écrans « article* ») avec sa feuille modale à l'écran.
+    let itemSheetIsShown: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
     let pickerFooterTop: CGFloat?
@@ -45,8 +47,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let bottom: CGFloat
 
     @MainActor
-    init(_ app: XCUIApplication, modal: Bool) {
+    init(_ app: XCUIApplication, name: String, modal: Bool) {
       self.modal = modal
+      itemSheetIsShown = modal && name.hasPrefix("article") && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
       let keyboard = app.keyboards.firstMatch
       self.keyboard = keyboard.exists ? keyboard.frame : nil
@@ -97,6 +100,16 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    défaut (« may be clipped at larger Dynamic Type sizes ») : les parcours lancés en AX5 le mesurent au
       //    rendu réel, sans changement à chaud, et l'auditent.
       if screen.modal && issue.auditType == .dynamicType { return .known("2 Dynamic Type à chaud en modal") }
+      // 2 quater. Panneau de l'article (#110), feuille modale à mi-hauteur : la liste reste visible sous le voile mais
+      //    la modalité la rend inaccessible, et l'audit signale son texte sans le localiser (« Potentially inaccessible
+      //    text »). Preuve, essais locaux sur iOS 26.5 (testAuditLists) : c'est le compteur « ARTICLES 03 » de
+      //    l'écran Liste ; l'audit passe quand la feuille s'ouvre en pleine hauteur (liste cachée) et quand ce seul
+      //    compteur est masqué, et échoue encore avec une seule détente, sans focus de saisie, avec un identifiant ou
+      //    `children: .combine`. Bornée à ces écrans, à ce type, sans élément localisé : le contenu du panneau et la
+      //    liste seule (« liste-remplie ») restent entièrement audités.
+      if screen.itemSheetIsShown && issue.auditType == .elementDetection {
+        return .known("2 quater texte voilé derrière le panneau de l'article")
+      }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }
@@ -305,7 +318,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     // Les feuilles s'animent à l'arrivée : l'audit lit les cadres pendant la transition sinon.
     Thread.sleep(forTimeInterval: 1)
     capture(app, "audit-\(screen)")
-    let state = Screen(app, modal: modal)
+    let state = Screen(app, name: screen, modal: modal)
     var problems: [String] = []
     var exceptions: [String] = []
     // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.

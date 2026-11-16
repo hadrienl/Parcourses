@@ -136,7 +136,6 @@ struct ItemEditSheet: View {
       }
     }
     .presentationDetents([.medium, .large], selection: $detent)
-    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
     // Fond opaque : le verre de la feuille laisse transparaître la liste et dégrade le contraste.
     .presentationBackground(Palette.paper)
     .accessibilityIdentifier("itemSheet")
