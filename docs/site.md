@@ -96,7 +96,7 @@ Ces réglages viennent dans les PR des apps du lot 87.7. Tant qu'ils ne sont pas
 - **Liens des stores** : ce sont des emplacements désactivés (`aria-disabled`, sans `href`). Le jour de la sortie, leur
   donner un `href` et retirer « bientôt ».
 - **Pages légales** (#87, lot 87.8) : le pied de page pointe vers `/confidentialite/` et `/supprimer-mes-donnees/`.
-  `check-site.ts` vérifie qu'elles existent. Leurs passages entre crochets (`[…]`) sont à compléter avant toute
-  publication.
+  `check-site.ts` vérifie qu'elles existent, et, avec `--publish` (workflow `pages`, sur `main`), qu'il n'y reste
+  aucun passage entre crochets (`[…]`).
 - **Régénérer `og.png`** après un changement du héros : capture de la page à 1200 × 630, puis palette réduite avec
   `ffmpeg -i brut.png -vf "split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none" site/og.png`.

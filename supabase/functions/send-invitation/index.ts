@@ -42,6 +42,9 @@ const KNOWN_ERRORS = new Set([
 // Politique de confidentialité (#87, lot 87.8) : l'invité ne connaît pas encore Parcourses (RGPD, article 14).
 const PRIVACY_URL = "https://parcourses.hadrien.eu/confidentialite/";
 
+// Politique de confidentialité (#87, lot 87.8) : l'invité ne connaît pas encore Parcourses (RGPD, article 14).
+const PRIVACY_URL = "https://parcourses.hadrien.eu/confidentialite/";
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 

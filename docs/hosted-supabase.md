@@ -124,7 +124,7 @@ Un compte anonyme ne peut pas être retrouvé sans l'app. La purge des comptes i
 
 ## Purge des comptes e-mail inactifs (#114)
 
-Un compte e-mail inactif depuis 3 ans est supprimé, après un e-mail de prévenance envoyé un mois avant
+Un compte e-mail inactif depuis 3 ans est supprimé, après un e-mail de prévenance envoyé au moins 30 jours avant
 (`…_inactive_email_accounts.sql`). Le job pg_cron `accounts-inactivity` (05:23 UTC) fait les suppressions dues, puis
 appelle l'Edge Function `notify-inactive-accounts` par `pg_net`. La fonction envoie les prévenances par Resend.
 
