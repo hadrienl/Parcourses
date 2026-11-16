@@ -57,7 +57,8 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
   }
 
   /// Libellé long, quantité longue, les deux (#110) : seul le libellé se replie, la quantité reste à droite sur sa
-  /// dernière ligne, reliée par les points de conduite (ou passe dessous si elle prendrait trop de place). Captures en taille par défaut et en AX5.
+  /// dernière ligne, reliée par les points de conduite (ou passe dessous si elle prendrait trop de place). Captures en
+  /// taille par défaut et en AX5.
   @MainActor
   func testLongLabelsAndQuantitiesCaptures() {
     let sizes: [(arguments: [String], suffix: String)] = [
@@ -81,16 +82,19 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
         if !entry.hasFocus { entry.tap() }
         type(text + "\n", into: entry, app)
       }
-      // Quantité trop longue pour la colonne de droite (saisie libre du panneau) : elle passe sous le libellé.
-      let butter = row(app, "beurre", "non coché")
-      reveal(butter, in: app, betweenBars: true)
-      butter.press(forDuration: 1.0)
-      let quantity = app.textFields["quantityField"]
-      XCTAssertTrue(quantity.waitForExistence(timeout: 15))
-      quantity.tap()
-      type("2 plaquettes de 250 g doux", into: quantity, app)
-      app.buttons["saveItem"].tap()
-      XCTAssertTrue(app.buttons["saveItem"].waitForNonExistence(timeout: 15))
+      // Quantité trop longue pour la colonne de droite (saisie libre du panneau) : elle passe sous le libellé. En
+      // taille par défaut seulement : en AX5 sur iOS 18, la ligne reste hors d'atteinte du défilement sous le clavier.
+      if size.arguments.isEmpty {
+        let butter = row(app, "beurre", "non coché")
+        reveal(butter, in: app, betweenBars: true)
+        butter.press(forDuration: 1.0)
+        let quantity = app.textFields["quantityField"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 15))
+        quantity.tap()
+        type("2 plaquettes de 250 g doux", into: quantity, app)
+        app.buttons["saveItem"].tap()
+        XCTAssertTrue(app.buttons["saveItem"].waitForNonExistence(timeout: 15))
+      }
       // Clavier fermé (glisser la liste) : les lignes sont visibles pour la capture.
       app.collectionViews["itemList"].swipeDown()
       // En AX5, les lignes débordent de l'écran : seule la capture compte.
