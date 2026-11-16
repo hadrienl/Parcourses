@@ -78,9 +78,10 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "2-liste-triee-inconnu")
 
     // Coche et annulation.
-    // Une coche, une seule : une coche rejouée aurait décoché les tomates, et le panier resterait vide.
+    // Une coche, une seule : un second appui reçu (le premier arrivé en retard) aurait décoché les tomates et retiré
+    // la bannière.
     tap(row(app, "tomates", "non coché", in: "shoppingList"), until: app.buttons["undo"])
-    XCTAssertTrue(app.staticTexts["Dans le panier (1)"].waitForExistence(timeout: 15))
+    XCTAssertEqual(app.staticTexts.matching(identifier: "undoMessage").firstMatch.label, "tomates coché")
     capture(app, "3-annulation")
     tap(app.buttons["undo"], until: row(app, "tomates", "non coché", in: "shoppingList"))
 

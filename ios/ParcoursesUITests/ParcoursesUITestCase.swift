@@ -47,7 +47,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
 
   /// Appuie sur `element` une fois actif, et attend `effect`, au plus `timeout` secondes en tout (#116).
   ///
-  /// Deux échecs de la CI iOS 18 montrent un appui sans effet, synthétisé au centre de l'élément, l'app au repos
+  /// Trois échecs de la CI iOS 18 montrent un appui sans effet, synthétisé au centre de l'élément, l'app au repos
   /// avant et après : « Créer » de l'alerte « Nouvelle liste », encore à l'écran 15 s plus tard avec son nom saisi, et
   /// la coche des tomates en mode courses, encore « non coché » 17 s plus tard, et le chariot « Faire mes courses ».
   /// - « Créer » est désactivé tant que le nom est vide, et ne s'active qu'au rendu SwiftUI qui suit la saisie. XCUI
@@ -61,7 +61,8 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     line: UInt = #line
   ) -> Bool {
     let deadline = Date.now.addingTimeInterval(timeout)
-    let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: element)
+    let ready = NSPredicate(format: "exists == true AND isEnabled == true")
+    let enabled = XCTNSPredicateExpectation(predicate: ready, object: element)
     guard XCTWaiter().wait(for: [enabled], timeout: timeout) == .completed else {
       XCTFail("élément toujours inactif : \(element)", file: file, line: line)
       return false

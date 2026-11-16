@@ -429,8 +429,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
     tap(tomatoes, until: app.buttons["undo"])
-    // Une coche, une seule : une coche rejouée aurait décoché les tomates, et le panier resterait vide.
-    XCTAssertTrue(app.staticTexts["Dans le panier (1)"].waitForExistence(timeout: 15))
+    // Une coche, une seule : un second appui reçu (le premier arrivé en retard) aurait décoché les tomates et retiré
+    // la bannière. Elle reste à l'écran, contrairement au panier, sous le dock en AX5.
+    XCTAssertEqual(app.staticTexts.matching(identifier: "undoMessage").firstMatch.label, "tomates coché")
     audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)
