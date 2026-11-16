@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
+import fr.parcourses.core.data.account.AccountEntry
 import fr.parcourses.core.data.account.AccountLinkOutcome
 import fr.parcourses.core.data.account.AccountLinkPhase
 import fr.parcourses.core.data.account.AccountLinkState
@@ -23,6 +24,7 @@ import fr.parcourses.feature.lists.ItemRow
 import fr.parcourses.feature.lists.ItemSection
 import fr.parcourses.feature.lists.ListDetailScreen
 import fr.parcourses.feature.lists.ListDetailUiState
+import fr.parcourses.feature.lists.ListsAccountUi
 import fr.parcourses.feature.lists.ListsScreen
 import fr.parcourses.feature.lists.ListsUiState
 import fr.parcourses.feature.shopping.RouteKnowledge
@@ -308,16 +310,46 @@ class ScreenshotTest {
 
     private val emailAccount =
         AccountUiState(
-            visible = true,
-            account = AccountState(AccountKind.Email, email = "lea@exemple.fr", displayName = "Léa"),
+            account = AccountState(AccountKind.Email, email = "lea.martin-dubois@exemple.fr", displayName = "Léa"),
         )
 
-    @Test
-    fun aboutAccountLight() = capture("about-account-light") { AboutScreen("0.1.0 (1)", {}, account = emailAccount) }
+    // Écran Compte (#108) : adresse, prénom, déconnexion, « Vos données ».
+    @Composable
+    private fun Account() = AccountScreen(emailAccount, AccountActions(), {})
 
     @Test
-    fun aboutAccountDark() =
-        capture("about-account-dark", dark = true) { AboutScreen("0.1.0 (1)", {}, account = emailAccount) }
+    fun accountLight() = capture("account-light") { Account() }
+
+    @Test
+    fun accountDark() = capture("account-dark", dark = true) { Account() }
+
+    @Test
+    fun accountLarge() = capture("account-200", fontScale = 2f) { Account() }
+
+    // Bouton compte toujours visible (#108) : la pastille de l'initiale, une fois connecté.
+    private val signedIn = ListsAccountUi(entry = AccountEntry.Account("L"), displayName = "Léa")
+
+    @Test
+    fun listsAccountLight() =
+        capture(
+            "lists-account-light",
+        ) { ListsScreen(lists, {}, {}, { _, _ -> }, {}, {}, onAbout = {}, account = signedIn) }
+
+    @Test
+    fun listsAccountDark() =
+        capture("lists-account-dark", dark = true) {
+            ListsScreen(lists, {}, {}, { _, _ -> }, {}, {}, onAbout = {}, account = signedIn)
+        }
+
+    @Test
+    fun listsSignInLight() =
+        capture("lists-sign-in-light") {
+            ListsScreen(lists, {}, {}, { _, _ -> }, {}, {}, onAbout = {}, account = ListsAccountUi(AccountEntry.SignIn))
+        }
+
+    // À propos d'un compte e-mail : ni compte ni « Vos données », qui sont dans l'écran Compte.
+    @Test
+    fun aboutEmailLight() = capture("about-email-light") { AboutScreen("0.1.0 (1)", {}, isEmailAccount = true) }
 
     private val codeStep =
         AccountLinkUiState(

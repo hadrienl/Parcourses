@@ -220,7 +220,7 @@ fun ListsScreen(
         modifier = modifier,
         containerColor = colors.desk,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { ListsTopBar(onAbout, aboutNeedsAttention, account.onSignIn.takeIf { account.canSignIn }) },
+        topBar = { ListsTopBar(onAbout, aboutNeedsAttention, account) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { dialog = ListDialog.Create },
@@ -273,18 +273,14 @@ fun ListsScreen(
 private fun ListsTopBar(
     onAbout: (() -> Unit)?,
     needsAttention: Boolean,
-    onSignIn: (() -> Unit)?,
+    account: ListsAccountUi,
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Ticket.colors.desk),
         title = { Text(stringResource(R.string.lists_title)) },
         actions = {
-            if (onSignIn != null) {
-                TextButton(
-                    onClick = onSignIn,
-                    modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_SIGN_IN),
-                ) { Text(stringResource(R.string.lists_sign_in), color = Ticket.colors.accent) }
-            }
+            // Toujours visible avec un serveur (#108), avant ⓘ.
+            AccountButton(account)
             if (onAbout != null) {
                 IconButton(onClick = onAbout, modifier = Modifier.testTag(TAG_ABOUT)) {
                     // Pastille : À propos propose une action (session illisible, #51).

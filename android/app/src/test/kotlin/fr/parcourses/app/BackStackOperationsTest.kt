@@ -343,6 +343,32 @@ class ShoppingNavigationTest {
     }
 
     // endregion
+    // region Compte (#108)
+
+    @Test
+    fun anAnonymousAccountLeavesTheAccountScreen() {
+        // Déconnexion réussie depuis Compte : retour aux listes.
+        val stack = stack(Route.Lists, Route.Account)
+        stack.closeAccount()
+        assertEquals(listOf<NavKey>(Route.Lists), stack)
+
+        // Compte sous un autre écran : seul Compte quitte la pile.
+        val under = stack(Route.Lists, Route.Account, Route.SignIn)
+        under.closeAccount()
+        assertEquals(listOf<NavKey>(Route.Lists, Route.SignIn), under)
+
+        // Pile restaurée sur Compte seul, après coup : les listes.
+        val restored = stack(Route.Account)
+        restored.closeAccount()
+        assertEquals(listOf<NavKey>(Route.Lists), restored)
+
+        // Rien à fermer : la pile ne bouge pas.
+        val about = stack(Route.Lists, Route.About)
+        about.closeAccount()
+        assertEquals(listOf<NavKey>(Route.Lists, Route.About), about)
+    }
+
+    // endregion
     // region Partage (#87)
 
     @Test
