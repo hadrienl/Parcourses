@@ -145,6 +145,9 @@ Deno.test("partager une liste : invitation par e-mail, acceptation, signaux temp
     const mail = await mailSentTo(stack.mailpit, lea.email, sentAt);
     assert(mail.subject === "Hadrien vous invite sur Parcourses", `objet : ${mail.subject}`);
     assert(mail.text.includes(link) && mail.html.includes(link), "le lien n'est pas dans l'e-mail");
+    // RGPD, article 14 (#87, lot 87.8) : l'invité trouve la politique de confidentialité dans l'e-mail.
+    const privacy = "https://parcourses.hadrien.eu/confidentialite/";
+    assert(mail.text.includes(privacy) && mail.html.includes(privacy), "la politique de confidentialité manque");
     assert(!mail.text.includes("Courses de la semaine") && !mail.html.includes("Courses de la semaine"),
       "le nom de la liste est dans l'e-mail");
 

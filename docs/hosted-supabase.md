@@ -100,3 +100,22 @@ Les tests du script tournent en CI (`supabase`), sans réseau : `python3 scripts
      et l'Auth redémarre ensuite en quelques instants.
    - Lier une adresse à un compte anonyme depuis l'app (« Se connecter ») : l'e-mail doit porter un code à 6 chiffres.
      Une connexion directe avec une adresse inconnue est refusée par le hook `before_user_created` : c'est voulu.
+
+## Suppression d'un compte sur demande (page `/supprimer-mes-donnees/`)
+
+La page web promet de supprimer, sur demande par e-mail, le compte e-mail d'une personne qui n'a plus l'app. La
+procédure :
+
+1. Vérifier que la demande vient bien de l'adresse du compte : répondre à cette adresse et attendre la confirmation.
+   Une demande venue d'une autre adresse ne suffit pas.
+2. Retrouver le compte : `select id from auth.users where email = '<adresse en minuscules>';` (éditeur SQL du projet).
+3. Supprimer : `select accounts.delete_account('<id>');`.
+   - La fonction fait exactement ce que fait « Supprimer mes données » dans l'app (`delete_my_account`) : les listes
+     partagées passent à l'éditeur le plus ancien, sinon au lecteur le plus ancien, et le journal d'authentification
+     est effacé.
+   - Elle est réservée au rôle `postgres`.
+   - **Ne pas supprimer l'utilisateur depuis le tableau de bord** : ses listes partagées seraient effacées au lieu
+     d'être confiées à un membre, et son journal resterait.
+4. Confirmer la suppression par e-mail, dans les 30 jours suivant la demande.
+
+Un compte anonyme ne peut pas être retrouvé sans l'app. La purge des comptes inactifs le supprime après 365 jours.

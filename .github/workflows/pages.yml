@@ -37,6 +37,10 @@ jobs:
           deno-version: v2.9.7
       - name: Site conforme (CNAME, AASA, assetlinks.json, pages sans ressource distante)
         run: deno run --allow-read scripts/check-site.ts
+      # Avant publication seulement : les pages légales (87.8) ne partent pas avec des passages « [à compléter] ».
+      - name: Pages légales complétées
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: deno run --allow-read scripts/check-site.ts --publish
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:

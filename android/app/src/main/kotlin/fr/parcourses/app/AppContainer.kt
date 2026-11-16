@@ -475,6 +475,7 @@ class AppContainer(
                 isOnline = { networkMonitor.isOnline },
             ),
             maintenanceScope,
+            accountKind = { accountKind.kind.value },
         )
     }
 

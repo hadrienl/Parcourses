@@ -9,7 +9,9 @@ import fr.parcourses.core.data.account.AccountDeletionHost
 import fr.parcourses.core.data.account.AccountDeletionMarker
 import fr.parcourses.core.data.account.AccountDeletionPhase
 import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
+import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.account.LocalDataPurge
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.network.RemoteGateway
@@ -225,6 +227,42 @@ class AccountDeletionViewModelTest {
 
             controller.acknowledge()
             assertEquals(AccountDeletionState.Idle, controller.state.value)
+        }
+
+    private suspend fun deletedFromDevice(kind: AccountKind): AccountDeletionState {
+        val kindFlag = InMemoryAccountKindFlag().apply { write(kind) }
+        val controller =
+            AccountDeletionController(
+                AccountDeletion(
+                    gatewayWithoutSession(),
+                    InMemoryAccountDeletionFlag(),
+                    LocalDataPurge(db, InMemorySyncCursors(), accountKind = kindFlag),
+                    Host(),
+                    isOnline = { true },
+                ),
+                scope,
+                accountKind = { kindFlag.kind.value },
+            )
+        assertTrue(controller.start())
+        val done = withTimeout(5_000) { controller.state.first { it is AccountDeletionState.DoneLocally } }
+        // La purge a effacé le drapeau : le type du compte a été lu avant.
+        assertEquals(AccountKind.Anonymous, kindFlag.kind.value)
+        return done
+    }
+
+    @Test
+    fun anEmailAccountOutOfReachIsNotPromisedTheInactivityPurge() =
+        runBlocking {
+            assertEquals(AccountDeletionState.DoneLocally(emailAccount = true), deletedFromDevice(AccountKind.Email))
+        }
+
+    @Test
+    fun anAnonymousAccountOutOfReachIsLeftToTheInactivityPurge() =
+        runBlocking {
+            assertEquals(
+                AccountDeletionState.DoneLocally(emailAccount = false),
+                deletedFromDevice(AccountKind.Anonymous),
+            )
         }
 
     // endregion

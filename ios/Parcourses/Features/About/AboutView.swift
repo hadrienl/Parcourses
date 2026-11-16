@@ -43,11 +43,16 @@ struct AboutView: View {
             "Seule votre position GPS n'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée."
           )
           if deletion?.deletesServerData == true {
-            Text(
-              isEmailAccount
-                ? "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
-                : "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
-            )
+            Text(AboutTexts.retention(isEmailAccount: isEmailAccount))
+              .accessibilityIdentifier("aboutRetention")
+          }
+          // Exigé par l'App Review (5.1.1(i)), pour tous les comptes, même dans un build sans serveur (lot 87.8).
+          if let url = PrivacyLinks.policy {
+            Link(destination: url) {
+              Text("Politique de confidentialité").touchTarget()
+            }
+            .accessibilityHint("Ouvre la politique de confidentialité dans le navigateur")
+            .accessibilityIdentifier("aboutPrivacyPolicyLink")
           }
         } header: {
           Text("Confidentialité")
@@ -77,7 +82,8 @@ struct AboutView: View {
           deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: false,
           interruptsShopping: interruptsShopping))
     }
-    .accountDeletionPresentation(deletion)
+    // « Vos données » n'est ici que pour un compte anonyme : un compte e-mail supprime ses données depuis Compte.
+    .accountDeletionPresentation(deletion, isEmailAccount: false)
     // Purge de déconnexion en cours ou en échec (« Continuer sans compte », reprise au lancement) : À propos ouvert
     // par-dessus Mes listes porte le voile et l'alerte, que Mes listes masque alors.
     .signOutFailurePresentation(account)

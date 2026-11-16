@@ -1,6 +1,7 @@
 package fr.parcourses.app
 
 import android.app.Application
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,16 +14,30 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.account.AccountDeletion
 import fr.parcourses.core.data.account.AccountState
+import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
+import fr.parcourses.core.data.account.InMemoryAccountKindFlag
+import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.sync.AccountKind
+import fr.parcourses.core.data.sync.InMemorySyncCursors
+import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.designsystem.ParcoursesTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,7 +46,8 @@ import org.robolectric.annotation.Config
 
 /**
  * Écran Compte (#108) et À propos sans section Compte : adresse, prénom, déconnexion et suppression sont dans Compte ;
- * À propos ne garde « Vos données » que pour un compte anonyme. Libellés lus et cibles tactiles.
+ * À propos ne garde « Vos données » que pour un compte anonyme. Libellés lus et cibles tactiles. Textes d'un compte
+ * e-mail (#87, lot 87.8) : jamais purgé pour inactivité, donc aucune promesse de suppression à 365 jours.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class)
@@ -162,6 +178,15 @@ class AccountScreenTest {
         rule.onNodeWithText(text(R.string.about_privacy_data_email)).assertExists()
         rule.onNodeWithText(text(R.string.about_privacy_data)).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_privacy_deletion)).assertDoesNotExist()
+        // Un compte e-mail n'est jamais purgé pour inactivité (#87, lot 87.8).
+        assertFalse(text(R.string.about_privacy_deletion_account).contains(INACTIVITY_PURGE))
+        rule.onNodeWithText(INACTIVITY_PURGE, substring = true).assertDoesNotExist()
+        // La politique de confidentialité reste dans À propos, pour tous les comptes.
+        rule
+            .onNodeWithTag(TAG_PRIVACY_POLICY)
+            .performScrollTo()
+            .assert(hasText(text(R.string.about_privacy_policy)))
+            .assertHeightIsAtLeast(48.dp)
     }
 
     @Test
@@ -194,6 +219,75 @@ class AccountScreenTest {
         // Mêmes textes qu'iOS : l'adresse et le prénom partent aussi, pas un « identifiant anonyme ».
         rule.onNodeWithText(text(R.string.about_account_body_email)).performScrollTo().assertExists()
         rule.onNodeWithText(text(R.string.about_account_body)).assertDoesNotExist()
-        rule.onNodeWithText(text(R.string.about_account_confirm_body_email)).assertExists()
+        val confirmation = text(R.string.about_account_confirm_body_email)
+        rule.onNodeWithText(confirmation).assertExists()
+        // Une liste partagée passe à un membre (#87, lot 87.8) ; rien sur une purge d'inactivité.
+        assertTrue(
+            confirmation.contains("ainsi que votre compte (adresse e-mail et prénom). ${AboutScreenTest.SHARED_LISTS}"),
+        )
+        rule.onNodeWithText(INACTIVITY_PURGE, substring = true).assertDoesNotExist()
+    }
+
+    /**
+     * Suppression lancée depuis l'écran Compte, serveur hors d'atteinte (C3) : la purge efface le drapeau
+     * `account.kind`, mais le message final reste celui d'un compte e-mail (écrire), sans les 365 jours.
+     */
+    @Test
+    fun aDeletionFromTheAccountScreenOutOfReachAsksToWriteToUs() {
+        val db = ParcoursesDatabaseFactory.createInMemory(app, Dispatchers.IO, AndroidSQLiteDriver())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val kindFlag = InMemoryAccountKindFlag().apply { write(AccountKind.Email) }
+            val controller =
+                AccountDeletionController(
+                    AccountDeletion(
+                        gatewayWithoutSession(),
+                        InMemoryAccountDeletionFlag(),
+                        LocalDataPurge(db, InMemorySyncCursors(), accountKind = kindFlag),
+                        IdleAccountDeletionHost(),
+                        isOnline = { true },
+                    ),
+                    scope,
+                    accountKind = { kindFlag.kind.value },
+                )
+            val model = AccountDeletionViewModel(controller.state, { false }, controller::start, localOnly = false)
+            rule.setContent {
+                ParcoursesTheme {
+                    val deletion by model.state.collectAsState()
+                    val outcome by controller.state.collectAsState()
+                    AccountScreen(
+                        account = email,
+                        accountActions = AccountActions(),
+                        onBack = {},
+                        accountDeletion = deletion,
+                        accountDeletionActions = model.actions,
+                    )
+                    AccountDeletionOverlay(outcome, AccountDeletionOverlayActions(), localOnly = false)
+                }
+            }
+            rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performScrollTo().performClick()
+            rule.waitUntil(
+                TIMEOUT_MS,
+            ) { rule.onAllNodesWithTag(TAG_ACCOUNT_DELETE_CONFIRM).fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithTag(TAG_ACCOUNT_DELETE_CONFIRM).performClick()
+
+            rule.waitUntil(TIMEOUT_MS) { controller.state.value is AccountDeletionState.DoneLocally }
+            assertEquals(AccountDeletionState.DoneLocally(emailAccount = true), controller.state.value)
+            // La purge a bien effacé le drapeau : le type du compte a été lu avant.
+            assertEquals(AccountKind.Anonymous, kindFlag.kind.value)
+            rule
+                .onNodeWithTag(TAG_ACCOUNT_MESSAGE)
+                .assert(hasText(text(R.string.about_account_done_local_body_email)))
+            rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertDoesNotExist()
+        } finally {
+            scope.cancel()
+            db.close()
+        }
+    }
+
+    private companion object {
+        /** Promesse réservée aux comptes anonymes (`about_privacy_deletion`, `about_account_done_local_body`). */
+        const val INACTIVITY_PURGE = "365 jours"
+        const val TIMEOUT_MS = 5_000L
     }
 }
