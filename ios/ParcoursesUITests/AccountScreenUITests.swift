@@ -23,6 +23,12 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     XCTAssertTrue(row.waitForExistence(timeout: 15))
   }
 
+  /// Élément de n'importe quel type dont le libellé lu est `label`, sans tenir compte de la casse.
+  @MainActor
+  private func element(_ app: XCUIApplication, labelled label: String) -> XCUIElement {
+    app.descendants(matching: .any).matching(NSPredicate(format: "label ==[c] %@", label)).firstMatch
+  }
+
   @MainActor
   private func openAccount(_ app: XCUIApplication) {
     let account = app.buttons["account"]
@@ -90,11 +96,12 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     // À propos ne dit plus rien du compte, ni de la suppression : elle est dans Compte.
     app.buttons["about"].tap()
     XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Données cartographiques"].waitForExistence(timeout: 5))
+    // En-tête de section : texte simple sur iOS 26, en majuscules et d'un autre type sur iOS 18 (constaté en CI).
+    XCTAssertTrue(element(app, labelled: "Données cartographiques").waitForExistence(timeout: 5))
     capture(app, "compte-4-a-propos\(name)")
     // En texte agrandi, la version est loin sous le pli. Elle est seulement cherchée : collée au bas de la feuille,
     // XCUI ne la juge pas toujours « hittable ».
-    let version = app.staticTexts["Version"]
+    let version = element(app, labelled: "Version")
     for _ in 0..<10 where !version.exists { app.swipeUp() }
     XCTAssertTrue(version.exists)
     capture(app, "compte-5-a-propos-bas\(name)")
