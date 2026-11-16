@@ -65,6 +65,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 | `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
 | `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
+| `…_account_deletion_admin.sql` | `accounts.delete_account(uuid)`, réservée au rôle `postgres` : suppression d'un compte sur demande par e-mail (page `/supprimer-mes-donnees/`), identique à `delete_my_account`, qui l'appelle désormais (#87, lot 87.8) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -391,7 +392,7 @@ La migration échoue si `realtime.send` ou `realtime.messages` manquent.
 **Suppression du compte** (`delete_my_account`, #68) : chaque liste partagée du compte est d'abord confiée à son éditeur
 le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
 le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :
-un héritier qui quitte la liste au même moment est attendu.
+un héritier qui quitte la liste au même moment est attendu. Le même traitement existe pour l'administration, `accounts.delete_account(uuid)` (rôle `postgres` seulement) : c'est la seule bonne façon de supprimer un compte sur demande, car le tableau de bord effacerait les listes partagées au lieu de les confier (`docs/hosted-supabase.md`).
 
 **Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
 (`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`

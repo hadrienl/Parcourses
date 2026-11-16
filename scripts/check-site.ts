@@ -7,7 +7,8 @@
 //   - les pages /confidentialite/ et /supprimer-mes-donnees/ existent (#87, lot 87.8) ;
 //   - le jeton de la page /i/ suit la règle de SharingDecisions.parseInvitationLink (vecteur 001).
 //
-//   deno run --allow-read scripts/check-site.ts
+//   deno run --allow-read scripts/check-site.ts              # PR
+//   deno run --allow-read scripts/check-site.ts --publish    # avant publication : refuse les passages à compléter
 
 const SITE = "site/";
 const DOMAIN = "parcourses.hadrien.eu";
@@ -111,6 +112,21 @@ for (const page of ["confidentialite/index.html", "supprimer-mes-donnees/index.h
     if (!/<h1>/.test(read(page))) fail(`${page} : titre h1 absent`);
   } catch {
     fail(`${page} absente`);
+  }
+}
+
+// Avant publication (--publish, workflow pages sur main) : aucun passage « […] » à compléter dans une page. Les textes
+// légaux (87.8) ne partent pas en ligne avant d'être validés et complétés par l'éditeur.
+if (Deno.args.includes("--publish")) {
+  for (const page of ["confidentialite/index.html", "supprimer-mes-donnees/index.html"]) {
+    try {
+      const body = read(page).replace(/<!--[\s\S]*?-->/g, "");
+      for (const m of body.matchAll(/\[[^\]<]*(compléter|vérifier)[^\]<]*\]/g)) {
+        fail(`${page} : à compléter avant publication : ${m[0]}`);
+      }
+    } catch {
+      // Absence déjà signalée.
+    }
   }
 }
 

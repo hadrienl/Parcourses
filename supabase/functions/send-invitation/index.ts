@@ -40,6 +40,9 @@ const KNOWN_ERRORS = new Set([
 
 type Mail = { to: string; subject: string; text: string; html: string };
 
+// Politique de confidentialité (#87, lot 87.8) : l'invité ne connaît pas encore Parcourses (RGPD, article 14).
+const PRIVACY_URL = "https://parcourses.hadrien.eu/confidentialite/";
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -65,6 +68,7 @@ function invitationMail(to: string, senderName: string | null, role: Role, link:
     `l'invitation vous attendra. Elle expire le ${until}.`,
     "",
     "Si vous n'attendiez pas cette invitation, ignorez ce message.",
+    `Comment nous traitons votre adresse : ${PRIVACY_URL}`,
   ].join("\n");
   const html = `<!doctype html>
 <html lang="fr">
@@ -74,7 +78,8 @@ function invitationMail(to: string, senderName: string | null, role: Role, link:
     <p style="margin:0 0 24px"><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 20px;background:#1c1b19;color:#ffffff;text-decoration:none;border-radius:8px">Ouvrir l'invitation</a></p>
     <p style="margin:0 0 16px;font-size:14px;word-break:break-all">${escapeHtml(link)}</p>
     <p style="margin:0 0 16px">Pas encore l'app ? Installez Parcourses (App Store, Google Play), puis connectez-vous avec cette adresse : l'invitation vous attendra. Elle expire le ${until}.</p>
-    <p style="margin:0;color:#5c5a55;font-size:14px">Si vous n'attendiez pas cette invitation, ignorez ce message.</p>
+    <p style="margin:0 0 8px;color:#5c5a55;font-size:14px">Si vous n'attendiez pas cette invitation, ignorez ce message.</p>
+    <p style="margin:0;color:#5c5a55;font-size:14px"><a href="${PRIVACY_URL}" style="color:#5c5a55">Comment nous traitons votre adresse</a></p>
   </body>
 </html>`;
   return { to, subject, text, html };

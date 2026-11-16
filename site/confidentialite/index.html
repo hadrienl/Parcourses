@@ -35,8 +35,9 @@
     </ul>
 
     <h2>Ce que l'app enregistre</h2>
-    <div class="table-scroll">
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Tableau des données enregistrées">
       <table>
+        <caption>Données enregistrées, finalité et durée de conservation</caption>
         <thead><tr><th scope="col">Donnée</th><th scope="col">Pourquoi</th><th scope="col">Combien de temps</th></tr></thead>
         <tbody>
           <tr><td>Un identifiant anonyme, créé au premier lancement</td><td>Rattacher vos listes et vos courses à vous, et protéger l'accès à vos données</td><td>Jusqu'à la suppression de votre compte. Sans adresse e-mail, il est aussi supprimé après 365&nbsp;jours sans utilisation de l'app</td></tr>
@@ -44,9 +45,9 @@
           <tr><td>Vos visites en magasin (magasin, début et fin) et les articles cochés, dans l'ordre</td><td>Apprendre l'ordre des rayons de chaque magasin</td><td>Jusqu'à la suppression de votre compte (sans adresse e-mail : aussi après 365&nbsp;jours sans utilisation)</td></tr>
           <tr><td>Votre adresse e-mail, si vous la donnez</td><td>Vous connecter par un code à usage unique, retrouver vos listes sur un autre appareil, recevoir les invitations qui vous sont adressées</td><td>Jusqu'à la suppression de votre compte. Le code de connexion expire après 15&nbsp;minutes</td></tr>
           <tr><td>Votre prénom, si vous le donnez</td><td>Le montrer aux membres de vos listes partagées, et dans les e-mails d'invitation que vous envoyez</td><td>Jusqu'à ce que vous le changiez ou supprimiez votre compte</td></tr>
-          <tr><td>L'adresse e-mail d'une personne que vous invitez</td><td>Lui envoyer l'invitation, et la lui proposer quand elle se connecte avec cette adresse</td><td>L'invitation est valable 7&nbsp;jours. Elle est effacée 30&nbsp;jours après avoir été acceptée, refusée, annulée ou après son expiration</td></tr>
-          <tr><td>Les libellés que vous saisissez, en tant que produits du catalogue commun</td><td>Relier les articles de tous au même produit pour apprendre l'ordre des rayons</td><td>Un libellé reste privé tant que moins de 3&nbsp;personnes l'ont saisi. Publié, il n'est plus rattaché à personne. Non publié, il est effacé avec votre compte, ou 180&nbsp;jours après que vous ne l'utilisez plus</td></tr>
-          <tr><td>Des données techniques : adresse IP, date, version de l'app</td><td>Faire fonctionner le service et le protéger contre les abus</td><td>Le journal de connexion est effacé avec votre compte, et ses lignes de plus de 90&nbsp;jours chaque nuit. Les journaux techniques de nos prestataires suivent leur propre durée</td></tr>
+          <tr><td>L'adresse e-mail d'une personne que vous invitez</td><td>Lui envoyer l'invitation, et la lui proposer quand elle se connecte avec cette adresse</td><td>L'invitation est valable 7&nbsp;jours après son dernier envoi (« Renvoyer » ou « Copier le lien » la prolongent). Elle est effacée 30&nbsp;jours après avoir été acceptée, refusée, annulée ou après son expiration</td></tr>
+          <tr><td>Les libellés que vous saisissez, en tant que produits du catalogue commun</td><td>Relier les articles de tous au même produit pour apprendre l'ordre des rayons</td><td>Un libellé reste privé tant que moins de 3&nbsp;personnes l'ont saisi. Publié, il n'est plus rattaché à personne. Non publié, il est effacé avec votre compte, ou au plus tard quand vous ne l'utilisez plus dans vos listes et que 180&nbsp;jours ont passé depuis sa saisie</td></tr>
+          <tr><td>Des données techniques : adresse IP, date, version de l'app</td><td>Faire fonctionner le service et le protéger contre les abus</td><td>Le journal de connexion est effacé avec votre compte, et ses lignes de plus de 90&nbsp;jours chaque nuit. Les journaux techniques et les sauvegardes de nos prestataires suivent leur propre durée [durée des sauvegardes Supabase à compléter]</td></tr>
         </tbody>
       </table>
     </div>
@@ -56,14 +57,14 @@
     <p>Les visites de tous sont combinées en un plan de chaque magasin : quels rayons se suivent, et dans quel ordre. Ce plan ne contient aucun identifiant de personne. Les dates y sont arrondies au jour, et le plan d'un magasin n'est montré à tous qu'une fois que deux personnes au moins y ont contribué. Quand vous supprimez votre compte, votre contribution à ce plan reste, puisqu'elle n'est plus rattachée à vous.</p>
 
     <h2>Les listes partagées</h2>
-    <p>Quand vous partagez une liste, ses membres voient son nom, ses articles, qui les a modifiés en dernier et le prénom de chaque membre. Ils ne voient pas votre adresse e-mail. L'adresse d'une personne invitée n'est montrée qu'au propriétaire de la liste, tant que l'invitation est en attente. Si le propriétaire d'une liste partagée supprime son compte, la liste passe au plus ancien de ses membres autorisés à la modifier, ou à défaut au plus ancien de ses membres.</p>
+    <p>Quand vous partagez une liste, ses membres voient son nom, ses articles, qui les a modifiés en dernier et le prénom de chaque membre. Ils ne voient pas votre adresse e-mail. L'adresse d'une personne invitée est montrée au propriétaire de la liste tant que l'invitation est en attente. Qui ouvre le lien d'invitation voit seulement une forme masquée de l'adresse invitée (par exemple c•••@exemple.fr), pour vérifier qu'elle est bien la sienne. Inviter une adresse déjà membre de la liste affiche « déjà membre ». Si le propriétaire d'une liste partagée supprime son compte, la liste passe au plus ancien de ses membres autorisés à la modifier, ou à défaut au plus ancien de ses membres.</p>
 
     <h2>Avec qui ces données sont traitées</h2>
     <p>Nous ne vendons ni ne partageons vos données. Elles sont traitées pour notre compte par :</p>
     <ul>
       <li><strong>Supabase</strong> : hébergement de la base de données et de l'authentification [région d'hébergement à compléter] ;</li>
       <li><strong>Resend</strong> : envoi des e-mails de connexion et d'invitation. Le service reçoit l'adresse du destinataire, le contenu de l'e-mail et le prénom de la personne qui invite ;</li>
-      <li><strong>GitHub Pages</strong> : hébergement de ce site, qui ne dépose ni cookie ni traceur.</li>
+      <li><strong>GitHub Pages</strong> : hébergement de ce site, qui ne dépose ni cookie ni traceur. GitHub enregistre l'adresse IP des visiteurs dans ses journaux techniques.</li>
     </ul>
     <p>Certains de ces prestataires sont établis hors de l'Union européenne. Les transferts sont encadrés par les clauses contractuelles types de la Commission européenne [à vérifier pour chaque prestataire].</p>
 
@@ -71,10 +72,11 @@
     <ul>
       <li>Le fonctionnement du service que vous utilisez : listes, synchronisation, partage, connexion.</li>
       <li>Notre intérêt légitime à améliorer l'ordre des rayons pour tous (le plan commun) et à protéger le service contre les abus.</li>
+      <li>Pour l'adresse d'une personne invitée : l'intérêt légitime de la personne qui invite, et le nôtre, à lui transmettre l'invitation. L'e-mail d'invitation renvoie vers cette page, et l'adresse est effacée au plus tard 30&nbsp;jours après la fin de l'invitation.</li>
     </ul>
 
     <h2>Vos droits</h2>
-    <p>Vous pouvez accéder à vos données, les corriger ou les supprimer, et vous opposer à leur traitement. Dans l'app, vous pouvez changer votre prénom et <a href="/supprimer-mes-donnees/">supprimer toutes vos données</a>. Pour tout autre droit, écrivez à <a href="mailto:confidentialite@parcourses.hadrien.eu">confidentialite@parcourses.hadrien.eu</a> depuis l'adresse de votre compte. Vous pouvez aussi saisir la CNIL (<span>cnil.fr</span>).</p>
+    <p>Vous pouvez accéder à vos données, les corriger, les supprimer, en limiter le traitement, vous y opposer, et en recevoir une copie dans un format lisible par une machine (portabilité). Dans l'app, vous pouvez changer votre prénom et <a href="/supprimer-mes-donnees/">supprimer toutes vos données</a>. Pour tout autre droit, écrivez à <a href="mailto:confidentialite@parcourses.hadrien.eu">confidentialite@parcourses.hadrien.eu</a> depuis l'adresse de votre compte. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>
 
     <h2>Sécurité</h2>
     <p>Les échanges entre l'app et le serveur sont chiffrés (HTTPS). Chaque compte ne peut lire que ses propres données, celles des listes partagées avec lui et le plan commun des rayons. Les jetons d'invitation ne sont conservés que sous forme hachée.</p>
