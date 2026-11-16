@@ -93,13 +93,25 @@ class AccountDeletionOverlayTest {
 
     @Test
     fun aDeletionOnTheDeviceAloneSaysWhatHappensOnTheServers() {
-        show(AccountDeletionState.DoneLocally)
+        show(AccountDeletionState.DoneLocally())
 
         rule.onNodeWithText(text(R.string.about_account_done_local_title)).assertIsDisplayed()
         rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertIsDisplayed()
         rule.onNodeWithTag(TAG_ACCOUNT_OK).performClick()
 
         assertEquals(listOf("acknowledge"), calls)
+    }
+
+    @Test
+    fun anEmailAccountDeletedOnTheDeviceAloneIsToldToWriteToUs() {
+        show(AccountDeletionState.DoneLocally(emailAccount = true))
+
+        rule.onNodeWithText(text(R.string.about_account_done_local_title)).assertIsDisplayed()
+        // Un compte e-mail n'est jamais purgé pour inactivité : aucune promesse de suppression à 365 jours.
+        rule
+            .onNodeWithTag(TAG_ACCOUNT_MESSAGE)
+            .assert(hasText(text(R.string.about_account_done_local_body_email)))
+        rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertDoesNotExist()
     }
 
     @Test
