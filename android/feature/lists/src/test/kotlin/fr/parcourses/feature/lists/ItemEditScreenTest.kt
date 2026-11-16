@@ -3,6 +3,7 @@ package fr.parcourses.feature.lists
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -80,7 +81,7 @@ class ItemEditScreenTest : ListsTest() {
     private fun showSheet(target: ItemEditTarget) {
         rule.setContent {
             ParcoursesTheme {
-                var open by mutableStateOf(true)
+                var open by remember { mutableStateOf(true) }
                 if (open) {
                     ItemEditSheet(
                         target,

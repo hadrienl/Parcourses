@@ -32,6 +32,7 @@
     <string name="shopping_reordered">Liste réordonnée. Prochain : %1$s</string>
     <string name="shopping_all_checked">Tout est coché !</string>
     <string name="shopping_input_label">Ajouter un article</string>
+    <string name="shopping_input_example">ex.\u00A0: 2 lait</string>
     <string name="shopping_add">Ajouter</string>
     <string name="shopping_finish">Terminer</string>
 

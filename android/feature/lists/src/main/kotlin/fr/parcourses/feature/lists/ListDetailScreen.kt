@@ -75,7 +75,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
@@ -564,15 +563,10 @@ private fun EntryField(
     DockPill(modifier) {
         TextField(
             state = input,
-            // Invite avec exemple (#110) : coupée au besoin à l'écran, lue en entier par TalkBack.
-            label = {
-                Text(
-                    stringResource(R.string.detail_input_label),
-                    fontFamily = FontFamily.Default,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
+            // Invite (#110) : « Ajouter un article », puis l'exemple « ex. : 2 lait » dans le champ dès qu'il a le
+            // focus. Le texte complet ne tient pas sur une ligne à côté du bouton « Courses ».
+            label = { Text(stringResource(R.string.detail_input_label), fontFamily = FontFamily.Default) },
+            placeholder = { Text(stringResource(R.string.detail_input_example), fontFamily = FontFamily.Default) },
             textStyle = dockFieldTextStyle(),
             lineLimits = TextFieldLineLimits.SingleLine,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),

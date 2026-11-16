@@ -43,7 +43,9 @@
     <string name="detail_missing_body">Cette liste a été supprimée.</string>
     <string name="detail_empty_title">Liste vide</string>
     <string name="detail_empty_body">Ajoutez un article, par exemple « 2 laits demi-écrémé ».</string>
-    <string name="detail_input_label">Ajouter un article (ex.\u00A0: 2 lait)</string>
+    <string name="detail_input_label">Ajouter un article</string>
+    <!-- Exemple montré dans le champ une fois qu'il a le focus (#110) : le libellé complet ne tient pas à côté de « Courses ». -->
+    <string name="detail_input_example">ex.\u00A0: 2 lait</string>
     <string name="detail_quantity_tip">Maintiens un article pour changer sa quantité</string>
     <string name="detail_quantity_tip_close">Fermer l\'astuce</string>
     <string name="detail_add">Ajouter</string>
