@@ -12,6 +12,9 @@ struct AccountView: View {
   @State private var confirmsDeletion = false
   /// Lu à l'ouverture de la confirmation : une visite ouverte ajoute une phrase.
   @State private var interruptsShopping = false
+  /// « Se déconnecter » touché, synchro en cours de suspension : l'écran ne se ferme pas avant la confirmation, dont
+  /// l'« Annuler » reprend la synchro (sinon elle resterait suspendue jusqu'au lancement suivant).
+  @State private var preparesSignOut = false
 
   var body: some View {
     NavigationStack {
@@ -123,9 +126,11 @@ struct AccountView: View {
   private var signOutButton: some View {
     Button(role: .destructive) {
       // Synchro suspendue avant de compter ce qui reste dans la file.
+      preparesSignOut = true
       Task {
         prompts.losesChanges = await account.prepareToLeave()
         prompts.confirmsSignOut = true
+        preparesSignOut = false
       }
     } label: {
       HStack(spacing: Space.s) {
@@ -143,5 +148,6 @@ struct AccountView: View {
   /// Suppression ou déconnexion en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
   private var isBlocking: Bool {
     deletion?.status == .deleting || deletion?.status == .failed(.unknown) || account.isSigningOut
+      || preparesSignOut || prompts.confirmsSignOut
   }
 }

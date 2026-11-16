@@ -78,16 +78,23 @@ struct AboutView: View {
           interruptsShopping: interruptsShopping))
     }
     .accountDeletionPresentation(deletion)
+    // Purge de déconnexion en cours ou en échec (« Continuer sans compte », reprise au lancement) : À propos ouvert
+    // par-dessus Mes listes porte le voile et l'alerte, que Mes listes masque alors.
+    .signOutFailurePresentation(account)
+    .overlay {
+      if account?.isSigningOut == true { SignOutVeil() }
+    }
     // Une fois la requête partie, et tant qu'un doute attend « Réessayer » ou « Annuler », la feuille reste ouverte.
     .interactiveDismissDisabled(isBlocking)
   }
 
-  /// Suppression en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
+  /// Suppression ou déconnexion en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
   private var isBlocking: Bool {
-    deletion?.status == .deleting || deletion?.status == .failed(.unknown)
+    deletion?.status == .deleting || deletion?.status == .failed(.unknown) || account?.isSigningOut == true
   }
 
-  private var isEmailAccount: Bool { account?.kind == .email }
+  /// Sans serveur, pas d'écran Compte : « Vos données » reste ici, quel que soit le drapeau `account.kind`.
+  private var isEmailAccount: Bool { account?.isAvailable == true && account?.kind == .email }
 
   private static var version: String {
     let info = Bundle.main.infoDictionary

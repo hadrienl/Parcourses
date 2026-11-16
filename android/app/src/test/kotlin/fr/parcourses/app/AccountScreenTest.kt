@@ -115,6 +115,8 @@ class AccountScreenTest {
         assertEquals(1, signIns)
         // Session perdue : pas de déconnexion ici, on se reconnecte ou on continue sans compte depuis les listes.
         rule.onNodeWithTag(TAG_ACCOUNT_SIGN_OUT).assertDoesNotExist()
+        // Le prénom ne pourrait pas partir sans session : la ligne n'est pas modifiable (comme iOS).
+        rule.onNodeWithTag(TAG_ACCOUNT_NAME).assertIsNotEnabled()
     }
 
     @Test

@@ -49,10 +49,11 @@ struct ListsView: View {
       .sheet(isPresented: $showsAccount) {
         if let account { AccountView(account: account) }
       }
-      // Déconnexion interrompue au lancement, ou écran Compte fermé : l'alerte et le voile viennent ici.
-      .signOutFailurePresentation(account, isHidden: showsAccount)
+      // Déconnexion interrompue au lancement, ou feuille fermée : l'alerte et le voile viennent ici. Une feuille
+      // ouverte (Compte, À propos) les porte elle-même.
+      .signOutFailurePresentation(account, isHidden: showsAccount || showsAbout)
       .overlay {
-        if account?.isSigningOut == true, !showsAccount { SignOutVeil() }
+        if account?.isSigningOut == true, !showsAccount, !showsAbout { SignOutVeil() }
       }
       .sheet(item: $signIn) { link in
         AccountSignInView(link: link) { Task { await account?.linkDidFinish() } }
@@ -132,6 +133,8 @@ struct ListsView: View {
         }
         .frame(minWidth: 44, minHeight: 44)
         .contentShape(Rectangle())
+        // Style simple : l'état inactif ne se voit pas de lui-même.
+        .opacity(account.isSignOutPending ? 0.38 : 1)
       }
       .buttonStyle(.plain)
       .disabled(account.isSignOutPending)

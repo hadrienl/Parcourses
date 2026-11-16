@@ -74,6 +74,16 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     reveal(delete, in: app)
     XCTAssertTrue(delete.exists)
     capture(app, "compte-3-vos-donnees\(name)")
+    // « Supprimer mes données… » demande une confirmation qui nomme le compte e-mail ; « Annuler » ne touche à rien.
+    delete.tap()
+    let confirmation = app.alerts["Supprimer toutes vos données ?"]
+    XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
+    let message = confirmation.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS %@", "votre compte (adresse e-mail et prénom)")
+    ).firstMatch
+    XCTAssertTrue(message.exists)
+    confirmation.buttons.matching(identifier: "cancelDeletion").firstMatch.tap()
+    XCTAssertTrue(confirmation.waitForNonExistence(timeout: 10))
     app.buttons["closeAccount"].tap()
     XCTAssertTrue(app.navigationBars["Compte"].waitForNonExistence(timeout: 10))
 
@@ -120,7 +130,9 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     waitForExpectations(timeout: 15)
   }
 
-  /// « Se déconnecter » depuis l'écran Compte : confirmation, purge, puis compte anonyme et « Se connecter ».
+  /// « Se déconnecter » depuis l'écran Compte : confirmation, puis l'app repart en compte anonyme avec « Se connecter ».
+  /// La purge elle-même est couverte par les tests unitaires de `AccountSession` ; le faux serveur garde le même
+  /// identifiant et redescend ses listes.
   @MainActor
   func testSignOutFromAccount() {
     let app = launch("owner")

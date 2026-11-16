@@ -113,8 +113,12 @@ private fun AccountDetails(
             stringResource(R.string.account_name),
             name,
             Modifier
-                .clickable(onClickLabel = editLabel, onClick = actions.onEditName)
-                .testTag(TAG_ACCOUNT_NAME),
+                // Session perdue : le prénom ne pourrait pas partir (comme iOS).
+                .clickable(
+                    enabled = !state.account.needsSignIn,
+                    onClickLabel = editLabel,
+                    onClick = actions.onEditName,
+                ).testTag(TAG_ACCOUNT_NAME),
             trailingEdit = true,
         )
         Row(

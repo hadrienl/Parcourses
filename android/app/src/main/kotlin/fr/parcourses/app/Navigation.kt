@@ -234,8 +234,9 @@ fun ParcoursesNavHost(
                         sessionResetActions = reset.actions,
                         accountDeletion = deletionState,
                         accountDeletionActions = deletionModel.actions,
-                        // Compte e-mail : « Vos données » est dans l'écran Compte (#108).
-                        isEmailAccount = kind == AccountKind.Email,
+                        // Compte e-mail : « Vos données » est dans l'écran Compte (#108). Sans serveur, pas d'écran
+                        // Compte : la suppression reste ici, quel que soit le drapeau `account.kind`.
+                        isEmailAccount = container.gateway != null && kind == AccountKind.Email,
                     )
                 }
                 entry<Route.Account> {
