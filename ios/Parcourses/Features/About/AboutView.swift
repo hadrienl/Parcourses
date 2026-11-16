@@ -11,6 +11,9 @@ struct AboutView: View {
   @State private var accountPrompts = AccountPrompts()
   /// Lu à l'ouverture de la confirmation : une visite ouverte ajoute une phrase.
   @State private var interruptsShopping = false
+  /// Nature du compte supprimé, lue à l'ouverture de la confirmation : la purge remet `account.kind` à zéro avant
+  /// le message de fin.
+  @State private var deletesEmailAccount = false
 
   var body: some View {
     NavigationStack {
@@ -42,9 +45,16 @@ struct AboutView: View {
             "Seule votre position GPS n'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée."
           )
           if deletion?.deletesServerData == true {
-            Text(
-              "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
-            )
+            Text(AboutTexts.retention(isEmailAccount: isEmailAccount))
+              .accessibilityIdentifier("aboutRetention")
+          }
+          // Exigé par l'App Review (5.1.1(i)), même dans un build sans serveur.
+          if let url = PrivacyLinks.policy {
+            Link(destination: url) {
+              Text("Politique de confidentialité").touchTarget()
+            }
+            .accessibilityHint("Ouvre la politique de confidentialité dans le navigateur")
+            .accessibilityIdentifier("aboutPrivacyPolicyLink")
           }
         } header: {
           Text("Confidentialité")
@@ -80,7 +90,7 @@ struct AboutView: View {
         Text(confirmationMessage)
       }
     }
-    .accountDeletionPresentation(deletion)
+    .accountDeletionPresentation(deletion, isEmailAccount: deletesEmailAccount)
     .accountPrompts($accountPrompts, account: account)
     .signOutFailurePresentation(account)
     .overlay {
@@ -92,13 +102,11 @@ struct AboutView: View {
 
   private func yourData(_ deletion: AccountDeletion) -> some View {
     Section {
-      Text(
-        deletion.deletesServerData
-          ? "Vous pouvez effacer vos listes, vos visites et \(accountWords), sur cet appareil et sur nos serveurs."
-          : "Vous pouvez effacer vos listes et vos visites de cet appareil."
-      )
+      Text(AboutTexts.yourData(deletesServerData: deletion.deletesServerData, isEmailAccount: isEmailAccount))
+        .accessibilityIdentifier("aboutYourData")
       Button(role: .destructive) {
         interruptsShopping = deletion.interruptsShopping
+        deletesEmailAccount = isEmailAccount
         confirmsDeletion = true
       } label: {
         Text("Supprimer mes données…")
@@ -120,23 +128,11 @@ struct AboutView: View {
 
   private var isEmailAccount: Bool { account?.kind == .email }
 
-  /// Compte e-mail : l'adresse et le prénom partent aussi.
-  private var accountWords: String {
-    isEmailAccount ? "votre compte (adresse e-mail et prénom)" : "votre identifiant anonyme"
-  }
-
-  /// Textes de #68 §5.2 et §5.7.
+  /// Textes de #68 §5.2, §5.7 et du lot 87.8 de #87.
   private var confirmationMessage: String {
-    var sentences =
-      deletion?.deletesServerData ?? false
-      ? [
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que \(accountWords).",
-        "Votre contribution anonyme au plan des rayons des magasins est conservée.",
-        "C'est définitif.",
-      ]
-      : ["Vos listes et vos visites seront effacées de cet appareil."]
-    if interruptsShopping { sentences.append("Vos courses en cours seront interrompues.") }
-    return sentences.joined(separator: " ")
+    AboutTexts.confirmation(
+      deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: deletesEmailAccount,
+      interruptsShopping: interruptsShopping)
   }
 
   private static var version: String {
