@@ -123,9 +123,10 @@ private fun ItemEditSheetContent(
 private const val MAX_LABEL_LENGTH = 200
 
 /**
- * Limite de saisie en points de code (`char_length` de Postgres), même règle qu'iOS (`ItemEdit.limited`). Seule une modification
- * qui fait grandir un texte au-delà de la limite est annulée : un texte déjà trop long (venu d'ailleurs) se raccourcit
- * et se corrige normalement, il ne se fige jamais. `maxLength` compterait en unités UTF-16 (un emoji en vaut deux).
+ * Limite de saisie en points de code (`char_length` de Postgres), même règle qu'iOS (`ItemEdit.limited`). Seule une
+ * modification qui fait grandir un texte au-delà de la limite est annulée : un texte déjà trop long (venu d'ailleurs)
+ * se raccourcit et se corrige normalement, il ne se fige jamais. `maxLength` compterait en unités UTF-16 (un emoji en
+ * vaut deux).
  */
 private class MaxCodePoints(
     private val max: Int,
