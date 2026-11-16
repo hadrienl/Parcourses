@@ -12,6 +12,7 @@ struct ListsView: View {
   @State private var deleting: ListSummary?
   @State private var nameInput = ""
   @State private var showsAbout = false
+  @State private var showsAccount = false
   @State private var signIn: AccountLink?
   /// Absent sans serveur : aucune entrée de connexion.
   @Environment(AccountSession.self) private var account: AccountSession?
@@ -35,17 +36,9 @@ struct ListsView: View {
       .ticketBackground()
       .navigationTitle("Mes listes")
       .toolbar {
-        // Tant qu'une déconnexion attend sa purge, seul « Réessayer » est proposé.
-        if let account, account.isAvailable, account.kind == .anonymous, !account.isSignOutPending {
-          // Tant que le compte est anonyme (#87, écran 4).
-          ToolbarItem(placement: .topBarLeading) {
-            Button {
-              signIn = account.makeLink()
-            } label: {
-              Label("Se connecter", systemImage: "person.crop.circle").labelStyle(.titleAndIcon)
-            }
-            .accessibilityIdentifier("signIn")
-          }
+        // Bouton compte, visible dans tous les états (#108).
+        if let account, account.isAvailable {
+          ToolbarItem(placement: .topBarLeading) { accountButton(account) }
         }
         ToolbarItem(placement: .topBarTrailing) {
           Button("À propos", systemImage: "info.circle") { showsAbout = true }
@@ -53,10 +46,14 @@ struct ListsView: View {
         }
       }
       .sheet(isPresented: $showsAbout) { AboutView() }
-      // Déconnexion interrompue au lancement : À propos fermé, l'alerte vient ici.
-      .signOutFailurePresentation(account, isHidden: showsAbout)
+      .sheet(isPresented: $showsAccount) {
+        if let account { AccountView(account: account) }
+      }
+      // Déconnexion interrompue au lancement, ou feuille fermée : l'alerte et le voile viennent ici. Une feuille
+      // ouverte (Compte, À propos) les porte elle-même.
+      .signOutFailurePresentation(account, isHidden: showsAccount || showsAbout)
       .overlay {
-        if account?.isSigningOut == true, !showsAbout { SignOutVeil() }
+        if account?.isSigningOut == true, !showsAccount, !showsAbout { SignOutVeil() }
       }
       .sheet(item: $signIn) { link in
         AccountSignInView(link: link) { Task { await account?.linkDidFinish() } }
@@ -106,6 +103,49 @@ struct ListsView: View {
       } message: {
         Text(model.errorMessage ?? "")
       }
+  }
+
+  /// Anonyme : « Se connecter » ouvre la liaison ou la connexion (#87, écran 4). Compte e-mail : la pastille de
+  /// l'initiale ouvre l'écran Compte. Tant qu'une déconnexion attend sa purge, le bouton reste visible mais inactif :
+  /// seul « Réessayer » est proposé.
+  @ViewBuilder private func accountButton(_ account: AccountSession) -> some View {
+    switch AccountEntry.of(kind: account.kind, displayName: account.displayName) {
+    case .signIn:
+      Button {
+        signIn = account.makeLink()
+      } label: {
+        Label("Se connecter", systemImage: "person.crop.circle").labelStyle(.titleAndIcon)
+      }
+      .disabled(account.isSignOutPending)
+      .accessibilityIdentifier("signIn")
+    case .account(let initial):
+      let label = AccountEntry.accountLabel(displayName: account.displayName, needsSignIn: account.needsSignIn)
+      Button {
+        showsAccount = true
+      } label: {
+        // Même pastille que celles des membres (maquette, « Avatars »), dessinée : la barre ne suit pas Dynamic Type.
+        Group {
+          if let initial {
+            BarAvatarStack(labels: [initial])
+          } else {
+            Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(Palette.accent)
+          }
+        }
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
+        // Style simple : l'état inactif ne se voit pas de lui-même.
+        .opacity(account.isSignOutPending ? 0.38 : 1)
+      }
+      .buttonStyle(.plain)
+      .disabled(account.isSignOutPending)
+      .accessibilityLabel(label)
+      .accessibilityHint("Ouvre votre compte")
+      // Visionneuse de grand contenu (appui long), comme les boutons système de la barre.
+      .accessibilityShowsLargeContentViewer {
+        Label(label, systemImage: "person.crop.circle")
+      }
+      .accessibilityIdentifier("account")
+    }
   }
 
   private var deletionTitle: String {

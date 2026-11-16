@@ -1,7 +1,6 @@
 package fr.parcourses.app
 
 import android.util.Log
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,14 +9,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -48,7 +42,6 @@ import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.AccountSignOutError
 import fr.parcourses.core.data.account.AccountSignOutOutcome
 import fr.parcourses.core.data.account.AccountState
-import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import kotlinx.coroutines.CancellationException
@@ -147,9 +140,8 @@ class AccountSignOutController(
     }
 }
 
-/** Section « Compte » d'À propos. [visible] : faux sans Supabase (rien à quoi se connecter). */
+/** Écran Compte (#108) : un compte e-mail, son prénom, sa déconnexion. */
 data class AccountUiState(
-    val visible: Boolean = false,
     val account: AccountState = AccountState(),
     val confirmingSignOut: Boolean = false,
     /** Modifications pas encore envoyées, comptées à la demande : la confirmation prévient qu'elles seront perdues. */
@@ -160,6 +152,7 @@ data class AccountUiState(
 )
 
 data class AccountActions(
+    /** « Se reconnecter », quand la session a disparu. */
     val onSignIn: () -> Unit = {},
     val onSignOutRequest: () -> Unit = {},
     val onSignOutConfirm: () -> Unit = {},
@@ -169,7 +162,7 @@ data class AccountActions(
     val onDismissName: () -> Unit = {},
 )
 
-/** Section « Compte » : état du compte ([AccountSession]), prénom, déconnexion ([AccountSignOutController]). */
+/** Écran Compte : état du compte ([AccountSession]), prénom, déconnexion ([AccountSignOutController]). */
 class AccountViewModel(
     private val session: AccountSession?,
     private val signOut: AccountSignOutController?,
@@ -186,7 +179,6 @@ class AccountViewModel(
         combine(accountFlow, signOutFlow, confirming, editing, saveFailed) { account, out, confirm, edit, failed ->
             val running = out == AccountSignOutState.Running
             AccountUiState(
-                visible = session != null,
                 account = account,
                 confirmingSignOut = confirm && !running,
                 unsentChanges = unsent.value,
@@ -194,7 +186,7 @@ class AccountViewModel(
                 editingName = edit,
                 nameSaveFailed = failed,
             )
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, AccountUiState(visible = session != null))
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, AccountUiState())
 
     val actions =
         AccountActions(
@@ -211,7 +203,7 @@ class AccountViewModel(
         )
 
     init {
-        // Adresse lue dans la session, prénom relu sur le serveur à l'ouverture d'À propos.
+        // Adresse lue dans la session, prénom relu sur le serveur à l'ouverture de l'écran Compte.
         viewModelScope.launch { session?.refresh() }
     }
 
@@ -263,105 +255,14 @@ class AccountViewModel(
     }
 }
 
-/** Contenu de la section « Compte », sous son titre. */
+/** Dialogues de l'écran Compte : confirmation de la déconnexion, prénom. */
 @Composable
-internal fun AccountContent(
+internal fun AccountDialogs(
     state: AccountUiState,
     actions: AccountActions,
 ) {
-    val colors = Ticket.colors
-    Column {
-        if (state.account.kind == AccountKind.Email) {
-            EmailAccountContent(state, actions)
-        } else {
-            Text(
-                stringResource(R.string.account_anonymous_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.ink,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = TicketDimens.spaceM, vertical = 2.dp),
-            )
-            OutlinedButton(
-                onClick = actions.onSignIn,
-                modifier =
-                    Modifier
-                        .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs)
-                        .heightIn(min = TicketDimens.touchMin)
-                        .testTag(TAG_ACCOUNT_SIGN_IN),
-            ) { Text(stringResource(R.string.account_sign_in)) }
-        }
-    }
     if (state.confirmingSignOut) SignOutConfirmation(state.unsentChanges, actions)
     if (state.editingName) NameDialog(state, actions)
-}
-
-/** Compte e-mail : adresse, prénom modifiable, note de confidentialité, « Se déconnecter ». */
-@Composable
-private fun EmailAccountContent(
-    state: AccountUiState,
-    actions: AccountActions,
-) {
-    val colors = Ticket.colors
-    AccountRow(stringResource(R.string.account_email), state.account.email.orEmpty(), Modifier)
-    val name = state.account.displayName ?: stringResource(R.string.account_name_missing)
-    val editLabel = stringResource(R.string.account_name_edit)
-    AccountRow(
-        stringResource(R.string.account_name),
-        name,
-        Modifier
-            .clickable(onClickLabel = editLabel, onClick = actions.onEditName)
-            .testTag(TAG_ACCOUNT_NAME),
-        trailingEdit = true,
-    )
-    Row(
-        modifier = Modifier.padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs),
-        horizontalArrangement = Arrangement.spacedBy(TicketDimens.spaceXs),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            Icons.Outlined.Lock,
-            contentDescription = null,
-            tint = colors.inkMuted,
-            modifier = Modifier.size(size = 16.dp),
-        )
-        Text(
-            stringResource(R.string.account_note),
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.inkMuted,
-        )
-    }
-    OutlinedButton(
-        onClick = actions.onSignOutRequest,
-        enabled = !state.signingOut,
-        modifier =
-            Modifier
-                .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs)
-                .heightIn(min = TicketDimens.touchMin)
-                .testTag(TAG_ACCOUNT_SIGN_OUT),
-    ) { Text(stringResource(R.string.account_sign_out)) }
-}
-
-@Composable
-private fun AccountRow(
-    label: String,
-    value: String,
-    modifier: Modifier,
-    trailingEdit: Boolean = false,
-) {
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = TicketDimens.rowMin)
-                .padding(horizontal = TicketDimens.spaceM),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Une seule annonce pour le libellé et la valeur.
-        Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = Ticket.colors.inkMuted)
-            Text(value, style = MaterialTheme.typography.bodyLarge, color = Ticket.colors.ink)
-        }
-        if (trailingEdit) Icon(Icons.Default.Edit, contentDescription = null, tint = Ticket.colors.inkMuted)
-    }
 }
 
 @Composable
@@ -537,11 +438,9 @@ private fun SignOutRetry(onRetry: () -> Unit) {
 }
 
 internal const val TAG_SIGN_OUT_RETRY = "account-sign-out-retry"
-internal const val TAG_ACCOUNT_SIGN_IN = "about-account-sign-in"
-internal const val TAG_ACCOUNT_SIGN_OUT = "about-account-sign-out"
-internal const val TAG_ACCOUNT_SIGN_OUT_CONFIRM = "about-account-sign-out-confirm"
-internal const val TAG_ACCOUNT_NAME = "about-account-name"
-internal const val TAG_ACCOUNT_NAME_FIELD = "about-account-name-field"
-internal const val TAG_ACCOUNT_NAME_SAVE = "about-account-name-save"
+internal const val TAG_ACCOUNT_SIGN_OUT = "account-sign-out"
+internal const val TAG_ACCOUNT_SIGN_OUT_CONFIRM = "account-sign-out-confirm"
+internal const val TAG_ACCOUNT_NAME_FIELD = "account-name-field"
+internal const val TAG_ACCOUNT_NAME_SAVE = "account-name-save"
 internal const val TAG_SIGN_OUT_RUNNING = "account-sign-out-running"
 internal const val TAG_SIGN_OUT_MESSAGE = "account-sign-out-message"

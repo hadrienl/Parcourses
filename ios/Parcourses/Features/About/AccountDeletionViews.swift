@@ -131,3 +131,73 @@ struct AccountDeletionResumeView: View {
     }
   }
 }
+
+/// Section « Vos données » (#68) : dans Compte pour un compte e-mail, dans À propos pour un compte anonyme, qui n'a
+/// pas d'écran Compte (#108). La confirmation est posée sur l'écran par `accountDeletionConfirmation`.
+struct YourDataSection: View {
+  let deletion: AccountDeletion
+  let isEmailAccount: Bool
+  /// Suppression ou déconnexion en cours : rien d'autre ne se lance.
+  let isBlocked: Bool
+  let onDelete: () -> Void
+
+  var body: some View {
+    Section {
+      Text(
+        deletion.deletesServerData
+          ? "Vous pouvez effacer vos listes, vos visites et \(AccountDeletionTexts.accountWords(isEmailAccount: isEmailAccount)), sur cet appareil et sur nos serveurs."
+          : "Vous pouvez effacer vos listes et vos visites de cet appareil."
+      )
+      Button(role: .destructive, action: onDelete) {
+        Text("Supprimer mes données…")
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .touchTarget()
+      }
+      .disabled(isBlocked)
+      .accessibilityHint("Demande une confirmation avant d'effacer")
+      .accessibilityIdentifier("deleteMyData")
+    } header: {
+      Text("Vos données")
+    }
+  }
+}
+
+/// Textes de #68 §5.2 et §5.7, communs à À propos et à Compte.
+enum AccountDeletionTexts {
+  /// Compte e-mail : l'adresse et le prénom partent aussi.
+  static func accountWords(isEmailAccount: Bool) -> String {
+    isEmailAccount ? "votre compte (adresse e-mail et prénom)" : "votre identifiant anonyme"
+  }
+
+  static func confirmation(deletesServerData: Bool, isEmailAccount: Bool, interruptsShopping: Bool) -> String {
+    var sentences =
+      deletesServerData
+      ? [
+        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que \(accountWords(isEmailAccount: isEmailAccount)).",
+        "Votre contribution anonyme au plan des rayons des magasins est conservée.",
+        "C'est définitif.",
+      ]
+      : ["Vos listes et vos visites seront effacées de cet appareil."]
+    if interruptsShopping { sentences.append("Vos courses en cours seront interrompues.") }
+    return sentences.joined(separator: " ")
+  }
+}
+
+extension View {
+  /// Alerte « Supprimer toutes vos données ? » de la section « Vos données ».
+  func accountDeletionConfirmation(
+    _ isPresented: Binding<Bool>, deletion: AccountDeletion?, message: String
+  ) -> some View {
+    alert("Supprimer toutes vos données ?", isPresented: isPresented) {
+      Button("Supprimer", role: .destructive) {
+        guard let deletion else { return }
+        Task { await deletion.delete() }
+      }
+      .accessibilityIdentifier("confirmDeletion")
+      Button("Annuler", role: .cancel) {}
+        .accessibilityIdentifier("cancelDeletion")
+    } message: {
+      Text(message)
+    }
+  }
+}
