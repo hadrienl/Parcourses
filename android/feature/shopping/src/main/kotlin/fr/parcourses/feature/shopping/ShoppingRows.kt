@@ -2,10 +2,14 @@ package fr.parcourses.feature.shopping
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -35,6 +39,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.ItemLine
@@ -48,6 +53,7 @@ import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.thread
 import kotlinx.coroutines.flow.distinctUntilChanged
+import fr.parcourses.core.designsystem.R as DesignR
 
 /** Signale le début et la fin d'un balayage horizontal ; une ligne retirée en plein geste le termine. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,8 +77,8 @@ private fun SwipeTracker(
 
 /**
  * Une ligne. Action par défaut : « Cocher » (ou « Décocher » si la ligne l'est déjà). Actions personnalisées pour
- * TalkBack : « Décocher » sur une ligne cochée, « Pas trouvé » sur une ligne à prendre ; le balayage n'est jamais la
- * seule voie. Le balayage : à droite coche, à gauche signale introuvable.
+ * TalkBack : « Décocher » sur une ligne cochée, « Pas trouvé » et « Modifier la quantité » sur une ligne à prendre ; le
+ * balayage n'est jamais la seule voie. Le balayage : à droite coche, à gauche signale introuvable.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +135,12 @@ internal data class RowLook(
     val highlighted: Boolean = false,
 )
 
+/**
+ * Contenu d'une ligne. Appui long sur une ligne à prendre : menu « Pas trouvé », « Quantité » (#110), avec vibration au
+ * déclenchement ; « Quantité » ouvre le panneau de l'article, que TalkBack offre aussi en action « Modifier la
+ * quantité ».
+ */
+@Suppress("LongMethod") // Une ligne : gestes, menu, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 internal fun ItemRowContent(
     row: ShoppingRow,
@@ -136,46 +148,115 @@ internal fun ItemRowContent(
     actions: ShoppingActions,
 ) {
     val colors = Ticket.colors
-    val checkedText = stringResource(R.string.shopping_state_checked)
-    val uncheckedText = stringResource(R.string.shopping_state_unchecked)
     val checkLabel = stringResource(R.string.shopping_action_check)
     val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
-    val notFoundLabel = stringResource(R.string.shopping_action_not_found)
-    val byOther = checkedByDescription(row)
-    val custom =
-        if (row.isChecked) {
-            listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
-        } else {
-            listOf(CustomAccessibilityAction(notFoundLabel) { actions.onNotFound(row).let { true } })
+    val state = rowStateDescription(row)
+    val custom = rowAccessibilityActions(row, actions)
+    var menuOpen by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (look.highlighted) colors.accent.copy(alpha = HIGHLIGHT_ALPHA) else colors.paper)
+                    .thread(look.piece, look.style)
+                    .heightIn(min = TicketDimens.rowMin)
+                    .combinedClickable(
+                        onClickLabel = if (row.isChecked) uncheckLabel else checkLabel,
+                        role = Role.Checkbox,
+                        // Menu sur une ligne à prendre seulement : cochée, l'appui long ne fait rien.
+                        onLongClick = if (row.isChecked) null else ({ menuOpen = true }),
+                        hapticFeedbackEnabled = true,
+                    ) {
+                        if (!row.isChecked) actions.onCheckFeedback()
+                        actions.onToggle(row)
+                    }.semantics(mergeDescendants = true) {
+                        contentDescription = row.accessibilityLabel
+                        stateDescription = state
+                        customActions = custom
+                    }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // L'état se lit sans couleur : case pleine et cochée, texte barré.
+            TicketCheckBox(row.isChecked)
+            ItemLine(
+                name = row.label,
+                quantity = row.quantity,
+                style = if (look.isNext) TicketType.itemNext else TicketType.item,
+                color = if (row.isChecked) colors.checked else colors.ink,
+                decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
+            )
+            CheckedByMark(row.checkedBy)
         }
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(if (look.highlighted) colors.accent.copy(alpha = HIGHLIGHT_ALPHA) else colors.paper)
-                .thread(look.piece, look.style)
-                .heightIn(min = TicketDimens.rowMin)
-                .clickable(onClickLabel = if (row.isChecked) uncheckLabel else checkLabel, role = Role.Checkbox) {
-                    if (!row.isChecked) actions.onCheckFeedback()
-                    actions.onToggle(row)
-                }.semantics(mergeDescendants = true) {
-                    contentDescription = row.accessibilityLabel
-                    stateDescription = byOther ?: if (row.isChecked) checkedText else uncheckedText
-                    customActions = custom
-                }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // L'état se lit sans couleur : case pleine et cochée, texte barré.
-        TicketCheckBox(row.isChecked)
-        ItemLine(
-            name = row.label,
-            quantity = row.quantity,
-            style = if (look.isNext) TicketType.itemNext else TicketType.item,
-            color = if (row.isChecked) colors.checked else colors.ink,
-            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
+        RowMenu(
+            expanded = menuOpen && !row.isChecked,
+            onDismiss = { menuOpen = false },
+            onNotFound = {
+                menuOpen = false
+                actions.onNotFound(row)
+            },
+            onQuantity = {
+                menuOpen = false
+                actions.onEditItem(row)
+            },
         )
-        CheckedByMark(row.checkedBy)
+    }
+}
+
+/** Menu de l'appui long d'une ligne à prendre, en tête de la ligne. */
+@Composable
+private fun RowMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onNotFound: () -> Unit,
+    onQuantity: () -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        containerColor = Ticket.colors.paper,
+        modifier = Modifier.testTag(TAG_ROW_MENU),
+        offset = DpOffset(ThreadLayout.contentStart, 0.dp),
+    ) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.shopping_action_not_found)) },
+            onClick = onNotFound,
+            modifier = Modifier.testTag(TAG_ROW_MENU_NOT_FOUND),
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.shopping_menu_quantity)) },
+            onClick = onQuantity,
+            modifier = Modifier.testTag(TAG_ROW_MENU_QUANTITY),
+        )
+    }
+}
+
+/** État lu par TalkBack : « dans le panier, par Léa » si un autre membre l'a coché, sinon coché ou non coché. */
+@Composable
+private fun rowStateDescription(row: ShoppingRow): String =
+    checkedByDescription(row)
+        ?: stringResource(if (row.isChecked) R.string.shopping_state_checked else R.string.shopping_state_unchecked)
+
+/**
+ * Actions TalkBack d'une ligne, chacune là où elle a un sens : « Décocher » sur une ligne cochée ; « Pas trouvé » et
+ * « Modifier la quantité » (#110) sur une ligne à prendre.
+ */
+@Composable
+private fun rowAccessibilityActions(
+    row: ShoppingRow,
+    actions: ShoppingActions,
+): List<CustomAccessibilityAction> {
+    val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
+    val notFoundLabel = stringResource(R.string.shopping_action_not_found)
+    val editLabel = stringResource(DesignR.string.item_edit_action)
+    return if (row.isChecked) {
+        listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
+    } else {
+        listOf(
+            CustomAccessibilityAction(notFoundLabel) { actions.onNotFound(row).let { true } },
+            CustomAccessibilityAction(editLabel) { actions.onEditItem(row).let { true } },
+        )
     }
 }
 
@@ -202,6 +283,9 @@ private fun CheckedByMark(mark: String?) {
 }
 
 internal const val TAG_CHECKED_BY = "shopping-checked-by"
+internal const val TAG_ROW_MENU = "shopping-row-menu"
+internal const val TAG_ROW_MENU_NOT_FOUND = "shopping-row-menu-not-found"
+internal const val TAG_ROW_MENU_QUANTITY = "shopping-row-menu-quantity"
 
 @Composable
 internal fun NotFoundRow(

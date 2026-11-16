@@ -6,6 +6,11 @@ struct ParcoursesApp: App {
   @State private var app = AppModel()
   @Environment(\.scenePhase) private var scenePhase
 
+  init() {
+    // Astuces TipKit (#110), avant le premier écran.
+    ParcoursesTips.configure()
+  }
+
   var body: some Scene {
     WindowGroup {
       switch app.environment {

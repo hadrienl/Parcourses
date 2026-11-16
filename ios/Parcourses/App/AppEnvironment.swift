@@ -317,6 +317,15 @@ struct EntryAnalyzer {
       categoryId: classification.categoryId, organic: classification.organic)
   }
 
+  /// Libellé modifié dans le panneau de l'article (#110) : classé tel quel, sans en extraire de quantité (« 2 lait »
+  /// tapé dans le champ Libellé reste le libellé « 2 lait »).
+  func analyze(label: String) -> AnalyzedEntry {
+    let classification = classifier.classify(label)
+    return AnalyzedEntry(
+      quantity: nil, label: label, normalizedName: classification.normalized,
+      categoryId: classification.categoryId, organic: classification.organic)
+  }
+
   /// Résultat du classifieur pour un libellé déjà séparé de sa quantité.
   func classify(label: String) -> (categoryId: String, organic: Bool) {
     let classification = classifier.classify(label)

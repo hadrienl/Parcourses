@@ -38,6 +38,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
     let sheetIsShown: Bool
+    /// Audit du panneau de l'article (#110, écrans « article » et « article-… ») avec sa feuille modale à l'écran.
+    let itemSheetIsShown: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
     let pickerFooterTop: CGFloat?
@@ -45,8 +47,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let bottom: CGFloat
 
     @MainActor
-    init(_ app: XCUIApplication, modal: Bool) {
+    init(_ app: XCUIApplication, name: String, modal: Bool) {
       self.modal = modal
+      itemSheetIsShown =
+        modal && (name == "article" || name.hasPrefix("article-")) && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
       let keyboard = app.keyboards.firstMatch
       self.keyboard = keyboard.exists ? keyboard.frame : nil
@@ -74,6 +78,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     case known(String)
     /// Problème non localisé imputé à une ligne coupée par le dock : décompté sur le quota de l'écran.
     case cutLine
+    /// Texte de la liste voilé par la feuille du panneau de l'article (2 quater) : un seul par écran.
+    case veiledText
   }
 
   /// Problèmes non localisés admis par ligne coupée par le dock : le liseré visible de la ligne, mesuré par le
@@ -97,6 +103,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    défaut (« may be clipped at larger Dynamic Type sizes ») : les parcours lancés en AX5 le mesurent au
       //    rendu réel, sans changement à chaud, et l'auditent.
       if screen.modal && issue.auditType == .dynamicType { return .known("2 Dynamic Type à chaud en modal") }
+      // 2 quater. Panneau de l'article (#110), feuille modale à mi-hauteur : la liste reste visible sous le voile mais
+      //    la modalité la rend inaccessible, et l'audit signale son texte sans le localiser (« Potentially inaccessible
+      //    text »). Preuve, essais locaux sur iOS 26.5 (testAuditLists) : c'est le compteur « ARTICLES 03 » de
+      //    l'écran Liste ; l'audit passe quand la feuille s'ouvre en pleine hauteur (liste cachée) et quand ce seul
+      //    compteur est masqué, et échoue encore avec une seule détente, sans focus de saisie, avec un identifiant ou
+      //    `children: .combine`. Bornée à ces écrans, à ce type, sans élément localisé, et à **un** constat par
+      //    écran (le compte constaté en CI, iOS 18 et 26) : un second texte non localisé, dans le panneau ou
+      //    ailleurs, reste bloquant. La liste seule est auditée sans feuille (« liste-remplie »).
+      if screen.itemSheetIsShown && issue.auditType == .elementDetection { return .veiledText }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }
@@ -266,11 +281,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// Une passe d'audit : problèmes bloquants, exceptions retenues, et quota de lignes coupées restant.
   @MainActor
   private static func auditPass(
-    _ app: XCUIApplication, _ types: XCUIAccessibilityAuditType, screen: Screen, cutLineQuota: Int
-  ) throws -> (problems: [String], exceptions: [String], cutLineQuota: Int) {
+    _ app: XCUIApplication, _ types: XCUIAccessibilityAuditType, screen: Screen, cutLineQuota: Int,
+    veiledTextQuota: Int
+  ) throws -> (problems: [String], exceptions: [String], cutLineQuota: Int, veiledTextQuota: Int) {
     var problems: [String] = []
     var exceptions: [String] = []
     var quota = cutLineQuota
+    var veiled = veiledTextQuota
     try app.performAccessibilityAudit(for: types) { issue in
       // Exception : journal sans l'élément, pour ne pas le résoudre une fois de plus pendant l'audit.
       let summary = "\(issue.auditType): \(issue.compactDescription)"
@@ -282,14 +299,18 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         quota -= 1
         exceptions.append("2 ter ligne coupée par le dock — \(summary)")
         return true
-      case .cutLine, nil:
+      case .veiledText where veiled > 0:
+        veiled -= 1
+        exceptions.append("2 quater texte voilé derrière le panneau de l'article — \(summary)")
+        return true
+      case .cutLine, .veiledText, nil:
         // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
         let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
         problems.append("\(summary) [\(element)] — \(issue.detailedDescription)")
         return true
       }
     }
-    return (problems, exceptions, quota)
+    return (problems, exceptions, quota, veiled)
   }
 
   /// Audit complet d'un écran. Les problèmes sont réunis puis consignés après l'audit, pas depuis son gestionnaire :
@@ -305,11 +326,12 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     // Les feuilles s'animent à l'arrivée : l'audit lit les cadres pendant la transition sinon.
     Thread.sleep(forTimeInterval: 1)
     capture(app, "audit-\(screen)")
-    let state = Screen(app, modal: modal)
+    let state = Screen(app, name: screen, modal: modal)
     var problems: [String] = []
     var exceptions: [String] = []
     // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
+    var veiledTextQuota = state.itemSheetIsShown ? 1 : 0
     for (pass, types) in Self.auditPasses {
       // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
       // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.
@@ -318,11 +340,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         // Durée de l'essai, à comparer aux 15 s du délai : la marge restante se lit dans les journaux de CI.
         let duration = { String(format: "%.1f s", Date.now.timeIntervalSince(start)) }
         do {
-          let result = try Self.auditPass(app, types, screen: state, cutLineQuota: cutLineQuota)
+          let result = try Self.auditPass(
+            app, types, screen: state, cutLineQuota: cutLineQuota, veiledTextQuota: veiledTextQuota)
           NSLog("AUDIT-DUREE[\(screen)] \(pass) : \(duration())")
           problems += result.problems
           exceptions += result.exceptions
           cutLineQuota = result.cutLineQuota
+          veiledTextQuota = result.veiledTextQuota
           break
         } catch let error as NSError where Self.isAuditTimeout(error) && attempt == 1 {
           NSLog("AUDIT[\(screen)] \(pass) : délai dépassé après \(duration()), nouvel essai")
@@ -379,6 +403,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     row(app, "tomates", "non coché").tap()
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
     audit(app, "liste-remplie\(suffix)")
+
+    // Panneau de l'article (#110), ouvert par un appui long, puis refermé sans rien changer.
+    let milk = row(app, "laits demi-écrémé, 2", "non coché")
+    reveal(milk, in: app, betweenBars: true)
+    milk.press(forDuration: 1.0)
+    XCTAssertTrue(app.buttons["saveItem"].waitForExistence(timeout: 15))
+    audit(app, "article\(suffix)", modal: true)
+    app.buttons["cancelItem"].tap()
+    XCTAssertTrue(app.buttons["saveItem"].waitForNonExistence(timeout: 15))
 
     app.navigationBars.buttons.firstMatch.tap()
     XCTAssertTrue(app.buttons["about"].waitForExistence(timeout: 15))

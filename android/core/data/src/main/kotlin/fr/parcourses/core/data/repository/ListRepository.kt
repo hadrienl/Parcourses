@@ -77,6 +77,9 @@ interface ListRepository {
 
     suspend fun items(listId: String): List<ListItemEntity>
 
+    /** L'article, `null` s'il est inconnu ou si sa liste est supprimée. */
+    suspend fun item(id: String): ListItemEntity?
+
     suspend fun createList(
         name: String,
         at: Instant,
@@ -108,6 +111,25 @@ interface ListRepository {
     suspend fun setChecked(
         itemId: String,
         checkedAt: Instant?,
+        at: Instant,
+    )
+
+    /**
+     * Libellé et quantité d'un article (#110, panneau de l'article et saisie sur un article existant). Seuls les champs
+     * qui changent sont écrits et envoyés (triés) : `label`, `quantity`, et `product_id` quand le libellé change de
+     * forme normalisée. Un nouveau libellé prend [normalizedName] et [categoryId] (reclassés par l'appelant) ; si sa
+     * forme normalisée change, le produit est oublié (`productId` nul, envoyé même s'il l'était déjà ici : le serveur
+     * peut en avoir un pas encore descendu) ; la résolution de produit repassera.
+     * [normalizedName] et [categoryId] sont ignorés si le libellé ne change pas. Rien ne change : aucune écriture.
+     * Refusé en lecture seule.
+     */
+    @Suppress("LongParameterList")
+    suspend fun updateItem(
+        itemId: String,
+        label: String,
+        normalizedName: String,
+        categoryId: String,
+        quantity: String?,
         at: Instant,
     )
 

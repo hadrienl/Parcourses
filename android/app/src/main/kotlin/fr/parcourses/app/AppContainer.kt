@@ -61,6 +61,8 @@ import fr.parcourses.core.network.SessionMaintenance
 import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.SupabaseGateway
 import fr.parcourses.core.network.createSupabaseGateway
+import fr.parcourses.feature.lists.QuantityTipMemory
+import fr.parcourses.feature.lists.SharedPreferencesQuantityTipMemory
 import fr.parcourses.feature.shopping.GraphSnapshotCache
 import fr.parcourses.feature.shopping.ShoppingDependencies
 import fr.parcourses.feature.shopping.ShoppingTimings
@@ -329,6 +331,9 @@ class AppContainer(
 
     /** Refus définitif de la localisation, retenu d'une ouverture du choix du magasin à l'autre. */
     val locationPermission: LocationPermissionMemory by lazy { SharedPreferencesLocationPermissionMemory(context) }
+
+    /** Astuce « Maintiens un article pour changer sa quantité » (#110) : vue une fois par appareil. */
+    val quantityTip: QuantityTipMemory by lazy { SharedPreferencesQuantityTipMemory(context) }
 
     val visits: VisitRepository by lazy { RoomVisitRepository(database, onEnqueue = { coordinator?.requestSync() }) }
     val graphs: GraphRepository by lazy { RoomGraphRepository(database) }

@@ -3,8 +3,19 @@ import UIKit
 
 /// Indication du champ de saisie : plus foncée que le gris clair du système, qui ne tient pas 4,5:1.
 enum EntryPrompt {
+  /// Invite qui montre qu'une quantité se tape avec l'article (#110).
+  static let placeholder = "Ajouter un article (ex.\u{00A0}: 2 lait)"
+
   static var text: Text {
-    Text("Ajouter un article").foregroundStyle(Palette.inkMuted)
+    Text(placeholder).foregroundStyle(Palette.inkMuted)
+  }
+
+  /// Invite courte du dock du mode courses : l'exemple ne tient pas à côté de « Terminer », le dock passerait sur deux
+  /// rangées (Android affiche aussi « Ajouter un article » au repos dans ce dock).
+  static let shortPlaceholder = "Ajouter un article"
+
+  static var shortText: Text {
+    Text(shortPlaceholder).foregroundStyle(Palette.inkMuted)
   }
 }
 
@@ -191,18 +202,26 @@ struct EmptyState: View {
 
 /// Ligne d'article du ticket, partagée par l'écran Liste et le mode courses : case carrée, libellé en chasse fixe,
 /// points de conduite et quantité. L'état coché se lit sans la couleur : case pleine avec coche (forme) et texte
-/// barré. Aux grandes tailles de texte, les points disparaissent et la quantité passe sous le libellé, qui se replie.
-/// La case porte l'accroche du fil (`threadAnchor()`).
+/// barré. Un libellé trop long se replie seul, la quantité restant alignée à droite sur sa dernière ligne, reliée par
+/// les points de conduite ; quand elle prendrait trop de place (quantité très longue, très grand texte), elle passe
+/// sous le libellé. La case porte l'accroche du fil (`threadAnchor()`).
 struct ItemLine: View {
   let label: String
   let quantity: String?
   let isChecked: Bool
   /// Prochain article du trajet : libellé plus grand et plus gras.
   var isNext = false
-  /// Initiale de l'auteur sur une liste partagée (#87), après la quantité. Décorative.
+  /// Initiale de l'auteur sur une liste partagée (#87), à droite de la première ligne. Décorative.
   var authorMark: String?
   /// Lecture seule (lecteur) : pas de case ; un article coché porte une coche ✓, un article à prendre rien.
   var readOnly = false
+  /// Appui long en cours (#110) : seuls la case et le texte s'enfoncent, depuis leur bord gauche ; la marque d'auteur,
+  /// comme le fil, reste immobile (même règle qu'Android).
+  var pressed = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// Largeur de la dernière ligne du libellé (`Text.LayoutKey`) : les points de conduite d'un libellé replié partent
+  /// de la fin de son texte (#110).
+  @State private var lastLineWidth: CGFloat?
   @ScaledMetric(relativeTo: .body) private var box = TicketMetrics.checkBox
   /// Demi-hauteur des capitales du libellé : la case s'aligne sur le milieu de la première ligne.
   @ScaledMetric(relativeTo: .body) private var capHalf: CGFloat = 6
@@ -213,12 +232,17 @@ struct ItemLine: View {
     // quantité par d'autres vues : l'audit Dynamic Type mesurait alors des nœuds qui ne grandissaient pas
     // (« partially unsupported » sur la ligne à quantité).
     HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-      checkBox
-      LeaderLineLayout(spacing: Space.s, leaderMinWidth: Space.m) {
-        title
-        DottedRule()
-        quantityText
+      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        checkBox
+        LeaderLineLayout(spacing: Space.s, leaderMinWidth: Space.m, lastLineWidth: lastLineWidth) {
+          title
+          DottedRule()
+          quantityText
+        }
       }
+      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
+      .opacity(pressed ? 0.85 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
       if let authorMark { AuthorMark(initial: authorMark) }
     }
     .padding(.vertical, Space.xs)
@@ -252,6 +276,9 @@ struct ItemLine: View {
       .fixedSize(horizontal: false, vertical: true)
       // Le libellé passe avant les points de conduite, qui ne prennent que la place restante.
       .layoutPriority(1)
+      .onPreferenceChange(Text.LayoutKey.self) { layouts in
+        lastLineWidth = layouts.first?.layout.last?.typographicBounds.rect.maxX
+      }
   }
 
   @ViewBuilder private var quantityText: some View {
@@ -261,20 +288,37 @@ struct ItemLine: View {
   }
 }
 
-/// Libellé, points de conduite et quantité sur une ligne quand le libellé y tient en entier ; sinon libellé sur
-/// plusieurs lignes, quantité dessous et pas de points de conduite. Sous-vues : libellé, points de conduite, puis
-/// quantité (facultative). La ligne de base est celle du libellé.
+/// Libellé, points de conduite et quantité sur une ligne quand le libellé y tient en entier. Sinon (#110), seul le
+/// libellé se replie ; la quantité reste une colonne à droite qui ne se coupe jamais, alignée sur la ligne de base de
+/// la dernière ligne du libellé, et les points de conduite relient la fin du texte à la quantité (la largeur proposée
+/// au libellé leur réserve un minimum : un mot qui ne laisserait pas cette place passe à la ligne). Si cette colonne
+/// dépasse `maxQuantityShare` de la largeur, la quantité passe sous le libellé. Sous-vues : libellé, points de
+/// conduite, puis quantité (facultative). La ligne de base est celle du libellé.
 struct LeaderLineLayout: Layout {
   var spacing: CGFloat
   var leaderMinWidth: CGFloat
   /// Écart entre le libellé et la quantité placée dessous.
   var stackSpacing: CGFloat = 2
+  /// Part de la largeur que la quantité peut prendre à droite d'un libellé replié (#110). Au-delà (quantité très
+  /// longue, très grand texte), le libellé n'aurait plus que quelques caractères par ligne : la quantité passe dessous.
+  var maxQuantityShare: CGFloat = 0.4
+  /// Largeur de la dernière ligne du libellé replié, relevée sur le texte affiché ; `nil` avant le premier relevé
+  /// (pas de points de conduite le temps d'une passe).
+  var lastLineWidth: CGFloat?
+
+  /// Libellé et quantité sur une ligne, avec points de conduite ; libellé replié à gauche d'une colonne de quantité
+  /// qui ne se coupe jamais, alignée sur sa dernière ligne avec des points depuis la fin du texte ; ou quantité sous
+  /// le libellé.
+  private enum Mode {
+    case inline, wrapped, stacked
+  }
 
   private struct Arrangement {
-    var inline: Bool
+    var mode: Mode
     var title: CGSize
     var quantity: CGSize
     var titleBaseline: CGFloat
+    var titleLastBaseline: CGFloat
     var quantityBaseline: CGFloat
   }
 
@@ -285,22 +329,43 @@ struct LeaderLineLayout: Layout {
     let quantityIdeal = quantity?.sizeThatFits(.unspecified) ?? .zero
     let inlineWidth =
       titleIdeal.width + spacing + leaderMinWidth + (quantity == nil ? 0 : spacing + quantityIdeal.width)
-    let inline = width.map { inlineWidth <= $0 } ?? true
-    let titleProposal = inline ? ProposedViewSize(titleIdeal) : ProposedViewSize(width: width, height: nil)
-    let titleSize = inline ? titleIdeal : title.sizeThatFits(titleProposal)
+    let quantityColumn = quantityIdeal.width + spacing
+    let mode: Mode =
+      if width.map({ inlineWidth <= $0 }) ?? true {
+        .inline
+      } else if let width, quantity != nil, quantityIdeal != .zero, quantityColumn <= width * maxQuantityShare {
+        .wrapped
+      } else {
+        .stacked
+      }
+    let titleProposal =
+      switch mode {
+      case .inline: ProposedViewSize(titleIdeal)
+      // Même largeur qu'en ligne : un libellé qui y tiendrait sur une ligne garde ses points de conduite (mode inline).
+      case .wrapped:
+        ProposedViewSize(width: max(0, (width ?? 0) - quantityColumn - spacing - leaderMinWidth), height: nil)
+      case .stacked: ProposedViewSize(width: width, height: nil)
+      }
+    let titleSize = mode == .inline ? titleIdeal : title.sizeThatFits(titleProposal)
+    // Sous le libellé, la quantité se replie elle aussi plutôt que de déborder de la ligne.
+    let quantitySize =
+      mode == .stacked ? quantity?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero : quantityIdeal
     let quantityBaseline =
       quantity?.dimensions(in: ProposedViewSize(quantityIdeal))[VerticalAlignment.firstTextBaseline] ?? 0
     return Arrangement(
-      inline: inline, title: titleSize, quantity: quantityIdeal,
+      mode: mode, title: titleSize, quantity: quantitySize,
       titleBaseline: title.dimensions(in: titleProposal)[VerticalAlignment.firstTextBaseline],
+      titleLastBaseline: title.dimensions(in: titleProposal)[VerticalAlignment.lastTextBaseline],
       quantityBaseline: quantityBaseline)
   }
 
-  /// Haut de la quantité : alignée sur la ligne de base du libellé, ou sous lui.
+  /// Haut de la quantité : alignée sur la ligne de base du libellé (sa dernière ligne s'il est replié), ou sous lui.
   private func quantityY(_ arrangement: Arrangement) -> CGFloat {
-    arrangement.inline
-      ? max(0, arrangement.titleBaseline - arrangement.quantityBaseline)
-      : arrangement.title.height + stackSpacing
+    switch arrangement.mode {
+    case .inline: max(0, arrangement.titleBaseline - arrangement.quantityBaseline)
+    case .wrapped: max(0, arrangement.titleLastBaseline - arrangement.quantityBaseline)
+    case .stacked: arrangement.title.height + stackSpacing
+    }
   }
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -319,17 +384,33 @@ struct LeaderLineLayout: Layout {
     var trailing = bounds.maxX
     if subviews.count > 2 {
       let quantity = arrangement.quantity
-      let x = arrangement.inline ? bounds.maxX - quantity.width : bounds.minX
+      let x = arrangement.mode == .stacked ? bounds.minX : bounds.maxX - quantity.width
       subviews[2].place(
         at: CGPoint(x: x, y: bounds.minY + quantityY(arrangement)), proposal: ProposedViewSize(quantity))
       if quantity != .zero { trailing -= quantity.width + spacing }
     }
-    let leaderX = bounds.minX + arrangement.title.width + spacing
-    let leaderWidth = arrangement.inline ? max(0, trailing - leaderX) : 0
-    // Points de conduite posés sur la ligne de base du libellé (par leur bas), absents quand la quantité passe dessous.
+    // Points de conduite posés sur la ligne de base du libellé (par leur bas), de la fin du texte à la quantité : sur
+    // sa ligne s'il y tient, sur sa dernière ligne s'il est replié (la largeur proposée y réserve leur minimum).
+    let leaderX: CGFloat
+    let leaderWidth: CGFloat
+    let leaderBaseline: CGFloat
+    switch arrangement.mode {
+    case .inline:
+      leaderX = bounds.minX + arrangement.title.width + spacing
+      leaderWidth = max(0, trailing - leaderX)
+      leaderBaseline = arrangement.titleBaseline
+    case .wrapped:
+      leaderX = bounds.minX + (lastLineWidth ?? arrangement.title.width) + spacing
+      leaderWidth = lastLineWidth == nil ? 0 : max(0, trailing - leaderX)
+      leaderBaseline = arrangement.titleLastBaseline
+    case .stacked:
+      leaderX = bounds.minX
+      leaderWidth = 0
+      leaderBaseline = arrangement.titleBaseline
+    }
     let leaderHeight = subviews[1].sizeThatFits(ProposedViewSize(width: leaderWidth, height: nil)).height
     subviews[1].place(
-      at: CGPoint(x: leaderX, y: bounds.minY + arrangement.titleBaseline - leaderHeight),
+      at: CGPoint(x: leaderX, y: bounds.minY + leaderBaseline - leaderHeight),
       proposal: ProposedViewSize(width: leaderWidth, height: leaderHeight))
   }
 
