@@ -41,6 +41,8 @@ protocol ListRepository {
   /// Suppression douce : la liste disparaît de `lists()` et reste en base jusqu'à l'envoi (9.7).
   func deleteList(id: UUID, at date: Date) throws
 
+  /// Un article, quelle que soit sa liste ; `nil` s'il n'existe plus.
+  func item(id: UUID) throws -> ListItem?
   /// Articles d'une liste, triés par `position`. Vide si la liste est supprimée.
   func items(listId: UUID) throws -> [ListItem]
   @discardableResult
@@ -48,6 +50,12 @@ protocol ListRepository {
     listId: UUID, label: String, normalizedName: String, quantity: String?, productId: UUID?, categoryId: String,
     at date: Date
   ) throws -> ListItem
+  /// Libellé et quantité modifiés dans le panneau de l'article (#110). Seuls les champs changés partent ; un libellé
+  /// de forme normalisée différente perd son produit, qui correspondait à l'ancien libellé (la résolution repassera).
+  /// Sans effet si rien ne change.
+  func updateItem(
+    itemId: UUID, label: String, normalizedName: String, categoryId: String, quantity: String?, at date: Date
+  ) throws
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws
   func deleteItem(id: UUID) throws

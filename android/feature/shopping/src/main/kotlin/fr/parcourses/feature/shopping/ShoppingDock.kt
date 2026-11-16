@@ -133,6 +133,8 @@ private fun EntryField(
         TextField(
             state = input,
             label = { Text(stringResource(R.string.shopping_input_label), fontFamily = FontFamily.Default) },
+            // Exemple de saisie avec quantité (#110), dans le champ une fois qu'il a le focus.
+            placeholder = { Text(stringResource(R.string.shopping_input_example), fontFamily = FontFamily.Default) },
             textStyle = dockFieldTextStyle(),
             lineLimits = TextFieldLineLimits.SingleLine,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),

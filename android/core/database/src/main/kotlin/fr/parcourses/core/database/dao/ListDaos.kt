@@ -160,6 +160,27 @@ interface ListItemDao {
         state: SyncState = SyncState.PENDING,
     ): Int
 
+    /**
+     * Libellé, forme, rayon, produit et quantité modifiés sur l'appareil (#110) : la dernière modification devient la
+     * mienne, comme [setChecked].
+     */
+    @Suppress("LongParameterList")
+    @Query(
+        "UPDATE list_items SET label = :label, normalizedName = :normalizedName, categoryId = :categoryId, " +
+            "productId = :productId, quantity = :quantity, updatedAt = :at, syncState = :state, updatedBy = NULL " +
+            "WHERE id = :id",
+    )
+    suspend fun updateContent(
+        id: String,
+        label: String,
+        normalizedName: String,
+        categoryId: String,
+        productId: String?,
+        quantity: String?,
+        at: Instant,
+        state: SyncState = SyncState.PENDING,
+    ): Int
+
     /** Ne touche pas `updatedAt` ni `syncState` : « introuvable » reste local (#9.9). */
     @Query("UPDATE list_items SET notFoundAt = :notFoundAt WHERE id = :id")
     suspend fun setNotFound(

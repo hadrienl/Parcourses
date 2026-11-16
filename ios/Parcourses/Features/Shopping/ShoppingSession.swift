@@ -524,10 +524,40 @@ final class ShoppingSession: Identifiable {
     publishActivity()
   }
 
-  /// Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie.
+  /// Panneau de l'article (#110) : libellé et quantité. Un libellé reclassé change de rayon au tri suivant. La
+  /// modification porte sur la liste, pas sur la visite : elle s'écrit même si les courses ont expiré entre-temps.
+  func save(_ edit: ItemEdit, for itemId: UUID) {
+    let date = now()
+    guard perform({ try lists.apply(edit, to: itemId, analyzer: analyzer, at: date) }) else { return }
+    guard summary == nil, !expired else { return }
+    reloadRows()
+    scheduleSettle()
+    publishActivity()
+  }
+
+  /// Ajout en route : l'article prend sa place estimée sans déplacer les autres, le temps de la saisie. Une saisie
+  /// avec quantité sur un article non coché de même forme normalisée met à jour sa quantité (#110, vecteur
+  /// `quantity/005`) : il est mis en évidence à sa place.
   func submit() async {
     let entry = analyzer.analyze(input)
     guard !entry.label.isEmpty else { return }
+    let items = (try? lists.items(listId: listId)) ?? []
+    let mergeId = ItemQuantity.entryMergeTarget(
+      normalizedName: entry.normalizedName, quantity: entry.quantity,
+      items: items.map { (id: $0.id, normalizedName: $0.normalizedName, checked: $0.checkedAt != nil) })
+    if let mergeId, let target = items.first(where: { $0.id == mergeId }) {
+      let succeeded = perform {
+        try lists.updateItem(
+          itemId: target.id, label: target.label, normalizedName: target.normalizedName,
+          categoryId: target.categoryId, quantity: entry.quantity, at: now())
+      }
+      guard succeeded else { return }
+      input = ""
+      reloadRows()
+      highlight(target.id)
+      publishActivity()
+      return
+    }
     var added: UUID?
     let succeeded = perform {
       added =

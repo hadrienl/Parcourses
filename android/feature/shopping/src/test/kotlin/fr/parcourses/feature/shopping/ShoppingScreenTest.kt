@@ -14,16 +14,21 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.designsystem.ItemEditTarget
 import fr.parcourses.core.designsystem.ParcoursesTheme
+import fr.parcourses.core.designsystem.TAG_ITEM_EDIT_SHEET
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -47,6 +52,7 @@ class ShoppingScreenTest {
     private var closed = 0
     private var dismissed = 0
     private var shown = mutableListOf<Int>()
+    private val edited = mutableListOf<String>()
 
     private val apples = ShoppingRow("1", "pommes", "2", isChecked = false, aisleId = "produce")
     private val bread = ShoppingRow("2", "pain", null, isChecked = false, aisleId = "bakery")
@@ -85,6 +91,7 @@ class ShoppingScreenTest {
                 onDismissError = { dismissed++ },
                 onAnnouncementShown = { shown += it },
                 onClose = { closed++ },
+                onEditItem = { edited += it.id },
             )
         rule.setContent {
             val density = LocalDensity.current
@@ -139,7 +146,7 @@ class ShoppingScreenTest {
         val unchecked = rule.onNodeWithContentDescription("pain")
         val onClick = unchecked.fetchSemanticsNode().config[SemanticsActions.OnClick]
         assertEquals("Cocher", onClick.label)
-        assertEquals(listOf("Pas trouvé"), unchecked.customActionLabels())
+        assertEquals(listOf("Pas trouvé", "Modifier la quantité"), unchecked.customActionLabels())
 
         val checked = rule.onNodeWithContentDescription("pommes, 2")
         checked.assert(hasStateDescription("coché"))
@@ -161,6 +168,41 @@ class ShoppingScreenTest {
         rule.onNodeWithContentDescription("pommes, 2").invokeCustomAction("Décocher")
         assertEquals(listOf("2"), notFound)
         assertEquals(listOf("1"), toggled)
+    }
+
+    @Test
+    fun aLongPressOffersNotFoundAndQuantity() {
+        show()
+        rule.onNodeWithContentDescription("pain").performTouchInput { longClick() }
+        rule.onNodeWithTag(TAG_ROW_MENU).assertExists()
+        rule.onNodeWithTag(TAG_ROW_MENU_QUANTITY).assert(hasText("Quantité")).performClick()
+        assertEquals(listOf("2"), edited)
+        rule.onNodeWithTag(TAG_ROW_MENU).assertDoesNotExist()
+
+        rule.onNodeWithContentDescription("pain").performTouchInput { longClick() }
+        rule.onNodeWithTag(TAG_ROW_MENU_NOT_FOUND).assert(hasText("Pas trouvé")).performClick()
+        assertEquals(listOf("2"), notFound)
+        assertTrue(toggled.isEmpty())
+    }
+
+    @Test
+    fun aCheckedRowHasNoLongPressMenu() {
+        show(base.copy(toBuy = listOf(apples.copy(isChecked = true), bread), sections = emptyList()))
+        rule.onNodeWithContentDescription("pommes, 2").performTouchInput { longClick() }
+        rule.onNodeWithTag(TAG_ROW_MENU).assertDoesNotExist()
+    }
+
+    @Test
+    fun theTalkBackQuantityActionOpensTheSheet() {
+        show()
+        rule.onNodeWithContentDescription("pain").invokeCustomAction("Modifier la quantité")
+        assertEquals(listOf("2"), edited)
+    }
+
+    @Test
+    fun theItemSheetIsShownWhenEditing() {
+        show(base.copy(editing = ItemEditTarget("2", "pain", null)))
+        rule.onNodeWithTag(TAG_ITEM_EDIT_SHEET).assertExists()
     }
 
     @Test

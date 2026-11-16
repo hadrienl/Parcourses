@@ -2,16 +2,17 @@
 
 Ce dossier contient tout ce que les trois implémentations doivent partager **à l'identique** :
 
-| Chemin                                            | Contenu                                                             | Conception |
-| ------------------------------------------------- | ------------------------------------------------------------------- | ---------- |
-| `reference/sort.ts`                               | Implémentation de référence du tri d'une liste sur l'appareil       | #5 §2      |
-| `reference/normalize.ts`, `reference/classify.ts` | Normalisation des libellés et classification par mots-clés          | #7 §2      |
-| `reference/effective_category.ts`                 | Rayon effectif d'un article selon le magasin (bio)                  | #28        |
-| `categories/`                                     | Catégories et rangs, règles de normalisation, dictionnaire français | #7 §1, §3  |
-| `test-vectors/sort/`                              | Vecteurs de tri, exécutés par iOS et Android                        | #5 §4      |
-| `test-vectors/categorize/`                        | Vecteurs de normalisation et de classification                      | #7 §6      |
-| `test-vectors/effective-category/`                | Vecteurs de résolution du rayon effectif                            | #28        |
-| `generator/`                                      | Cas de test et générateur des vecteurs                              |            |
+| Chemin                                            | Contenu                                                               | Conception |
+| ------------------------------------------------- | --------------------------------------------------------------------- | ---------- |
+| `reference/sort.ts`                               | Implémentation de référence du tri d'une liste sur l'appareil         | #5 §2      |
+| `reference/normalize.ts`, `reference/classify.ts` | Normalisation des libellés et classification par mots-clés            | #7 §2      |
+| `reference/effective_category.ts`                 | Rayon effectif d'un article selon le magasin (bio)                    | #28        |
+| `categories/`                                     | Catégories et rangs, règles de normalisation, dictionnaire français   | #7 §1, §3  |
+| `test-vectors/sort/`                              | Vecteurs de tri, exécutés par iOS et Android                          | #5 §4      |
+| `test-vectors/categorize/`                        | Vecteurs de normalisation et de classification                        | #7 §6      |
+| `test-vectors/effective-category/`                | Vecteurs de résolution du rayon effectif                              | #28        |
+| `reference/quantity.ts`, `test-vectors/quantity/` | Quantité d'un article : − / +, unités, saisie sur un article existant | #110       |
+| `generator/`                                      | Cas de test et générateur des vecteurs                                |            |
 
 La référence est écrite en TypeScript pour Deno, comme les Edge Functions. Elle n'est pas embarquée
 dans les apps : Swift et Kotlin réimplémentent l'algorithme et doivent passer **tous** les vecteurs

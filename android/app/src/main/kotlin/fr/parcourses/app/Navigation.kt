@@ -304,6 +304,7 @@ fun ParcoursesNavHost(
                                                     notices = container.sharingNotices.notices,
                                                     acknowledge = container.sharingNotices::acknowledge,
                                                 ),
+                                            quantityTip = container.quantityTip,
                                         )
                                     }
                                 },

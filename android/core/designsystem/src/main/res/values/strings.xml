@@ -5,4 +5,19 @@
     <!-- Données des magasins (ODbL) : mêmes textes qu'iOS. -->
     <string name="osm_attribution">© contributeurs OpenStreetMap, licence ODbL</string>
     <string name="osm_attribution_action">Ouvrir la page de licence d\'OpenStreetMap</string>
+    <!-- Panneau de l'article (#110) : mêmes textes qu'iOS. -->
+    <string name="item_edit_title">Article</string>
+    <string name="item_edit_label">Libellé</string>
+    <string name="item_edit_quantity">Quantité</string>
+    <string name="item_edit_quantity_hint">ex.\u00A0: 500 g</string>
+    <string name="item_edit_decrease">Diminuer la quantité</string>
+    <string name="item_edit_increase">Augmenter la quantité</string>
+    <string name="item_edit_unit_g">grammes</string>
+    <string name="item_edit_unit_kg">kilos</string>
+    <string name="item_edit_unit_l">litres</string>
+    <string name="item_edit_clear">Effacer la quantité</string>
+    <string name="item_edit_cancel">Annuler</string>
+    <string name="item_edit_save">Enregistrer</string>
+    <!-- Appui long et action TalkBack d'une ligne d'article. -->
+    <string name="item_edit_action">Modifier la quantité</string>
 </resources>

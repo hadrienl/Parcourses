@@ -1,6 +1,7 @@
 package fr.parcourses.feature.lists
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,15 +21,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AssistChip
@@ -43,8 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -58,6 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -70,6 +69,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -79,11 +80,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.designsystem.AisleLine
-import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
+import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.ItemLine
-import fr.parcourses.core.designsystem.MemberAvatar
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -96,10 +96,11 @@ import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
+import fr.parcourses.core.designsystem.pressScale
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
-import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.launch
+import fr.parcourses.core.designsystem.R as DesignR
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -124,8 +125,28 @@ fun ListDetailRoute(
         onStartShopping = onStartShopping?.let { start -> { start(viewModel.listId.value) } },
         onShare = onShare?.let { share -> { share(viewModel.listId.value) } },
         onAcknowledge = viewModel::acknowledge,
+        itemEditing =
+            remember(viewModel) {
+                ItemEditing(
+                    onEdit = viewModel::openItemEditor,
+                    onSave = viewModel::saveItem,
+                    onClose = viewModel::closeItemEditor,
+                    onDismissTip = viewModel::dismissQuantityTip,
+                )
+            },
     )
 }
+
+/**
+ * Panneau de l'article (#110) : [onEdit] l'ouvre (appui long, action TalkBack), [onSave] reçoit le texte des deux
+ * champs, [onClose] le referme sans rien écrire. [onDismissTip] ferme l'astuce pour toujours.
+ */
+class ItemEditing(
+    val onEdit: (ItemRow) -> Unit = {},
+    val onSave: (label: String, quantityText: String) -> Unit = { _, _ -> },
+    val onClose: () -> Unit = {},
+    val onDismissTip: () -> Unit = {},
+)
 
 /**
  * Écran Liste (#6, B3) : un ticket, articles groupés par rayon le long du fil, saisie rapide dans la barre flottante en
@@ -147,6 +168,7 @@ fun ListDetailScreen(
     onStartShopping: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onAcknowledge: (AccessChange) -> Unit = {},
+    itemEditing: ItemEditing = ItemEditing(),
 ) {
     val colors = Ticket.colors
     val sharing = state.sharing
@@ -181,10 +203,11 @@ fun ListDetailScreen(
         bottomBar = { DetailBottomBar(state, input, onSubmit, onSuggestion, onStartShopping) },
     ) { padding ->
         TicketSheet(Modifier.padding(padding)) {
-            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap)
-            DetailContent(state, removed, actions, onAcknowledge, onBack)
+            val actions = ItemActions(!capabilities.canEditItems, onToggle, onDelete, onReadOnlyTap, itemEditing.onEdit)
+            DetailContent(state, removed, actions, onAcknowledge, onBack, itemEditing.onDismissTip)
         }
     }
+    state.editing?.let { target -> ItemEditSheet(target, onSave = itemEditing.onSave, onDismiss = itemEditing.onClose) }
     state.errorDetail?.let { ErrorDialog(it, onDismissError) }
 }
 
@@ -228,6 +251,7 @@ private fun DetailContent(
     actions: ItemActions,
     onAcknowledge: (AccessChange) -> Unit,
     onBack: () -> Unit,
+    onDismissTip: () -> Unit,
 ) {
     when {
         removed != null -> {
@@ -244,6 +268,7 @@ private fun DetailContent(
         else -> {
             Column(Modifier.fillMaxSize()) {
                 SharingBanners(state.sharing, onAcknowledge)
+                if (state.showsQuantityTip) QuantityTip(onDismissTip)
                 Box(Modifier.weight(1f)) {
                     if (state.isLoaded && state.isEmpty) {
                         Placeholder(R.string.detail_empty_title, R.string.detail_empty_body)
@@ -256,12 +281,16 @@ private fun DetailContent(
     }
 }
 
-/** Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. */
+/**
+ * Ce qu'une ligne d'article peut faire : en lecture seule, un appui rappelle seulement que rien ne se modifie. [onEdit]
+ * ouvre le panneau de l'article (appui long, action TalkBack), jamais pour un lecteur.
+ */
 private class ItemActions(
     val readOnly: Boolean,
     val onToggle: (ItemRow) -> Unit,
     val onDelete: (ItemRow) -> Unit,
     val onReadOnlyTap: () -> Unit,
+    val onEdit: (ItemRow) -> Unit,
 )
 
 @Composable
@@ -334,6 +363,7 @@ private fun Sections(
                             piece,
                             onToggle = { actions.onToggle(row) },
                             onDelete = { actions.onDelete(row) },
+                            onEdit = { actions.onEdit(row) },
                         )
                     }
                 }
@@ -364,46 +394,76 @@ private fun SectionHeader(
 
 /**
  * Une ligne : tout le rang est la zone de coche (cible d'au moins 48 dp), l'état se lit sans la couleur (case et
- * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ».
+ * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ». Un appui long ouvre
+ * le panneau de l'article (#110) : la case et le texte s'enfoncent pendant l'appui (pas le fil), une vibration marque
+ * le déclenchement ; TalkBack l'offre aussi en action « Modifier la quantité ».
  */
+@Suppress("LongMethod") // Une ligne : gestes, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 private fun ItemRowView(
     row: ItemRow,
     piece: ThreadPiece,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val colors = Ticket.colors
     val checkedText = stringResource(R.string.detail_item_checked)
     val uncheckedText = stringResource(R.string.detail_item_unchecked)
     val deleteLabel = stringResource(R.string.detail_delete_item)
+    val editLabel = stringResource(DesignR.string.item_edit_action)
     val label = spokenLabel(row)
+    val interaction = remember { MutableInteractionSource() }
+    val scale = pressScale(interaction)
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .thread(piece, ThreadStyle.Solid)
                 .heightIn(min = TicketDimens.rowMin)
-                .toggleable(value = row.isChecked, role = Role.Checkbox, onValueChange = { onToggle() })
-                .semantics(mergeDescendants = true) {
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = ripple(),
+                    role = Role.Checkbox,
+                    onLongClickLabel = editLabel,
+                    onLongClick = onEdit,
+                    hapticFeedbackEnabled = true,
+                    onClick = onToggle,
+                ).semantics(mergeDescendants = true) {
                     contentDescription = label
+                    toggleableState = ToggleableState(row.isChecked)
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
+                    // « Modifier la quantité » est l'appui long libellé ci-dessus : pas d'action en double.
                     customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
                 }.padding(start = ThreadLayout.contentStart),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TicketCheckBox(row.isChecked)
-        ItemLine(
-            name = row.label,
-            quantity = row.quantity,
-            style = TicketType.item,
-            color = if (row.isChecked) colors.checked else colors.ink,
-            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+        // Seuls la case et le texte s'enfoncent pendant l'appui (#110), depuis leur bord gauche : le fil, dessiné par
+        // `.thread` sur la ligne, reste immobile et continu, comme la marque d'auteur et la corbeille.
+        Row(
             modifier =
                 Modifier
                     .weight(1f)
-                    .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
-        )
+                    .graphicsLayer {
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        transformOrigin = PRESS_ORIGIN
+                    }.testTag(TAG_ITEM_CONTENT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TicketCheckBox(row.isChecked)
+            ItemLine(
+                name = row.label,
+                quantity = row.quantity,
+                style = TicketType.item,
+                color = if (row.isChecked) colors.checked else colors.ink,
+                decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
+            )
+        }
         AuthorMark(row.authorMark)
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
@@ -509,7 +569,10 @@ private fun EntryField(
     DockPill(modifier) {
         TextField(
             state = input,
+            // Invite (#110) : « Ajouter un article », puis l'exemple « ex. : 2 lait » dans le champ dès qu'il a le
+            // focus. Le texte complet ne tient pas sur une ligne à côté du bouton « Courses ».
             label = { Text(stringResource(R.string.detail_input_label), fontFamily = FontFamily.Default) },
+            placeholder = { Text(stringResource(R.string.detail_input_example), fontFamily = FontFamily.Default) },
             textStyle = dockFieldTextStyle(),
             lineLimits = TextFieldLineLimits.SingleLine,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -530,5 +593,12 @@ private fun EntryField(
 internal const val TAG_ITEMS = "items"
 internal const val TAG_SUGGESTIONS = "suggestions"
 internal const val TAG_QUICK_ENTRY = "quickEntry"
+internal const val TAG_ITEM_CONTENT = "itemContent"
+
 internal const val TAG_ADD = "add"
 internal const val TAG_SHOP = "startShopping"
+internal const val TAG_QUANTITY_TIP = "quantityTip"
+internal const val TAG_QUANTITY_TIP_CLOSE = "quantityTipClose"
+
+/** Origine de l'enfoncement de la case et du texte : leur bord gauche, à mi-hauteur, côté fil. */
+private val PRESS_ORIGIN = TransformOrigin(0f, 0.5f)
