@@ -499,19 +499,19 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     auditSharing(arguments: [], suffix: "-sombre", dark: true)
   }
 
-  /// Compte e-mail (#108) : Mes listes avec la pastille du compte, puis l'écran Compte.
+  /// Écran Compte d'un compte e-mail (#108). Mes listes avec la pastille du compte est auditée par `auditSharing`
+  /// (« invitation » : Léa, compte e-mail).
   @MainActor
   private func auditAccount(arguments: [String], suffix: String, dark: Bool = false) {
     let app = launch(
-      reset: true, launchArguments: arguments, dark: dark, settings: ["PARCOURSES_TEST_SHARING": "owner"])
-    let list = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Courses de la semaine")).firstMatch
-    XCTAssertTrue(list.waitForExistence(timeout: 15))
+      reset: true, launchArguments: arguments, dark: dark, settings: ["PARCOURSES_TEST_SHARING": "invitation"])
+    XCTAssertTrue(app.descendants(matching: .any)["invitationCard"].waitForExistence(timeout: 15))
     let account = app.buttons["account"]
     XCTAssertTrue(account.waitForExistence(timeout: 15))
-    audit(app, "listes-connecte\(suffix)")
     account.tap()
     XCTAssertTrue(app.navigationBars["Compte"].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.buttons["signOut"].waitForExistence(timeout: 15))
+    // En AX5, « Se déconnecter » est sous le pli : l'adresse, en tête, suffit à dire que l'écran est prêt.
+    XCTAssertTrue(app.descendants(matching: .any)["accountEmail"].waitForExistence(timeout: 15))
     audit(app, "compte\(suffix)", modal: true)
   }
 

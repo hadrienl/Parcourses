@@ -18,7 +18,10 @@ struct AccountView: View {
       List {
         if account.needsSignIn, !account.isSignOutPending {
           Section {
-            Label("Reconnectez-vous pour synchroniser.", systemImage: "key")
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+              Image(systemName: "key").accessibilityHidden(true)
+              Text("Reconnectez-vous pour synchroniser.")
+            }
             Button {
               prompts.signIn = account.makeLink()
             } label: {
@@ -31,10 +34,12 @@ struct AccountView: View {
         Section {
           emailRow
           nameRow
-          Label(
-            "Votre adresse ne sert qu'à vous connecter. Les membres de vos listes voient votre prénom.",
-            systemImage: "lock"
-          )
+          // Icône et texte côte à côte plutôt qu'un `Label` : dans une ligne de `List`, l'audit d'accessibilité
+          // signale le titre d'un `Label` comme rogné aux grandes tailles de texte.
+          HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            Image(systemName: "lock").accessibilityHidden(true)
+            Text("Votre adresse ne sert qu'à vous connecter. Les membres de vos listes voient votre prénom.")
+          }
           .font(.footnote)
           .foregroundStyle(Palette.inkMuted)
         }
@@ -123,9 +128,12 @@ struct AccountView: View {
         prompts.confirmsSignOut = true
       }
     } label: {
-      Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .touchTarget()
+      HStack(spacing: Space.s) {
+        Image(systemName: "rectangle.portrait.and.arrow.right").accessibilityHidden(true)
+        Text("Se déconnecter")
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .touchTarget()
     }
     .disabled(isBlocking)
     .accessibilityHint("Demande une confirmation avant de retirer vos listes de cet appareil")

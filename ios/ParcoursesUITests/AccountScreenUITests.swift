@@ -82,8 +82,11 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Données cartographiques"].waitForExistence(timeout: 5))
     capture(app, "compte-4-a-propos\(name)")
-    // En texte agrandi, la version est loin sous le pli.
-    reveal(app.staticTexts["Version"], in: app)
+    // En texte agrandi, la version est loin sous le pli. Elle est seulement cherchée : collée au bas de la feuille,
+    // XCUI ne la juge pas toujours « hittable ».
+    let version = app.staticTexts["Version"]
+    for _ in 0..<10 where !version.exists { app.swipeUp() }
+    XCTAssertTrue(version.exists)
     capture(app, "compte-5-a-propos-bas\(name)")
     for identifier in ["accountEmail", "accountName", "signOut", "deleteMyData"] {
       XCTAssertFalse(app.descendants(matching: .any)[identifier].exists, identifier)
@@ -128,7 +131,8 @@ nonisolated final class AccountScreenUITests: ParcoursesUITestCase {
     signOut.tap()
     XCTAssertTrue(app.alerts["Se déconnecter ?"].waitForExistence(timeout: 10))
     capture(app, "compte-6-se-deconnecter")
-    app.alerts.buttons["confirmSignOut"].tap()
+    // iOS 27 expose deux fois le bouton de l'alerte (bouton et son contenu) : le premier suffit.
+    app.alerts.buttons.matching(identifier: "confirmSignOut").firstMatch.tap()
     XCTAssertTrue(app.buttons["signIn"].waitForExistence(timeout: 30))
     XCTAssertFalse(app.buttons["account"].exists)
     XCTAssertFalse(app.navigationBars["Compte"].exists)

@@ -55,6 +55,9 @@ identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et fai
   `SyncDecisionVectorTests` contre tous les fichiers de `shared/test-vectors/sync/` (copiés dans le bundle de test).
 - Comptes : `AccountLink` (adresse, code à 6 chiffres, reprise vers un compte existant), `AccountSession` (état pour les
   écrans, déconnexion, « Continuer sans compte »), drapeau `account.kind`. Écrans dans `Features/Account/`.
+- Bouton compte de Mes listes (#108) : `AccountEntry` (« Se connecter » en anonyme, pastille de l'initiale sinon), qui
+  ouvre l'écran Compte (`AccountView` : adresse, prénom, Se déconnecter, Vos données). Tests et captures `compte-…` :
+  `AccountScreenUITests`.
 - Intégration : `scripts/integration-test.sh` lit les codes dans Mailpit (`MAILPIT_URL` de `supabase status`, par
   défaut `http://127.0.0.1:56324`) et vérifie en base que l'ancien compte anonyme a été supprimé après la reprise.
 - En local, un test en échec peut laisser `xcodebuild` bloqué après la fin de la suite (symbolication de la pile
