@@ -136,6 +136,7 @@ struct ItemEditSheet: View {
       }
     }
     .presentationDetents([.medium, .large], selection: $detent)
+    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
     // Fond opaque : le verre de la feuille laisse transparaître la liste et dégrade le contraste.
     .presentationBackground(Palette.paper)
     .accessibilityIdentifier("itemSheet")
@@ -165,8 +166,8 @@ struct ItemEditSheet: View {
       HStack(spacing: Space.s) {
         stepButton(delta: -1, systemImage: "minus", label: "Diminuer la quantité", identifier: "quantityDecrement")
         TextField("Quantité", text: $quantityText, prompt: Text("ex.\u{00A0}: 500 g").foregroundStyle(Palette.inkMuted))
-          // Place réservée à la croix d'effacement, pour que le texte ne passe pas dessous.
-          .padding(.trailing, quantity == nil ? 0 : 28)
+          // Place réservée à la croix d'effacement, des deux côtés : le texte reste centré et ne passe pas dessous.
+          .padding(.horizontal, quantity == nil ? 0 : 28)
           .sheetField()
           .multilineTextAlignment(.center)
           .submitLabel(.done)
@@ -191,8 +192,10 @@ struct ItemEditSheet: View {
       Button {
         quantityText = ""
       } label: {
+        // Taille plafonnée, comme la croix système des champs : elle tient dans sa place réservée en AX5.
         Image(systemName: "xmark.circle.fill")
           .font(.body)
+          .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
           .foregroundStyle(Palette.inkMuted)
           .frame(width: 44, height: 44)
           .contentShape(Rectangle())
