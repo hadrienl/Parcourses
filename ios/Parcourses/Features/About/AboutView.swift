@@ -1,19 +1,17 @@
 import SwiftUI
 
-/// À propos : attribution des données, confidentialité, suppression des données, version.
+/// À propos : attribution des données, confidentialité, version. Rien sur le compte (#108) : l'adresse, le prénom et
+/// la déconnexion sont dans l'écran Compte. Seul un compte anonyme, qui n'a pas d'écran Compte, trouve ici « Vos
+/// données » (#68).
 struct AboutView: View {
   @Environment(\.dismiss) private var dismiss
   /// Absent dans les aperçus et les tests sans app : la section « Vos données » est alors masquée.
   @Environment(AccountDeletion.self) private var deletion: AccountDeletion?
-  /// Absent sans serveur, dans les aperçus et les tests : la section « Compte » est masquée.
+  /// Absent sans serveur, dans les aperçus et les tests : le texte de confidentialité est celui d'un compte anonyme.
   @Environment(AccountSession.self) private var account: AccountSession?
   @State private var confirmsDeletion = false
-  @State private var accountPrompts = AccountPrompts()
   /// Lu à l'ouverture de la confirmation : une visite ouverte ajoute une phrase.
   @State private var interruptsShopping = false
-  /// Nature du compte supprimé, lue à l'ouverture de la confirmation : la purge remet `account.kind` à zéro avant
-  /// le message de fin.
-  @State private var deletesEmailAccount = false
 
   var body: some View {
     NavigationStack {
@@ -48,7 +46,7 @@ struct AboutView: View {
             Text(AboutTexts.retention(isEmailAccount: isEmailAccount))
               .accessibilityIdentifier("aboutRetention")
           }
-          // Exigé par l'App Review (5.1.1(i)), même dans un build sans serveur.
+          // Exigé par l'App Review (5.1.1(i)), pour tous les comptes, même dans un build sans serveur (lot 87.8).
           if let url = PrivacyLinks.policy {
             Link(destination: url) {
               Text("Politique de confidentialité").touchTarget()
@@ -59,11 +57,11 @@ struct AboutView: View {
         } header: {
           Text("Confidentialité")
         }
-        if let account, account.isAvailable {
-          AccountSection(account: account, isBlocked: isBlocking, prompts: $accountPrompts)
-        }
-        if let deletion {
-          yourData(deletion)
+        if let deletion, !isEmailAccount {
+          YourDataSection(deletion: deletion, isEmailAccount: false, isBlocked: isBlocking) {
+            interruptsShopping = deletion.interruptsShopping
+            confirmsDeletion = true
+          }
         }
         Section {
           LabeledContent("Version", value: Self.version)
@@ -78,20 +76,16 @@ struct AboutView: View {
             .accessibilityIdentifier("closeAbout")
         }
       }
-      .alert("Supprimer toutes vos données ?", isPresented: $confirmsDeletion) {
-        Button("Supprimer", role: .destructive) {
-          guard let deletion else { return }
-          Task { await deletion.delete() }
-        }
-        .accessibilityIdentifier("confirmDeletion")
-        Button("Annuler", role: .cancel) {}
-          .accessibilityIdentifier("cancelDeletion")
-      } message: {
-        Text(confirmationMessage)
-      }
+      .accountDeletionConfirmation(
+        $confirmsDeletion, deletion: deletion,
+        message: AccountDeletionTexts.confirmation(
+          deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: false,
+          interruptsShopping: interruptsShopping))
     }
-    .accountDeletionPresentation(deletion, isEmailAccount: deletesEmailAccount)
-    .accountPrompts($accountPrompts, account: account)
+    // « Vos données » n'est ici que pour un compte anonyme : un compte e-mail supprime ses données depuis Compte.
+    .accountDeletionPresentation(deletion, isEmailAccount: false)
+    // Purge de déconnexion en cours ou en échec (« Continuer sans compte », reprise au lancement) : À propos ouvert
+    // par-dessus Mes listes porte le voile et l'alerte, que Mes listes masque alors.
     .signOutFailurePresentation(account)
     .overlay {
       if account?.isSigningOut == true { SignOutVeil() }
@@ -100,40 +94,13 @@ struct AboutView: View {
     .interactiveDismissDisabled(isBlocking)
   }
 
-  private func yourData(_ deletion: AccountDeletion) -> some View {
-    Section {
-      Text(AboutTexts.yourData(deletesServerData: deletion.deletesServerData, isEmailAccount: isEmailAccount))
-        .accessibilityIdentifier("aboutYourData")
-      Button(role: .destructive) {
-        interruptsShopping = deletion.interruptsShopping
-        deletesEmailAccount = isEmailAccount
-        confirmsDeletion = true
-      } label: {
-        Text("Supprimer mes données…")
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .touchTarget()
-      }
-      .disabled(isBlocking)
-      .accessibilityHint("Demande une confirmation avant d'effacer")
-      .accessibilityIdentifier("deleteMyData")
-    } header: {
-      Text("Vos données")
-    }
-  }
-
   /// Suppression ou déconnexion en cours, ou doute sans réponse : rien ne ferme l'écran sans un choix explicite.
   private var isBlocking: Bool {
     deletion?.status == .deleting || deletion?.status == .failed(.unknown) || account?.isSigningOut == true
   }
 
-  private var isEmailAccount: Bool { account?.kind == .email }
-
-  /// Textes de #68 §5.2, §5.7 et du lot 87.8 de #87.
-  private var confirmationMessage: String {
-    AboutTexts.confirmation(
-      deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: deletesEmailAccount,
-      interruptsShopping: interruptsShopping)
-  }
+  /// Sans serveur, pas d'écran Compte : « Vos données » reste ici, quel que soit le drapeau `account.kind`.
+  private var isEmailAccount: Bool { account?.isAvailable == true && account?.kind == .email }
 
   private static var version: String {
     let info = Bundle.main.infoDictionary

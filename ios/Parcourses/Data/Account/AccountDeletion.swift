@@ -60,7 +60,8 @@ final class AccountDeletion {
     /// Compte supprimé sur le serveur (ou build sans serveur) et appareil purgé. `acknowledge()` reconstruit l'app.
     case deleted
     /// Pas de session sur l'appareil, ou celle d'un autre compte que celui à supprimer : le compte serveur est hors
-    /// d'atteinte. L'appareil est purgé ; le serveur supprimera le compte après 365 jours sans utilisation.
+    /// d'atteinte. L'appareil est purgé. Un compte anonyme sera supprimé du serveur après 365 jours sans utilisation ;
+    /// un compte e-mail, jamais purgé pour inactivité, seulement sur demande écrite (lot 87.8).
     case deletedFromDevice
   }
 

@@ -220,25 +220,25 @@ class AccountDeletionViewModel(
 }
 
 /**
- * Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. [emailAccount] : le
- * compte (adresse et prénom) part aussi, au lieu de l'identifiant anonyme.
+ * Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. [isEmailAccount] :
+ * dans l'écran Compte, l'adresse et le prénom partent aussi (mêmes textes qu'iOS, `AccountDeletionTexts`).
  */
 @Composable
 internal fun AccountDeletionContent(
     state: AccountDeletionUiState,
     actions: AccountDeletionActions,
-    emailAccount: Boolean = false,
+    isEmailAccount: Boolean = false,
 ) {
     val destructive = Ticket.colors.destructive
     Column {
-        val body =
+        val intro =
             when {
                 state.localOnly -> R.string.about_account_body_local
-                emailAccount -> R.string.about_account_body_email
+                isEmailAccount -> R.string.about_account_body_email
                 else -> R.string.about_account_body
             }
         Text(
-            stringResource(body),
+            stringResource(intro),
             style = MaterialTheme.typography.bodyMedium,
             color = Ticket.colors.ink,
             modifier = Modifier.fillMaxWidth().padding(horizontal = TicketDimens.spaceM, vertical = 2.dp),
@@ -264,7 +264,7 @@ internal fun AccountDeletionContent(
                     val body =
                         when {
                             state.localOnly -> R.string.about_account_confirm_body_local
-                            emailAccount -> R.string.about_account_confirm_body_email
+                            isEmailAccount -> R.string.about_account_confirm_body_email
                             else -> R.string.about_account_confirm_body
                         }
                     Text(stringResource(body))
@@ -436,9 +436,9 @@ private fun Unconfirmed(
 /** Opacité Material d'un élément désactivé. */
 private const val DISABLED_ALPHA = 0.38f
 
-internal const val TAG_ACCOUNT_DELETE = "about-account-delete"
-internal const val TAG_ACCOUNT_DELETE_CONFIRM = "about-account-delete-confirm"
-internal const val TAG_ACCOUNT_DELETE_CANCEL = "about-account-delete-cancel"
+internal const val TAG_ACCOUNT_DELETE = "account-delete"
+internal const val TAG_ACCOUNT_DELETE_CONFIRM = "account-delete-confirm"
+internal const val TAG_ACCOUNT_DELETE_CANCEL = "account-delete-cancel"
 internal const val TAG_ACCOUNT_RUNNING = "account-deletion-running"
 internal const val TAG_ACCOUNT_MESSAGE = "account-deletion-message"
 internal const val TAG_ACCOUNT_OK = "account-deletion-ok"

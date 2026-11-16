@@ -14,7 +14,6 @@ import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
-import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -37,8 +36,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 
 /** Confirmation et états de « Supprimer mes données » (#68) : rien sans confirmation, une seule suppression. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -231,27 +228,6 @@ class AccountDeletionViewModelTest {
             controller.acknowledge()
             assertEquals(AccountDeletionState.Idle, controller.state.value)
         }
-
-    /**
-     * Passerelle sans session locale (C3) : le serveur est hors d'atteinte, seul l'appareil est purgé. Les erreurs
-     * passent par la continuation : levées par le proxy, ces exceptions vérifiées seraient enveloppées.
-     */
-    private fun gatewayWithoutSession(): RemoteGateway =
-        java.lang.reflect.Proxy.newProxyInstance(
-            RemoteGateway::class.java.classLoader,
-            arrayOf(RemoteGateway::class.java),
-        ) { _, method, args ->
-            val failure: Throwable =
-                when (method.name) {
-                    "sessionAccountId" -> RemoteError.Unauthorized(noLocalSession = true)
-                    "ensureSession" -> RemoteError.Network(notSent = true)
-                    "signOutLocally" -> return@newProxyInstance Unit
-                    else -> throw UnsupportedOperationException(method.name)
-                }
-            @Suppress("UNCHECKED_CAST")
-            (args.last() as Continuation<Any?>).resumeWith(Result.failure(failure))
-            COROUTINE_SUSPENDED
-        } as RemoteGateway
 
     private suspend fun deletedFromDevice(kind: AccountKind): AccountDeletionState {
         val kindFlag = InMemoryAccountKindFlag().apply { write(kind) }

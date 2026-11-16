@@ -499,6 +499,37 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     auditSharing(arguments: [], suffix: "-sombre", dark: true)
   }
 
+  /// Écran Compte d'un compte e-mail (#108). Mes listes avec la pastille du compte est auditée par `auditSharing`
+  /// (« invitation » : Léa, compte e-mail).
+  @MainActor
+  private func auditAccount(arguments: [String], suffix: String, dark: Bool = false) {
+    let app = launch(
+      reset: true, launchArguments: arguments, dark: dark, settings: ["PARCOURSES_TEST_SHARING": "invitation"])
+    XCTAssertTrue(app.descendants(matching: .any)["invitationCard"].waitForExistence(timeout: 15))
+    let account = app.buttons["account"]
+    XCTAssertTrue(account.waitForExistence(timeout: 15))
+    account.tap()
+    XCTAssertTrue(app.navigationBars["Compte"].waitForExistence(timeout: 15))
+    // En AX5, « Se déconnecter » est sous le pli : l'adresse, en tête, suffit à dire que l'écran est prêt.
+    XCTAssertTrue(app.descendants(matching: .any)["accountEmail"].waitForExistence(timeout: 15))
+    audit(app, "compte\(suffix)", modal: true)
+  }
+
+  @MainActor
+  func testAuditAccount() {
+    auditAccount(arguments: [], suffix: "")
+  }
+
+  @MainActor
+  func testAuditAccountAX5() {
+    auditAccount(arguments: Self.ax5, suffix: "-ax5")
+  }
+
+  @MainActor
+  func testAuditAccountDark() {
+    auditAccount(arguments: [], suffix: "-sombre", dark: true)
+  }
+
   /// Mode sombre : teinte, fonds opaques et textes secondaires sur fond sombre.
   @MainActor
   func testAuditListsDark() {

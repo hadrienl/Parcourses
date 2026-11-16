@@ -15,8 +15,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import fr.parcourses.core.data.account.AccountState
-import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,8 +25,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * À propos (#87, lot 87.8) : lien vers la politique de confidentialité, et textes sur les données selon le type de
- * compte (identifiant anonyme ou compte e-mail).
+ * À propos (#87, lot 87.8) : lien vers la politique de confidentialité, et textes sur les données d'un compte anonyme.
+ * Le compte e-mail, dont « Vos données » est dans l'écran Compte (#108), est couvert par [AccountScreenTest].
  */
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class)
@@ -47,17 +45,13 @@ class AboutScreenTest {
         }
 
     private fun show(
-        kind: AccountKind,
         localOnly: Boolean = false,
         confirming: Boolean = false,
     ) {
-        val account = AccountUiState(visible = !localOnly, account = AccountState(kind))
         val deletion = AccountDeletionUiState(confirming = confirming, localOnly = localOnly)
         rule.setContent {
             CompositionLocalProvider(LocalUriHandler provides uriHandler) {
-                ParcoursesTheme {
-                    AboutScreen("1.0 (1)", {}, account = account, accountDeletion = deletion)
-                }
+                ParcoursesTheme { AboutScreen("1.0 (1)", {}, accountDeletion = deletion) }
             }
         }
     }
@@ -72,7 +66,7 @@ class AboutScreenTest {
 
     @Test
     fun thePrivacyPolicyOpensInTheBrowserWithAnExplicitLabel() {
-        show(AccountKind.Anonymous)
+        show()
 
         rule
             .onNodeWithTag(TAG_PRIVACY_POLICY)
@@ -91,7 +85,7 @@ class AboutScreenTest {
 
     @Test
     fun thePrivacyPolicyStaysWithoutServer() {
-        show(AccountKind.Anonymous, localOnly = true)
+        show(localOnly = true)
 
         rule.onNodeWithTag(TAG_PRIVACY_POLICY).performScrollTo().assertIsDisplayed()
         // Sans serveur, rien n'en part : pas de phrase sur la suppression côté serveur.
@@ -101,48 +95,27 @@ class AboutScreenTest {
 
     @Test
     fun anAnonymousAccountIsDescribedByItsIdentifier() {
-        show(AccountKind.Anonymous)
+        show()
 
         assertShown(R.string.about_privacy_data)
         assertShown(R.string.about_privacy_deletion)
         assertShown(R.string.about_account_body)
         assertAbsent(R.string.about_privacy_data_email)
-        assertAbsent(R.string.about_privacy_deletion_email)
+        assertAbsent(R.string.about_privacy_deletion_account)
         assertAbsent(R.string.about_account_body_email)
     }
 
     @Test
-    fun anEmailAccountIsDescribedByItsAddressAndNameWithoutTheInactivityPurge() {
-        show(AccountKind.Email)
-
-        assertShown(R.string.about_privacy_data_email)
-        assertShown(R.string.about_privacy_deletion_email)
-        assertShown(R.string.about_account_body_email)
-        assertAbsent(R.string.about_privacy_data)
-        assertAbsent(R.string.about_privacy_deletion)
-        assertAbsent(R.string.about_account_body)
-    }
-
-    @Test
-    fun theConfirmationNamesTheEmailAccountAndTheSharedLists() {
-        show(AccountKind.Email, confirming = true)
-
-        val body = text(R.string.about_account_confirm_body_email)
-        rule.onNodeWithText(body).assertIsDisplayed()
-        assertTrue(body.contains("ainsi que votre compte (adresse e-mail et prénom)."))
-        assertTrue(body.contains(SHARED_LISTS))
-    }
-
-    @Test
     fun theConfirmationOfAnAnonymousAccountAlsoMentionsTheSharedLists() {
-        show(AccountKind.Anonymous, confirming = true)
+        show(confirming = true)
 
         val body = text(R.string.about_account_confirm_body)
         rule.onNodeWithText(body).assertIsDisplayed()
         assertTrue(body.contains("ainsi que votre identifiant anonyme. $SHARED_LISTS"))
     }
 
-    private companion object {
+    internal companion object {
+        /** #87, lot 87.8 : à la suppression, une liste partagée change de propriétaire au lieu de disparaître. */
         const val SHARED_LISTS = "Une liste que vous partagez avec d'autres passe à l'un de ses membres."
     }
 }

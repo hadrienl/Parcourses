@@ -1,7 +1,8 @@
 import XCTest
 
 /// Écran À propos (#87, lot 87.8) : lien vers la politique de confidentialité, et textes qui suivent la nature du
-/// compte. Avec serveur, le compte vient de `UITestSharingGateway` (`owner` : e-mail, `anonymous` : anonyme).
+/// compte, jusqu'à la suppression depuis l'écran Compte d'un compte e-mail (#108). Avec serveur, le compte vient de
+/// `UITestSharingGateway` (`owner` : e-mail, `anonymous` : anonyme).
 nonisolated final class AboutUITests: ParcoursesUITestCase {
   private static let anonymousRetention =
     "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
@@ -20,6 +21,8 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     capture(app, "a-propos-sans-serveur")
   }
 
+  /// Compte e-mail (#108) : À propos garde le lien et renvoie vers l'écran Compte, sans parler de purge ; la
+  /// suppression, dans Compte, nomme le compte et dit ce que deviennent les listes partagées.
   @MainActor
   func testEmailAccountIsNeverPurgedForInactivity() {
     let app = launchWithServer("owner")
@@ -27,20 +30,30 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     XCTAssertTrue(policyLink(app).waitForExistence(timeout: 15))
     let retention = app.staticTexts["aboutRetention"]
     reveal(retention, in: app)
-    XCTAssertEqual(retention.label, "Vous pouvez supprimer ces données à tout moment ci-dessous.")
-    let yourData = app.staticTexts["aboutYourData"]
+    XCTAssertEqual(retention.label, "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte.")
+    XCTAssertFalse(app.buttons["deleteMyData"].exists)
+    XCTAssertFalse(app.staticTexts["yourDataDescription"].exists)
+    capture(app, "a-propos-compte-email")
+    app.buttons["closeAbout"].tap()
+    XCTAssertTrue(app.navigationBars["À propos"].waitForNonExistence(timeout: 15))
+
+    let account = app.buttons["account"]
+    XCTAssertTrue(account.waitForExistence(timeout: 15))
+    account.tap()
+    XCTAssertTrue(app.navigationBars["Compte"].waitForExistence(timeout: 15))
+    let yourData = app.staticTexts["yourDataDescription"]
     reveal(yourData, in: app)
     XCTAssertEqual(
       yourData.label,
       "Vous pouvez effacer vos listes, vos visites et votre compte (adresse e-mail et prénom), sur cet appareil et sur nos serveurs."
     )
-    capture(app, "a-propos-compte-email")
+    capture(app, "compte-email-vos-donnees")
     let confirmation = openConfirmation(app)
     XCTAssertTrue(
       confirmation.staticTexts[
         "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
       ].exists)
-    capture(app, "a-propos-compte-email-confirmation")
+    capture(app, "compte-email-confirmation")
     confirmation.buttons["Annuler"].firstMatch.tap()
     XCTAssertTrue(confirmation.waitForNonExistence(timeout: 15))
   }
@@ -53,7 +66,7 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     let retention = app.staticTexts["aboutRetention"]
     reveal(retention, in: app)
     XCTAssertEqual(retention.label, Self.anonymousRetention)
-    let yourData = app.staticTexts["aboutYourData"]
+    let yourData = app.staticTexts["yourDataDescription"]
     reveal(yourData, in: app)
     XCTAssertEqual(
       yourData.label,
@@ -93,7 +106,7 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
   }
 
-  /// « Supprimer mes données… » depuis l'écran À propos ouvert : renvoie l'alerte de confirmation.
+  /// « Supprimer mes données… » depuis l'écran ouvert (À propos ou Compte) : renvoie l'alerte de confirmation.
   @MainActor
   private func openConfirmation(_ app: XCUIApplication) -> XCUIElement {
     let button = app.buttons["deleteMyData"]
