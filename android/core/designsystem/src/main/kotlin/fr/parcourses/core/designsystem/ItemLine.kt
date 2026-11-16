@@ -3,7 +3,6 @@ package fr.parcourses.core.designsystem
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -18,7 +17,13 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextDecoration
@@ -70,9 +75,11 @@ fun TicketCheckBox(
 }
 
 /**
- * Nom, pointillés, quantité : la ligne d'un ticket de caisse. Le nom prend la place dont il a besoin (sur plusieurs
- * lignes s'il le faut), la quantité garde la sienne ; les pointillés comblent l'écart. En texte très agrandi, les
- * pointillés disparaissent et la quantité passe sous le nom.
+ * Nom, pointillés, quantité : la ligne d'un ticket de caisse. Le nom et la quantité tiennent sur une ligne : les
+ * pointillés comblent l'écart. Sinon (#110), la quantité reste une colonne à droite qui ne se coupe jamais, alignée sur
+ * la première ligne de base du nom, et seul le nom se replie, sans pointillés ; si cette colonne dépasse
+ * [MAX_QUANTITY_SHARE] de la largeur (quantité très longue, texte très agrandi), la quantité passe sous le nom.
+ * Même règle qu'iOS (`LeaderLineLayout`).
  */
 @Composable
 fun ItemLine(
@@ -84,7 +91,6 @@ fun ItemLine(
     decoration: TextDecoration? = null,
 ) {
     val colors = Ticket.colors
-    if (isLargeText()) return StackedItemLine(name, quantity, style, color, modifier, decoration)
     val leader = quantity != null
     val gap = TicketDimens.spaceXs
     Layout(
@@ -107,35 +113,97 @@ fun ItemLine(
             if (quantity != null) Text(quantity, style = TicketType.quantity, color = colors.inkMuted)
         },
     ) { measurables, constraints ->
-        val gapPx = gap.roundToPx()
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val quantityPlaceable = if (quantity != null) measurables.last().measure(loose) else null
-        val quantityWidth = quantityPlaceable?.let { it.width + gapPx } ?: 0
-        val minLeader = if (leader) gapPx * 2 else 0
-        val nameMax = (constraints.maxWidth - quantityWidth - minLeader).coerceAtLeast(0)
-        val namePlaceable = measurables[0].measure(loose.copy(maxWidth = nameMax))
-        val leaderWidth = (constraints.maxWidth - namePlaceable.width - quantityWidth - gapPx).coerceAtLeast(0)
-        val leaderPlaceable =
-            if (leader) {
-                measurables[1].measure(
-                    Constraints.fixedWidth(leaderWidth).copy(maxHeight = loose.maxHeight),
-                )
-            } else {
-                null
-            }
-        val height = maxOf(namePlaceable.height, quantityPlaceable?.height ?: 0)
-        layout(constraints.maxWidth, height) {
-            namePlaceable.placeRelative(0, (height - namePlaceable.height) / 2)
-            leaderPlaceable?.placeRelative(
-                namePlaceable.width + gapPx,
-                (height - leaderPlaceable.height) / 2,
-            )
-            quantityPlaceable?.placeRelative(
-                constraints.maxWidth - quantityPlaceable.width,
-                (height - quantityPlaceable.height) / 2,
-            )
+        measureItemLine(measurables, constraints, gap.roundToPx(), leader)
+    }
+}
+
+/** Mesure et place nom, pointillés et quantité : sur une ligne, nom replié, ou quantité dessous (voir [ItemLine]). */
+private fun MeasureScope.measureItemLine(
+    measurables: List<Measurable>,
+    constraints: Constraints,
+    gapPx: Int,
+    leader: Boolean,
+): MeasureResult {
+    val loose = constraints.copy(minWidth = 0, minHeight = 0)
+    val quantity = if (leader) measurables.last().measure(loose) else null
+    val quantityWidth = quantity?.let { it.width + gapPx } ?: 0
+    val nameMax = (constraints.maxWidth - quantityWidth - if (leader) gapPx * 2 else 0).coerceAtLeast(0)
+    val fitsOnOneLine = measurables[0].maxIntrinsicWidth(Constraints.Infinity) <= nameMax
+    return when {
+        fitsOnOneLine -> {
+            val leaderMeasurable = if (leader) measurables[1] else null
+            val name = measurables[0].measure(loose.copy(maxWidth = nameMax))
+            placeInline(name, leaderMeasurable, quantity, gapPx, loose)
+        }
+
+        quantity != null && quantityWidth <= constraints.maxWidth * MAX_QUANTITY_SHARE -> {
+            val nameWidth = (constraints.maxWidth - quantityWidth).coerceAtLeast(0)
+            val name = measurables[0].measure(loose.copy(maxWidth = nameWidth))
+            placeWrapped(name, quantity, constraints.maxWidth)
+        }
+
+        else -> {
+            placeStacked(measurables[0].measure(loose), quantity, constraints.maxWidth)
         }
     }
+}
+
+/** Tout sur une ligne : les pointillés comblent l'écart entre le nom et la quantité. */
+private fun MeasureScope.placeInline(
+    name: Placeable,
+    leaderMeasurable: Measurable?,
+    quantity: Placeable?,
+    gapPx: Int,
+    loose: Constraints,
+): MeasureResult {
+    val width = loose.maxWidth
+    val quantityWidth = quantity?.let { it.width + gapPx } ?: 0
+    val leaderWidth = (width - name.width - quantityWidth - gapPx).coerceAtLeast(0)
+    val leader = leaderMeasurable?.measure(Constraints.fixedWidth(leaderWidth).copy(maxHeight = loose.maxHeight))
+    val height = maxOf(name.height, quantity?.height ?: 0)
+    return layout(width, height) {
+        name.placeRelative(0, (height - name.height) / 2)
+        leader?.placeRelative(name.width + gapPx, (height - leader.height) / 2)
+        quantity?.placeRelative(width - quantity.width, (height - quantity.height) / 2)
+    }
+}
+
+/** Nom replié à gauche ; quantité en colonne à droite, alignée sur sa première ligne de base. */
+private fun MeasureScope.placeWrapped(
+    name: Placeable,
+    quantity: Placeable,
+    width: Int,
+): MeasureResult {
+    val quantityY = baselineOffset(name, quantity)
+    val height = maxOf(name.height, quantityY + quantity.height)
+    return layout(width, height) {
+        name.placeRelative(0, 0)
+        quantity.placeRelative(width - quantity.width, quantityY)
+    }
+}
+
+/** Quantité sous le nom, qui garde toute la largeur. */
+private fun MeasureScope.placeStacked(
+    name: Placeable,
+    quantity: Placeable?,
+    width: Int,
+): MeasureResult {
+    val height = name.height + (quantity?.height ?: 0)
+    return layout(width, height) {
+        name.placeRelative(0, 0)
+        quantity?.placeRelative(0, name.height)
+    }
+}
+
+/** Haut de la quantité qui aligne sa ligne de base sur la première ligne de base du nom. */
+private fun baselineOffset(
+    name: Placeable,
+    quantity: Placeable,
+): Int {
+    val nameBaseline = name[FirstBaseline]
+    val quantityBaseline = quantity[FirstBaseline]
+    if (nameBaseline == AlignmentLine.Unspecified || quantityBaseline == AlignmentLine.Unspecified) return 0
+    return (nameBaseline - quantityBaseline).coerceAtLeast(0)
 }
 
 // endregion
@@ -146,18 +214,8 @@ private val CHECK_MARK = floatArrayOf(0.27f, 0.52f, 0.44f, 0.69f, 0.74f, 0.34f)
 /** Hauteur des pointillés, près de la ligne de base du nom. */
 private const val LEADER_BASELINE = 0.7f
 
-/** Texte très agrandi : la quantité passe sous le nom, qui garde toute la largeur. */
-@Composable
-private fun StackedItemLine(
-    name: String,
-    quantity: String?,
-    style: TextStyle,
-    color: Color,
-    modifier: Modifier,
-    decoration: TextDecoration?,
-) {
-    Column(modifier) {
-        Text(name, style = style, color = color, textDecoration = decoration)
-        if (quantity != null) Text(quantity, style = TicketType.quantity, color = Ticket.colors.inkMuted)
-    }
-}
+/**
+ * Part de la largeur que la quantité peut prendre à droite d'un nom replié (#110). Au-delà, le nom n'aurait plus que
+ * quelques caractères par ligne : la quantité passe dessous.
+ */
+private const val MAX_QUANTITY_SHARE = 0.4f

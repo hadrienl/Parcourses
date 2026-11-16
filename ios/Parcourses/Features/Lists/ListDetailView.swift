@@ -259,8 +259,8 @@ struct ListDetailView: View {
   }
 
   /// Toucher coche, glisser supprime, maintenir ouvre le panneau de l'article (#110). Pendant l'appui, la case et le
-  /// texte s'enfoncent (pas le fil) ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au relâcher de l'appui
-  /// long.
+  /// texte s'enfoncent (pas le fil) ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au
+  /// relâcher de l'appui long.
   private func editableRow(_ row: ItemRow, place: ThreadPlace) -> some View {
     let pressed = pressedRow == row.id
     return line(row, place: place, readOnly: false, pressed: pressed)

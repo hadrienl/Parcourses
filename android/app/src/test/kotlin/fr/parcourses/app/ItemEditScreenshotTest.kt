@@ -26,8 +26,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Captures de référence de la quantité d'un article (#110) : l'astuce au-dessus des articles, et le panneau de
- * l'article (feuille modale, capturée avec sa fenêtre), en clair, en sombre et avec la police à 200 %. Même
+ * Captures de référence de la quantité d'un article (#110) : l'astuce au-dessus des articles, le panneau de l'article
+ * (feuille modale, capturée avec sa fenêtre), et les lignes à libellé ou quantité longs, en clair, en sombre et avec la
+ * police à 200 %. Même
  * fonctionnement que [ScreenshotTest].
  */
 @RunWith(AndroidJUnit4::class)
@@ -102,6 +103,29 @@ class ItemEditScreenshotTest {
             isLoaded = true,
         )
 
+    /**
+     * Libellé long, quantité longue, et les deux (#110) : seul le libellé se replie, la quantité reste à droite sur
+     * sa première ligne ; une quantité qui prendrait trop de place passe dessous.
+     */
+    private val longLines =
+        ListDetailUiState(
+            name = "Courses de la semaine",
+            sections =
+                listOf(
+                    ItemSection(
+                        "dairy",
+                        "Crèmerie, œufs, ultra-frais",
+                        listOf(
+                            item("1", "Lait demi-écrémé bio de montagne en bouteille de verre", "2", "dairy"),
+                            item("2", "Yaourts", "6x33cl", "dairy"),
+                            item("3", "Fromage blanc fermier au lait cru de vache", "1,5 kg", "dairy"),
+                            item("4", "Beurre", "2 plaquettes de 250 g doux", "dairy"),
+                        ),
+                    ),
+                ),
+            isLoaded = true,
+        )
+
     private val withTip = detail.copy(showsQuantityTip = true)
     private val editing = detail.copy(editing = ItemEditTarget("4", "Farine de blé T65", "500 g"))
 
@@ -117,6 +141,12 @@ class ItemEditScreenshotTest {
 
     @Test
     fun tipLarge() = capture("list-detail-tip-200", fontScale = 2f) { Detail(withTip) }
+
+    @Test
+    fun longLinesLight() = capture("item-lines-light") { Detail(longLines) }
+
+    @Test
+    fun longLinesLarge() = capture("item-lines-200", fontScale = 2f) { Detail(longLines) }
 
     @Test
     fun sheetLight() = captureScreen("item-edit-light") { Detail(editing) }

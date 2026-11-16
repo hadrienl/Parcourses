@@ -49,11 +49,49 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     XCTAssertTrue(row(app, "lait, 3", "non coché").waitForExistence(timeout: 15))
     XCTAssertFalse(row(app, "lait, 2 kg", "non coché").exists)
     XCTAssertFalse(row(app, "lait", "non coché").exists)
-    capture(app, "3-quantite-sous-le-nom")
+    capture(app, "3-saisie-sur-un-article-existant")
 
     // Toucher coche toujours.
     row(app, "lait, 3", "non coché").tap()
     XCTAssertTrue(row(app, "lait, 3", "coché").waitForExistence(timeout: 15))
+  }
+
+  /// Libellé long, quantité longue, les deux (#110) : seul le libellé se replie, la quantité reste à droite sur sa
+  /// première ligne (ou passe dessous si elle prendrait trop de place). Captures en taille par défaut et en AX5.
+  @MainActor
+  func testLongLabelsAndQuantitiesCaptures() {
+    let sizes: [(arguments: [String], suffix: String)] = [
+      ([], "defaut"),
+      (["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"], "ax5"),
+    ]
+    for size in sizes {
+      let app = launch(reset: true, launchArguments: size.arguments)
+      XCTAssertTrue(app.buttons["Nouvelle liste"].waitForExistence(timeout: 15))
+      app.buttons["Nouvelle liste"].tap()
+      let name = app.alerts.textFields.firstMatch
+      XCTAssertTrue(name.waitForExistence(timeout: 15))
+      type("Semaine", into: name, app)
+      app.alerts.buttons["Créer"].tap()
+      let entry = app.textFields["quickEntry"]
+      XCTAssertTrue(entry.waitForExistence(timeout: 15))
+      for text in [
+        "2 lait demi-écrémé bio de montagne en bouteille de verre", "6x33cl bière blonde",
+        "1,5 kg fromage blanc fermier au lait cru", "yaourts",
+      ] {
+        if !entry.hasFocus { entry.tap() }
+        type(text + "\n", into: entry, app)
+      }
+      // En AX5, les lignes débordent de l'écran : seule la capture compte.
+      if size.arguments.isEmpty {
+        XCTAssertTrue(row(app, "yaourts", "non coché").waitForExistence(timeout: 15))
+        XCTAssertTrue(row(app, "lait demi-écrémé bio de montagne en bouteille de verre, 2", "non coché").exists)
+        XCTAssertTrue(row(app, "fromage blanc fermier au lait cru, 1,5 kg", "non coché").exists)
+      } else {
+        Thread.sleep(forTimeInterval: 1)
+      }
+      capture(app, "lignes-longues-\(size.suffix)")
+      app.terminate()
+    }
   }
 
   @MainActor

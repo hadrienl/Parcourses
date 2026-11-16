@@ -395,8 +395,8 @@ private fun SectionHeader(
 /**
  * Une ligne : tout le rang est la zone de coche (cible d'au moins 48 dp), l'état se lit sans la couleur (case et
  * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ». Un appui long ouvre
- * le panneau de l'article (#110) : la ligne s'enfonce pendant l'appui, une vibration marque le déclenchement ; TalkBack
- * l'offre aussi en action « Modifier la quantité ».
+ * le panneau de l'article (#110) : la case et le texte s'enfoncent pendant l'appui (pas le fil), une vibration marque
+ * le déclenchement ; TalkBack l'offre aussi en action « Modifier la quantité ».
  */
 @Suppress("LongMethod") // Une ligne : gestes, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
@@ -447,7 +447,7 @@ private fun ItemRowView(
                     .graphicsLayer {
                         scaleX = scale.value
                         scaleY = scale.value
-                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        transformOrigin = PRESS_ORIGIN
                     }.testTag(TAG_ITEM_CONTENT),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -594,7 +594,11 @@ internal const val TAG_ITEMS = "items"
 internal const val TAG_SUGGESTIONS = "suggestions"
 internal const val TAG_QUICK_ENTRY = "quickEntry"
 internal const val TAG_ITEM_CONTENT = "itemContent"
+
 internal const val TAG_ADD = "add"
 internal const val TAG_SHOP = "startShopping"
 internal const val TAG_QUANTITY_TIP = "quantityTip"
 internal const val TAG_QUANTITY_TIP_CLOSE = "quantityTipClose"
+
+/** Origine de l'enfoncement de la case et du texte : leur bord gauche, à mi-hauteur, côté fil. */
+private val PRESS_ORIGIN = TransformOrigin(0f, 0.5f)
