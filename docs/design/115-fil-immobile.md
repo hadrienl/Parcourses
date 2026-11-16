@@ -1,0 +1,250 @@
+# #115 : fil du ticket immobile
+
+> Conception seule, à valider avant tout code. Base de lecture : `main` (4d0f5fd) et la branche de la PR #112
+> (`feat/item-quantity-edit`), qui a déjà rendu l'appui long de l'écran Liste conforme.
+> Maquette animée : [`design/fil-immobile.html`](../../design/fil-immobile.html) (« Aujourd'hui » et « Proposé » côte
+> à côte : glisser, coche, tri, appui long ; ralenti et mouvement réduit).
+
+## 1. La règle
+
+> « Le trait ne doit jamais bouger, sinon ça casse la ligne. »
+
+Le **fil** du ticket regroupe le trait vertical, sa partie parcourue (accent), ses perles d'article et ses nœuds de
+rayon. Il reste **immobile** en toutes circonstances : glisser (supprimer, « Pas trouvé », cocher sur Android), coche,
+réordonnancement du mode courses, insertion et retrait d'une ligne, changement de hauteur d'une ligne, appui long et
+menu contextuel. **Seuls la case, le libellé et la quantité bougent.**
+
+Ce que « immobile » veut dire, précisément :
+
+- le trait ne change **jamais** d'abscisse et n'est **jamais** interrompu, recouvert ou atténué par morceaux ;
+- une perle ou un nœud ne quitte jamais le trait. Quand l'ordre change, il peut **glisser le long du trait** avec sa
+  ligne (abscisse fixe) : c'est le seul déplacement admis, et il est vertical (voir la question ouverte Q1) ;
+- les bouts du trait suivent le premier et le dernier marqueur : le trait s'allonge ou se raccourcit par un bout, il
+  ne se déplace pas ;
+- la partie parcourue continue de « couler » le long du trait quand l'article suivant change : c'est une couleur qui
+  avance, pas un mouvement du trait.
+
+## 2. Constat
+
+### 2.1 iOS (SwiftUI, `List`)
+
+| Mécanisme | Où | Effet sur le fil |
+| --- | --- | --- |
+| `ThreadRow` dessine les deux tronçons et la perle dans le fond (`backgroundPreferenceValue`) **du contenu** de chaque ligne ; la perle se place sur l'ancre de la case (`threadAnchor()`, `anchorPreference`). | `DesignSystem/TicketThread.swift` ; 3 appels : `ListDetailView` (articles), `ShoppingView` (articles), `AisleLine` (rayons, les deux écrans) | Le fil appartient à la ligne : tout ce qui déplace la ligne déplace son morceau de fil. |
+| `.swipeActions` : UIKit fait glisser la `contentView` de la cellule ; seul `listRowBackground` reste. | `ListDetailView` (Supprimer, glisser partiel) ; `ShoppingView` (Pas trouvé, **glisser complet**) ; `ListsView` (hors fil) | Le tronçon et la perle partent avec le contenu. En glisser complet, le bouton orange s'étend sur toute la largeur de la cellule et **recouvre la gouttière** : même un fil dessiné dans `listRowBackground` disparaîtrait sous lui. |
+| `.contextMenu` sur la ligne du mode courses | `ShoppingView.itemRow` | L'aperçu soulevé est la ligne entière, fil compris : le tronçon se décale et grossit au-dessus du voile. |
+| `Button` en `.buttonStyle(.plain)` | `ShoppingView.itemRow` | Au toucher, iOS atténue tout le libellé du bouton, fil compris : le tronçon pâlit le temps de l'appui (à confirmer sur appareil, c'est le comportement documenté du style). |
+| Tri : `.animation(Motion.reorder, value: lines.map(\.id))` sur la `List` ; UIKit anime déplacements, insertions, retraits et changements de hauteur. | `ShoppingView` | Chaque tronçon voyage avec sa ligne : la partie parcourue (accent) se déplace par morceaux, les lignes qui entrent ou sortent en fondu laissent un tronçon à demi transparent, les drapeaux « premier / dernier » changent d'un coup pendant que les lignes glissent (bout de trait qui dépasse ou manque). |
+| Coche | `CheckBox` (`Motion.check`), `Bead` | Sur place, la coche ne déplace rien. En mode courses, cocher **retire** la ligne (panier) et fait grandir la suivante (`TicketFont.itemNext`) : on retombe dans le cas du tri. |
+| Appui long de l'écran Liste | `ItemLine(pressed:)` (PR #112) | Corrigé : seuls la case et le texte s'enfoncent. Nuance : l'ancre de la perle est lue **après** `scaleEffect` ; sur un libellé replié (case alignée sur la première ligne), la perle peut bouger d'une fraction de point pendant l'appui. |
+| Fonds | `ticketRow(background:)` : `listRowBackground(Palette.paper)` opaque, ou surlignage d'accent de l'article ajouté | Le surlignage couvre aussi la gouttière. |
+
+### 2.2 Android (Compose, `LazyColumn`)
+
+| Mécanisme | Où | Effet sur le fil |
+| --- | --- | --- |
+| `Modifier.thread(piece, style)` dessine tronçons et perle en `drawBehind` **de la ligne** ; perle au centre vertical de la ligne (la case y est centrée aussi). | `core/designsystem/Thread.kt` ; 4 usages sur la branche de #112 : `AisleLine`, `ListDetailScreen.ItemRowView`, `ListDetailSharing.ReadOnlyItemRow`, `ShoppingRows.ItemRowContent` | Même constat qu'iOS : le fil appartient à la ligne. |
+| `SwipeToDismissBox` (droite : cocher, gauche : Pas trouvé ; fond vide, la ligne revient toujours) | `feature/shopping/ShoppingRows.kt` | `.thread` est dans le **contenu** : le fil glisse avec la ligne, dans les deux sens. |
+| `Modifier.animateItem(placement = TicketMotion.reorder, fade in/out)` sur lignes et titres de rayon | `ShoppingScreen.ticketMotion` | Le fil voyage avec chaque élément ; fondus d'entrée et de sortie ; les pointillés (`ThreadStyle.Dashed`, trajet en apprentissage) se décalent d'un élément à l'autre. |
+| Appui long du mode courses : `DropdownMenu`, sans effet de mise à l'échelle | `ShoppingRows.RowMenu` | Rien ne bouge. L'ondulation (`ripple`) couvre toute la ligne, gouttière comprise : un voile passe sur le tronçon. |
+| Écran Liste : ni glisser (corbeille), ni `animateItem` | `ListDetailScreen` | Le fil ne bouge pas aujourd'hui ; appui long corrigé par #112. Seule l'ondulation passe sur le tronçon. |
+| Fonds | `AisleLine` et `ItemRowContent` : `.background(paper)` ou accent translucide (article ajouté) | Opaques par ligne. |
+
+### 2.3 Pourquoi le fil « casse »
+
+Le fil est dessiné **par morceaux, un par ligne**. Deux familles de mouvements en découlent :
+
+1. **Horizontaux** (glisser, soulever, enfoncer) : la ligne bouge en bloc, son morceau avec elle. On les règle en
+   séparant, dans la ligne, une **gouttière** fixe et un **couloir** mobile.
+2. **Verticaux** (tri, insertion, retrait, hauteur qui change) : chaque ligne glisse pour son compte. Tant que le trait
+   est fait de morceaux portés par les lignes, ces morceaux se croisent, se raccordent mal ou s'effacent en fondu. On
+   ne les règle qu'en dessinant le trait **une seule fois**, hors des lignes, ou en renonçant au glissement.
+
+## 3. Vocabulaire commun (iOS et Android, à reporter dans `SYNC.md`)
+
+| Nom | Rôle |
+| --- | --- |
+| `ThreadTrack` | Le trait : une seule ligne verticale par liste, du premier au dernier marqueur, parcourue (accent) jusqu'à la perle suivante. |
+| `ThreadGutter` | Colonne fixe de chaque ligne, à gauche : porte la perle ou le nœud. Jamais décalée, mise à l'échelle ni soulevée. |
+| `RowLane` | Couloir mobile de la ligne : case, libellé, points de conduite, quantité, marque d'auteur. Seule partie qui glisse, s'enfonce ou se soulève. |
+| `threadMarker` | Hauteur de la perle dans la ligne : centre de la case (article) ou du titre (rayon). |
+
+## 4. Architectures possibles
+
+### A. Gouttière fixe dans chaque ligne, tri sans glissement
+
+**Principe.** Chaque ligne garde son morceau de fil, mais dans une `ThreadGutter` qui ne fait pas partie du couloir
+mobile. Le glisser, l'enfoncement et le menu n'agissent que sur `RowLane`. Pour le tri, on supprime le glissement :
+les lignes changent de place d'un coup (comme aujourd'hui en mouvement réduit) et seul le contenu des couloirs passe en
+fondu enchaîné.
+
+- **Perle et ancrage.** Inchangés en pratique : iOS garde l'ancre de la case (mieux : un guide d'alignement, voir B) ;
+  Android garde le centre de ligne.
+- **Glisser.** iOS : impossible avec `.swipeActions`, qui décale toute la cellule et dont le glisser complet recouvre
+  la gouttière : il faut un glisser maison (voir B). Android : `SwipeToDismissBox` descend dans le couloir.
+- **Tri.** Le trait est redessiné d'un coup à sa position finale : il est identique avant et après, donc il ne
+  « bouge » pas, mais perles et nœuds sautent de place. Le geste visuel « cet article a changé de place » disparaît
+  (il reste l'étiquette « ↑ appris » et l'annonce VoiceOver / TalkBack).
+- **Insertion, retrait.** Même règle : pas de fondu sur la gouttière, la ligne apparaît ou disparaît d'un coup.
+- **Coût.** Faible à moyen (glisser maison iOS compris). **Risque.** Faible ; perte du glissement du tri, qui avait
+  été demandé (`motion.reorder`).
+
+### B. Trait unique sous la liste, perles dans une gouttière fixe (recommandée)
+
+**Principe.** Trois couches :
+
+1. `ThreadTrack` : le trait est dessiné **une fois** par liste, derrière les lignes, à abscisse fixe. Il ne connaît
+   que trois hauteurs : premier marqueur, perle suivante, dernier marqueur. Il va de la première à la dernière, en
+   accent jusqu'à la perle suivante, puis à parcourir (plein, ou pointillé sur Android en apprentissage).
+2. `ThreadGutter` : chaque ligne ne dessine plus que sa perle ou son nœud (fond papier opaque, qui masque le trait
+   dessous). La gouttière ne glisse, ne s'enfonce et ne se soulève jamais.
+3. `RowLane` : seul le couloir bouge (glisser, appui, menu, coche).
+
+Les lignes deviennent transparentes dans la gouttière (le papier passe sous la liste) pour laisser voir le trait.
+
+- **Perle et ancrage.**
+  - iOS : `ThreadRow` devient `HStack(alignment: .threadMarker) { ThreadGutter; RowLane }`, avec un
+    `VerticalAlignment` personnalisé que la case définit (`alignmentGuide(.threadMarker) { $0[VerticalAlignment.center] }`),
+    et le titre pour un rayon. C'est une valeur de **mise en page** : `offset`, `scaleEffect` et l'aperçu soulevé
+    (effets de rendu) ne la modifient pas, contrairement à l'ancre actuelle. Dynamic Type jusqu'à AX5, ligne
+    « suivante » en `title3`, libellé replié (case alignée sur la première ligne) : la case décide, comme aujourd'hui.
+    `anchorPreference` et le `GeometryReader` de `ThreadRow` disparaissent.
+  - Android : la gouttière est une `Box` de la `Row` en `CenterVertically`, la case aussi : perle au centre, comme
+    aujourd'hui. (Écart existant, inchangé : sur un libellé replié, iOS aligne la case sur la première ligne, Android
+    la centre. À noter dans `SYNC.md`, hors périmètre.)
+- **Positions du trait.** Seules les lignes première, suivante et dernière du fil publient la hauteur de leur
+  marqueur, dans le repère de la liste :
+  - iOS : `onGeometryChange(for: CGFloat.self)` sur la perle, repère nommé posé sur la `List`, vers un
+    `@Observable ThreadTrackModel` lu par un `Canvas` en `.background` de la `List`.
+  - Android : `Modifier.onPlaced` sur la gouttière vers un `ThreadTrackState`, lu **dans la phase de dessin** d'un
+    `drawBehind` posé sur la `LazyColumn` (une lecture en dessin n'invalide que le dessin).
+  - Ligne hors écran : le trait part du bord haut (premier marqueur au-dessus) ou va jusqu'au bord bas (dernier
+    au-dessous). Pointillés Android : phase calée sur le premier marqueur, pour qu'ils défilent avec le ticket.
+- **Glisser.**
+  - iOS : glisser maison sur `RowLane` (§6.2). Le couloir est rogné au bord droit de la gouttière : en glissant vers
+    la gauche, la case passe sous ce bord ; le bouton « Supprimer » ou « Pas trouvé » apparaît dans le couloir et, en
+    glisser complet, ne remplit que le couloir.
+  - Android : `SwipeToDismissBox` est placé **dans** le couloir (`Modifier.weight(1f).clipToBounds()`), la gouttière
+    est sa voisine dans la `Row`. Les deux sens restent (droite : cocher, gauche : Pas trouvé).
+- **Appui long, menu.** iOS : `.contextMenu` posé sur le couloir, avec `.contentShape(.contextMenuPreview, …)` :
+  l'aperçu soulevé est le couloir seul. Le `Button` du mode courses prend un style à nous qui transmet `isPressed` à
+  `ItemLine(pressed:)` (même enfoncement que l'écran Liste) au lieu d'atténuer tout le libellé. Android : l'ondulation
+  est portée par le couloir ; la cible de toucher reste la ligne entière (≥ 48 dp).
+- **Coche.** La case se remplit (`Motion.check`), la perle passe pleine sur place, la partie parcourue coule le long
+  du trait jusqu'à la nouvelle perle suivante (hauteur animée avec `Motion.check`).
+- **Tri, insertion, retrait.** Les couloirs et les gouttières glissent verticalement avec leur ligne (UIKit ou
+  `animateItem`, inchangés) : perles et nœuds **glissent le long du trait**, à abscisse fixe. Le trait ne bouge pas ;
+  ses bouts suivent le premier et le dernier marqueur, avec la même courbe (`Motion.reorder` /
+  `TicketMotion.reorder`). En pratique le bout haut ne bouge presque jamais (le premier rang a la même place avant et
+  après un tri) et le bout bas se raccourcit quand la dernière ligne part au panier. Une perle qui entre ou sort
+  apparaît ou s'efface en fondu **sur** le trait, qui reste plein dessous.
+- **Défilement.** Le trait est vertical : il ne dépend du défilement que par ses bouts. Si la mesure a une image de
+  retard pendant un lancer rapide, le bout se cache sous le nœud ou la perle (rayon 14 pt) ; sinon, filet de sécurité :
+  la première et la dernière ligne peignent du papier dans leur gouttière au-delà de leur marqueur (§7, lot 0).
+- **Coût.** Moyen : un composant de trait par plateforme, une gouttière, un couloir, le glisser maison iOS.
+- **Risques.** Synchronisation des bouts pendant le défilement iOS (`List` adossée à UIKit) ; propagation du guide
+  d'alignement à travers `LeaderLineLayout` ; `contextMenu` posé sur une sous-vue d'une ligne de `List`. Tous
+  vérifiables par de petits prototypes avant l'implémentation (§7).
+
+### C. Fil entier dessiné en une couche (perles comprises)
+
+**Principe.** Un seul `Canvas` (iOS) ou `drawBehind` (Android) dessine trait, perles et nœuds à partir des positions
+de **toutes** les lignes. Les lignes ne contiennent plus que leur couloir.
+
+- **Perle et ancrage.** Chaque ligne publie la hauteur de sa case ; Dynamic Type et libellés repliés sont gérés par la
+  mesure. Nœuds de rayon : l'icône est dessinée dans la couche (symbole résolu).
+- **Tri.** Les perles doivent suivre les lignes **image par image**. Sur Android, `onPlaced` le permet (à une image
+  près). Sur iOS, une `List` est animée par Core Animation : les mesures donnent la position **finale**, les perles
+  quitteraient leur case pendant 0,4 s. Il faudrait remplacer `List` par `ScrollView` + `LazyVStack`, donc perdre
+  `.swipeActions`, le `DisclosureGroup` du panier tel quel, les comportements natifs de liste et reprendre les audits.
+- **Glisser, menu.** Comme B.
+- **Coût.** Élevé (iOS surtout). **Risques.** Élevés : migration de la liste iOS, accessibilité des lignes à
+  revalider, perf du redessin de toutes les perles à chaque image.
+
+### Comparaison
+
+| | A. Gouttière, tri sans glissement | **B. Trait unique + gouttière** | C. Tout en une couche |
+| --- | --- | --- | --- |
+| Glisser, menu, appui | Conforme | Conforme | Conforme |
+| Tri, insertion, retrait | Conforme, mais plus de glissement | Conforme, perles glissent le long du trait | Conforme ; iOS sans `List` |
+| Hauteur qui change (ligne suivante) | Saut | Trait continu | Trait continu |
+| Ancrage de la perle | Inchangé | Guide d'alignement (iOS), centre (Android) | Mesure de chaque case |
+| Accessibilité | Actions explicites | Actions explicites | Actions explicites + reprise des audits de liste iOS |
+| Coût estimé | ~2 j | ~4 j | ~7 j et plus |
+| Risque | Faible | Moyen, levé par le lot 0 | Élevé |
+
+## 5. Recommandation : B
+
+B est la seule architecture qui respecte la règle **et** garde le tri animé du mode courses, sans quitter `List` sur
+iOS. Elle découle directement du constat : les mouvements horizontaux se règlent par la séparation gouttière /
+couloir, les mouvements verticaux par un trait qui n'appartient à aucune ligne. Les perles, elles, peuvent rester
+dans les lignes : elles glissent verticalement avec leur article, toujours sur le trait, et elles sont synchronisées
+avec leur case par construction (même cellule, même animation). C'est ce qui évite le coût de C.
+
+A reste un bon repli si le lot 0 montre que les bouts du trait ne suivent pas le défilement iOS : on garderait la
+gouttière et le glisser maison, en renonçant au glissement du tri.
+
+## 6. Spécification du comportement (option B)
+
+### 6.1 Par situation
+
+| Situation | Couloir (`RowLane`) | Gouttière (`ThreadGutter`) | Trait (`ThreadTrack`) |
+| --- | --- | --- | --- |
+| Repos | — | — | Identique à aujourd'hui, au pixel près (captures actuelles inchangées). |
+| Glisser (en cours, ouvert, complet) | Glisse, rogné au bord de la gouttière ; action révélée dans le couloir | Immobile | Immobile |
+| Toucher / appui long | S'enfonce (0,97, depuis le bord gauche) ; Android : ondulation dans le couloir | Immobile | Immobile |
+| Menu contextuel iOS | Soulevé seul | Immobile, sous le voile du menu comme le reste de l'écran | Immobile, sous le voile |
+| Coche | Case remplie, texte barré | Perle pleine sur place | La partie parcourue coule jusqu'à la perle suivante |
+| Ligne qui part (panier, introuvable) | Fondu | Perle en fondu | Plein dessous ; bout bas raccourci si c'était la dernière |
+| Tri, rayon « ↑ appris » | Glisse verticalement | Glisse le long du trait | Immobile |
+| Mouvement réduit | Pas de glissement (comme aujourd'hui) ; glisser du couloir sans rebond | Change de place d'un coup | Immobile ; la partie parcourue change sans couler |
+| Contraste augmenté | — | — | Trait plus épais (`threadWidthIncreased` / `threadWidthHighContrast`), couleur à parcourir renforcée |
+
+### 6.2 Glisser maison iOS (`RowLane`)
+
+- Reconnaissance par `UIGestureRecognizerRepresentable` (iOS 18) : un `UIPanGestureRecognizer` qui ne démarre que si
+  le geste est d'abord horizontal. Il ne gêne ni le défilement de la `List`, ni le toucher, ni l'appui long.
+- Le couloir est décalé par `.offset(x:)` et rogné ; l'action est un vrai bouton, dans le couloir, derrière le
+  contenu, nommé « Supprimer » (écran Liste, glisser partiel) ou « Pas trouvé » (mode courses, glisser complet
+  permis). Les tests XCUITest actuels (`swipeLeft()` puis `buttons["Supprimer" | "Pas trouvé"]`) restent valables.
+- Seuils, rebond élastique, retour haptique au seuil du glisser complet, une seule ligne ouverte à la fois,
+  fermeture au défilement ou au toucher ailleurs.
+- `ListsView` (écran des listes, sans fil) garde `.swipeActions`.
+
+### 6.3 Accessibilité
+
+- Trait et gouttière restent décoratifs (`accessibilityHidden` / `clearAndSetSemantics`).
+- Le glisser n'est jamais la seule voie : iOS ajoute l'action « Supprimer » à `ListDetailView` (aujourd'hui fournie
+  d'office par `.swipeActions`, qui disparaît) ; « Pas trouvé » existe déjà en action. Android : actions TalkBack
+  inchangées.
+- Focus et annonces après tri (`ReorderAnnouncement`) inchangés.
+
+### 6.4 Tests
+
+- **Gouttière invariante** (nouveau, les deux plateformes) : rendre une ligne au repos, puis couloir décalé, enfoncé
+  et soulevé, et comparer les pixels de la gouttière et du trait : ils doivent être identiques. Android : Roborazzi ;
+  iOS : `ImageRenderer` sur `ThreadRow` avec un décalage de couloir injecté.
+- **Trait** : la fonction pure qui donne les tronçons à partir de (premier, suivante, dernier, hauteur visible) porte
+  le même nom et les mêmes cas des deux côtés.
+- Captures Roborazzi actuelles inchangées ; audits XCUITest (défaut, AX5, sombre, contraste augmenté) inchangés.
+
+## 7. Découpage proposé
+
+| Lot | Contenu | Estimation |
+| --- | --- | --- |
+| 0. Prototypes isolés (sans compiler l'app) | iOS : guide `.threadMarker` à travers `LeaderLineLayout` ; `onGeometryChange` dans une `List` pendant un lancer et un tri ; `contextMenu` sur une sous-vue de ligne ; pan horizontal contre le défilement. Android : `onPlaced` inclut-il le décalage d'`animateItem` ; lecture en dessin sur la `LazyColumn`. | ½ j |
+| 1. Android | `ThreadTrack`, gouttière, couloir, `SwipeToDismissBox` dans le couloir, ondulation, tests | ~1,5 j |
+| 2. iOS | `ThreadTrack`, `.threadMarker`, gouttière, couloir, glisser maison, `contextMenu` et style de bouton, tests | ~2,5 j |
+
+Chaque lot fait l'objet d'une PR séparée, avec captures avant / après et `SYNC.md` à jour.
+
+## 8. Questions ouvertes
+
+1. **Q1, tri.** Pendant un tri, les perles et les nœuds glissent le long du trait avec leur ligne (recommandé, B), ou
+   restent figés et changent de place d'un coup (A) ?
+2. **Q2, glisser iOS.** Le couloir est rogné au bord droit de la gouttière : la case disparaît sous ce bord en
+   glissant vers la gauche. Cela convient-il, ou préférez-vous que le contenu s'efface en fondu à l'approche du fil ?
+3. **Q3, surlignage.** L'article tout juste ajouté n'est plus surligné que dans son couloir, pour que la gouttière
+   reste papier. D'accord ?
+4. **Q4, menu contextuel iOS.** Le voile du menu couvre tout l'écran, fil compris (immobile, mais voilé). Si le fil
+   doit rester net, il faut remplacer le menu contextuel par un menu à nous : à décider.
