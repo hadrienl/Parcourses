@@ -27,10 +27,13 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
   func testEmailAccountIsNeverPurgedForInactivity() {
     let app = launchWithServer("owner")
     openAbout(app)
-    XCTAssertTrue(policyLink(app).waitForExistence(timeout: 15))
+    // Ordre de l'écran : conservation, lien, puis « Vos données » ; avec serveur, le lien est sous le pli.
     let retention = app.staticTexts["aboutRetention"]
     reveal(retention, in: app)
     XCTAssertEqual(retention.label, "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte.")
+    let link = policyLink(app)
+    reveal(link, in: app)
+    XCTAssertTrue(link.exists)
     XCTAssertFalse(app.buttons["deleteMyData"].exists)
     XCTAssertFalse(app.staticTexts["yourDataDescription"].exists)
     capture(app, "a-propos-compte-email")
@@ -62,10 +65,12 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
   func testAnonymousAccountMentionsThePurge() {
     let app = launchWithServer("anonymous")
     openAbout(app)
-    XCTAssertTrue(policyLink(app).waitForExistence(timeout: 15))
     let retention = app.staticTexts["aboutRetention"]
     reveal(retention, in: app)
     XCTAssertEqual(retention.label, Self.anonymousRetention)
+    let link = policyLink(app)
+    reveal(link, in: app)
+    XCTAssertTrue(link.exists)
     let yourData = app.staticTexts["yourDataDescription"]
     reveal(yourData, in: app)
     XCTAssertEqual(
