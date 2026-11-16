@@ -7,13 +7,14 @@
 // l'e-mail n'a pas pu partir (l'invitation existe : l'app propose « Copier le lien »). Erreurs de la RPC relayées avec
 // leur statut HTTP : { error, code } (error = invalid_email, already_member, list_full, daily_limit… ; code PostgREST).
 //
-// Envoi, dans cet ordre :
-//   - RESEND_API_KEY et INVITATION_FROM définis : API Resend (projet hébergé, quand le domaine existera, #87 Q2) ;
-//   - MAILPIT_API_URL défini : API d'envoi de Mailpit (pile locale et CI, voir supabase/config.toml) ;
-//   - sinon : rien n'est envoyé, sent = false.
+// Envoi par ../_shared/mail.ts : Resend (RESEND_API_KEY et INVITATION_FROM), sinon Mailpit (MAILPIT_API_URL), sinon
+// rien (sent = false).
 // Lien : INVITATION_BASE_URL + "#" + jeton (le jeton est dans le fragment : jamais envoyé à l'hébergeur de la page).
 // Sans domaine, le lien passe par le schéma de l'app : parcourses://invitation#<jeton>.
 // Sans dépendance : rien à télécharger au déploiement.
+
+import { publishableKey } from "../_shared/keys.ts";
+import { deliver, escapeHtml, type Mail } from "../_shared/mail.ts";
 
 type Role = "editor" | "viewer";
 
@@ -38,18 +39,11 @@ const KNOWN_ERRORS = new Set([
   "not allowed",
 ]);
 
-type Mail = { to: string; subject: string; text: string; html: string };
-
 // Politique de confidentialité (#87, lot 87.8) : l'invité ne connaît pas encore Parcourses (RGPD, article 14).
 const PRIVACY_URL = "https://parcourses.hadrien.eu/confidentialite/";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-
-// Le prénom vient de l'utilisateur : échappé avant d'entrer dans le HTML.
-const escapeHtml = (value: string) =>
-  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 
 function invitationMail(to: string, senderName: string | null, role: Role, link: string, expiresAt: Date): Mail {
   const sender = senderName ?? "Quelqu'un";
@@ -85,42 +79,6 @@ function invitationMail(to: string, senderName: string | null, role: Role, link:
   return { to, subject, text, html };
 }
 
-async function deliver(mail: Mail): Promise<boolean> {
-  const resendKey = Deno.env.get("RESEND_API_KEY");
-  const from = Deno.env.get("INVITATION_FROM");
-  const mailpit = Deno.env.get("MAILPIT_API_URL");
-  try {
-    if (resendKey && from) {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
-      });
-      await response.body?.cancel();
-      return response.ok;
-    }
-    if (mailpit) {
-      const response = await fetch(`${mailpit}/api/v1/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          From: { Email: "invitations@parcourses.local", Name: "Parcourses" },
-          To: [{ Email: mail.to }],
-          Subject: mail.subject,
-          Text: mail.text,
-          HTML: mail.html,
-        }),
-      });
-      await response.body?.cancel();
-      return response.ok;
-    }
-  } catch (error) {
-    // Ni l'adresse ni le lien ne sont journalisés.
-    console.error("send-invitation : envoi impossible", error instanceof Error ? error.name : "erreur");
-  }
-  return false;
-}
-
 async function handle(request: Request): Promise<Response> {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   const authorization = request.headers.get("Authorization");
@@ -138,7 +96,8 @@ async function handle(request: Request): Promise<Response> {
   }
 
   const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  // Clé publique : SUPABASE_PUBLISHABLE_KEYS (hébergé), sinon SUPABASE_ANON_KEY (historique, pile locale).
+  const key = publishableKey();
   if (!url || !key) return json({ error: "misconfigured" }, 500);
 
   // La RPC est appelée avec le JWT de l'utilisateur : auth.uid() est le sien.
@@ -165,6 +124,7 @@ async function handle(request: Request): Promise<Response> {
   const sent = await deliver(
     // L'adresse enregistrée par la RPC, et non celle reçue : c'est elle que comptent les plafonds.
     invitationMail(invitation.invitee_email, invitation.sender_name, role, link, new Date(invitation.expires_at)),
+    { label: "send-invitation", localSender: "invitations@parcourses.local" },
   );
   return json({ invitation_id: invitation.invitation_id, link, sent, expires_at: invitation.expires_at });
 }

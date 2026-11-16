@@ -66,6 +66,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
 | `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
 | `…_account_deletion_admin.sql` | `accounts.delete_account(uuid)`, réservée au rôle `postgres` : suppression d'un compte sur demande par e-mail (page `/supprimer-mes-donnees/`), identique à `delete_my_account`, qui l'appelle désormais (#87, lot 87.8) |
+| `…_inactive_email_accounts.sql` | Purge des comptes e-mail inactifs depuis 3 ans après une prévenance au moins 30 jours avant : `accounts.last_activity`, `accounts.inactivity_notices`, job `accounts-inactivity` (05:23 UTC), RPC `claim_inactivity_notices` et `confirm_inactivity_notice` réservées à `service_role` pour l'Edge Function `notify-inactive-accounts`, extension `pg_net` (#114) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -393,6 +394,32 @@ La migration échoue si `realtime.send` ou `realtime.messages` manquent.
 le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
 le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :
 un héritier qui quitte la liste au même moment est attendu. Le même traitement existe pour l'administration, `accounts.delete_account(uuid)` (rôle `postgres` seulement) : c'est la seule bonne façon de supprimer un compte sur demande, car le tableau de bord effacerait les listes partagées au lieu de les confier (`docs/hosted-supabase.md`).
+
+**Purge des comptes e-mail inactifs** (#114, `…_inactive_email_accounts.sql`). Un compte e-mail (`is_anonymous` faux,
+adresse présente) est supprimé après 3 ans sans activité, et prévenu par e-mail au moins 30 jours avant
+(envoi à 35 mois).
+
+- **Activité** (`accounts.last_activity`) : création, connexion, mise à jour du compte, création ou rafraîchissement
+  d'une session (l'app rafraîchit son jeton à chaque ouverture), listes et articles que la personne a écrits
+  (`updated_by`), visites. Une écriture d'un autre membre dans une liste qu'elle possède ne compte pas : contrairement
+  à la purge anonyme, ce sont les écritures de la personne qui comptent.
+- **Prévenance** (`accounts.inactivity_notices`, une ligne par compte, jamais exposée) :
+  - à 35 mois d'inactivité, l'Edge Function `notify-inactive-accounts` réserve le compte (`claim_inactivity_notices`,
+    `skip locked`, bail de 12 h) ;
+  - elle envoie l'e-mail par Resend, avec `Idempotency-Key` = le cycle, puis confirme l'envoi
+    (`confirm_inactivity_notice`, `notified_at` posé une seule fois) ;
+  - un envoi refusé n'est pas confirmé : il est retenté le lendemain, et la suppression attend.
+- **Date de suppression** : le lendemain, à minuit heure de Paris, de la plus tardive de deux dates, 3 ans d'inactivité
+  ou 30 jours après l'envoi. Elle est écrite dans l'e-mail.
+- **Tâche quotidienne** `accounts-inactivity` (05:23 UTC, `accounts.process_inactive_email_accounts`) :
+  - elle annule la prévenance d'un compte qui a servi depuis (activité postérieure à `inactive_since`) ;
+  - elle supprime par `accounts.delete_account` les comptes prévenus depuis au moins 30 jours, arrivés à leur date et
+    toujours inactifs. Les listes partagées sont confiées à un membre ;
+  - chaque suppression a sa sous-transaction, par lots de 500 ;
+  - elle appelle ensuite l'Edge Function par `pg_net` (`accounts.request_inactivity_notices`), avec l'URL et le secret
+    rangés dans Vault. Sans eux, aucun appel ;
+  - `graph.runs` reçoit des compteurs (`kind = 'purge_accounts'`, `detail.scope = 'email'`), dont les prévenances
+    en attente (`detail.pending`) et en échec répété (`detail.stalled`).
 
 **Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
 (`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`

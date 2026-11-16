@@ -1,7 +1,15 @@
 // Outils communs des tests de bout en bout (#87) : pile locale, appels REST et Auth, e-mails lus dans Mailpit,
 // comptes anonymes et comptes e-mail.
 
-export type Stack = { url: string; key: string; anonKey: string; mailpit: string };
+export type Stack = {
+  url: string;
+  key: string;
+  anonKey: string;
+  mailpit: string;
+  // Clés de service (#114) : historique (JWT) et nouvelle (sb_secret_…), pour les Edge Functions appelées par le serveur.
+  serviceRoleKey: string;
+  secretKey: string;
+};
 
 // URL de l'API, clé publique et URL de Mailpit de la pile locale, lues dans `supabase status`.
 export async function localStack(): Promise<Stack> {
@@ -18,7 +26,8 @@ export async function localStack(): Promise<Stack> {
   if (!url || !key) throw new Error("supabase status : API_URL ou clé publique absente");
   if (!mailpit) throw new Error("supabase status : Mailpit absent (démarrer la pile sans exclure mailpit)");
   // Clé JWT historique : acceptée par la passerelle Realtime (WebSocket) comme par l'API.
-  return { url, key, anonKey: env.ANON_KEY ?? key, mailpit };
+  const serviceRoleKey = env.SERVICE_ROLE_KEY ?? "";
+  return { url, key, anonKey: env.ANON_KEY ?? key, mailpit, serviceRoleKey, secretKey: env.SECRET_KEY ?? serviceRoleKey };
 }
 
 export type Session = { access_token: string; refresh_token: string; user: { id: string; is_anonymous?: boolean } };
