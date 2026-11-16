@@ -36,7 +36,6 @@ struct ListDetailView: View {
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
   @State private var editTrigger = 0
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   private let quantityTip = QuantityTip()
 
@@ -240,8 +239,8 @@ struct ListDetailView: View {
     }
   }
 
-  /// `pressed` : appui en cours (#110). Seuls la case et le texte de l'article s'enfoncent ; le fil et sa perle,
-  /// dessinés par `ThreadRow` dans la gouttière, restent immobiles et continus d'une ligne à l'autre.
+  /// `pressed` : appui en cours (#110). Seuls la case et le texte de l'article s'enfoncent (`ItemLine`) ; le fil et sa
+  /// perle, dessinés par `ThreadRow` dans la gouttière, et la marque d'auteur restent immobiles.
   private func line(_ row: ItemRow, place: ThreadPlace, readOnly: Bool, pressed: Bool = false) -> some View {
     ThreadRow(place: place) {
       // Préparation : rien n'est parcouru, la case seule porte l'état coché.
@@ -250,11 +249,7 @@ struct ListDetailView: View {
       // L'état se lit sans couleur : case pleine avec coche, et texte barré.
       ItemLine(
         label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark,
-        readOnly: readOnly
-      )
-      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
-      .opacity(pressed ? 0.85 : 1)
-      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
+        readOnly: readOnly, pressed: pressed)
     }
   }
 

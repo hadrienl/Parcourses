@@ -137,8 +137,8 @@ private fun MeasureScope.measureItemLine(
         }
 
         quantity != null && quantityWidth <= constraints.maxWidth * MAX_QUANTITY_SHARE -> {
-            val nameWidth = (constraints.maxWidth - quantityWidth).coerceAtLeast(0)
-            val name = measurables[0].measure(loose.copy(maxWidth = nameWidth))
+            // Même largeur qu'en ligne : un nom qui y tiendrait sur une ligne garde ses pointillés (premier cas).
+            val name = measurables[0].measure(loose.copy(maxWidth = nameMax))
             placeWrapped(name, quantity, constraints.maxWidth)
         }
 

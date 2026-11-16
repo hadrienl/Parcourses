@@ -76,16 +76,29 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
       XCTAssertTrue(entry.waitForExistence(timeout: 15))
       for text in [
         "2 lait demi-écrémé bio de montagne en bouteille de verre", "6x33cl bière blonde",
-        "1,5 kg fromage blanc fermier au lait cru", "yaourts",
+        "1,5 kg fromage blanc fermier au lait cru", "yaourts", "beurre",
       ] {
         if !entry.hasFocus { entry.tap() }
         type(text + "\n", into: entry, app)
       }
+      // Quantité trop longue pour la colonne de droite (saisie libre du panneau) : elle passe sous le libellé.
+      let butter = row(app, "beurre", "non coché")
+      reveal(butter, in: app, betweenBars: true)
+      butter.press(forDuration: 1.0)
+      let quantity = app.textFields["quantityField"]
+      XCTAssertTrue(quantity.waitForExistence(timeout: 15))
+      quantity.tap()
+      type("2 plaquettes de 250 g doux", into: quantity, app)
+      app.buttons["saveItem"].tap()
+      XCTAssertTrue(app.buttons["saveItem"].waitForNonExistence(timeout: 15))
+      // Clavier fermé (glisser la liste) : les lignes sont visibles pour la capture.
+      app.collectionViews["itemList"].swipeDown()
       // En AX5, les lignes débordent de l'écran : seule la capture compte.
       if size.arguments.isEmpty {
         XCTAssertTrue(row(app, "yaourts", "non coché").waitForExistence(timeout: 15))
         XCTAssertTrue(row(app, "lait demi-écrémé bio de montagne en bouteille de verre, 2", "non coché").exists)
         XCTAssertTrue(row(app, "fromage blanc fermier au lait cru, 1,5 kg", "non coché").exists)
+        XCTAssertTrue(row(app, "beurre, 2 plaquettes de 250 g doux", "non coché").exists)
       } else {
         Thread.sleep(forTimeInterval: 1)
       }

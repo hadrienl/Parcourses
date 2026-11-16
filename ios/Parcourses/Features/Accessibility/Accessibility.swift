@@ -215,6 +215,10 @@ struct ItemLine: View {
   var authorMark: String?
   /// Lecture seule (lecteur) : pas de case ; un article coché porte une coche ✓, un article à prendre rien.
   var readOnly = false
+  /// Appui long en cours (#110) : seuls la case et le texte s'enfoncent, depuis leur bord gauche ; la marque d'auteur,
+  /// comme le fil, reste immobile (même règle qu'Android).
+  var pressed = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @ScaledMetric(relativeTo: .body) private var box = TicketMetrics.checkBox
   /// Demi-hauteur des capitales du libellé : la case s'aligne sur le milieu de la première ligne.
   @ScaledMetric(relativeTo: .body) private var capHalf: CGFloat = 6
@@ -225,12 +229,17 @@ struct ItemLine: View {
     // quantité par d'autres vues : l'audit Dynamic Type mesurait alors des nœuds qui ne grandissaient pas
     // (« partially unsupported » sur la ligne à quantité).
     HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-      checkBox
-      LeaderLineLayout(spacing: Space.s, leaderMinWidth: Space.m) {
-        title
-        DottedRule()
-        quantityText
+      HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        checkBox
+        LeaderLineLayout(spacing: Space.s, leaderMinWidth: Space.m) {
+          title
+          DottedRule()
+          quantityText
+        }
       }
+      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
+      .opacity(pressed ? 0.85 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
       if let authorMark { AuthorMark(initial: authorMark) }
     }
     .padding(.vertical, Space.xs)
@@ -320,14 +329,19 @@ struct LeaderLineLayout: Layout {
     let titleProposal =
       switch mode {
       case .inline: ProposedViewSize(titleIdeal)
-      case .wrapped: ProposedViewSize(width: max(0, (width ?? 0) - quantityColumn), height: nil)
+      // Même largeur qu'en ligne : un libellé qui y tiendrait sur une ligne garde ses points de conduite (mode inline).
+      case .wrapped:
+        ProposedViewSize(width: max(0, (width ?? 0) - quantityColumn - spacing - leaderMinWidth), height: nil)
       case .stacked: ProposedViewSize(width: width, height: nil)
       }
     let titleSize = mode == .inline ? titleIdeal : title.sizeThatFits(titleProposal)
+    // Sous le libellé, la quantité se replie elle aussi plutôt que de déborder de la ligne.
+    let quantitySize =
+      mode == .stacked ? quantity?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero : quantityIdeal
     let quantityBaseline =
       quantity?.dimensions(in: ProposedViewSize(quantityIdeal))[VerticalAlignment.firstTextBaseline] ?? 0
     return Arrangement(
-      mode: mode, title: titleSize, quantity: quantityIdeal,
+      mode: mode, title: titleSize, quantity: quantitySize,
       titleBaseline: title.dimensions(in: titleProposal)[VerticalAlignment.firstTextBaseline],
       quantityBaseline: quantityBaseline)
   }
