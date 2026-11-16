@@ -211,7 +211,7 @@ struct ItemLine: View {
   let isChecked: Bool
   /// Prochain article du trajet : libellé plus grand et plus gras.
   var isNext = false
-  /// Initiale de l'auteur sur une liste partagée (#87), après la quantité. Décorative.
+  /// Initiale de l'auteur sur une liste partagée (#87), à droite de la première ligne. Décorative.
   var authorMark: String?
   /// Lecture seule (lecteur) : pas de case ; un article coché porte une coche ✓, un article à prendre rien.
   var readOnly = false
@@ -277,7 +277,7 @@ struct ItemLine: View {
       // Le libellé passe avant les points de conduite, qui ne prennent que la place restante.
       .layoutPriority(1)
       .onPreferenceChange(Text.LayoutKey.self) { layouts in
-        lastLineWidth = layouts.first?.layout.last?.typographicBounds.width
+        lastLineWidth = layouts.first?.layout.last?.typographicBounds.rect.maxX
       }
   }
 
@@ -292,8 +292,8 @@ struct ItemLine: View {
 /// libellé se replie ; la quantité reste une colonne à droite qui ne se coupe jamais, alignée sur la ligne de base de
 /// la dernière ligne du libellé, et les points de conduite relient la fin du texte à la quantité (la largeur proposée
 /// au libellé leur réserve un minimum : un mot qui ne laisserait pas cette place passe à la ligne). Si cette colonne
-/// dépasse `maxQuantityShare` de la largeur, la quantité passe sous le libellé. Sous-vues : libellé, points de conduite, puis quantité (facultative). La ligne de base est
-/// celle du libellé.
+/// dépasse `maxQuantityShare` de la largeur, la quantité passe sous le libellé. Sous-vues : libellé, points de
+/// conduite, puis quantité (facultative). La ligne de base est celle du libellé.
 struct LeaderLineLayout: Layout {
   var spacing: CGFloat
   var leaderMinWidth: CGFloat
@@ -389,8 +389,8 @@ struct LeaderLineLayout: Layout {
         at: CGPoint(x: x, y: bounds.minY + quantityY(arrangement)), proposal: ProposedViewSize(quantity))
       if quantity != .zero { trailing -= quantity.width + spacing }
     }
-    // Points de conduite posés sur la ligne de base du libellé (par leur bas), de la fin du texte à la quantité : sur sa
-    // ligne s'il y tient, sur sa dernière ligne s'il est replié (la largeur proposée y réserve leur minimum).
+    // Points de conduite posés sur la ligne de base du libellé (par leur bas), de la fin du texte à la quantité : sur
+    // sa ligne s'il y tient, sur sa dernière ligne s'il est replié (la largeur proposée y réserve leur minimum).
     let leaderX: CGFloat
     let leaderWidth: CGFloat
     let leaderBaseline: CGFloat

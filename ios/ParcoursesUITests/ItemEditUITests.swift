@@ -57,7 +57,7 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
   }
 
   /// Libellé long, quantité longue, les deux (#110) : seul le libellé se replie, la quantité reste à droite sur sa
-  /// première ligne (ou passe dessous si elle prendrait trop de place). Captures en taille par défaut et en AX5.
+  /// dernière ligne, reliée par les points de conduite (ou passe dessous si elle prendrait trop de place). Captures en taille par défaut et en AX5.
   @MainActor
   func testLongLabelsAndQuantitiesCaptures() {
     let sizes: [(arguments: [String], suffix: String)] = [
