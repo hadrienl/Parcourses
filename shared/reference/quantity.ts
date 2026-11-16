@@ -58,7 +58,8 @@ function format(value: number, decimals: number, separator: string | null): stri
 
 /**
  * Quantité après un appui sur + (`delta` 1) ou − (`delta` -1). Sans quantité, l'article compte
- * pour un : + donne « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête).
+ * pour un : + donne « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête, résultat de
+ * plus de 50 points de code).
  */
 export function stepQuantity(input: { quantity: string | null; delta: 1 | -1 }): string | null {
   if (input.quantity === null) return input.delta > 0 ? "2" : null;
@@ -68,7 +69,9 @@ export function stepQuantity(input: { quantity: string | null; delta: 1 | -1 }):
   const value = scaled(parsed) + input.delta * step(parsed.rest) * 10 ** decimals;
   if (value <= 0 || value >= 10 ** (MAX_INTEGER_DIGITS + decimals)) return null;
   const number = format(value, decimals, parsed.separator);
-  return parsed.rest === "" ? number : `${number}${parsed.gap}${parsed.rest}`;
+  const result = parsed.rest === "" ? number : `${number}${parsed.gap}${parsed.rest}`;
+  // Le résultat doit tenir dans la colonne (50 points de code) : sinon le bouton est inactif.
+  return [...result].length > MAX_QUANTITY_LENGTH ? null : result;
 }
 
 /**

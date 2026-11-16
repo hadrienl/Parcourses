@@ -76,7 +76,8 @@ public enum ItemQuantity {
   }
 
   /// Quantité après un appui sur + (`delta` 1) ou − (`delta` -1). Sans quantité, l'article compte pour un : + donne
-  /// « 2 ». `nil` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long). Calcul en entiers à
+  /// « 2 ». `nil` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long, résultat de plus de 50 points
+  /// de code). Calcul en entiers à
   /// l'échelle des décimales tapées : même séparateur, même nombre de décimales.
   public static func stepQuantity(_ quantity: String?, delta: Int) -> String? {
     guard let quantity else { return delta > 0 ? "2" : nil }
@@ -90,7 +91,9 @@ public enum ItemQuantity {
       let fraction = String(value % factor)
       number += String(parsed.separator ?? ",") + String(repeating: "0", count: decimals - fraction.count) + fraction
     }
-    return parsed.rest.isEmpty ? number : number + parsed.gap + parsed.rest
+    let result = parsed.rest.isEmpty ? number : number + parsed.gap + parsed.rest
+    // Le résultat doit tenir dans la colonne (50 points de code) : sinon le bouton est inactif.
+    return result.unicodeScalars.count > maxLength ? nil : result
   }
 
   /// Quantité après un raccourci d'unité. Sans quantité : une unité de base (« 100 g », « 1 kg », « 1 l »). Même unité

@@ -1,7 +1,7 @@
 {
   "id": "001-step-quantity",
   "function": "stepQuantity",
-  "description": "− / + du panneau de l'article (#110) : agit sur le nombre en tête de la quantité, garde le reste (unité, « x33cl ») et l'écart tel quel. Pas de 100 en g et ml, 10 en cl, 1 sinon. Sans quantité, l'article compte pour un. Calcul en entiers à l'échelle des décimales tapées (même séparateur, même nombre de décimales). null : bouton inactif (résultat nul ou négatif, quantité sans nombre en tête, nombre de plus de 6 chiffres ou de plus de 3 décimales).",
+  "description": "− / + du panneau de l'article (#110) : agit sur le nombre en tête de la quantité, garde le reste (unité, « x33cl ») et l'écart tel quel. Pas de 100 en g et ml, 10 en cl, 1 sinon. Sans quantité, l'article compte pour un. Calcul en entiers à l'échelle des décimales tapées (même séparateur, même nombre de décimales). null : bouton inactif (résultat nul ou négatif, quantité sans nombre en tête, nombre de plus de 6 chiffres ou de plus de 3 décimales, résultat de plus de 50 points de code : list_items.quantity).",
   "format_version": 1,
   "cases": [
     {
@@ -235,6 +235,30 @@
         "delta": 1
       },
       "expected": "999999"
+    },
+    {
+      "name": "résultat de 51 points de code : inactif",
+      "input": {
+        "quantity": "9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "delta": 1
+      },
+      "expected": null
+    },
+    {
+      "name": "résultat de 50 points de code tout juste",
+      "input": {
+        "quantity": "9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "delta": 1
+      },
+      "expected": "10xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "emoji compté pour un point de code",
+      "input": {
+        "quantity": "9🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛",
+        "delta": 1
+      },
+      "expected": "10🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛🥛"
     }
   ]
 }

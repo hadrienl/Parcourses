@@ -56,7 +56,8 @@ object ItemQuantity {
 
     /**
      * Quantité après un appui sur + ([delta] 1) ou − ([delta] -1). Sans quantité, l'article compte pour un : + donne
-     * « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long).
+     * « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long, résultat de plus de 50
+     * points de code).
      */
     @Suppress("ReturnCount") // port de la référence : gardes de sortie anticipée
     fun stepQuantity(
@@ -69,7 +70,9 @@ object ItemQuantity {
         val value = parsed.scaled() + delta * step(parsed.rest) * pow10(decimals)
         if (value <= 0 || value >= pow10(MAX_INTEGER_DIGITS + decimals)) return null
         val number = format(value, decimals, parsed.separator)
-        return if (parsed.rest.isEmpty()) number else number + parsed.gap + parsed.rest
+        val result = if (parsed.rest.isEmpty()) number else number + parsed.gap + parsed.rest
+        // Le résultat doit tenir dans la colonne (50 points de code) : sinon le bouton est inactif.
+        return result.takeIf { it.codePointCount(0, it.length) <= MAX_QUANTITY_LENGTH }
     }
 
     /**

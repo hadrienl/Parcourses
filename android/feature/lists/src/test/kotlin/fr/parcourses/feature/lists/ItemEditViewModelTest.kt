@@ -116,7 +116,9 @@ class ItemEditViewModelTest : ListsTest() {
             lists.addItem(id, "lait", "lait", "1", null, "dairy", clock)
             val model = detailModel(id)
             val milk = model.uiState.await { it.rows().size == 1 }.row("lait")
-            val wakeUpsBefore = wakeUps
+            // File d'envoi de l'article : toute écriture la remplacerait (nouvelle entrée, nouveau rang). Le compteur
+            // de réveils, incrémenté après la transaction, peut l'être après l'affichage : il ne convient pas ici.
+            val queuedBefore = db.outbox().all().filter { it.entityId == milk.id }
 
             model.openItemEditor(milk)
             model.uiState.await { it.editing != null }
@@ -127,7 +129,7 @@ class ItemEditViewModelTest : ListsTest() {
             model.type("pain")
             model.submit()
             model.uiState.await { it.rows().size == 2 }
-            assertEquals(wakeUpsBefore + 1, wakeUps)
+            assertEquals(queuedBefore, db.outbox().all().filter { it.entityId == milk.id })
             assertEquals("1", lists.items(id).first { it.label == "lait" }.quantity)
         }
 
