@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
@@ -117,11 +119,30 @@ private fun ItemEditSheetContent(
     }
 }
 
+/** Longueur maximale du libellé (`list_items.label`), en points de code. */
+private const val MAX_LABEL_LENGTH = 200
+
+/**
+ * Limite de saisie en points de code (`char_length` de Postgres), comme iOS et `ItemEdit.of`. Seule une modification
+ * qui fait grandir un texte au-delà de la limite est annulée : un texte déjà trop long (venu d'ailleurs) se raccourcit
+ * et se corrige normalement, il ne se fige jamais. `maxLength` compterait en unités UTF-16 (un emoji en vaut deux).
+ */
+private class MaxCodePoints(
+    private val max: Int,
+) : InputTransformation {
+    override fun TextFieldBuffer.transformInput() {
+        val after = Character.codePointCount(asCharSequence(), 0, length)
+        val before = Character.codePointCount(originalText, 0, originalText.length)
+        if (after > max && after > before) revertAllChanges()
+    }
+}
+
 @Composable
 private fun LabelField(state: TextFieldState) {
     OutlinedTextField(
         state = state,
         label = { Text(stringResource(R.string.item_edit_label), fontFamily = FontFamily.Default) },
+        inputTransformation = MaxCodePoints(MAX_LABEL_LENGTH),
         lineLimits = TextFieldLineLimits.SingleLine,
         textStyle = dockFieldTextStyle(),
         keyboardOptions =
@@ -151,6 +172,7 @@ private fun QuantityRow(state: TextFieldState) {
             state = state,
             label = { Text(stringResource(R.string.item_edit_quantity), fontFamily = FontFamily.Default) },
             placeholder = { Text(stringResource(R.string.item_edit_quantity_hint), fontFamily = FontFamily.Default) },
+            inputTransformation = MaxCodePoints(ItemQuantity.MAX_QUANTITY_LENGTH),
             lineLimits = TextFieldLineLimits.SingleLine,
             textStyle = dockFieldTextStyle(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),

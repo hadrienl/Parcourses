@@ -196,6 +196,7 @@ class ItemEditTest : DataTest() {
         assertEquals(ItemEdit.MAX_LABEL_LENGTH, ItemEdit.of("lait", null, "a".repeat(300), "")?.label?.length)
         // Retour à la ligne : une espace, comme iOS.
         assertEquals("lait bio", ItemEdit.of("lait", "1", "lait\nbio\n", "1")?.label)
+        assertEquals("lait bio", ItemEdit.of("lait", "1", "lait\r\n\u2028bio", "1")?.label)
     }
 
     @Test

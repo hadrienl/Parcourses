@@ -255,6 +255,21 @@ class ItemEditScreenTest : ListsTest() {
         assertEquals(1, closed)
     }
 
+    /**
+     * Limite comptée en points de code, comme le serveur : un libellé de 150 emoji (300 unités UTF-16) reste modifiable,
+     * et la saisie s'arrête à 200 points de code.
+     */
+    @Test
+    fun theLabelLimitCountsCodePoints() {
+        val milk = "\uD83E\uDD5B"
+        showSheet(ItemEditTarget("1", milk.repeat(150), null))
+        rule.onNodeWithTag(TAG_ITEM_EDIT_LABEL).performTextInput("x")
+        rule.onNodeWithTag(TAG_ITEM_EDIT_LABEL).performTextInput(milk.repeat(60))
+        rule.onNodeWithTag(TAG_ITEM_EDIT_SAVE).performClick()
+        rule.waitForIdle()
+        assertEquals(milk.repeat(150) + "x", saved.single().first)
+    }
+
     @Test
     fun cancelWritesNothing() {
         showSheet(ItemEditTarget("1", "lait", "1"))

@@ -24,6 +24,9 @@ data class ItemEdit(
 
     companion object {
         /** `list_items.label` : 200 caractères au plus (`char_length`, en points de code). */
+        /** Retours à la ligne au sens de Swift (`Character.isNewline`) : LF, CR, VT, FF, U+0085, U+2028, U+2029. */
+        private val NEWLINES = Regex("[\\n\\r\\u000B\\u000C\\u0085\\u2028\\u2029]+")
+
         const val MAX_LABEL_LENGTH = 200
 
         /**
@@ -36,8 +39,9 @@ data class ItemEdit(
             label: String,
             quantityText: String,
         ): ItemEdit? {
-            // Un retour à la ligne (collé, ou venu d'iOS) devient une espace : le libellé tient sur une ligne.
-            val trimmed = label.lines().joinToString(" ").trim()
+            // Chaque suite de retours à la ligne (collés, ou venus d'iOS) devient une espace : le libellé tient sur une
+            // ligne. Même règle qu'iOS (`Character.isNewline`).
+            val trimmed = label.replace(NEWLINES, " ").trim()
             if (trimmed.isEmpty()) return null
             val end =
                 if (trimmed.codePointCount(0, trimmed.length) > MAX_LABEL_LENGTH) {

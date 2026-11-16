@@ -18,14 +18,12 @@ struct ItemEdit: Equatable {
   let changesQuantity: Bool
   let quantity: String?
 
-  /// `nil` si le libellé est vide. Un retour à la ligne (collé) devient une espace : le libellé tient sur une ligne,
-  /// comme sur Android.
+  /// `nil` si le libellé est vide. Chaque suite de retours à la ligne (collés) devient une espace : le libellé tient sur
+  /// une ligne, même règle qu'Android.
   init?(target: ItemEditTarget, label: String, quantityText: String) {
-    let trimmed = label.components(separatedBy: .newlines).joined(separator: " ")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = Self.singleLine(label).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
-    var cut = ""
-    cut.unicodeScalars.append(contentsOf: trimmed.unicodeScalars.prefix(ItemEdit.maxLabelLength))
+    let cut = Self.cut(trimmed)
     self.label = cut == target.label ? nil : cut
     quantity = ItemQuantity.quantityInput(quantityText)
     changesQuantity = quantity != target.quantity
@@ -36,6 +34,18 @@ struct ItemEdit: Equatable {
 
   /// `list_items.label` : 200 caractères au plus (`char_length`, en points de code).
   static let maxLabelLength = 200
+
+  /// Chaque suite de retours à la ligne (`\n`, `\r`, `\r\n`, VT, FF, U+0085, U+2028, U+2029) devient une espace.
+  static func singleLine(_ text: String) -> String {
+    text.split(whereSeparator: \.isNewline).joined(separator: " ")
+  }
+
+  /// Coupé à `maxLabelLength` points de code.
+  static func cut(_ text: String) -> String {
+    var cut = ""
+    cut.unicodeScalars.append(contentsOf: text.unicodeScalars.prefix(maxLabelLength))
+    return cut
+  }
 }
 
 extension ListRepository {
@@ -117,20 +127,16 @@ struct ItemEditSheet: View {
         .sheetField()
         .submitLabel(.done)
         .focused($labelFocused)
-        .onChange(of: label) { _, value in
-          // Champ multi-ligne pour l'affichage seulement : « Terminé » y insère un retour à la ligne, qui ferme le
-          // clavier au lieu de rester dans le libellé ; un retour collé devient une espace.
-          var cleaned = value
-          if cleaned.last?.isNewline == true {
-            while cleaned.last?.isNewline == true { cleaned.removeLast() }
+        .onChange(of: label) { old, value in
+          // Champ multi-ligne pour l'affichage seulement. « Terminé » y insère un retour à la ligne au curseur, où
+          // qu'il soit : il est retiré et le clavier se ferme.
+          if value != old, !old.contains(where: \.isNewline), value.filter({ !$0.isNewline }) == old {
             labelFocused = false
+            label = old
+            return
           }
-          cleaned = cleaned.components(separatedBy: .newlines).joined(separator: " ")
-          if cleaned.unicodeScalars.count > ItemEdit.maxLabelLength {
-            var cut = ""
-            cut.unicodeScalars.append(contentsOf: cleaned.unicodeScalars.prefix(ItemEdit.maxLabelLength))
-            cleaned = cut
-          }
+          // Texte collé : chaque suite de retours devient une espace, puis 200 points de code au plus.
+          let cleaned = ItemEdit.cut(ItemEdit.singleLine(value))
           if cleaned != value { label = cleaned }
         }
         .accessibilityIdentifier("itemLabelField")
