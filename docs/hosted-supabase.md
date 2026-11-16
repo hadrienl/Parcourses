@@ -142,10 +142,14 @@ alors supprimé : la suppression exige une prévenance envoyée.
 
    - La fonction réutilise `RESEND_API_KEY` et `INVITATION_FROM` (`Parcourses <noreply@parcourses.hadrien.eu>`), déjà
      posés pour `send-invitation`.
-   - `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont fournis par la plateforme.
+   - `SUPABASE_URL` et la clé secrète sont fournis par la plateforme. La fonction lit d'abord `SUPABASE_SECRET_KEYS`
+     (`default`), puis la clé historique `SUPABASE_SERVICE_ROLE_KEY` : elle continue de marcher quand les clés
+     historiques sont coupées (fin 2026). `send-invitation` fait de même avec `SUPABASE_PUBLISHABLE_KEYS`
+     (`functions/_shared/keys.ts`).
    - `verify_jwt = false` vient de `config.toml` : pg_cron n'envoie pas de JWT, et le secret partagé est le seul accès.
-   - `send-invitation` importe désormais `functions/_shared/mail.ts`. La redéployer avec `--use-api`, qui empaquette le
-     dossier `_shared` côté serveur.
+   - `send-invitation` importe désormais `functions/_shared/`. La redéployer avec `scripts/deploy-send-invitation.sh`
+     (`--use-api`, qui suit les imports relatifs). Le 405 au GET que le script vérifie prouve que la fonction démarre,
+     donc que `_shared` a été empaqueté. Faire ensuite une invitation depuis l'app.
 4. **Vault.** Dans l'éditeur SQL du projet :
 
    ```sql
@@ -173,5 +177,9 @@ Fonctionnement, pour le suivi :
   liste ou article écrit, visite.
 - **Journal.** Chaque passage écrit une ligne `graph.runs` (`kind = 'purge_accounts'`, `detail.scope = 'email'`). La
   ligne donne le nombre de comptes supprimés (`claimed`), de prévenances annulées (`skipped`) et d'échecs (`failed`).
+  `detail.pending` compte les prévenances pas encore envoyées, et `detail.stalled` celles qui ont échoué au moins trois
+  fois. Un `stalled` qui grandit signale une clé Resend révoquée ou une adresse toujours refusée : ces comptes sont
+  gardés tant que la prévenance n'est pas partie. À surveiller :
+  `select finished_at, claimed, skipped, failed, detail from graph.runs where detail ->> 'scope' = 'email' order by id desc limit 7;`.
 - **État courant.** `select count(*) filter (where notified_at is null) as en_attente, count(*) filter (where
   notified_at is not null) as prevenus from accounts.inactivity_notices;`.

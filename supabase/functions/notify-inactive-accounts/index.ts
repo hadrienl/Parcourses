@@ -14,6 +14,7 @@
 //
 // Envoi par ../_shared/mail.ts (Resend, sinon Mailpit). Ni les adresses ni les identifiants ne sont journalisés.
 
+import { keyHeaders, secretKey } from "../_shared/keys.ts";
 import { deliver, escapeHtml, type Mail, resendConfigured } from "../_shared/mail.ts";
 
 type Notice = { user_id: string; email: string; purge_after: string; cycle_id: string };
@@ -22,11 +23,13 @@ const SITE = "https://parcourses.hadrien.eu";
 const PRIVACY_URL = `${SITE}/confidentialite/`;
 const DELETION_URL = `${SITE}/supprimer-mes-donnees/`;
 
-// Lots de 25 comptes ; au plus 200 e-mails et 100 s par appel (pg_net attend 150 s). Le reste part le lendemain : sa
-// date de suppression est calculée à la réservation, toujours au moins 30 jours plus tard.
+// Lots de 25 comptes ; au plus 200 e-mails et 100 s par appel (pg_net attend 150 s), vérifiés avant chaque e-mail ;
+// chaque appel HTTP est borné à 10 s. Les comptes réservés mais pas encore traités sont repris après le bail, le
+// lendemain : leur date de suppression est recalculée à la réservation, toujours au moins 30 jours plus tard.
 const BATCH = 25;
 const MAX_PER_CALL = 200;
 const DEADLINE_MS = 100_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 // Resend accepte 2 requêtes par seconde par défaut.
 const RESEND_INTERVAL_MS = 600;
 
@@ -41,11 +44,14 @@ function noticeMail(to: string, purgeAfter: Date): Mail {
     timeZone: "Europe/Paris",
   }).format(purgeAfter);
   const subject = `Votre compte Parcourses sera supprimé le ${day}`;
+  // La liste de /supprimer-mes-donnees/, « Ce qui est supprimé ».
   const deleted = [
-    "votre compte : adresse e-mail et prénom ;",
+    "votre compte : identifiant, adresse e-mail et prénom s'il y en a ;",
     "vos listes et leurs articles ;",
     "vos visites en magasin et les articles cochés ;",
-    "les invitations que vous avez envoyées, et votre place dans les listes partagées avec vous.",
+    "les invitations que vous avez envoyées, et votre place dans les listes partagées avec vous ;",
+    "les libellés que vous avez saisis et qui ne sont pas encore publiés dans le catalogue commun ;",
+    "votre journal de connexion.",
   ];
   const text = [
     "Bonjour,",
@@ -95,14 +101,15 @@ async function sameSecret(given: string, expected: string): Promise<boolean> {
 }
 
 // L'e-mail est parti : la confirmation est retentée trois fois. Perdue malgré tout, la prévenance sera renvoyée à la
-// reprise suivante (un second e-mail, jamais une suppression sans prévenance) ; la clé d'idempotence de Resend évite
-// le doublon si cette reprise arrive dans les 24 h.
+// reprise suivante, après le bail (un second e-mail, jamais une suppression sans prévenance). La clé d'idempotence de
+// Resend ne couvre que les 24 h et un contenu identique : elle protège d'un appel concurrent, pas de cette reprise.
 async function confirm(rpc: (name: string, body: unknown) => Promise<Response>, notice: Notice): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000));
     try {
       const response = await rpc("confirm_inactivity_notice", { p_user_id: notice.user_id, p_cycle_id: notice.cycle_id });
       await response.body?.cancel();
+      // 200 avec false : la prévenance a été annulée entre-temps (compte revenu). L'e-mail est parti quand même.
       if (response.ok) return true;
     } catch {
       // Réseau : nouvel essai.
@@ -117,7 +124,7 @@ async function handle(request: Request): Promise<Response> {
 
   const secret = Deno.env.get("INACTIVITY_NOTICE_SECRET");
   const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SECRET_KEY");
+  const key = secretKey();
   if (!secret || !url || !key) return json({ error: "misconfigured" }, 500);
 
   const authorization = request.headers.get("Authorization") ?? "";
@@ -126,21 +133,28 @@ async function handle(request: Request): Promise<Response> {
   }
   await request.body?.cancel();
 
-  // Clé historique (JWT) : aussi dans Authorization. Nouvelle clé secrète (sb_secret_…) : apikey seul.
-  const headers: Record<string, string> = {
-    apikey: key,
-    "Content-Type": "application/json",
-    ...(key.startsWith("sb_") ? {} : { Authorization: `Bearer ${key}` }),
-  };
+  const headers = { ...keyHeaders(key), "Content-Type": "application/json" };
   const rpc = (name: string, body: unknown) =>
-    fetch(`${url}/rest/v1/rpc/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
+    fetch(`${url}/rest/v1/rpc/${name}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
 
   const pace = resendConfigured() ? RESEND_INTERVAL_MS : 0;
   const started = Date.now();
   let sent = 0;
   let failed = 0;
-  while (sent + failed < MAX_PER_CALL && Date.now() - started < DEADLINE_MS) {
-    const claim = await rpc("claim_inactivity_notices", { p_limit: Math.min(BATCH, MAX_PER_CALL - sent - failed) });
+  const inTime = () => Date.now() - started < DEADLINE_MS;
+  while (sent + failed < MAX_PER_CALL && inTime()) {
+    let claim: Response;
+    try {
+      claim = await rpc("claim_inactivity_notices", { p_limit: Math.min(BATCH, MAX_PER_CALL - sent - failed) });
+    } catch {
+      console.error("notify-inactive-accounts : réservation impossible (réseau)");
+      return json({ error: "claim_failed", sent, failed }, 502);
+    }
     if (!claim.ok) {
       await claim.body?.cancel();
       console.error("notify-inactive-accounts : réservation impossible", claim.status);
@@ -149,11 +163,14 @@ async function handle(request: Request): Promise<Response> {
     const notices = (await claim.json()) as Notice[];
     if (notices.length === 0) break;
     for (const notice of notices) {
+      // Délai atteint : les comptes restants de ce lot attendent la fin du bail.
+      if (!inTime()) break;
       if (pace && sent + failed > 0) await new Promise((resolve) => setTimeout(resolve, pace));
       const delivered = await deliver(noticeMail(notice.email, new Date(notice.purge_after)), {
         label: "notify-inactive-accounts",
         localSender: "noreply@parcourses.local",
         idempotencyKey: `inactivity-notice/${notice.cycle_id}`,
+        timeoutMs: REQUEST_TIMEOUT_MS,
       });
       if (!delivered) {
         // Non confirmée : reprise après le bail de 12 h, donc le lendemain. Jamais dans cet appel.

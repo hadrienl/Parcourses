@@ -134,7 +134,8 @@ begin
         purge_after = excluded.purge_after,
         claimed_at = excluded.claimed_at,
         attempts = n.attempts + 1
-    where n.notified_at is null
+    -- Revérifié ici : un appel concurrent a pu réserver le compte (et valider) après l'instantané du nôtre.
+    where n.notified_at is null and (n.claimed_at is null or n.claimed_at < p_now - p_lease)
     returning n.user_id, n.purge_after, n.cycle_id
   )
   select k.user_id, c.email, k.purge_after, k.cycle_id
@@ -169,7 +170,10 @@ revoke all on function accounts.confirm_inactivity_notice(uuid, uuid, timestampt
 -- Un compte n'est supprimé que si sa prévenance a été envoyée (notified_at) depuis au moins 30 jours, que sa date est
 -- passée, et qu'il n'a pas servi depuis. Chaque suppression a sa sous-transaction : un compte verrouillé (lock_timeout
 -- de delete_account) est compté en échec et repris le lendemain, sans bloquer les autres. Lots de p_batch comptes.
--- Le journal graph.runs ne reçoit que des compteurs, jamais d'identifiant. Renvoie le nombre de comptes supprimés.
+-- Le journal graph.runs ne reçoit que des compteurs, jamais d'identifiant : supprimés (claimed), annulés (skipped),
+-- en échec (failed), et dans detail les prévenances pas encore envoyées (pending), dont celles qui ont échoué au moins
+-- trois fois (stalled) : une clé Resend révoquée, ou une adresse toujours refusée, s'y voit. Renvoie le nombre de
+-- comptes supprimés.
 create or replace function accounts.process_inactive_email_accounts(
   p_now timestamptz default now(),
   p_inactive interval default interval '3 years',
@@ -186,6 +190,8 @@ declare
   v_cancelled integer;
   v_deleted integer := 0;
   v_failed integer := 0;
+  v_pending integer;
+  v_stalled integer;
   v_notice record;
 begin
   if p_inactive < interval '30 days' or p_min_notice < interval '1 day' or p_batch < 1 then
@@ -221,10 +227,14 @@ begin
     end;
   end loop;
 
+  select count(*)::integer, (count(*) filter (where n.attempts >= 3))::integer into v_pending, v_stalled
+  from accounts.inactivity_notices as n
+  where n.notified_at is null;
+
   insert into graph.runs (kind, started_at, finished_at, claimed, skipped, failed, detail)
   values ('purge_accounts', v_started_at, clock_timestamp(), v_deleted, v_cancelled, v_failed,
           jsonb_build_object('scope', 'email', 'inactive_days', (extract(epoch from p_inactive) / 86400)::integer,
-                             'batch', p_batch));
+                             'batch', p_batch, 'pending', v_pending, 'stalled', v_stalled));
 
   return v_deleted;
 end;

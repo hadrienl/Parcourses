@@ -16,6 +16,8 @@ export type DeliveryOptions = {
   localSender: string;
   // En-tête Idempotency-Key de Resend : un second appel avec la même clé, dans les 24 h, n'envoie rien de plus.
   idempotencyKey?: string;
+  // Délai maximal de l'appel au fournisseur (10 s par défaut) : au-delà, l'envoi compte comme refusé.
+  timeoutMs?: number;
 };
 
 // Une valeur saisie par l'utilisateur est échappée avant d'entrer dans le HTML.
@@ -31,6 +33,7 @@ export async function deliver(mail: Mail, options: DeliveryOptions): Promise<boo
   const resendKey = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("INVITATION_FROM");
   const mailpit = Deno.env.get("MAILPIT_API_URL");
+  const signal = AbortSignal.timeout(options.timeoutMs ?? 10_000);
   try {
     if (resendKey && from) {
       const api = Deno.env.get("RESEND_API_URL") ?? "https://api.resend.com";
@@ -42,6 +45,7 @@ export async function deliver(mail: Mail, options: DeliveryOptions): Promise<boo
           ...(options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : {}),
         },
         body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html }),
+        signal,
       });
       await response.body?.cancel();
       return response.ok;
@@ -57,6 +61,7 @@ export async function deliver(mail: Mail, options: DeliveryOptions): Promise<boo
           Text: mail.text,
           HTML: mail.html,
         }),
+        signal,
       });
       await response.body?.cancel();
       return response.ok;

@@ -4,7 +4,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(54);
+select plan(55);
 
 -- Droits : rien pour les apps ; service_role n'a que les deux RPC de l'Edge Function.
 select ok(has_function_privilege('service_role', 'public.claim_inactivity_notices(integer)', 'EXECUTE'),
@@ -212,6 +212,8 @@ select is((select claimed from graph.runs where kind = 'purge_accounts' and deta
            order by id desc offset 2 limit 1), 1, 'le passage du jour annoncé compte une suppression');
 select ok((select bool_and(to_jsonb(r)::text not like '%' || p.id::text || '%')
            from graph.runs as r cross join users as p where r.kind = 'purge_accounts'), 'journal sans identifiant');
+select ok((select (detail ->> 'pending')::int >= 1 from graph.runs where kind = 'purge_accounts' and detail ->> 'scope' = 'email'
+           order by id desc offset 1 limit 1), 'les prévenances en attente sont comptées (just, jamais envoyée)');
 
 -- Appel de l'Edge Function : rien sans les secrets de Vault, une requête pg_net avec eux.
 select ok(not accounts.request_inactivity_notices(), 'sans secret dans Vault : aucun appel');

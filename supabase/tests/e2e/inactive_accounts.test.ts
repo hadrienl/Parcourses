@@ -11,8 +11,9 @@
 import { psql } from "./psql.ts";
 import { assert, client, emailAccount, localStack, mailSentTo, type Stack } from "./stack.ts";
 
-const FUNCTION_PORT = 54988;
-const RESEND_PORT = 54989;
+// 54987 : sharing.test.ts ; 54988 : ios/scripts/integration-test.sh.
+const FUNCTION_PORT = 54994;
+const RESEND_PORT = 54995;
 const SECRET = "secret-e2e-114";
 
 // Lance supabase/functions/notify-inactive-accounts avec Deno, comme l'Edge Runtime, et attend qu'elle réponde.
@@ -94,6 +95,7 @@ Deno.test("prévenance envoyée une fois, avec la date, puis annulée par une re
   const stack = await localStack();
   const account = await emailAccount(stack, "114-notice", "Inès");
   const fn = await startFunction({
+    // Clé historique seule (JWT) : le repli de la pile locale.
     SUPABASE_URL: stack.url,
     SUPABASE_SERVICE_ROLE_KEY: stack.serviceRoleKey,
     MAILPIT_API_URL: stack.mailpit,
@@ -165,10 +167,12 @@ Deno.test("Resend simulé : envoi refusé puis repris avec la même clé, suppre
     if (refuse) return new Response(JSON.stringify({ name: "application_error" }), { status: 500 });
     return Response.json({ id: crypto.randomUUID() });
   });
-  // Nouvelle clé secrète (sb_secret_…) : la fonction l'envoie en apikey seul.
+  // Nouvelle clé secrète, telle que le projet hébergé la fournit (dictionnaire JSON) : la fonction l'envoie en apikey
+  // seul. La clé historique, posée à côté, est fausse : elle ne doit pas servir.
   const fn = await startFunction({
     SUPABASE_URL: stack.url,
-    SUPABASE_SERVICE_ROLE_KEY: stack.secretKey,
+    SUPABASE_SECRET_KEYS: JSON.stringify({ default: stack.secretKey }),
+    SUPABASE_SERVICE_ROLE_KEY: "cle-historique-coupee",
     RESEND_API_KEY: "re_test_114",
     INVITATION_FROM: "Parcourses <noreply@parcourses.hadrien.eu>",
     RESEND_API_URL: `http://127.0.0.1:${RESEND_PORT}`,

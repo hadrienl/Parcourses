@@ -417,7 +417,8 @@ adresse présente) est supprimé après 3 ans sans activité, et prévenu par e-
   - chaque suppression a sa sous-transaction, par lots de 500 ;
   - elle appelle ensuite l'Edge Function par `pg_net` (`accounts.request_inactivity_notices`), avec l'URL et le secret
     rangés dans Vault. Sans eux, aucun appel ;
-  - `graph.runs` reçoit des compteurs (`kind = 'purge_accounts'`, `detail.scope = 'email'`).
+  - `graph.runs` reçoit des compteurs (`kind = 'purge_accounts'`, `detail.scope = 'email'`), dont les prévenances
+    en attente (`detail.pending`) et en échec répété (`detail.stalled`).
 
 **Projet hébergé**, à faire par l'utilisateur après le merge : appliquer la migration, déployer la fonction
 (`supabase functions deploy send-invitation`), et quand le domaine existera, définir `RESEND_API_KEY`, `INVITATION_FROM`

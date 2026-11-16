@@ -13,6 +13,7 @@
 // Sans domaine, le lien passe par le schéma de l'app : parcourses://invitation#<jeton>.
 // Sans dépendance : rien à télécharger au déploiement.
 
+import { publishableKey } from "../_shared/keys.ts";
 import { deliver, escapeHtml, type Mail } from "../_shared/mail.ts";
 
 type Role = "editor" | "viewer";
@@ -95,7 +96,8 @@ async function handle(request: Request): Promise<Response> {
   }
 
   const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  // Clé publique : SUPABASE_PUBLISHABLE_KEYS (hébergé), sinon SUPABASE_ANON_KEY (historique, pile locale).
+  const key = publishableKey();
   if (!url || !key) return json({ error: "misconfigured" }, 500);
 
   // La RPC est appelée avec le JWT de l'utilisateur : auth.uid() est le sien.
