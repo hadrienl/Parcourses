@@ -81,14 +81,18 @@ abstract class ListsTest {
 
     @After
     fun tearDown() {
-        viewModels.clear()
-        // Une écriture non annulable (ajout d'article) se termine même modèle vidé : la base reste ouverte jusque-là.
-        pumpMain(
-            "fin des tâches des modèles",
-            step = { testDispatchers.forEach { it.scheduler.runCurrent() } },
-        ) { modelJobs.all { it.isCompleted } }
-        // `setUp` a pu échouer avant d'ouvrir la base : son erreur reste celle qu'on voit.
-        if (::db.isInitialized) db.close()
+        try {
+            viewModels.clear()
+            // Une écriture non annulable (ajout d'article) se termine même modèle vidé : la base reste ouverte
+            // jusque-là.
+            pumpMain(
+                { "fin des tâches des modèles" },
+                step = { testDispatchers.forEach { it.scheduler.runCurrent() } },
+            ) { modelJobs.all { it.isCompleted } }
+        } finally {
+            // `setUp` a pu échouer avant d'ouvrir la base : son erreur reste celle qu'on voit.
+            if (::db.isInitialized) db.close()
+        }
     }
 
     /** Crée un modèle rattaché à [viewModels], comme le ferait une entrée de navigation. */
@@ -135,7 +139,7 @@ abstract class ListsTest {
         val screen = CoroutineScope(Dispatchers.Main.immediate)
         screen.launch { found.complete(first(predicate)) }
         try {
-            pumpMain("état attendu, dernier vu : $value") { found.isCompleted }
+            pumpMain({ "état attendu, dernier vu : $value" }) { found.isCompleted }
         } finally {
             screen.cancel()
         }
@@ -144,10 +148,10 @@ abstract class ListsTest {
 
     /**
      * Fait tourner le fil principal (le fil du test) jusqu'à [done], au plus 5 s. [step] s'exécute à chaque tour,
-     * avant le test de [done].
+     * avant le test de [done]. [what] décrit l'attente, lue au moment d'un dépassement.
      */
     protected fun pumpMain(
-        what: String,
+        what: () -> String,
         step: () -> Unit = {},
         done: () -> Boolean,
     ) {
@@ -156,7 +160,7 @@ abstract class ListsTest {
             shadowOf(Looper.getMainLooper()).idle()
             step()
             if (done()) return
-            check(System.nanoTime() < deadline) { "Délai dépassé : $what" }
+            check(System.nanoTime() < deadline) { "Délai dépassé : ${what()}" }
             Thread.sleep(STEP_MS)
         }
     }

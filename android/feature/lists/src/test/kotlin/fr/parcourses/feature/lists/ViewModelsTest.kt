@@ -558,7 +558,10 @@ class ViewModelsTest : ListsTest() {
         dispatcher: TestDispatcher,
         predicate: (T) -> Boolean,
     ): T {
-        pumpMain("état attendu, dernier vu : $value", step = { dispatcher.scheduler.runCurrent() }) { predicate(value) }
+        pumpMain(
+            { "état attendu, dernier vu : $value" },
+            step = { dispatcher.scheduler.runCurrent() },
+        ) { predicate(value) }
         return value
     }
 

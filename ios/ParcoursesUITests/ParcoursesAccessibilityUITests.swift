@@ -363,10 +363,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     // Alerte refermée avant l'audit : sinon il mesure ses textes, qui ne suivent pas Dynamic Type (constaté sur
     // iOS 18, run de 7636593 : saisie apparue après plus de 5 s, texte sans identifiant signalé).
     XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 15))
@@ -431,6 +429,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
     tap(tomatoes, until: app.buttons["undo"])
+    // Bannière vue après une seule coche : un appui rejoué l'aurait décochée aussitôt, et l'audit qui suit la raterait.
+    XCTAssertTrue(row(app, "tomates", "coché", in: "shoppingList").exists)
     audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)

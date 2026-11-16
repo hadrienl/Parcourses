@@ -45,12 +45,15 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     element.typeText(text)
   }
 
-  /// Appuie sur `element` et attend `effect`, au plus `timeout` secondes en tout. Sur le simulateur iOS 18 chargé
-  /// de la CI, un appui peut se perdre (#116) : synthétisé au centre de l'élément, app au repos avant et après, mais
-  /// sans aucun effet. Constaté sur le bouton « Créer » de l'alerte « Nouvelle liste », encore à l'écran 15 s plus
-  /// tard avec son nom saisi, et sur la coche des tomates en mode courses, encore « non coché » 20 s plus tard.
-  /// L'appui n'est refait que si `element` est encore là, dans l'état qui l'a fait trouver (une ligne « non coché »,
-  /// une alerte encore ouverte) : un appui reçu, même tard, a changé cet état et n'est jamais doublé.
+  /// Appuie sur `element` une fois actif, et attend `effect`, au plus `timeout` secondes en tout (#116).
+  ///
+  /// Deux échecs de la CI iOS 18 montrent un appui sans effet, synthétisé au centre de l'élément, l'app au repos
+  /// avant et après : « Créer » de l'alerte « Nouvelle liste », encore à l'écran 15 s plus tard avec son nom saisi, et
+  /// la coche des tomates en mode courses, encore « non coché » 17 s plus tard, et le chariot « Faire mes courses ».
+  /// - « Créer » est désactivé tant que le nom est vide, et ne s'active qu'au rendu SwiftUI qui suit la saisie. XCUI
+  ///   appuie sans erreur sur un bouton désactivé : l'appui part donc une fois le bouton actif.
+  /// - Un appui encore sans effet est refait, seulement si `element` est toujours là, dans l'état qui l'a fait trouver
+  ///   (une ligne « non coché », une alerte ouverte) : un appui reçu, même tard, a changé cet état et n'est pas doublé.
   @MainActor
   @discardableResult
   func tap(
@@ -58,6 +61,11 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     line: UInt = #line
   ) -> Bool {
     let deadline = Date.now.addingTimeInterval(timeout)
+    let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: element)
+    guard XCTWaiter().wait(for: [enabled], timeout: timeout) == .completed else {
+      XCTFail("élément toujours inactif : \(element)", file: file, line: line)
+      return false
+    }
     element.tap()
     // Chaque essai attend l'effet 5 s, dans la limite de `timeout`.
     while !effect.waitForExistence(timeout: min(5, max(deadline.timeIntervalSinceNow, 0))) {
@@ -65,8 +73,8 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
         XCTFail("effet attendu après l'appui : \(effect)", file: file, line: line)
         return false
       }
-      // État changé (appui reçu, effet encore en route) : on attend l'effet sans rien rejouer.
-      if element.exists { element.tap() }
+      // État changé ou élément recouvert (appui reçu, effet encore en route) : on attend l'effet sans rien rejouer.
+      if element.exists && element.isHittable { element.tap() }
     }
     return true
   }
@@ -180,7 +188,9 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
       if !entry.hasFocus { entry.tap() }
       type(text + "\n", into: entry, app)
     }
-    app.buttons["startShopping"].tap()
+    // Appui perdu constaté ici aussi (#116, `testAuditShoppingDark` sur 39cfe22) : liste toujours affichée 15 s
+    // plus tard, chariot actif, donc jamais de demande de localisation.
+    tap(app.buttons["startShopping"], until: app.navigationBars["Choisir le magasin"])
 
     // La demande système n'apparaît qu'ici, au premier passage en mode courses.
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

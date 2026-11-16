@@ -163,19 +163,19 @@ class ListDetailScreenTest : ListsTest() {
             ParcoursesTheme { ListDetailRoute(viewModel = model, onBack = {}) }
         }
         // Room répond sur le fil principal, que `waitUntil` ne fait pas tourner sous Robolectric.
-        pumpMain("liste chargée") { model.uiState.value.isLoaded }
+        pumpMain({ "liste chargée" }) { model.uiState.value.isLoaded }
         rule.onNodeWithText("Liste vide").assertExists()
 
         rule.onNodeWithTag(TAG_QUICK_ENTRY).performTextInput("2 laits demi-écrémé")
         rule.onNodeWithTag(TAG_ADD).performClick()
-        pumpMain("article ajouté") {
+        pumpMain({ "article ajouté" }) {
             model.uiState.value.sections
                 .isNotEmpty()
         }
 
         rule.onNodeWithText("Crèmerie, œufs, ultra-frais").assertExists()
         rule.onNodeWithContentDescription("laits demi-écrémé, 2").performClick()
-        pumpMain("article coché") {
+        pumpMain({ "article coché" }) {
             model.uiState.value.sections
                 .firstOrNull()
                 ?.items

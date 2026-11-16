@@ -13,10 +13,8 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     XCTAssertFalse(app.alerts.buttons["Créer"].isEnabled)
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
       if !entry.hasFocus { entry.tap() }
       type(text + "\n", into: entry, app)
@@ -81,6 +79,7 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
 
     // Coche et annulation.
     tap(row(app, "tomates", "non coché", in: "shoppingList"), until: app.buttons["undo"])
+    XCTAssertTrue(row(app, "tomates", "coché", in: "shoppingList").exists)
     capture(app, "3-annulation")
     tap(app.buttons["undo"], until: row(app, "tomates", "non coché", in: "shoppingList"))
 
@@ -183,11 +182,9 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     // Le cadre de l'élément est celui de la case : le texte commence après sa marge de 12 pt.
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     if !entry.hasFocus { entry.tap() }
     // Mots justes en français comme en anglais : un appui sur un mot souligné par le correcteur (clavier anglais
     // du simulateur de CI) le sélectionne au lieu d'y placer le curseur.
