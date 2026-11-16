@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 /** Au-delà de cette échelle de police (150 %), le ticket s'empile : compteur au-dessus, docks sur deux lignes. */
 const val LARGE_TEXT_SCALE = 1.5f
 
-/** Texte très agrandi : les blocs côte à côte s'empilent (`typography.$note`). */
+/** Texte très agrandi : les pointillés disparaissent, les blocs côte à côte s'empilent (`typography.$note`). */
 @Composable
 fun isLargeText(): Boolean = LocalDensity.current.fontScale >= LARGE_TEXT_SCALE
 

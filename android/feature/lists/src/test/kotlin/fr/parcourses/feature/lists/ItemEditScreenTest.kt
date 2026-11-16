@@ -40,7 +40,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-// Écran Liste (#110) : quantité sous le nom, appui long, panneau de l'article, astuce.
+// Écran Liste (#110) : appui long, panneau de l'article, astuce.
 @RunWith(AndroidJUnit4::class)
 class ItemEditScreenTest : ListsTest() {
     @get:Rule
@@ -99,15 +99,6 @@ class ItemEditScreenTest : ListsTest() {
     private fun quantityField() = rule.onNodeWithTag(TAG_ITEM_EDIT_QUANTITY)
 
     // region Ligne
-
-    @Test
-    fun theQuantityIsShownUnderTheNameAndReadWithIt() {
-        showList(ListDetailUiState(name = "Semaine", sections = sections, isLoaded = true))
-        val name = rule.onNodeWithText("lait", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        val quantity = rule.onNodeWithText("500 g", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("quantité sous le nom", quantity.top >= name.bottom)
-        rule.onNodeWithContentDescription("lait, 500 g").assertExists()
-    }
 
     @Test
     fun aLongPressOpensTheItemSheetAndATapStillChecks() {

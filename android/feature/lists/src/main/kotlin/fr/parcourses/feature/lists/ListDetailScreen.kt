@@ -452,10 +452,9 @@ private fun ItemRowView(
             modifier =
                 Modifier
                     .weight(1f)
-                    .alignByBaseline()
                     .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
         )
-        AuthorMark(row.authorMark, Modifier.alignByBaseline())
+        AuthorMark(row.authorMark)
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
         }

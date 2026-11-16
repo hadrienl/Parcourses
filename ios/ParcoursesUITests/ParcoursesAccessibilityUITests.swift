@@ -38,7 +38,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Lignes de la liste au premier plan que le haut du dock coupe.
     let linesCutByDock: Int
     let sheetIsShown: Bool
-    /// Audit du panneau de l'article (#110, écrans « article* ») avec sa feuille modale à l'écran.
+    /// Audit du panneau de l'article (#110, écrans « article » et « article-… ») avec sa feuille modale à l'écran.
     let itemSheetIsShown: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
@@ -83,9 +83,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   }
 
   /// Problèmes non localisés admis par ligne coupée par le dock : le liseré visible de la ligne, mesuré par le
-  /// contraste et par le texte rogné, ou, clavier ouvert, lu comme un texte sans élément. Au-delà, le problème est
-  /// bloquant. Dans une liste à une colonne, une seule ligne chevauche le haut du dock : le quota de l'écran est donc
-  /// de 0 ou 2 (constaté : 1 à 2 sur iOS 18.6 en AX5 ; 1 texte sans élément sur iOS 18.6, clavier ouvert).
+  /// contraste et par le texte rogné. Au-delà, le problème est bloquant. Dans une liste à une colonne, une seule
+  /// ligne chevauche le haut du dock : le quota de l'écran est donc de 0 ou 2 (constaté : 1 à 2 sur iOS 18.6 en AX5).
   private static let issuesPerCutLine = 2
 
   /// Exceptions documentées. Retourne `nil` pour un problème bloquant.
@@ -121,18 +120,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    de problèmes suit le nombre de suggestions affichées).
       let keyboardIssue = [.dynamicType, .contrast, .textClipped].contains(issue.auditType)
       if keyboardIsShown && keyboardIssue { return .known("2 bis clavier") }
-      // Texte sans élément : seulement clavier ouvert, seul cas constaté.
-      let cutLineIssue =
-        [.contrast, .textClipped].contains(issue.auditType)
-        || (keyboardIsShown && issue.auditType == .elementDetection)
-      guard cutLineIssue else { return nil }
-      // 2 ter. Seulement si une ligne de la liste au premier plan est coupée par le bord du dock (cellule à cheval
-      //    sur son haut). L'audit mesure alors le liseré de texte encore visible et ne sait pas localiser la ligne
-      //    (constaté en AX5, où les lignes débordent). Il peut aussi y lire un texte qu'il ne rattache à aucun élément
-      //    (« Potentially inaccessible text ») : constaté en CI sur iOS 18.6 seulement, `liste-partagee-sombre`, clavier
-      //    ouvert, haut des lettres de « Comté » et de sa marque d'auteur visible au-dessus du dock (runs de cd67e82,
-      //    b489fa0 et 1fab945, #110 : les lignes sont plus hautes depuis que la quantité passe sous le nom). Quota de
-      //    `issuesPerCutLine` par ligne coupée : au-delà, ou sans ligne coupée, le problème reste bloquant.
+      guard issue.auditType == .contrast || issue.auditType == .textClipped else { return nil }
+      // 2 ter. Sans clavier : seulement si une ligne de la liste au premier plan est coupée par le bord du dock.
+      //    L'audit mesure alors le liseré de texte encore visible et ne sait pas localiser la ligne (constaté en
+      //    AX5, où les lignes débordent). Quota de `issuesPerCutLine` par ligne coupée : au-delà, ou sans ligne
+      //    coupée, le problème reste bloquant.
       return screen.linesCutByDock > 0 ? .cutLine : nil
     }
     let frame = element.frame
@@ -337,7 +329,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let state = Screen(app, name: screen, modal: modal)
     var problems: [String] = []
     var exceptions: [String] = []
-    // Quota de l'écran, commun au contraste, au texte rogné et au texte sans élément, audités dans trois passes.
+    // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
     var veiledTextQuota = state.itemSheetIsShown ? 1 : 0
     for (pass, types) in Self.auditPasses {

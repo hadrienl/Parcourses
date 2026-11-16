@@ -185,9 +185,9 @@ internal fun ItemRowContent(
                 style = if (look.isNext) TicketType.itemNext else TicketType.item,
                 color = if (row.isChecked) colors.checked else colors.ink,
                 decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-                modifier = Modifier.weight(1f).alignByBaseline().padding(start = TicketDimens.spaceS),
+                modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
             )
-            CheckedByMark(row.checkedBy, Modifier.alignByBaseline())
+            CheckedByMark(row.checkedBy)
         }
         RowMenu(
             expanded = menuOpen && !row.isChecked,
@@ -272,16 +272,13 @@ private fun checkedByDescription(row: ShoppingRow): String? =
 
 /** Initiale de qui a coché, décorative : sa valeur passe dans l'état lu de la ligne. */
 @Composable
-private fun CheckedByMark(
-    mark: String?,
-    modifier: Modifier = Modifier,
-) {
+private fun CheckedByMark(mark: String?) {
     if (mark == null) return
     MemberAvatar(
         mark,
         size = AvatarSize.mark,
         outlined = true,
-        modifier = modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_CHECKED_BY),
+        modifier = Modifier.padding(start = TicketDimens.spaceXs).testTag(TAG_CHECKED_BY),
     )
 }
 
