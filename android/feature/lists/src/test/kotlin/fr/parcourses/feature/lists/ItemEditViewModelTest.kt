@@ -116,7 +116,7 @@ class ItemEditViewModelTest : ListsTest() {
             lists.addItem(id, "lait", "lait", "1", null, "dairy", clock)
             val model = detailModel(id)
             val milk = model.uiState.await { it.rows().size == 1 }.row("lait")
-            // File d'envoi de l'article : toute écriture la remplacerait (nouvelle entrée, nouveau rang). Le compteur
+            // File d'envoi de l'article : toute écriture la remplacerait (entrée de nouvel identifiant). Le compteur
             // de réveils, incrémenté après la transaction, peut l'être après l'affichage : il ne convient pas ici.
             val queuedBefore = db.outbox().all().filter { it.entityId == milk.id }
 

@@ -58,8 +58,8 @@ function format(value: number, decimals: number, separator: string | null): stri
 
 /**
  * Quantité après un appui sur + (`delta` 1) ou − (`delta` -1). Sans quantité, l'article compte
- * pour un : + donne « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête, résultat de
- * plus de 50 points de code).
+ * pour un : + donne « 2 ». `null` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop
+ * long, résultat de plus de 50 points de code).
  */
 export function stepQuantity(input: { quantity: string | null; delta: 1 | -1 }): string | null {
   if (input.quantity === null) return input.delta > 0 ? "2" : null;

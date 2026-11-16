@@ -76,9 +76,8 @@ public enum ItemQuantity {
   }
 
   /// Quantité après un appui sur + (`delta` 1) ou − (`delta` -1). Sans quantité, l'article compte pour un : + donne
-  /// « 2 ». `nil` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long, résultat de plus de 50 points
-  /// de code). Calcul en entiers à
-  /// l'échelle des décimales tapées : même séparateur, même nombre de décimales.
+  /// « 2 ». `nil` : bouton inactif (− à 1, quantité sans nombre en tête, nombre trop long, résultat de plus de 50
+  /// points de code). Calcul en entiers à l'échelle des décimales tapées : même séparateur, même nombre de décimales.
   public static func stepQuantity(_ quantity: String?, delta: Int) -> String? {
     guard let quantity else { return delta > 0 ? "2" : nil }
     guard let parsed = parse(quantity), let whole = Int(parsed.integer) else { return nil }
