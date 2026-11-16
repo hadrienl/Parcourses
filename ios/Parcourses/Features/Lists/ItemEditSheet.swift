@@ -165,6 +165,8 @@ struct ItemEditSheet: View {
       HStack(spacing: Space.s) {
         stepButton(delta: -1, systemImage: "minus", label: "Diminuer la quantité", identifier: "quantityDecrement")
         TextField("Quantité", text: $quantityText, prompt: Text("ex.\u{00A0}: 500 g").foregroundStyle(Palette.inkMuted))
+          // Place réservée à la croix d'effacement, pour que le texte ne passe pas dessous.
+          .padding(.trailing, quantity == nil ? 0 : 28)
           .sheetField()
           .multilineTextAlignment(.center)
           .submitLabel(.done)
@@ -173,24 +175,30 @@ struct ItemEditSheet: View {
             if limited != value { quantityText = limited }
           }
           .accessibilityIdentifier("quantityField")
+          .overlay(alignment: .trailing) { clearButton }
         stepButton(delta: 1, systemImage: "plus", label: "Augmenter la quantité", identifier: "quantityIncrement")
       }
       HStack(spacing: Space.s) {
         ForEach(QuantityUnit.allCases, id: \.self) { unit in unitChip(unit) }
       }
+    }
+  }
+
+  /// « Effacer la quantité » : la croix d'effacement d'iOS, dans le champ, tant qu'il y a une quantité. Un pictogramme
+  /// lu par VoiceOver, sans texte affiché que la feuille à mi-hauteur pourrait rogner.
+  @ViewBuilder private var clearButton: some View {
+    if quantity != nil {
       Button {
         quantityText = ""
       } label: {
-        // Pictogramme et texte simples : le cadre d'accessibilité du bouton reste celui du texte dessiné.
-        HStack(spacing: Space.xs) {
-          Image(systemName: "xmark.circle").accessibilityHidden(true)
-          Text("Effacer la quantité")
-        }
-        .font(.body.weight(.semibold))
-        .touchTarget()
+        Image(systemName: "xmark.circle.fill")
+          .font(.body)
+          .foregroundStyle(Palette.inkMuted)
+          .frame(width: 44, height: 44)
+          .contentShape(Rectangle())
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .disabled(quantity == nil)
+      .buttonStyle(.plain)
+      .accessibilityLabel("Effacer la quantité")
       .accessibilityIdentifier("clearQuantity")
     }
   }
