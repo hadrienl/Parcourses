@@ -140,6 +140,7 @@ internal data class RowLook(
  * déclenchement ; « Quantité » ouvre le panneau de l'article, que TalkBack offre aussi en action « Modifier la
  * quantité ».
  */
+@Suppress("LongMethod") // Une ligne : gestes, menu, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 internal fun ItemRowContent(
     row: ShoppingRow,

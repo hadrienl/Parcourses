@@ -92,7 +92,7 @@ class ItemEditTest : DataTest() {
     fun aNewLabelIsReclassifiedAndForgetsItsProduct() =
         runBlocking {
             val item = sentItem()
-            repository.applyEdit(ItemEdit("pommes", "1"), item.id, analyzer, now)
+            repository.applyEdit(ItemEdit("pommes", changesQuantity = false, quantity = null), item.id, analyzer, now)
 
             assertEquals(listOf(ItemFields.LABEL, ItemFields.PRODUCT_ID), sentFields())
             val stored = requireNotNull(db.items().get(item.id))
@@ -101,6 +101,8 @@ class ItemEditTest : DataTest() {
             assertEquals("produce", stored.categoryId)
             // Le produit correspondait à l'ancien libellé : la résolution de produit repassera.
             assertNull(stored.productId)
+            // La quantité, non touchée dans le panneau, garde sa valeur.
+            assertEquals("1", stored.quantity)
             val row = OutboxCoding.decode(ListItemUpsert.serializer(), queued().payload)
             assertEquals("pommes", row.label)
             assertNull(row.productId)
@@ -110,7 +112,7 @@ class ItemEditTest : DataTest() {
     fun aLabelOfTheSameFormKeepsItsProduct() =
         runBlocking {
             val item = sentItem(label = "lait")
-            repository.applyEdit(ItemEdit("Lait", "2"), item.id, analyzer, now)
+            repository.applyEdit(ItemEdit("Lait", changesQuantity = true, quantity = "2"), item.id, analyzer, now)
 
             // Même forme normalisée : le produit reste, seuls le libellé et la quantité partent (triés).
             assertEquals(listOf(ItemFields.LABEL, ItemFields.QUANTITY), sentFields())
@@ -122,30 +124,76 @@ class ItemEditTest : DataTest() {
         }
 
     @Test
-    fun aNewLabelWithoutProductSendsTheLabelAlone() =
+    fun aNewFormSendsTheProductEvenWithoutOneLocally() =
         runBlocking {
             val item = sentItem().copy(productId = null)
             db.items().upsert(item)
-            repository.applyEdit(ItemEdit("pommes", "1"), item.id, analyzer, now)
+            // Le serveur peut avoir un produit pas encore descendu : `product_id` nul part quand même.
+            repository.applyEdit(ItemEdit("pommes", changesQuantity = false, quantity = null), item.id, analyzer, now)
+            assertEquals(listOf(ItemFields.LABEL, ItemFields.PRODUCT_ID), sentFields())
+        }
+
+    @Test
+    fun theSameFormWithoutProductSendsTheLabelAlone() =
+        runBlocking {
+            val item = sentItem().copy(productId = null)
+            db.items().upsert(item)
+            repository.applyEdit(ItemEdit("LAIT", changesQuantity = false, quantity = null), item.id, analyzer, now)
             assertEquals(listOf(ItemFields.LABEL), sentFields())
+        }
+
+    @Test
+    fun anEmptyEditWritesNothing() =
+        runBlocking {
+            val item = sentItem()
+            val edit = requireNotNull(ItemEdit.of("lait", "1", " lait ", " 1 "))
+            assertTrue(edit.isEmpty)
+            repository.applyEdit(edit, item.id, analyzer, now)
+            assertTrue(db.outbox().all().isEmpty())
+            assertEquals(0, wakeUps)
+        }
+
+    @Test
+    fun aRemoteRenameDuringTheEditIsKept() =
+        runBlocking {
+            val item = sentItem()
+            // Instantané d'ouverture : « lait », 1. Un autre appareil renomme l'article pendant ce temps.
+            val edit = requireNotNull(ItemEdit.of(item.label, item.quantity, "lait", "3"))
+            db.items().upsert(item.copy(label = "lait entier", normalizedName = "lait entier"))
+            repository.applyEdit(edit, item.id, analyzer, now)
+
+            assertEquals(listOf(ItemFields.QUANTITY), sentFields())
+            val stored = requireNotNull(db.items().get(item.id))
+            assertEquals("lait entier", stored.label)
+            assertEquals("3", stored.quantity)
+            assertEquals(PRODUCT, stored.productId)
+        }
+
+    @Test
+    fun aMissingItemIsNotFound() =
+        runBlocking {
+            val failure = runCatching { repository.applyEdit(ItemEdit("pain", true, "2"), "inconnu", analyzer, now) }
+            assertTrue(failure.exceptionOrNull() is RepositoryException.NotFound)
         }
 
     @Test
     fun aQuantityTypedInTheLabelStaysInTheLabel() =
         runBlocking {
             val item = sentItem()
-            repository.applyEdit(requireNotNull(ItemEdit.of("  2 lait ", "")), item.id, analyzer, now)
+            val edit = requireNotNull(ItemEdit.of(item.label, item.quantity, "  2 lait ", ""))
+            repository.applyEdit(edit, item.id, analyzer, now)
             val stored = requireNotNull(db.items().get(item.id))
             assertEquals("2 lait", stored.label)
             assertNull(stored.quantity)
         }
 
     @Test
-    fun theFormIsCleanedAndAnEmptyLabelSavesNothing() {
-        assertNull(ItemEdit.of(" \t ", "2"))
-        assertEquals(ItemEdit("lait", "500 g"), ItemEdit.of(" lait ", "  500  g "))
-        assertEquals(ItemEdit("lait", null), ItemEdit.of("lait", "   "))
-        assertEquals(ItemEdit.MAX_LABEL_LENGTH, ItemEdit.of("a".repeat(300), "")?.label?.length)
+    fun theFormIsComparedToTheSnapshotAndAnEmptyLabelSavesNothing() {
+        assertNull(ItemEdit.of("lait", "1", " \t ", "2"))
+        assertEquals(ItemEdit(null, true, "500 g"), ItemEdit.of("lait", "1", " lait ", "  500\u00A0 g "))
+        assertEquals(ItemEdit(null, true, null), ItemEdit.of("lait", "1", "lait", "   "))
+        assertEquals(ItemEdit("pain", false, "1"), ItemEdit.of("lait", "1", "pain", "1"))
+        assertEquals(ItemEdit.MAX_LABEL_LENGTH, ItemEdit.of("lait", null, "a".repeat(300), "")?.label?.length)
     }
 
     @Test
@@ -153,7 +201,10 @@ class ItemEditTest : DataTest() {
         runBlocking {
             val item = sentItem()
             db.lists().setRole(item.listId, ListRole.Viewer)
-            val failure = runCatching { repository.applyEdit(ItemEdit("pain", "3"), item.id, analyzer, now) }
+            val failure =
+                runCatching {
+                    repository.applyEdit(ItemEdit("pain", changesQuantity = true, quantity = "3"), item.id, analyzer, now)
+                }
             assertTrue(failure.exceptionOrNull() is RepositoryException.ReadOnly)
             assertTrue(db.outbox().all().isEmpty())
             assertEquals(item, db.items().get(item.id))

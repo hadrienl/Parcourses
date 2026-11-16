@@ -183,6 +183,7 @@ private data class Overlays(
  * saisie en cours, qui vit dans [input].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("TooManyFunctions") // Un seul modèle d'écran : saisie, coches, panneau de l'article, astuce.
 class ListDetailViewModel(
     listId: String,
     private val lists: ListRepository,
@@ -271,6 +272,10 @@ class ListDetailViewModel(
             val authors = Authors(sharing.people)
             val sharingUi = sharingUi(sharing, authors, items)
             val canEdit = content != null && sharingUi.capabilities.canEditItems
+            val editingTarget = overlays.editing?.takeIf { target -> canEdit && items.any { it.id == target.id } }
+            // Article disparu (supprimé ailleurs) ou liste passée en lecture seule : le panneau est oublié, il ne se
+            // rouvrirait pas seul plus tard avec un instantané périmé.
+            if (overlays.editing != null && editingTarget == null) editing.compareAndSet(overlays.editing, null)
             ListDetailUiState(
                 name = content?.first.orEmpty(),
                 sections = group(items.map { row(it, authors) }, cats),
@@ -279,8 +284,7 @@ class ListDetailViewModel(
                 isMissing = content == null,
                 errorDetail = overlays.error,
                 sharing = sharingUi,
-                // Panneau fermé si l'article disparaît (supprimé ailleurs) ou si la liste passe en lecture seule.
-                editing = overlays.editing?.takeIf { target -> canEdit && items.any { it.id == target.id } },
+                editing = editingTarget,
                 showsQuantityTip = overlays.tipEligible && canEdit && items.isNotEmpty(),
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), ListDetailUiState())
@@ -365,7 +369,8 @@ class ListDetailViewModel(
         quantityText: String,
     ) {
         val target = editing.value ?: return
-        val edit = ItemEdit.of(label, quantityText) ?: return
+        // Seul ce qui a changé depuis l'ouverture est écrit ; rien n'a changé : aucune écriture.
+        val edit = ItemEdit.of(target.label, target.quantity, label, quantityText)?.takeUnless { it.isEmpty } ?: return
         val at = now()
         viewModelScope.launch(start = CoroutineStart.ATOMIC) {
             withContext(NonCancellable) {

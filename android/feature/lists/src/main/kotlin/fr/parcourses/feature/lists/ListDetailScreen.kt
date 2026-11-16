@@ -440,6 +440,7 @@ private fun SectionHeader(
  * le panneau de l'article (#110) : la ligne s'enfonce pendant l'appui, une vibration marque le déclenchement ; TalkBack
  * l'offre aussi en action « Modifier la quantité ».
  */
+@Suppress("LongMethod") // Une ligne : gestes, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 private fun ItemRowView(
     row: ItemRow,

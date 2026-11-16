@@ -48,6 +48,7 @@ class ItemEditScreenTest : ListsTest() {
     private val milk = ItemRow("1", "lait", "500 g", "dairy", "lait", isChecked = false)
     private val sections = listOf(ItemSection("dairy", "Crèmerie, œufs, ultra-frais", listOf(milk)))
     private val edited = mutableListOf<String>()
+    private val toggled = mutableListOf<String>()
     private val saved = mutableListOf<Pair<String, String>>()
     private var closed = 0
     private var tipDismissed = 0
@@ -60,7 +61,7 @@ class ItemEditScreenTest : ListsTest() {
                     input = TextFieldState(),
                     onSubmit = {},
                     onSuggestion = {},
-                    onToggle = {},
+                    onToggle = { toggled += it.id },
                     onDelete = {},
                     onBack = {},
                     onDismissError = {},
@@ -123,6 +124,11 @@ class ItemEditScreenTest : ListsTest() {
                 it.label == "Modifier la quantité"
             }
         rule.runOnUiThread { action.action() }
+        assertEquals(listOf("1", "1"), edited)
+
+        // Toucher coche toujours, sans ouvrir le panneau.
+        row.performClick()
+        assertEquals(listOf("1"), toggled)
         assertEquals(listOf("1", "1"), edited)
     }
 

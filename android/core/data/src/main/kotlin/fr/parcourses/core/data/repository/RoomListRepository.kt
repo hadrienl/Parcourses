@@ -85,6 +85,9 @@ class RoomListRepository(
             db.items().getByList(listId)
         }
 
+    override suspend fun item(id: String): ListItemEntity? =
+        db.items().get(id)?.takeIf { item -> db.lists().get(item.listId)?.deletedAt == null }
+
     override suspend fun createList(
         name: String,
         at: Instant,
@@ -182,8 +185,9 @@ class RoomListRepository(
                 val item = requireWritableItem(itemId)
                 val relabeled = item.label != label
                 // Le produit correspondait à l'ancien libellé : oublié si la forme normalisée change (la résolution
-                // de produit repassera), gardé pour un simple changement de casse.
-                val forgetsProduct = relabeled && normalizedName != item.normalizedName && item.productId != null
+                // de produit repassera), gardé pour un simple changement de casse. `product_id` part alors même nul
+                // ici : le serveur peut en avoir un pas encore descendu.
+                val forgetsProduct = relabeled && normalizedName != item.normalizedName
                 val fields =
                     buildList {
                         if (relabeled) add(ItemFields.LABEL)

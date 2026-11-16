@@ -204,7 +204,7 @@ object ItemQuantity {
 
     private fun isBlank(c: Char): Boolean =
         when (c) {
-            '\t', '\n', '\u000B', '\u000C', '\r', ' ', ' ', '' -> true
+            '\t', '\n', '\u000B', '\u000C', '\r', '\u2028', '\u2029', '\uFEFF' -> true
             else -> Character.getType(c) == Character.SPACE_SEPARATOR.toInt()
         }
 

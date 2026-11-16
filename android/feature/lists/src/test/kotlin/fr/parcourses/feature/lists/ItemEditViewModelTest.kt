@@ -123,9 +123,45 @@ class ItemEditViewModelTest : ListsTest() {
             model.saveItem("lait ", " 1 ")
             model.saveItem("   ", "4")
             model.closeItemEditor()
-            model.uiState.await { it.editing == null }
-            assertEquals(wakeUpsBefore, wakeUps)
-            assertEquals("1", lists.items(id).single().quantity)
+            // Les écritures passent une à une : une fois l'ajout suivant visible, les enregistrements d'avant sont faits.
+            model.type("pain")
+            model.submit()
+            model.uiState.await { it.rows().size == 2 }
+            assertEquals(wakeUpsBefore + 1, wakeUps)
+            assertEquals("1", lists.items(id).first { it.label == "lait" }.quantity)
+        }
+
+    @Test
+    fun theSheetIsForgottenWhenItsItemDisappears() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val milk = lists.addItem(id, "lait", "lait", "1", null, "dairy", clock)
+            val model = detailModel(id)
+            model.openItemEditor(model.uiState.await { it.rows().size == 1 }.row("lait"))
+            model.uiState.await { it.editing != null }
+
+            lists.deleteItem(milk.id, clock)
+            model.uiState.await { it.rows().isEmpty() && it.editing == null }
+            // Le même article revenu (annulation, synchro) ne rouvre pas le panneau de lui-même.
+            db.items().upsert(milk)
+            assertNull(model.uiState.await { it.rows().size == 1 }.editing)
+        }
+
+    @Test
+    fun aRemoteRenameWhileTheSheetIsOpenIsKept() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val milk = lists.addItem(id, "lait", "lait", "1", null, "dairy", clock)
+            val model = detailModel(id)
+            model.openItemEditor(model.uiState.await { it.rows().size == 1 }.row("lait"))
+            model.uiState.await { it.editing != null }
+
+            db.items().upsert(milk.copy(label = "lait entier", normalizedName = "lait entier"))
+            model.uiState.await { s -> s.rows().any { it.label == "lait entier" } }
+            model.saveItem("lait", "3")
+
+            val row = model.uiState.await { s -> s.rows().any { it.quantity == "3" } }.rows().single()
+            assertEquals("lait entier", row.label)
         }
 
     @Test

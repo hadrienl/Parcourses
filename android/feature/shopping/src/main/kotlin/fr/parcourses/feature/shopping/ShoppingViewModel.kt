@@ -590,7 +590,10 @@ class ShoppingViewModel(
         quantityText: String,
     ) = actDurably {
         val target = editing ?: return@actDurably
-        val edit = ItemEdit.of(label, quantityText) ?: return@actDurably
+        // Seul ce qui a changé depuis l'ouverture est écrit ; rien n'a changé : aucune écriture.
+        val edit =
+            ItemEdit.of(target.label, target.quantity, label, quantityText)?.takeUnless { it.isEmpty }
+                ?: return@actDurably
         if (!perform { deps.lists.applyEdit(edit, target.id, deps.analyzer, now()) }) return@actDurably
         reloadRows()
         scheduleSettle()
@@ -1050,6 +1053,12 @@ class ShoppingViewModel(
         }
 
     private fun publish(loaded: Boolean = _uiState.value.isLoaded) {
+        // Article qui n'est plus à prendre (coché, introuvable, retiré) ou courses arrêtées : le panneau est oublié,
+        // il ne se rouvrirait pas seul plus tard avec un instantané périmé.
+        editing =
+            editing?.takeIf { target ->
+                !accessLost && summary == null && toBuy.any { it.id == target.id && !it.isChecked }
+            }
         val groups = mode != SortOutput.Mode.Learned
         val sections = if (groups) sections() else runs()
         if (loaded) publishLive(sections.flatMap { it.rows })

@@ -82,6 +82,24 @@ class ShoppingItemEditTest : ShoppingTest() {
         }
 
     @Test
+    fun theSheetIsForgottenWhenTheRowIsNoLongerToTake() =
+        runTest(main) {
+            val (listId, _) = groceries()
+            val model = model(listId)
+            val milk = started(model).row("lait")
+            model.openItemEditor(milk)
+            runCurrent()
+
+            // Coché (ici ou par un autre membre) : plus rien à modifier en route.
+            model.toggle(milk)
+            runCurrent()
+            assertNull(model.uiState.value.editing)
+            model.toggle(model.uiState.value.row("lait"))
+            after(600)
+            assertNull(model.uiState.value.editing)
+        }
+
+    @Test
     fun aCheckedRowHasNoSheet() =
         runTest(main) {
             val (listId, _) = groceries()
