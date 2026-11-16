@@ -2,20 +2,6 @@ package fr.parcourses.app
 
 import android.app.Application
 import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.sqlite.driver.AndroidSQLiteDriver
-import fr.parcourses.core.data.account.AccountDeletion
-import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
-import fr.parcourses.core.data.account.InMemoryAccountKindFlag
-import fr.parcourses.core.data.account.LocalDataPurge
-import fr.parcourses.core.data.sync.InMemorySyncCursors
-import fr.parcourses.core.database.ParcoursesDatabaseFactory
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -28,16 +14,30 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.account.AccountDeletion
 import fr.parcourses.core.data.account.AccountState
+import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
+import fr.parcourses.core.data.account.InMemoryAccountKindFlag
+import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.sync.AccountKind
+import fr.parcourses.core.data.sync.InMemorySyncCursors
+import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import fr.parcourses.core.designsystem.ParcoursesTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -222,7 +222,9 @@ class AccountScreenTest {
         val confirmation = text(R.string.about_account_confirm_body_email)
         rule.onNodeWithText(confirmation).assertExists()
         // Une liste partagée passe à un membre (#87, lot 87.8) ; rien sur une purge d'inactivité.
-        assertTrue(confirmation.contains("ainsi que votre compte (adresse e-mail et prénom). ${AboutScreenTest.SHARED_LISTS}"))
+        assertTrue(
+            confirmation.contains("ainsi que votre compte (adresse e-mail et prénom). ${AboutScreenTest.SHARED_LISTS}"),
+        )
         rule.onNodeWithText(INACTIVITY_PURGE, substring = true).assertDoesNotExist()
     }
 
@@ -264,7 +266,9 @@ class AccountScreenTest {
                 }
             }
             rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performScrollTo().performClick()
-            rule.waitUntil(TIMEOUT_MS) { rule.onAllNodesWithTag(TAG_ACCOUNT_DELETE_CONFIRM).fetchSemanticsNodes().isNotEmpty() }
+            rule.waitUntil(
+                TIMEOUT_MS,
+            ) { rule.onAllNodesWithTag(TAG_ACCOUNT_DELETE_CONFIRM).fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithTag(TAG_ACCOUNT_DELETE_CONFIRM).performClick()
 
             rule.waitUntil(TIMEOUT_MS) { controller.state.value is AccountDeletionState.DoneLocally }
