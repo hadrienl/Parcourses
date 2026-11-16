@@ -108,11 +108,11 @@ figcaption strong{display:block;color:var(--fg);font-size:16px;margin-bottom:2px
 /* « Proposé » : trait unique sous les lignes */
 .track{position:absolute;left:28.5px;width:3px;background:var(--idle);top:0;height:0;z-index:0;
   transition:top var(--reorder) cubic-bezier(.2,.8,.2,1),height var(--reorder) cubic-bezier(.2,.8,.2,1),opacity var(--fade)}
-.track .passed{position:absolute;left:0;right:0;top:0;height:0;background:var(--thread);transition:height var(--flow) ease-in-out}
+/* La jonction accent / à parcourir suit la perle suivante avec la même courbe que les lignes. */
+.track .passed{position:absolute;left:0;right:0;top:0;height:0;background:var(--thread);transition:height var(--reorder) cubic-bezier(.2,.8,.2,1)}
 .proposed .row{z-index:1}
 .lanewrap{position:relative;flex:1;display:flex;overflow:hidden;min-width:0;background:var(--paper);border-radius:0;transition:transform var(--swipe),box-shadow var(--swipe),border-radius var(--swipe),opacity var(--fade)}
 .lanewrap .lane{background:var(--paper);will-change:transform}
-.proposed .row.hl .lane,.today .row.hl{background-color:var(--hl)}
 
 /* Action du glisser */
 .action{position:absolute;top:0;bottom:0;right:0;width:0;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;color:#fff;font:600 13px -apple-system,system-ui,sans-serif;background:var(--notfound);z-index:0}
@@ -355,6 +355,13 @@ ul.watch li{margin:6px 0}
       this.list.style.height = model.total + "px";
       if (this.track) {
         const ls = model.lines;
+        const passed = this.track.firstElementChild;
+        // Au chargement et à la réinitialisation, le trait est posé sans transition : il ne doit jamais « pousser ».
+        if (instant) { this.track.style.transition = passed.style.transition = "none"; }
+        // Si la dernière perle s'en va, le trait ne se raccourcit qu'après son fondu.
+        const lastLeaving = this.lastId && !seen.has(this.lastId);
+        this.track.style.transitionDelay = lastLeaving ? "0ms, var(--fade), 0ms" : "";
+        this.lastId = ls.length ? ls[ls.length - 1].id : null;
         if (ls.length) {
           const first = ls[0].my, last = ls[ls.length - 1].my;
           const next = model.nextIdx < 0 ? last : ls[model.nextIdx].my;
@@ -363,6 +370,7 @@ ul.watch li{margin:6px 0}
           this.track.style.height = Math.max(0, last - first) + "px";
           this.track.firstElementChild.style.height = Math.max(0, next - first) + "px";
         } else this.track.style.opacity = 0;
+        if (instant) { void this.track.offsetWidth; this.track.style.transition = passed.style.transition = ""; }
       }
       const left = Object.values(S.status).filter((s) => s === "todo").length;
       this.screen.querySelector(".count").textContent = String(left).padStart(2, "0");
@@ -399,7 +407,6 @@ ul.watch li{margin:6px 0}
       const p = this.parts(id); if (!p) return;
       this.screen.classList.toggle("menu-open", on);
       for (const el of this.els.values()) el.classList.remove("lifted");
-      this.screen.querySelectorAll(".keep").forEach((n) => n.classList.remove("keep"));
       if (on) {
         p.el.classList.add("lifted");
         if (this.mode === "today") {
@@ -539,13 +546,22 @@ ul.watch li{margin:6px 0}
     closeOpen();
     say("<b>Glisser jusqu'au bout</b> : « Pas trouvé ». " + (S.plat === "ios"
       ? "À gauche, l'action orange couvre toute la cellule, fil compris. À droite, elle ne remplit que le couloir."
-      : "À gauche, le fil sort de l'écran avec la ligne. À droite, il reste en place."));
+      : "À gauche, le fil glisse avec la ligne, puis revient avec elle. À droite, il reste en place."));
     if (S.plat === "ios") {
       phones.forEach((p) => p.setSwipe(id, -96));
       await sleep(hold(500));
     }
-    phones.forEach((p) => { const w = p.parts(id)?.width || 280; p.setSwipe(id, -w, { full: S.plat === "ios" }); });
-    await sleep(hold(600));
+    if (S.plat === "ios") {
+      phones.forEach((p) => { const w = p.parts(id)?.width || 280; p.setSwipe(id, -w, { full: true }); });
+      await sleep(hold(600));
+    } else {
+      // Android : passé le seuil, la ligne revient toujours en place (`confirmValueChange` renvoie false), puis la
+      // liste change.
+      phones.forEach((p) => p.setSwipe(id, -170));
+      await sleep(hold(500));
+      phones.forEach((p) => p.setSwipe(id, 0));
+      await sleep(hold(300));
+    }
     notFound(id);
     await sleep(hold(900));
   }
