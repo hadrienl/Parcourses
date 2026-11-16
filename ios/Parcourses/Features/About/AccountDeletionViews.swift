@@ -1,9 +1,10 @@
 import SwiftUI
 
 extension View {
-  /// Voile « Suppression… » et messages de fin de la suppression du compte (#68 §5.2).
-  func accountDeletionPresentation(_ deletion: AccountDeletion?) -> some View {
-    modifier(AccountDeletionPresentation(deletion: deletion))
+  /// Voile « Suppression… » et messages de fin de la suppression du compte (#68 §5.2). `isEmailAccount` est la nature
+  /// du compte supprimé, lue avant la purge : celle-ci remet le drapeau `account.kind` à zéro.
+  func accountDeletionPresentation(_ deletion: AccountDeletion?, isEmailAccount: Bool) -> some View {
+    modifier(AccountDeletionPresentation(deletion: deletion, isEmailAccount: isEmailAccount))
   }
 }
 
@@ -21,8 +22,8 @@ private struct AccountDeletionOutcome {
   let title: String
   let message: String?
 
-  /// Textes communs à iOS et Android (#68 §5.2, §5.7 et relecture de 68.2).
-  init?(_ deletion: AccountDeletion) {
+  /// Textes communs à iOS et Android (#68 §5.2, §5.7, relecture de 68.2 et lot 87.8).
+  init?(_ deletion: AccountDeletion, isEmailAccount: Bool) {
     let server = deletion.deletesServerData
     switch deletion.status {
     case .idle, .deleting:
@@ -34,7 +35,7 @@ private struct AccountDeletionOutcome {
     case .deletedFromDevice:
       kind = .acknowledgement
       title = "Vos données ont été supprimées de cet appareil."
-      message = "Celles de nos serveurs seront supprimées après 365 jours sans utilisation."
+      message = AboutTexts.deletedFromDeviceMessage(isEmailAccount: isEmailAccount)
     case .failed(.offline):
       kind = .acknowledgement
       title = "Connexion requise."
@@ -61,6 +62,7 @@ private struct AccountDeletionOutcome {
 
 private struct AccountDeletionPresentation: ViewModifier {
   let deletion: AccountDeletion?
+  let isEmailAccount: Bool
   @State private var outcome: AccountDeletionOutcome?
 
   func body(content: Content) -> some View {
@@ -70,7 +72,7 @@ private struct AccountDeletionPresentation: ViewModifier {
       }
       // Chaque issue publiée, même identique à la précédente (« Réessayez dans un instant »), est présentée.
       .onChange(of: deletion?.revision) {
-        outcome = deletion.flatMap(AccountDeletionOutcome.init)
+        outcome = deletion.flatMap { AccountDeletionOutcome($0, isEmailAccount: isEmailAccount) }
       }
       .alert(outcome?.title ?? "", isPresented: isPresented, presenting: outcome) { outcome in
         switch outcome.kind {
@@ -114,6 +116,14 @@ struct AccountDeletionResumeView: View {
   let deletion: AccountDeletion
   /// Suppression annulée ou refusée : l'app démarre sur les données gardées.
   let onAbandon: () -> Void
+  /// Lu une fois, avant que la reprise ne purge le drapeau `account.kind`.
+  @State private var isEmailAccount: Bool
+
+  init(deletion: AccountDeletion, isEmailAccount: Bool, onAbandon: @escaping () -> Void) {
+    self.deletion = deletion
+    self.onAbandon = onAbandon
+    _isEmailAccount = State(initialValue: isEmailAccount)
+  }
 
   var body: some View {
     NavigationStack {
@@ -123,7 +133,7 @@ struct AccountDeletionResumeView: View {
       )
       .ticketBackground()
     }
-    .accountDeletionPresentation(deletion)
+    .accountDeletionPresentation(deletion, isEmailAccount: isEmailAccount)
     .task { await deletion.resumeIfNeeded() }
     .onChange(of: deletion.status) { _, status in
       // Après une suppression réussie, `acknowledge()` reconstruit l'app : seul l'abandon passe ici.
