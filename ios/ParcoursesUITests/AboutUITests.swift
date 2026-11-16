@@ -53,9 +53,9 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     capture(app, "compte-email-vos-donnees")
     let confirmation = openConfirmation(app)
     XCTAssertTrue(
-      confirmation.staticTexts[
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
-      ].exists)
+      hasText(
+        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif.",
+        in: confirmation))
     capture(app, "compte-email-confirmation")
     confirmation.buttons["Annuler"].firstMatch.tap()
     XCTAssertTrue(confirmation.waitForNonExistence(timeout: 15))
@@ -79,9 +79,9 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     capture(app, "a-propos-compte-anonyme")
     let confirmation = openConfirmation(app)
     XCTAssertTrue(
-      confirmation.staticTexts[
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
-      ].exists)
+      hasText(
+        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif.",
+        in: confirmation))
     confirmation.buttons["Annuler"].firstMatch.tap()
     XCTAssertTrue(confirmation.waitForNonExistence(timeout: 15))
   }
@@ -109,6 +109,12 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     XCTAssertTrue(about.waitForExistence(timeout: 15))
     about.tap()
     XCTAssertTrue(app.navigationBars["À propos"].waitForExistence(timeout: 15))
+  }
+
+  /// Un identifiant de requête XCUITest est limité à 128 caractères : un texte long est cherché par prédicat.
+  @MainActor
+  private func hasText(_ text: String, in element: XCUIElement) -> Bool {
+    element.staticTexts.matching(NSPredicate(format: "label == %@", text)).firstMatch.exists
   }
 
   /// « Supprimer mes données… » depuis l'écran ouvert (À propos ou Compte) : renvoie l'alerte de confirmation.
