@@ -36,7 +36,8 @@ data class ItemEdit(
             label: String,
             quantityText: String,
         ): ItemEdit? {
-            val trimmed = label.trim()
+            // Un retour à la ligne (collé, ou venu d'iOS) devient une espace : le libellé tient sur une ligne.
+            val trimmed = label.lines().joinToString(" ").trim()
             if (trimmed.isEmpty()) return null
             val end =
                 if (trimmed.codePointCount(0, trimmed.length) > MAX_LABEL_LENGTH) {

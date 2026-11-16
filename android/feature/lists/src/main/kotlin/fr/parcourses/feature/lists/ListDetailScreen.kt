@@ -432,11 +432,8 @@ private fun ItemRowView(
                     contentDescription = label
                     toggleableState = ToggleableState(row.isChecked)
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
-                    customActions =
-                        listOf(
-                            CustomAccessibilityAction(deleteLabel) { onDelete().let { true } },
-                            CustomAccessibilityAction(editLabel) { onEdit().let { true } },
-                        )
+                    // « Modifier la quantité » est l'appui long libellé ci-dessus : pas d'action en double.
+                    customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
                 }
                 // Le contenu s'enfonce, pas le fil : il reste continu d'une ligne à l'autre.
                 .graphicsLayer {

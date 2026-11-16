@@ -128,6 +128,8 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(edit?.quantity == "500 g")
     let cleared = ItemEdit(target: target, label: "Lait", quantityText: "  ")
     #expect(cleared?.changesQuantity == true && cleared?.quantity == nil)
+    // Retour à la ligne (collé) : une espace, le libellé tient sur une ligne.
+    #expect(ItemEdit(target: target, label: "Lait\nbio\n", quantityText: "2")?.label == "Lait bio")
     // Coupé à 200 points de code (`char_length`), pas à 200 graphèmes : un drapeau en compte deux.
     let flags = String(repeating: "🇫🇷", count: 150)
     #expect(ItemEdit(target: target, label: flags, quantityText: "2")?.label?.unicodeScalars.count == 200)

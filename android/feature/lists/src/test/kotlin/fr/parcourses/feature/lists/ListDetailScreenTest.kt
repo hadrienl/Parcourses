@@ -95,7 +95,7 @@ class ListDetailScreenTest : ListsTest() {
                     "pain",
                 ).fetchSemanticsNode()
                 .config[SemanticsActions.CustomActions]
-        assertEquals(listOf("Supprimer", "Modifier la quantité"), actions.map { it.label })
+        assertEquals(listOf("Supprimer"), actions.map { it.label })
         rule.runOnUiThread { actions.first().action() }
         assertEquals(listOf("2"), deleted)
     }

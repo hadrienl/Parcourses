@@ -120,12 +120,15 @@ class ItemEditScreenTest : ListsTest() {
         row.performTouchInput { longClick() }
         assertEquals(listOf("1"), edited)
 
-        val action =
-            row.fetchSemanticsNode().config[SemanticsActions.CustomActions].single {
-                it.label == "Modifier la quantité"
-            }
-        rule.runOnUiThread { action.action() }
+        // TalkBack : l'action « Modifier la quantité » est l'appui long libellé, une seule fois.
+        val longClick = row.fetchSemanticsNode().config[SemanticsActions.OnLongClick]
+        rule.runOnUiThread { longClick.action?.invoke() }
         assertEquals(listOf("1", "1"), edited)
+        assertTrue(
+            row.fetchSemanticsNode().config[SemanticsActions.CustomActions].none {
+                it.label == "Modifier la quantité"
+            },
+        )
 
         // Toucher coche toujours, sans ouvrir le panneau.
         row.performClick()

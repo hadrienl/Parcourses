@@ -569,7 +569,7 @@ class ShoppingViewModel(
     /** Ouvre le panneau de l'article (#110) sur une ligne à prendre. */
     fun openItemEditor(row: ShoppingRow) =
         act {
-            if (row.isChecked || accessLost || summary != null) return@act
+            if (row.isChecked || accessLost || expired || summary != null) return@act
             editing = ItemEditTarget(row.id, row.label, row.quantity)
             publish()
         }
@@ -1053,11 +1053,12 @@ class ShoppingViewModel(
         }
 
     private fun publish(loaded: Boolean = _uiState.value.isLoaded) {
-        // Article qui n'est plus à prendre (coché, introuvable, retiré) ou courses arrêtées : le panneau est oublié,
-        // il ne se rouvrirait pas seul plus tard avec un instantané périmé.
+        // Article qui n'est plus à prendre (coché, introuvable, retiré) ou courses arrêtées, expirées comprises (la
+        // feuille « articles restants » prend la place, comme sur iOS) : le panneau est oublié, il ne se rouvrirait
+        // pas seul plus tard avec un instantané périmé.
         editing =
             editing?.takeIf { target ->
-                !accessLost && summary == null && toBuy.any { it.id == target.id && !it.isChecked }
+                !accessLost && !expired && summary == null && toBuy.any { it.id == target.id && !it.isChecked }
             }
         val groups = mode != SortOutput.Mode.Learned
         val sections = if (groups) sections() else runs()

@@ -18,9 +18,11 @@ struct ItemEdit: Equatable {
   let changesQuantity: Bool
   let quantity: String?
 
-  /// `nil` si le libellé est vide.
+  /// `nil` si le libellé est vide. Un retour à la ligne (collé) devient une espace : le libellé tient sur une ligne,
+  /// comme sur Android.
   init?(target: ItemEditTarget, label: String, quantityText: String) {
-    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = label.components(separatedBy: .newlines).joined(separator: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     var cut = ""
     cut.unicodeScalars.append(contentsOf: trimmed.unicodeScalars.prefix(ItemEdit.maxLabelLength))
@@ -62,6 +64,7 @@ struct ItemEditSheet: View {
   @State private var quantityText: String
   /// Mi-hauteur, sauf aux tailles de texte d'accessibilité : le panneau s'ouvre alors en grand.
   @State private var detent: PresentationDetent
+  @FocusState private var labelFocused: Bool
 
   init(target: ItemEditTarget, largeText: Bool = false, onSave: @escaping (ItemEdit) -> Void) {
     self.target = target
@@ -113,12 +116,22 @@ struct ItemEditSheet: View {
         .lineLimit(1...4)
         .sheetField()
         .submitLabel(.done)
+        .focused($labelFocused)
         .onChange(of: label) { _, value in
-          if value.unicodeScalars.count > ItemEdit.maxLabelLength {
-            var cut = ""
-            cut.unicodeScalars.append(contentsOf: value.unicodeScalars.prefix(ItemEdit.maxLabelLength))
-            label = cut
+          // Champ multi-ligne pour l'affichage seulement : « Terminé » y insère un retour à la ligne, qui ferme le
+          // clavier au lieu de rester dans le libellé ; un retour collé devient une espace.
+          var cleaned = value
+          if cleaned.last?.isNewline == true {
+            while cleaned.last?.isNewline == true { cleaned.removeLast() }
+            labelFocused = false
           }
+          cleaned = cleaned.components(separatedBy: .newlines).joined(separator: " ")
+          if cleaned.unicodeScalars.count > ItemEdit.maxLabelLength {
+            var cut = ""
+            cut.unicodeScalars.append(contentsOf: cleaned.unicodeScalars.prefix(ItemEdit.maxLabelLength))
+            cleaned = cut
+          }
+          if cleaned != value { label = cleaned }
         }
         .accessibilityIdentifier("itemLabelField")
     }

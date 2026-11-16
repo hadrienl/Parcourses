@@ -9,11 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.maxLength
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
@@ -48,9 +46,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import fr.parcourses.core.categorizer.ItemQuantity
 import fr.parcourses.core.categorizer.QuantityUnit
 import kotlinx.coroutines.launch
-
-/** Longueur maximale du libellé (`list_items.label`). */
-private const val MAX_LABEL_LENGTH = 200
 
 /**
  * Panneau de l'article (#110), à mi-hauteur : libellé modifiable, − / + sur le nombre, champ libre de quantité,
@@ -127,7 +122,6 @@ private fun LabelField(state: TextFieldState) {
     OutlinedTextField(
         state = state,
         label = { Text(stringResource(R.string.item_edit_label), fontFamily = FontFamily.Default) },
-        inputTransformation = InputTransformation.maxLength(MAX_LABEL_LENGTH),
         lineLimits = TextFieldLineLimits.SingleLine,
         textStyle = dockFieldTextStyle(),
         keyboardOptions =
@@ -157,7 +151,6 @@ private fun QuantityRow(state: TextFieldState) {
             state = state,
             label = { Text(stringResource(R.string.item_edit_quantity), fontFamily = FontFamily.Default) },
             placeholder = { Text(stringResource(R.string.item_edit_quantity_hint), fontFamily = FontFamily.Default) },
-            inputTransformation = InputTransformation.maxLength(ItemQuantity.MAX_QUANTITY_LENGTH),
             lineLimits = TextFieldLineLimits.SingleLine,
             textStyle = dockFieldTextStyle(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),

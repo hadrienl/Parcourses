@@ -7,8 +7,10 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.minutes
 
 // Mode courses (#110) : « Quantité » du menu d'appui long et saisie sur un article existant.
 @RunWith(AndroidJUnit4::class)
@@ -108,6 +110,26 @@ class ShoppingItemEditTest : ShoppingTest() {
             assertNull(model.uiState.value.editing)
             model.toggle(model.uiState.value.row("lait"))
             after(600)
+            assertNull(model.uiState.value.editing)
+        }
+
+    /** Courses expirées, panneau ouvert : il se ferme, la feuille « articles restants » prend la place. */
+    @Test
+    fun theSheetIsForgottenWhenShoppingExpires() =
+        runTest(main) {
+            val (listId, _) = groceries()
+            val model = model(listId)
+            val state = started(model)
+            model.toggle(state.row("pommes"))
+            runCurrent()
+            model.openItemEditor(model.uiState.value.row("lait"))
+            runCurrent()
+            assertEquals("lait", model.uiState.value.editing?.label)
+
+            offset += 46.minutes
+            model.foregrounded()
+            runCurrent()
+            assertTrue(model.uiState.value.expired)
             assertNull(model.uiState.value.editing)
         }
 
