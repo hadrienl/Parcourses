@@ -607,6 +607,10 @@ private final class SignalProbe {
     }
     #expect(throws: readOnly) { try lists.setChecked(itemId: milk.id, checkedAt: t0, at: t0) }
     #expect(throws: readOnly) { try lists.deleteItem(id: milk.id) }
+    #expect(throws: readOnly) {
+      try lists.updateItem(
+        itemId: milk.id, label: "Lait", normalizedName: "lait", categoryId: "dairy", quantity: "2", at: t0)
+    }
     #expect(throws: readOnly) { try lists.renameList(id: list.id, name: "Autre", at: t0) }
     #expect(throws: readOnly) { try lists.deleteList(id: list.id, at: t0) }
     #expect(throws: readOnly) {

@@ -112,6 +112,10 @@ final class SwiftDataListRepository: ListRepository {
     onEnqueue()
   }
 
+  func item(id: UUID) throws -> ListItem? {
+    try context.fetch(FetchDescriptor<ListItem>(predicate: #Predicate { $0.id == id })).first
+  }
+
   func items(listId: UUID) throws -> [ListItem] {
     guard try !isDeleted(listId) else { return [] }
     return try context.fetch(
@@ -144,6 +148,36 @@ final class SwiftDataListRepository: ListRepository {
       item.updatedBy = author()
       item.syncState = .pending
       try context.enqueueUpsert(of: item, at: date, changedFields: [ListItemFields.checkedAt])
+    }
+    onEnqueue()
+  }
+
+  func updateItem(
+    itemId: UUID, label: String, normalizedName: String, categoryId: String, quantity: String?, at date: Date
+  ) throws {
+    let item = try requireWritableItem(itemId, shared: true)
+    var fields: [String] = []
+    if item.quantity != quantity { fields.append(ListItemFields.quantity) }
+    let renamed = item.label != label
+    if renamed { fields.append(ListItemFields.label) }
+    // Forme normalisée changée : le produit (celui de l'ancien libellé) part à `null`, même s'il est déjà nul ici, le
+    // serveur pouvant en avoir posé un que la descente n'a pas encore apporté.
+    let forgetsProduct = renamed && item.normalizedName != normalizedName
+    if forgetsProduct { fields.append(ListItemFields.productId) }
+    guard !fields.isEmpty else { return }
+    try context.atomically {
+      item.quantity = quantity
+      if renamed {
+        // Reclassé comme à l'ajout : forme normalisée et rayon suivent le libellé (catégorie locale).
+        item.label = label
+        item.normalizedName = normalizedName
+        item.categoryId = categoryId
+      }
+      if forgetsProduct { item.productId = nil }
+      item.updatedAt = date
+      item.updatedBy = author()
+      item.syncState = .pending
+      try context.enqueueUpsert(of: item, at: date, changedFields: fields.sorted())
     }
     onEnqueue()
   }

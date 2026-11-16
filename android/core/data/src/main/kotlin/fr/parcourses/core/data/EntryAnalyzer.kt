@@ -29,6 +29,21 @@ class EntryAnalyzer(
         )
     }
 
+    /**
+     * Libellé tapé dans le panneau de l'article (#110) : classé tel quel, sans en séparer de quantité (« 2 lait »
+     * reste le libellé « 2 lait »). `analyze(label:)` d'iOS.
+     */
+    fun analyzeLabel(label: String): AnalyzedEntry {
+        val classification = classifier.classify(label)
+        return AnalyzedEntry(
+            quantity = null,
+            label = label,
+            normalizedName = classification.normalized,
+            categoryId = classification.categoryId,
+            organic = classification.organic,
+        )
+    }
+
     /** Résultat du classifieur pour un libellé déjà séparé de sa quantité. */
     fun classify(label: String): Pair<String, Boolean> = classifier.classify(label).let { it.categoryId to it.organic }
 

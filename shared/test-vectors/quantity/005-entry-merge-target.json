@@ -1,0 +1,136 @@
+{
+  "id": "005-entry-merge-target",
+  "function": "entryMergeTarget",
+  "description": "Saisie rapide sur un article déjà dans la liste (#110, point 4) : une saisie qui porte une quantité (« lait x3 ») met à jour la quantité du premier article non coché de même forme normalisée, dans l'ordre de la liste (position), au lieu d'ajouter un doublon. Le libellé de l'article ne change pas. Renvoie son identifiant ; null : la saisie s'ajoute comme avant.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "même article non coché",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": "3"
+        },
+        "items": [
+          {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "normalizedName": "pomme",
+            "checked": false
+          },
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": false
+          }
+        ]
+      },
+      "expected": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    },
+    {
+      "name": "saisie sans quantité : ajout",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": null
+        },
+        "items": [
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": false
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "article coché : ajout",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": "3"
+        },
+        "items": [
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": true
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "le coché est sauté",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": "2"
+        },
+        "items": [
+          {
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "normalizedName": "lait",
+            "checked": true
+          },
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": false
+          }
+        ]
+      },
+      "expected": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    },
+    {
+      "name": "deux non cochés : le premier",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": "2"
+        },
+        "items": [
+          {
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            "normalizedName": "lait",
+            "checked": false
+          },
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": false
+          }
+        ]
+      },
+      "expected": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    },
+    {
+      "name": "autre forme : ajout",
+      "input": {
+        "entry": {
+          "normalizedName": "lait amande",
+          "quantity": "2"
+        },
+        "items": [
+          {
+            "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "normalizedName": "lait",
+            "checked": false
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "liste vide : ajout",
+      "input": {
+        "entry": {
+          "normalizedName": "lait",
+          "quantity": "2"
+        },
+        "items": []
+      },
+      "expected": null
+    }
+  ]
+}
