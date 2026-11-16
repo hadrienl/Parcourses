@@ -337,6 +337,14 @@ isOneToOne: false
               "id": string
             }[]
                            },
+"claim_inactivity_notices":
+{ Args: { "p_limit"?: number }; Returns: {
+              "cycle_id": string,"email": string,"purge_after": string,"user_id": string
+            }[]
+                           },
+"confirm_inactivity_notice":
+{ Args: { "p_cycle_id": string,"p_user_id": string }; Returns: boolean
+                           },
 "create_invitation":
 { Args: { "p_email": string,"p_list_id": string,"p_role"?: string,"p_send_email"?: boolean }; Returns: {
               "expires_at": string,"invitation_id": string,"invitee_email": string,"sender_name": string,"token": string
