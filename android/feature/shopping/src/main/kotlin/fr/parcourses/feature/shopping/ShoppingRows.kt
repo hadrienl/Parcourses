@@ -148,23 +148,11 @@ internal fun ItemRowContent(
     actions: ShoppingActions,
 ) {
     val colors = Ticket.colors
-    val checkedText = stringResource(R.string.shopping_state_checked)
-    val uncheckedText = stringResource(R.string.shopping_state_unchecked)
     val checkLabel = stringResource(R.string.shopping_action_check)
     val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
-    val notFoundLabel = stringResource(R.string.shopping_action_not_found)
-    val editLabel = stringResource(DesignR.string.item_edit_action)
-    val byOther = checkedByDescription(row)
+    val state = rowStateDescription(row)
+    val custom = rowAccessibilityActions(row, actions)
     var menuOpen by remember { mutableStateOf(false) }
-    val custom =
-        if (row.isChecked) {
-            listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
-        } else {
-            listOf(
-                CustomAccessibilityAction(notFoundLabel) { actions.onNotFound(row).let { true } },
-                CustomAccessibilityAction(editLabel) { actions.onEditItem(row).let { true } },
-            )
-        }
     Box {
         Row(
             modifier =
@@ -184,7 +172,7 @@ internal fun ItemRowContent(
                         actions.onToggle(row)
                     }.semantics(mergeDescendants = true) {
                         contentDescription = row.accessibilityLabel
-                        stateDescription = byOther ?: if (row.isChecked) checkedText else uncheckedText
+                        stateDescription = state
                         customActions = custom
                     }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -240,6 +228,34 @@ private fun RowMenu(
             text = { Text(stringResource(R.string.shopping_menu_quantity)) },
             onClick = onQuantity,
             modifier = Modifier.testTag(TAG_ROW_MENU_QUANTITY),
+        )
+    }
+}
+
+/** État lu par TalkBack : « dans le panier, par Léa » si un autre membre l'a coché, sinon coché ou non coché. */
+@Composable
+private fun rowStateDescription(row: ShoppingRow): String =
+    checkedByDescription(row)
+        ?: stringResource(if (row.isChecked) R.string.shopping_state_checked else R.string.shopping_state_unchecked)
+
+/**
+ * Actions TalkBack d'une ligne, chacune là où elle a un sens : « Décocher » sur une ligne cochée ; « Pas trouvé » et
+ * « Modifier la quantité » (#110) sur une ligne à prendre.
+ */
+@Composable
+private fun rowAccessibilityActions(
+    row: ShoppingRow,
+    actions: ShoppingActions,
+): List<CustomAccessibilityAction> {
+    val uncheckLabel = stringResource(R.string.shopping_action_uncheck)
+    val notFoundLabel = stringResource(R.string.shopping_action_not_found)
+    val editLabel = stringResource(DesignR.string.item_edit_action)
+    return if (row.isChecked) {
+        listOf(CustomAccessibilityAction(uncheckLabel) { actions.onToggle(row).let { true } })
+    } else {
+        listOf(
+            CustomAccessibilityAction(notFoundLabel) { actions.onNotFound(row).let { true } },
+            CustomAccessibilityAction(editLabel) { actions.onEditItem(row).let { true } },
         )
     }
 }

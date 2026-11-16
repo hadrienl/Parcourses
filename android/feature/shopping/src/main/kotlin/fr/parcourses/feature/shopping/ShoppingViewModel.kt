@@ -545,8 +545,8 @@ class ShoppingViewModel(
         normalizedName: String,
         quantity: String?,
     ): Boolean {
-        if (quantity == null) return false
-        val items = attempt { deps.lists.items(listId) }.orEmpty()
+        // Sans quantité, rien à fusionner : `entryMergeTarget` renvoie `null`, la liste n'est pas relue.
+        val items = if (quantity == null) emptyList() else attempt { deps.lists.items(listId) }.orEmpty()
         val id =
             ItemQuantity.entryMergeTarget(
                 QuantityEntry(normalizedName, quantity),

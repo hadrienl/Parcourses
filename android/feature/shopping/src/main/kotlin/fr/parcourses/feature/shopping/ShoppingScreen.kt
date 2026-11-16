@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import fr.parcourses.core.designsystem.Bead
-import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.OsmAttribution
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadSegment
@@ -148,20 +147,7 @@ internal fun ShoppingContent(
             ShoppingList(state, actions)
         }
     }
-    if (state.accessLost) {
-        AccessLostDialog(onFinish = { actions.onFinish(true) })
-    } else if (showsRemaining || state.expired) {
-        RemainingItemsSheet(
-            count = state.remainingCount,
-            expired = state.expired,
-            actions = actions,
-            onCancel = { showsRemaining = false },
-        )
-    }
-    state.editing?.let { target ->
-        ItemEditSheet(target, onSave = actions.onSaveItem, onDismiss = actions.onCloseItemEditor)
-    }
-    state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
+    ShoppingOverlays(state, actions, showsRemaining, onCancelRemaining = { showsRemaining = false })
 }
 
 /**
