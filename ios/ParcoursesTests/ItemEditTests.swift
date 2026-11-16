@@ -219,5 +219,7 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(session.toBuy.count == 1)
     #expect(session.toBuy.first?.quantity == "4")
     #expect(session.highlightedItemId == milk.id)
+    // Tri différé terminé avant la fin du test : il lit le stockage, libéré ensuite.
+    await session.waitUntilSettled()
   }
 }
