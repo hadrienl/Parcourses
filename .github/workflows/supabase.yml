@@ -35,7 +35,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: supabase-${{ github.ref }}
+  # Par type d'événement : un push sur main n'annule pas une version longue lancée à la main (#123).
+  group: supabase-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -119,6 +120,8 @@ jobs:
 
       - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage, temps réel)
         env:
+          # Pile isolée : le test à froid (#123) peut couper la connexion de Realtime à la base.
+          REALTIME_123_COLD: "1"
           REALTIME_123_TRIALS: ${{ inputs.realtime_trials }}
         run: deno test --allow-run --allow-read --allow-env --allow-net=127.0.0.1 supabase/tests/e2e/
 

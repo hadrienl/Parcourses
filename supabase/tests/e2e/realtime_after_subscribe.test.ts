@@ -13,13 +13,16 @@
 // Délais : 0, 50 et 200 ms après SUBSCRIBED, et « ready » : dès le message système « Replication connection
 // established » (option broadcast.replication_ready).
 //
+// Le test à froid coupe la connexion de Realtime à la base pour tous les abonnés de la pile : il ne tourne que si
+// REALTIME_123_COLD=1 (posé en CI, où la pile est isolée). En local, le lancer sur une pile dédiée (voir plus bas).
+//
 // Version courte par défaut (CI : 10 essais par délai à chaud, 3 à froid, une vingtaine de secondes). Version longue,
 // 100 essais par délai et par état (une dizaine de minutes), en local ou par l'entrée realtime_trials de la CI :
 //
 //   REALTIME_123_TRIALS=100 deno test --allow-run --allow-read --allow-env --allow-net=127.0.0.1 \
 //     supabase/tests/e2e/realtime_after_subscribe.test.ts
 //
-// Balayage fin de la fenêtre à froid : REALTIME_123_COLD_TRIALS=30 REALTIME_123_COLD_DELAYS=0,10,20,30,40,60,80,100.
+// Balayage fin de la fenêtre à froid : REALTIME_123_COLD=1 REALTIME_123_COLD_TRIALS=30 REALTIME_123_COLD_DELAYS=0,10,20,30,40,60,80,100.
 // Pile locale d'un autre projet : SUPABASE_WORKDIR, SUPABASE_DB_CONTAINER et SUPABASE_REALTIME_CONTAINER.
 // Mesures et conclusion : docs/data-model.md, « Limite : signal perdu juste après l'abonnement ».
 
@@ -29,6 +32,7 @@ import { assert, client, emailAccount, forget, localStack, type Session, type St
 
 // Variable vide (entrée workflow_dispatch non remplie) = absente.
 const env = (name: string) => Deno.env.get(name) || undefined;
+const COLD = env("REALTIME_123_COLD") === "1";
 const TRIALS = Number(env("REALTIME_123_TRIALS") ?? "10");
 const COLD_TRIALS = Number(env("REALTIME_123_COLD_TRIALS") ?? env("REALTIME_123_TRIALS") ?? "3");
 const COLD_DELAYS: Delay[] = (env("REALTIME_123_COLD_DELAYS") ?? "0,50,200,ready").split(",")
@@ -107,13 +111,27 @@ function summary(trials: Trial[], delay: Delay) {
   };
 }
 
-type Fixture = { stack: Stack; call: ReturnType<typeof client>; owner: Session; member: Session; listId: string; itemId: string };
+type Account = Session & { email: string };
+type Fixture = { stack: Stack; call: ReturnType<typeof client>; owner: Account; member: Account; listId: string; itemId: string };
 
-// Liste de B (owner) partagée avec A (member), avec un article.
-async function sharedList(stack: Stack, tag: string): Promise<Fixture> {
+// Liste de B (owner) partagée avec A (member), avec un article. Les comptes sont supprimés à la fin, même si la mise en
+// place échoue.
+async function withSharedList(tag: string, body: (f: Fixture) => Promise<void>) {
+  const stack = await localStack();
   const call = client(stack);
-  const owner = await emailAccount(stack, `rt123-${tag}-owner`, "Bruno");
-  const member = await emailAccount(stack, `rt123-${tag}-member`, "Alice");
+  const accounts: Account[] = [];
+  try {
+    const owner = await emailAccount(stack, `rt123-${tag}-owner`, "Bruno");
+    accounts.push(owner);
+    const member = await emailAccount(stack, `rt123-${tag}-member`, "Alice");
+    accounts.push(member);
+    await body(await shareList(stack, call, owner, member));
+  } finally {
+    for (const account of accounts) await forget(call, account.access_token);
+  }
+}
+
+async function shareList(stack: Stack, call: ReturnType<typeof client>, owner: Account, member: Account): Promise<Fixture> {
   const listId = crypto.randomUUID();
   const itemId = crypto.randomUUID();
   for (const [path, body] of [["lists", { id: listId, name: "Courses #123" }], ["list_items", { id: itemId, list_id: listId, label: "lait" }]] as const) {
@@ -124,7 +142,7 @@ async function sharedList(stack: Stack, tag: string): Promise<Fixture> {
   const invitation = (await (await call("/rest/v1/rpc/create_invitation", {
     method: "POST",
     token: owner.access_token,
-    body: JSON.stringify({ p_list_id: listId, p_email: (member as Session & { email: string }).email, p_role: "editor" }),
+    body: JSON.stringify({ p_list_id: listId, p_email: member.email, p_role: "editor" }),
   })).json()) as { token: string }[];
   assert(invitation[0]?.token, `invitation : ${JSON.stringify(invitation)}`);
   const accepted = (await (await call("/rest/v1/rpc/accept_invitation", {
@@ -167,6 +185,9 @@ async function runTrials(f: Fixture, delays: Delay[], trialsPerDelay: number, co
         assert(write.status === 204, `coche : ${write.status}`);
         const signal = await channel.waitFor((s) => s.list_id === f.listId && s.kind === "items", "items", LOST_AFTER_MS)
           .catch(() => null);
+        // Le message « réplication prête » arrive au plus tard vers 500 ms : attendu ici pour toujours mesurer son écart.
+        const readyDeadline = channel.subscribedAt + 1500;
+        while (!readyMessage() && performance.now() < readyDeadline) await sleep(5);
         const ready = readyMessage();
         const lostButStored = signal === null && storedBefore !== null
           ? (await storedMessages(f.member.user.id)) === storedBefore + 1
@@ -188,19 +209,15 @@ async function runTrials(f: Fixture, delays: Delay[], trialsPerDelay: number, co
   return trials;
 }
 
-async function cleanup(f: Fixture) {
-  await forget(f.call, f.owner.access_token);
-  await forget(f.call, f.member.access_token);
-}
-
-Deno.test(`Realtime chaud : signal changed juste après SUBSCRIBED (${TRIALS} essais par délai)`, async () => {
-  const f = await sharedList(await localStack(), "warm");
-  try {
+Deno.test(`Realtime chaud : signal changed juste après SUBSCRIBED (${TRIALS} essais par délai)`, () =>
+  withSharedList("warm", async (f) => {
     // Un premier abonnement ouvre le tenant (et sa réplication) s'il était froid.
     const warmUp = await joinUserChannel(f.stack, f.member.access_token, f.member.user.id, { replicationReady: true });
+    const ready = () => warmUp.system.some((m) => m.message === "Replication connection established");
     const deadline = performance.now() + 10000;
-    while (!warmUp.system.some((m) => m.message === "Replication connection established") && performance.now() < deadline) await sleep(10);
+    while (!ready() && performance.now() < deadline) await sleep(10);
     await warmUp.close();
+    assert(ready(), "préchauffage : réplication de Realtime non prête en 10 s");
 
     const trials = await runTrials(f, WARM_DELAYS, TRIALS, false);
     const report = WARM_DELAYS.map((delay) => summary(trials, delay));
@@ -208,14 +225,12 @@ Deno.test(`Realtime chaud : signal changed juste après SUBSCRIBED (${TRIALS} es
     for (const row of report) {
       assert(row.lost === 0, `chaud : ${row.lost} signal(s) perdu(s) sur ${row.trials} à ${row.delay_ms} ms après SUBSCRIBED`);
     }
-  } finally {
-    await cleanup(f);
-  }
-});
+  }));
 
-Deno.test(`Realtime froid : signal changed juste après SUBSCRIBED (${COLD_TRIALS} essais par délai)`, async () => {
-  const f = await sharedList(await localStack(), "cold");
-  try {
+Deno.test({
+  name: `Realtime froid : signal changed juste après SUBSCRIBED (${COLD_TRIALS} essais par délai, REALTIME_123_COLD=1)`,
+  ignore: !COLD,
+  fn: () => withSharedList("cold", async (f) => {
     const trials = await runTrials(f, COLD_DELAYS, COLD_TRIALS, true);
     const report = COLD_DELAYS.map((delay) => summary(trials, delay));
     console.log(JSON.stringify({ test: "realtime_after_subscribe", state: "froid", report }, null, 2));
@@ -227,7 +242,5 @@ Deno.test(`Realtime froid : signal changed juste après SUBSCRIBED (${COLD_TRIAL
       assert(row.lost_but_stored === row.lost,
         `froid : ${row.lost - row.lost_but_stored} signal(s) perdu(s) absents de realtime.messages à ${row.delay_ms} ms`);
     }
-  } finally {
-    await cleanup(f);
-  }
+  }),
 });

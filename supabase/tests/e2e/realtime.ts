@@ -74,8 +74,17 @@ export async function joinUserChannel(
     });
   const status = await join(userId);
   const subscribedAt = performance.now();
-  if (status !== "ok") ws.close();
-  assert(status === "ok", `abonnement au canal user:${userId} : ${status}`);
+  const close = async () => {
+    if (ws.readyState === WebSocket.CLOSED) return;
+    const closed = new Promise<void>((resolve) => ws.addEventListener("close", () => resolve()));
+    ws.close();
+    await closed;
+  };
+  if (status !== "ok") {
+    // Fermée avant l'erreur : sinon le contrôle des ressources de deno test masque la vraie cause.
+    await close();
+    assert(false, `abonnement au canal user:${userId} : ${status}`);
+  }
   return {
     signals,
     system,
@@ -90,11 +99,6 @@ export async function joinUserChannel(
       }
       throw new Error(`signal attendu non reçu : ${what} (reçus : ${JSON.stringify(signals)})`);
     },
-    async close() {
-      if (ws.readyState === WebSocket.CLOSED) return;
-      const closed = new Promise<void>((resolve) => ws.addEventListener("close", () => resolve()));
-      ws.close();
-      await closed;
-    },
+    close,
   };
 }
