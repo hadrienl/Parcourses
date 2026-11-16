@@ -145,12 +145,15 @@ struct ItemEditSheet: View {
       Button {
         quantityText = ""
       } label: {
-        Label("Effacer la quantité", systemImage: "xmark.circle")
-          .font(.body.weight(.semibold))
-          .fixedSize(horizontal: false, vertical: true)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .touchTarget()
+        // Pictogramme et texte simples : le cadre d'accessibilité du bouton reste celui du texte dessiné.
+        HStack(spacing: Space.xs) {
+          Image(systemName: "xmark.circle").accessibilityHidden(true)
+          Text("Effacer la quantité")
+        }
+        .font(.body.weight(.semibold))
+        .touchTarget()
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
       .disabled(quantity == nil)
       .accessibilityIdentifier("clearQuantity")
     }
