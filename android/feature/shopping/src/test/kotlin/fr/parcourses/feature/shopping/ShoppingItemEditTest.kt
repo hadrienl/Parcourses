@@ -35,7 +35,12 @@ class ShoppingItemEditTest : ShoppingTest() {
 
             model.saveItem("lait", "2")
             runCurrent()
-            assertEquals("2", model.uiState.value.row("lait").quantity)
+            assertEquals(
+                "2",
+                model.uiState.value
+                    .row("lait")
+                    .quantity,
+            )
             assertEquals("2", lists.items(listId).first { it.id == milk.id }.quantity)
 
             model.closeItemEditor()
@@ -61,7 +66,14 @@ class ShoppingItemEditTest : ShoppingTest() {
             val state = model.uiState.value
             assertEquals("produce", state.row("bananes").aisleId)
             assertEquals(listOf("produce", "bakery"), state.sections.map { it.aisleId })
-            assertEquals(setOf("pommes", "bananes"), state.sections.first().rows.map { it.label }.toSet())
+            assertEquals(
+                setOf("pommes", "bananes"),
+                state.sections
+                    .first()
+                    .rows
+                    .map { it.label }
+                    .toSet(),
+            )
         }
 
     @Test
@@ -150,7 +162,12 @@ class ShoppingItemEditTest : ShoppingTest() {
 
             assertEquals(3, lists.items(listId).size)
             assertEquals("2", lists.items(listId).first { it.id == items[0].id }.quantity)
-            assertEquals("2", model.uiState.value.notFound.single().quantity)
+            assertEquals(
+                "2",
+                model.uiState.value.notFound
+                    .single()
+                    .quantity,
+            )
         }
 
     @Test

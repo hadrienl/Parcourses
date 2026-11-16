@@ -26,7 +26,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.designsystem.ItemEditTarget
 import fr.parcourses.core.designsystem.ParcoursesTheme
+import fr.parcourses.core.designsystem.TAG_ITEM_EDIT_SHEET
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -199,8 +201,8 @@ class ShoppingScreenTest {
 
     @Test
     fun theItemSheetIsShownWhenEditing() {
-        show(base.copy(editing = fr.parcourses.core.designsystem.ItemEditTarget("2", "pain", null)))
-        rule.onNodeWithTag(fr.parcourses.core.designsystem.TAG_ITEM_EDIT_SHEET).assertExists()
+        show(base.copy(editing = ItemEditTarget("2", "pain", null)))
+        rule.onNodeWithTag(TAG_ITEM_EDIT_SHEET).assertExists()
     }
 
     @Test
