@@ -10,6 +10,7 @@
     <string name="about_privacy_title">Confidentialité</string>
     <string name="about_privacy_tracking">Parcourses ne vous suit pas et n\'utilise aucun outil d\'analyse tiers.</string>
     <string name="about_privacy_data">Pour apprendre l\'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l\'heure de vos visites et les articles que vous cochez. Ces données sont rattachées à un identifiant anonyme, sans nom ni e-mail.</string>
+    <string name="about_privacy_data_email">Pour apprendre l\'ordre des rayons, Parcourses enregistre vos listes, les magasins où vous faites vos courses, l\'heure de vos visites et les articles que vous cochez. Ces données sont rattachées à votre compte : votre adresse e-mail ne sert qu\'à vous connecter, et seul votre prénom est montré aux membres de vos listes.</string>
     <string name="about_privacy_catalog">Les noms d\'articles que vous saisissez restent privés. Un nom ne rejoint le catalogue commun, sans lien avec vous, qu\'une fois saisi par au moins trois personnes.</string>
     <string name="about_privacy_location">Seule votre position GPS n\'est pas conservée : elle sert une seule fois à trouver le magasin où vous êtes, puis elle est oubliée.</string>
     <string name="about_font_title">Police</string>
@@ -19,6 +20,7 @@
     <!-- À propos, section « Vos données » et suppression (#68 §5.2) : mêmes textes qu'iOS. -->
     <string name="about_account_title">Vos données</string>
     <string name="about_account_body">Vous pouvez effacer vos listes, vos visites et votre identifiant anonyme, sur cet appareil et sur nos serveurs.</string>
+    <string name="about_account_body_email">Vous pouvez effacer vos listes, vos visites et votre compte (adresse e-mail et prénom), sur cet appareil et sur nos serveurs.</string>
     <!-- Build sans Supabase (§5.7) : l'appareil seul. -->
     <string name="about_account_body_local">Vous pouvez effacer vos listes et vos visites de cet appareil.</string>
     <!-- Confidentialité, seulement avec un serveur. -->
@@ -28,6 +30,7 @@
     <string name="about_account_action">Supprimer mes données…</string>
     <string name="about_account_confirm_title">Supprimer toutes vos données ?</string>
     <string name="about_account_confirm_body">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
+    <string name="about_account_confirm_body_email">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
     <string name="about_account_confirm_body_local">Vos listes et vos visites seront effacées de cet appareil.</string>
     <string name="about_account_confirm_visit">Vos courses en cours seront interrompues.</string>
     <string name="about_account_confirm_action">Supprimer</string>

@@ -84,7 +84,7 @@ fun AccountScreen(
                 if (account.account.needsSignIn) ReconnectBanner(accountActions.onSignIn)
                 AccountDetails(account, accountActions)
                 InfoSection(stringResource(R.string.about_account_title)) {
-                    AccountDeletionContent(accountDeletion, accountDeletionActions)
+                    AccountDeletionContent(accountDeletion, accountDeletionActions, isEmailAccount = true)
                 }
             }
         }

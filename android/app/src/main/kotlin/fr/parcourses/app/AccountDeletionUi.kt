@@ -200,16 +200,26 @@ class AccountDeletionViewModel(
     }
 }
 
-/** Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. */
+/**
+ * Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. [isEmailAccount] :
+ * dans l'écran Compte, l'adresse et le prénom partent aussi (mêmes textes qu'iOS, `AccountDeletionTexts`).
+ */
 @Composable
 internal fun AccountDeletionContent(
     state: AccountDeletionUiState,
     actions: AccountDeletionActions,
+    isEmailAccount: Boolean = false,
 ) {
     val destructive = Ticket.colors.destructive
     Column {
+        val intro =
+            when {
+                state.localOnly -> R.string.about_account_body_local
+                isEmailAccount -> R.string.about_account_body_email
+                else -> R.string.about_account_body
+            }
         Text(
-            stringResource(if (state.localOnly) R.string.about_account_body_local else R.string.about_account_body),
+            stringResource(intro),
             style = MaterialTheme.typography.bodyMedium,
             color = Ticket.colors.ink,
             modifier = Modifier.fillMaxWidth().padding(horizontal = TicketDimens.spaceM, vertical = 2.dp),
@@ -233,10 +243,10 @@ internal fun AccountDeletionContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS)) {
                     val body =
-                        if (state.localOnly) {
-                            R.string.about_account_confirm_body_local
-                        } else {
-                            R.string.about_account_confirm_body
+                        when {
+                            state.localOnly -> R.string.about_account_confirm_body_local
+                            isEmailAccount -> R.string.about_account_confirm_body_email
+                            else -> R.string.about_account_confirm_body
                         }
                     Text(stringResource(body))
                     if (state.visitOpen) Text(stringResource(R.string.about_account_confirm_visit))

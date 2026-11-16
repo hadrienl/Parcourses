@@ -82,23 +82,7 @@ fun AboutScreen(
                     InfoParagraph(stringResource(R.string.about_data_body))
                     OsmAttribution(textAlign = TextAlign.Start)
                 }
-                InfoSection(stringResource(R.string.about_privacy_title)) {
-                    InfoParagraph(stringResource(R.string.about_privacy_tracking))
-                    InfoParagraph(stringResource(R.string.about_privacy_data))
-                    InfoParagraph(stringResource(R.string.about_privacy_catalog))
-                    InfoParagraph(stringResource(R.string.about_privacy_location))
-                    // Seulement avec un serveur : sans lui, rien n'en part. Compte e-mail : la suppression est
-                    // dans l'écran Compte, pas « ci-dessous ».
-                    if (!accountDeletion.localOnly) {
-                        val deletion =
-                            if (isEmailAccount) {
-                                R.string.about_privacy_deletion_account
-                            } else {
-                                R.string.about_privacy_deletion
-                            }
-                        InfoParagraph(stringResource(deletion))
-                    }
-                }
+                PrivacySection(localOnly = accountDeletion.localOnly, isEmailAccount = isEmailAccount)
                 if (!isEmailAccount) {
                     InfoSection(stringResource(R.string.about_account_title)) {
                         AccountDeletionContent(accountDeletion, accountDeletionActions)
@@ -111,6 +95,34 @@ fun AboutScreen(
                     InfoParagraph(version)
                 }
             }
+        }
+    }
+}
+
+/** Ce que l'app enregistre et pourquoi. Avec un serveur, où supprimer ces données : ci-dessous, ou l'écran Compte. */
+@Composable
+private fun PrivacySection(
+    localOnly: Boolean,
+    isEmailAccount: Boolean,
+) {
+    InfoSection(stringResource(R.string.about_privacy_title)) {
+        InfoParagraph(stringResource(R.string.about_privacy_tracking))
+        // Compte e-mail : les données sont rattachées au compte, plus à un identifiant anonyme (texte iOS).
+        InfoParagraph(
+            stringResource(if (isEmailAccount) R.string.about_privacy_data_email else R.string.about_privacy_data),
+        )
+        InfoParagraph(stringResource(R.string.about_privacy_catalog))
+        InfoParagraph(stringResource(R.string.about_privacy_location))
+        // Seulement avec un serveur : sans lui, rien n'en part. Compte e-mail : la suppression est
+        // dans l'écran Compte, pas « ci-dessous ».
+        if (!localOnly) {
+            val deletion =
+                if (isEmailAccount) {
+                    R.string.about_privacy_deletion_account
+                } else {
+                    R.string.about_privacy_deletion
+                }
+            InfoParagraph(stringResource(deletion))
         }
     }
 }

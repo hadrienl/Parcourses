@@ -157,6 +157,8 @@ class AccountScreenTest {
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_account_title)).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_privacy_deletion_account)).assertExists()
+        rule.onNodeWithText(text(R.string.about_privacy_data_email)).assertExists()
+        rule.onNodeWithText(text(R.string.about_privacy_data)).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_privacy_deletion)).assertDoesNotExist()
     }
 
@@ -170,7 +172,26 @@ class AccountScreenTest {
         }
         rule.onNodeWithText(text(R.string.account_title)).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_privacy_deletion)).assertExists()
+        rule.onNodeWithText(text(R.string.about_account_body)).assertExists()
         rule.onNodeWithTag(TAG_ACCOUNT_DELETE).performScrollTo().performClick()
         assertEquals(1, deletions)
+    }
+
+    @Test
+    fun theDeletionInTheAccountScreenNamesTheEmailAccount() {
+        rule.setContent {
+            ParcoursesTheme {
+                AccountScreen(
+                    account = email,
+                    accountActions = AccountActions(),
+                    onBack = {},
+                    accountDeletion = AccountDeletionUiState(confirming = true),
+                )
+            }
+        }
+        // Mêmes textes qu'iOS : l'adresse et le prénom partent aussi, pas un « identifiant anonyme ».
+        rule.onNodeWithText(text(R.string.about_account_body_email)).performScrollTo().assertExists()
+        rule.onNodeWithText(text(R.string.about_account_body)).assertDoesNotExist()
+        rule.onNodeWithText(text(R.string.about_account_confirm_body_email)).assertExists()
     }
 }
