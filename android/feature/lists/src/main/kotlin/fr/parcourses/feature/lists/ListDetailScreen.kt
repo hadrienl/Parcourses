@@ -84,7 +84,6 @@ import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
 import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.ItemLine
-import fr.parcourses.core.designsystem.R as DesignR
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -101,6 +100,7 @@ import fr.parcourses.core.designsystem.pressScale
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
 import kotlinx.coroutines.launch
+import fr.parcourses.core.designsystem.R as DesignR
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable

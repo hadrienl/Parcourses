@@ -160,7 +160,11 @@ class ItemEditViewModelTest : ListsTest() {
             model.uiState.await { s -> s.rows().any { it.label == "lait entier" } }
             model.saveItem("lait", "3")
 
-            val row = model.uiState.await { s -> s.rows().any { it.quantity == "3" } }.rows().single()
+            val row =
+                model.uiState
+                    .await { s -> s.rows().any { it.quantity == "3" } }
+                    .rows()
+                    .single()
             assertEquals("lait entier", row.label)
         }
 

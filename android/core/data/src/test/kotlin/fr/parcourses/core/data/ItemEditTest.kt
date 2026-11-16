@@ -203,7 +203,12 @@ class ItemEditTest : DataTest() {
             db.lists().setRole(item.listId, ListRole.Viewer)
             val failure =
                 runCatching {
-                    repository.applyEdit(ItemEdit("pain", changesQuantity = true, quantity = "3"), item.id, analyzer, now)
+                    repository.applyEdit(
+                        ItemEdit("pain", changesQuantity = true, quantity = "3"),
+                        item.id,
+                        analyzer,
+                        now,
+                    )
                 }
             assertTrue(failure.exceptionOrNull() is RepositoryException.ReadOnly)
             assertTrue(db.outbox().all().isEmpty())
