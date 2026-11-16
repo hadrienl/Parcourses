@@ -35,7 +35,7 @@ private struct AccountDeletionOutcome {
     case .deletedFromDevice:
       kind = .acknowledgement
       title = "Vos données ont été supprimées de cet appareil."
-      message = AboutTexts.deletedFromDeviceMessage(isEmailAccount: isEmailAccount)
+      message = AccountDeletionTexts.deletedFromDeviceMessage(isEmailAccount: isEmailAccount)
     case .failed(.offline):
       kind = .acknowledgement
       title = "Connexion requise."
@@ -153,11 +153,8 @@ struct YourDataSection: View {
 
   var body: some View {
     Section {
-      Text(
-        deletion.deletesServerData
-          ? "Vous pouvez effacer vos listes, vos visites et \(AccountDeletionTexts.accountWords(isEmailAccount: isEmailAccount)), sur cet appareil et sur nos serveurs."
-          : "Vous pouvez effacer vos listes et vos visites de cet appareil."
-      )
+      Text(AccountDeletionTexts.yourData(deletesServerData: deletion.deletesServerData, isEmailAccount: isEmailAccount))
+        .accessibilityIdentifier("yourDataDescription")
       Button(role: .destructive, action: onDelete) {
         Text("Supprimer mes données…")
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,24 +169,44 @@ struct YourDataSection: View {
   }
 }
 
-/// Textes de #68 §5.2 et §5.7, communs à À propos et à Compte.
-enum AccountDeletionTexts {
+/// Textes de la suppression, communs à À propos (compte anonyme) et à Compte (compte e-mail), et à Android (#68 §5.2,
+/// §5.7, #108, #87 lot 87.8). Un compte e-mail n'est jamais purgé pour inactivité : seuls les textes d'un compte
+/// anonyme parlent des 365 jours.
+nonisolated enum AccountDeletionTexts {
   /// Compte e-mail : l'adresse et le prénom partent aussi.
   static func accountWords(isEmailAccount: Bool) -> String {
     isEmailAccount ? "votre compte (adresse e-mail et prénom)" : "votre identifiant anonyme"
   }
 
+  /// Section « Vos données ».
+  static func yourData(deletesServerData: Bool, isEmailAccount: Bool) -> String {
+    deletesServerData
+      ? "Vous pouvez effacer vos listes, vos visites et \(accountWords(isEmailAccount: isEmailAccount)), sur cet appareil et sur nos serveurs."
+      : "Vous pouvez effacer vos listes et vos visites de cet appareil."
+  }
+
+  /// Message de « Supprimer toutes vos données ? ». Une liste partagée passe à l'un de ses membres (lot 87.8).
   static func confirmation(deletesServerData: Bool, isEmailAccount: Bool, interruptsShopping: Bool) -> String {
     var sentences =
       deletesServerData
       ? [
         "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que \(accountWords(isEmailAccount: isEmailAccount)).",
+        "Une liste que vous partagez avec d'autres passe à l'un de ses membres.",
         "Votre contribution anonyme au plan des rayons des magasins est conservée.",
         "C'est définitif.",
       ]
       : ["Vos listes et vos visites seront effacées de cet appareil."]
     if interruptsShopping { sentences.append("Vos courses en cours seront interrompues.") }
     return sentences.joined(separator: " ")
+  }
+
+  /// Message sous « Vos données ont été supprimées de cet appareil. » : le compte serveur était hors d'atteinte. Seul un
+  /// compte anonyme y sera purgé après 365 jours ; un compte e-mail ne l'est jamais seul, d'où la demande écrite (même
+  /// texte qu'Android, `about_account_done_local_body_email`).
+  static func deletedFromDeviceMessage(isEmailAccount: Bool) -> String {
+    isEmailAccount
+      ? "Écrivez-nous depuis l'adresse de votre compte : parcourses.hadrien.eu/supprimer-mes-donnees"
+      : "Celles de nos serveurs seront supprimées après 365 jours sans utilisation."
   }
 }
 
