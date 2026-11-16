@@ -2,7 +2,7 @@
 -- delete_my_account (transfert des listes partagées, journal effacé) et reste fermée aux clients.
 begin;
 \ir 00_helpers.psql
-select plan(10);
+select plan(12);
 
 select ok(not has_function_privilege('authenticated', 'accounts.delete_account(uuid)', 'EXECUTE'),
   'accounts.delete_account fermée à authenticated');
@@ -32,6 +32,12 @@ select lives_ok(format($$ select accounts.delete_account(%L) $$, :'o'), 'suppres
 select is_empty(format($$ select 1 from auth.users where id = %L $$, :'o'), 'le compte est supprimé');
 select is((select owner_id from public.lists where id = '00000000-0000-0000-0000-0000000878a1'), :'e'::uuid,
   'la liste partagée passe à l''éditeur le plus ancien');
+select is_empty(format($$ select 1 from public.list_members
+  where list_id = '00000000-0000-0000-0000-0000000878a1' and user_id = %L $$, :'e'),
+  'l''héritier quitte la liste des membres : il en est désormais propriétaire');
+select is((select role::text from public.list_members
+  where list_id = '00000000-0000-0000-0000-0000000878a1' and user_id = :'v'), 'viewer',
+  'le lecteur reste membre, avec le même rôle');
 select is_empty($$ select 1 from public.lists where id = '00000000-0000-0000-0000-0000000878a2' $$,
   'la liste sans membre part avec le compte');
 select is_empty(format($$ select 1 from auth.audit_log_entries where payload ->> 'actor_id' = %L $$, :'o'),

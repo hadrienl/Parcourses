@@ -42,8 +42,10 @@ personnalisation, ni marketing.
 ## URL à saisir
 
 - **Politique de confidentialité** (obligatoire) : `https://parcourses.hadrien.eu/confidentialite/`.
-- **Suppression du compte** : elle se fait dans l'app (règle 5.1.1(v) de l'App Review), par « À propos », puis
-  « Supprimer mes données… ». La page `https://parcourses.hadrien.eu/supprimer-mes-donnees/` donne la marche à suivre
+- **Suppression du compte** : elle se fait dans l'app (règle 5.1.1(v) de l'App Review), par « Supprimer mes
+  données… ». Avec un compte e-mail, le bouton est dans l'écran « Compte » (initiale ou icône de personne en haut de « Mes listes ») ; sans
+  compte e-mail, il est dans « À propos ». Un relecteur Apple qui se connecte avec un compte de démonstration passe
+  donc par l'écran « Compte ». La page `https://parcourses.hadrien.eu/supprimer-mes-donnees/` donne la marche à suivre
   et le recours par e-mail.
 
 ## Manifeste de confidentialité

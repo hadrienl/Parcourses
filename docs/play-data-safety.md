@@ -84,7 +84,7 @@ L'app ne déduit aucune position de l'adresse IP. Play n'a pas de type de donné
 | --- | --- | --- |
 | Votre app collecte-t-elle ou partage-t-elle des types de données utilisateur obligatoires ? | **Oui** | Voir §3 |
 | Toutes les données collectées sont-elles chiffrées lors de leur transit ? | **Oui** | HTTPS seulement : `network_security_config` de la release, `usesCleartextTraffic="false"` |
-| Proposez-vous un moyen de demander la suppression des données ? | **Oui** (§5.3) | Dans l'app : « À propos », puis « Supprimer mes données… » (68.2, 68.3). Page web : `https://parcourses.hadrien.eu/supprimer-mes-donnees/` (87.8), à saisir dans la Play Console. Elle donne la marche à suivre dans l'app, puis une demande par e-mail pour un compte e-mail |
+| Proposez-vous un moyen de demander la suppression des données ? | **Oui** (§5.3) | Dans l'app : « Supprimer mes données… », dans l'écran « Compte » pour un compte e-mail (#108), dans « À propos » sinon (68.2, 68.3). Page web : `https://parcourses.hadrien.eu/supprimer-mes-donnees/` (87.8), à saisir dans la Play Console. Elle donne la marche à suivre dans l'app, puis une demande par e-mail pour un compte e-mail |
 
 ### 4.2 Types de données
 
@@ -181,7 +181,7 @@ Traité par #70, en trois lots :
 3. **70.3 (fait)** : l'instantané d'un magasin à un seul contributeur n'est servi qu'à ce contributeur ; il faut deux contributeurs distincts dans les 180 derniers jours pour qu'il soit servi à tous (`…_snapshot_min_contributors.sql`). Seuls des nombres de contributeurs sont gardés, jamais leur identité.
 
 **État au 16 novembre 2026 (#87, lot 87.8)** :
-- Dans l'app, « À propos », puis « Supprimer mes données… » appelle `delete_my_account()`. C'est fait sur iOS (68.2) et sur Android (68.3), et l'effacement local passe par `LocalDataPurge`.
+- Dans l'app, « Supprimer mes données… » appelle `delete_my_account()`. Le bouton est dans l'écran « Compte » pour un compte e-mail (#108), dans « À propos » pour un compte anonyme. C'est fait sur iOS (68.2) et sur Android (68.3), et l'effacement local passe par `LocalDataPurge`.
 - Page web : `https://parcourses.hadrien.eu/supprimer-mes-donnees/`, publiée par `site/`. Elle décrit la marche à suivre dans l'app, ce qui est supprimé et ce qui reste : une liste partagée passe à l'éditeur le plus ancien, sinon au lecteur le plus ancien, et le plan commun, les produits publiés et les articles ajoutés aux listes des autres (sans auteur) restent. Pour un compte e-mail sans l'app, elle propose une demande par e-mail, traitée sous 30 jours avec `accounts.delete_account(uuid)`, réservée au rôle `postgres` (`docs/hosted-supabase.md`). Cette fonction fait exactement ce que fait `delete_my_account`. Un compte anonyme sans l'app est purgé après 365 jours.
 - Politique de confidentialité : `https://parcourses.hadrien.eu/confidentialite/`. Son URL est à saisir dans la Play Console et dans App Store Connect.
 - Les textes de ces deux pages sont **à valider par l'utilisateur** : éditeur, adresse de contact, région d'hébergement Supabase, transferts hors UE.
