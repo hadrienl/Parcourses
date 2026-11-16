@@ -118,11 +118,15 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    de problèmes suit le nombre de suggestions affichées).
       let keyboardIssue = [.dynamicType, .contrast, .textClipped].contains(issue.auditType)
       if keyboardIsShown && keyboardIssue { return .known("2 bis clavier") }
-      guard issue.auditType == .contrast || issue.auditType == .textClipped else { return nil }
-      // 2 ter. Sans clavier : seulement si une ligne de la liste au premier plan est coupée par le bord du dock.
-      //    L'audit mesure alors le liseré de texte encore visible et ne sait pas localiser la ligne (constaté en
-      //    AX5, où les lignes débordent). Quota de `issuesPerCutLine` par ligne coupée : au-delà, ou sans ligne
-      //    coupée, le problème reste bloquant.
+      let cutLineIssue = [.contrast, .textClipped, .elementDetection].contains(issue.auditType)
+      guard cutLineIssue else { return nil }
+      // 2 ter. Seulement si une ligne de la liste au premier plan est coupée par le bord du dock (cellule à cheval
+      //    sur son haut). L'audit mesure alors le liseré de texte encore visible et ne sait pas localiser la ligne
+      //    (constaté en AX5, où les lignes débordent). Il peut aussi y lire un texte qu'il ne rattache à aucun élément
+      //    (« Potentially inaccessible text ») : constaté en CI sur iOS 18.6 seulement, `liste-partagee-sombre`, clavier
+      //    ouvert, haut des lettres de « Comté » et de sa marque d'auteur visible au-dessus du dock (runs de cd67e82,
+      //    b489fa0 et 1fab945, #110 : les lignes sont plus hautes depuis que la quantité passe sous le nom). Quota de
+      //    `issuesPerCutLine` par ligne coupée : au-delà, ou sans ligne coupée, le problème reste bloquant.
       return screen.linesCutByDock > 0 ? .cutLine : nil
     }
     let frame = element.frame
