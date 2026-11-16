@@ -34,6 +34,7 @@ import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.data.account.AccountDeletion
 import fr.parcourses.core.data.account.AccountDeletionError
 import fr.parcourses.core.data.account.AccountDeletionOutcome
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import kotlinx.coroutines.CancellationException
@@ -57,8 +58,13 @@ sealed interface AccountDeletionState {
     /** « Vos données ont été supprimées. », par-dessus l'écran Listes vide. */
     data object Done : AccountDeletionState
 
-    /** Relance sans session locale (C3) : l'appareil est vide, le serveur purgera le compte inactif. */
-    data object DoneLocally : AccountDeletionState
+    /**
+     * Relance sans session locale (C3) : l'appareil est vide, le serveur hors d'atteinte. Compte anonyme : la purge des
+     * inactifs le supprimera. [emailAccount] : jamais purgé pour inactivité, la personne doit nous écrire.
+     */
+    data class DoneLocally(
+        val emailAccount: Boolean = false,
+    ) : AccountDeletionState
 
     /** [retrySoon] : « Annuler » trop tôt après la dernière tentative (C2). */
     data class Failed(
@@ -69,14 +75,23 @@ sealed interface AccountDeletionState {
 
 /**
  * Porte la suppression ([AccountDeletion]) dans [scope], celui de l'app : quitter À propos ne l'interrompt pas.
- * Une seule à la fois : un double appui ne lance rien de plus.
+ * Une seule à la fois : un double appui ne lance rien de plus. [accountKind] : drapeau `account.kind`, lu avant chaque
+ * passe, car la purge l'efface.
  */
 class AccountDeletionController(
     private val deletion: AccountDeletion,
     private val scope: CoroutineScope,
+    private val accountKind: () -> AccountKind = { AccountKind.Anonymous },
 ) {
     private val current = MutableStateFlow<AccountDeletionState>(AccountDeletionState.Idle)
     val state: StateFlow<AccountDeletionState> = current.asStateFlow()
+
+    /**
+     * Le compte à supprimer était un compte e-mail. Retenu d'une passe à l'autre tant que la suppression n'est pas
+     * finie : « Réessayer » peut suivre une purge interrompue, qui a déjà effacé le drapeau.
+     */
+    @Volatile
+    private var targetsEmailAccount = false
 
     /** Après confirmation, ou « Réessayer ». `false` si une suppression tourne déjà. */
     fun start(): Boolean = launch { deletion.run() }
@@ -105,7 +120,11 @@ class AccountDeletionController(
         while (true) {
             val seen = current.value
             if (seen == AccountDeletionState.Running) return false
-            if (current.compareAndSet(seen, AccountDeletionState.Running)) break
+            if (current.compareAndSet(seen, AccountDeletionState.Running)) {
+                val email = accountKind() == AccountKind.Email
+                targetsEmailAccount = email || (seen is AccountDeletionState.Failed && targetsEmailAccount)
+                break
+            }
         }
         scope.launch {
             // Le voile ne doit jamais rester, même sur une erreur que rien ne rattrape.
@@ -124,7 +143,7 @@ class AccountDeletionController(
         try {
             when (val result = work()) {
                 AccountDeletionOutcome.Deleted -> AccountDeletionState.Done
-                AccountDeletionOutcome.DeletedLocally -> AccountDeletionState.DoneLocally
+                AccountDeletionOutcome.DeletedLocally -> AccountDeletionState.DoneLocally(targetsEmailAccount)
                 AccountDeletionOutcome.Cancelled -> AccountDeletionState.Idle
                 is AccountDeletionOutcome.Failed -> AccountDeletionState.Failed(result.error, result.retrySoon)
             }
@@ -200,16 +219,26 @@ class AccountDeletionViewModel(
     }
 }
 
-/** Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. */
+/**
+ * Contenu de la section « Vos données », sous son titre : phrase, bouton destructif, confirmation. [emailAccount] : le
+ * compte (adresse et prénom) part aussi, au lieu de l'identifiant anonyme.
+ */
 @Composable
 internal fun AccountDeletionContent(
     state: AccountDeletionUiState,
     actions: AccountDeletionActions,
+    emailAccount: Boolean = false,
 ) {
     val destructive = Ticket.colors.destructive
     Column {
+        val body =
+            when {
+                state.localOnly -> R.string.about_account_body_local
+                emailAccount -> R.string.about_account_body_email
+                else -> R.string.about_account_body
+            }
         Text(
-            stringResource(if (state.localOnly) R.string.about_account_body_local else R.string.about_account_body),
+            stringResource(body),
             style = MaterialTheme.typography.bodyMedium,
             color = Ticket.colors.ink,
             modifier = Modifier.fillMaxWidth().padding(horizontal = TicketDimens.spaceM, vertical = 2.dp),
@@ -233,10 +262,10 @@ internal fun AccountDeletionContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS)) {
                     val body =
-                        if (state.localOnly) {
-                            R.string.about_account_confirm_body_local
-                        } else {
-                            R.string.about_account_confirm_body
+                        when {
+                            state.localOnly -> R.string.about_account_confirm_body_local
+                            emailAccount -> R.string.about_account_confirm_body_email
+                            else -> R.string.about_account_confirm_body
                         }
                     Text(stringResource(body))
                     if (state.visitOpen) Text(stringResource(R.string.about_account_confirm_visit))
@@ -289,10 +318,14 @@ internal fun AccountDeletionOverlay(
             Message(null, R.string.about_account_done, actions.onAcknowledge)
         }
 
-        AccountDeletionState.DoneLocally -> {
+        is AccountDeletionState.DoneLocally -> {
             Message(
                 R.string.about_account_done_local_title,
-                R.string.about_account_done_local_body,
+                if (state.emailAccount) {
+                    R.string.about_account_done_local_body_email
+                } else {
+                    R.string.about_account_done_local_body
+                },
                 actions.onAcknowledge,
             )
         }

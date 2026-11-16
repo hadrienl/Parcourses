@@ -33,7 +33,8 @@ sealed interface AccountDeletionOutcome {
 
     /**
      * Reprise sans session locale (ou avec la session d'un autre compte) : l'appareil est purgé, mais le serveur n'a
-     * pas pu être atteint ; ses données partiront avec la purge des comptes inactifs (365 jours).
+     * pas pu être atteint. Compte anonyme : ses données partiront avec la purge des comptes inactifs (365 jours).
+     * Compte e-mail : jamais purgé pour inactivité, il ne part que sur demande écrite (`/supprimer-mes-donnees/`).
      */
     data object DeletedLocally : AccountDeletionOutcome
 
