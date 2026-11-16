@@ -23,10 +23,10 @@ data class ItemEdit(
     val isEmpty: Boolean get() = label == null && !changesQuantity
 
     companion object {
-        /** `list_items.label` : 200 caractères au plus (`char_length`, en points de code). */
         /** Retours à la ligne au sens de Swift (`Character.isNewline`) : LF, CR, VT, FF, U+0085, U+2028, U+2029. */
         private val NEWLINES = Regex("[\\n\\r\\u000B\\u000C\\u0085\\u2028\\u2029]+")
 
+        /** `list_items.label` : 200 caractères au plus (`char_length`, en points de code). */
         const val MAX_LABEL_LENGTH = 200
 
         /**

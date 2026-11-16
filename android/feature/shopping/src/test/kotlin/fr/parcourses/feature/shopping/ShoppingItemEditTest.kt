@@ -124,7 +124,11 @@ class ShoppingItemEditTest : ShoppingTest() {
             runCurrent()
             model.openItemEditor(model.uiState.value.row("lait"))
             runCurrent()
-            assertEquals("lait", model.uiState.value.editing?.label)
+            assertEquals(
+                "lait",
+                model.uiState.value.editing
+                    ?.label,
+            )
 
             offset += 46.minutes
             model.foregrounded()

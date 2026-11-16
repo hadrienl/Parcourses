@@ -256,18 +256,23 @@ class ItemEditScreenTest : ListsTest() {
     }
 
     /**
-     * Limite comptée en points de code, comme le serveur : un libellé de 150 emoji (300 unités UTF-16) reste modifiable,
-     * et la saisie s'arrête à 200 points de code.
+     * Limite comptée en points de code, comme le serveur et iOS : un libellé de 150 emoji (300 unités UTF-16) reste
+     * modifiable ; la saisie va jusqu'à 200 points de code tout juste, la suivante est refusée. Même règle pour la
+     * quantité, à 50.
      */
     @Test
-    fun theLabelLimitCountsCodePoints() {
+    fun theLimitsCountCodePoints() {
         val milk = "\uD83E\uDD5B"
         showSheet(ItemEditTarget("1", milk.repeat(150), null))
-        rule.onNodeWithTag(TAG_ITEM_EDIT_LABEL).performTextInput("x")
-        rule.onNodeWithTag(TAG_ITEM_EDIT_LABEL).performTextInput(milk.repeat(60))
+        val label = rule.onNodeWithTag(TAG_ITEM_EDIT_LABEL)
+        label.performTextInput("x")
+        label.performTextInput(milk.repeat(49))
+        label.performTextInput("y")
+        quantityField().performTextInput("1".repeat(50))
+        quantityField().performTextInput("2")
         rule.onNodeWithTag(TAG_ITEM_EDIT_SAVE).performClick()
         rule.waitForIdle()
-        assertEquals(milk.repeat(150) + "x", saved.single().first)
+        assertEquals(milk.repeat(150) + "x" + milk.repeat(49) to "1".repeat(50), saved.single())
     }
 
     @Test

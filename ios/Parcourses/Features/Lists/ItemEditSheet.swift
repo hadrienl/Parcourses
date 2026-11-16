@@ -40,6 +40,29 @@ struct ItemEdit: Equatable {
     text.split(whereSeparator: \.isNewline).joined(separator: " ")
   }
 
+  /// Saisie dans le libellé, champ multi-ligne pour l'affichage seulement. `submit` : « Terminé » a inséré un retour à
+  /// la ligne (au curseur, ou en fin de texte avec une correction automatique) ; il est retiré et le clavier doit se
+  /// fermer. Un texte collé voit chaque suite de retours devenir une espace. Au-delà de 200 points de code, la
+  /// modification est refusée, comme sur Android : rien n'est coupé en silence.
+  static func labelInput(old: String, new: String) -> (text: String, submit: Bool) {
+    guard new != old else { return (new, false) }
+    if !old.contains(where: \.isNewline) {
+      let withoutNewlines = new.filter { !$0.isNewline }
+      let insertedOne = new.count - withoutNewlines.count == 1
+      if insertedOne && (withoutNewlines == old || new.last?.isNewline == true) {
+        return (limited(old: old, new: withoutNewlines, max: maxLabelLength), true)
+      }
+    }
+    return (limited(old: old, new: singleLine(new), max: maxLabelLength), false)
+  }
+
+  /// Limite de saisie en points de code (`char_length`), même règle qu'Android (`MaxCodePoints`) : seule une
+  /// modification qui fait grandir le texte au-delà de `max` est refusée ; un texte déjà trop long reste modifiable.
+  static func limited(old: String, new: String, max: Int) -> String {
+    let count = new.unicodeScalars.count
+    return count > max && count > old.unicodeScalars.count ? old : new
+  }
+
   /// Coupé à `maxLabelLength` points de code.
   static func cut(_ text: String) -> String {
     var cut = ""
@@ -128,16 +151,9 @@ struct ItemEditSheet: View {
         .submitLabel(.done)
         .focused($labelFocused)
         .onChange(of: label) { old, value in
-          // Champ multi-ligne pour l'affichage seulement. « Terminé » y insère un retour à la ligne au curseur, où
-          // qu'il soit : il est retiré et le clavier se ferme.
-          if value != old, !old.contains(where: \.isNewline), value.filter({ !$0.isNewline }) == old {
-            labelFocused = false
-            label = old
-            return
-          }
-          // Texte collé : chaque suite de retours devient une espace, puis 200 points de code au plus.
-          let cleaned = ItemEdit.cut(ItemEdit.singleLine(value))
-          if cleaned != value { label = cleaned }
+          let input = ItemEdit.labelInput(old: old, new: value)
+          if input.submit { labelFocused = false }
+          if input.text != value { label = input.text }
         }
         .accessibilityIdentifier("itemLabelField")
     }
@@ -152,8 +168,9 @@ struct ItemEditSheet: View {
           .sheetField()
           .multilineTextAlignment(.center)
           .submitLabel(.done)
-          .onChange(of: quantityText) { _, value in
-            if value.count > ItemQuantity.maxLength { quantityText = String(value.prefix(ItemQuantity.maxLength)) }
+          .onChange(of: quantityText) { old, value in
+            let limited = ItemEdit.limited(old: old, new: value, max: ItemQuantity.maxLength)
+            if limited != value { quantityText = limited }
           }
           .accessibilityIdentifier("quantityField")
         stepButton(delta: 1, systemImage: "plus", label: "Augmenter la quantité", identifier: "quantityIncrement")

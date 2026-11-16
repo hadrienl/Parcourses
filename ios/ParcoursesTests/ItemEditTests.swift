@@ -136,6 +136,26 @@ private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(ItemEdit(target: target, label: flags, quantityText: "2")?.label?.unicodeScalars.count == 200)
   }
 
+  /// Saisie du libellé : « Terminé » au curseur ou avec une correction automatique, collage, limite de 200 points de
+  /// code (refusée au-delà, comme Android).
+  @Test func labelInputHandlesDoneKeyPasteAndLimit() {
+    #expect(ItemEdit.labelInput(old: "Lait", new: "La\nit") == ("Lait", true))
+    #expect(ItemEdit.labelInput(old: "Lait", new: "Lait\n") == ("Lait", true))
+    // Correction automatique « lai » → « lait » en même temps que « Terminé » : la correction reste.
+    #expect(ItemEdit.labelInput(old: "lai", new: "lait\n") == ("lait", true))
+    #expect(ItemEdit.labelInput(old: "", new: "lait\r\nbio") == ("lait bio", false))
+    #expect(ItemEdit.labelInput(old: "Lait", new: "Lait bio") == ("Lait bio", false))
+    let full = String(repeating: "🥛", count: 200)
+    #expect(ItemEdit.labelInput(old: full, new: full + "x") == (full, false))
+    #expect(ItemEdit.labelInput(old: String(repeating: "🥛", count: 199), new: full) == (full, false))
+    // Déjà trop long (venu d'ailleurs) : il se raccourcit normalement.
+    let long = full + "ab"
+    #expect(ItemEdit.labelInput(old: long, new: full + "a") == (full + "a", false))
+    // Quantité : même limite, en points de code (un drapeau en compte deux).
+    let flags = String(repeating: "🇫🇷", count: 25)
+    #expect(ItemEdit.limited(old: flags, new: flags + "1", max: ItemQuantity.maxLength) == flags)
+  }
+
   /// Le libellé renommé par un autre membre pendant que le panneau était ouvert n'est pas annulé par un changement de
   /// quantité, et inversement.
   @Test func onlyTheFieldsChangedInTheSheetAreWritten() throws {
