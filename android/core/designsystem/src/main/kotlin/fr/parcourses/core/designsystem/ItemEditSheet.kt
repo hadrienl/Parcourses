@@ -31,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -49,14 +48,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import fr.parcourses.core.categorizer.ItemQuantity
 import fr.parcourses.core.categorizer.QuantityUnit
 import kotlinx.coroutines.launch
-
-/** Article ouvert dans le panneau (#110, même nom qu'iOS) : son identifiant, son libellé et sa quantité. */
-@Immutable
-data class ItemEditTarget(
-    val id: String,
-    val label: String,
-    val quantity: String?,
-)
 
 /** Longueur maximale du libellé (`list_items.label`). */
 private const val MAX_LABEL_LENGTH = 200

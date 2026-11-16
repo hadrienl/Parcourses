@@ -26,13 +26,9 @@ import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,8 +41,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,13 +80,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.designsystem.AisleLine
-import fr.parcourses.core.designsystem.AvatarSize
 import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
 import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.ItemLine
-import fr.parcourses.core.designsystem.MemberAvatar
-import fr.parcourses.core.designsystem.NoticeCard
+import fr.parcourses.core.designsystem.R as DesignR
 import fr.parcourses.core.designsystem.ThreadLayout
 import fr.parcourses.core.designsystem.ThreadPiece
 import fr.parcourses.core.designsystem.ThreadStyle
@@ -108,9 +100,7 @@ import fr.parcourses.core.designsystem.isLargeText
 import fr.parcourses.core.designsystem.pressScale
 import fr.parcourses.core.designsystem.thread
 import fr.parcourses.core.designsystem.threadSegments
-import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.launch
-import fr.parcourses.core.designsystem.R as DesignR
 
 /** Écran Liste branché sur son [ListDetailViewModel]. */
 @Composable
@@ -302,38 +292,6 @@ private class ItemActions(
     val onReadOnlyTap: () -> Unit,
     val onEdit: (ItemRow) -> Unit,
 )
-
-/**
- * Astuce unique (#110) : discrète, au-dessus des articles, avec un bouton pour la fermer à jamais. Lue comme un texte,
- * sans déplacer le focus de TalkBack.
- */
-@Composable
-private fun QuantityTip(onDismiss: () -> Unit) {
-    NoticeCard(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = TicketDimens.spaceM, vertical = TicketDimens.spaceXs)
-            .testTag(TAG_QUANTITY_TIP),
-        caution = false,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Info, contentDescription = null, tint = Ticket.colors.ink)
-            Text(
-                stringResource(R.string.detail_quantity_tip),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Ticket.colors.ink,
-                modifier = Modifier.weight(1f).padding(horizontal = TicketDimens.spaceXs),
-            )
-            IconButton(onClick = onDismiss, modifier = Modifier.testTag(TAG_QUANTITY_TIP_CLOSE)) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = stringResource(R.string.detail_quantity_tip_close),
-                    tint = Ticket.colors.inkMuted,
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun Placeholder(
