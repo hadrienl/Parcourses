@@ -24,6 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.Ticket
 
 /** « 2 articles non cochés : les garder pour la prochaine fois ? » (#6) */
@@ -116,3 +117,30 @@ internal fun AccessLostDialog(onFinish: () -> Unit) {
 
 internal const val TAG_ACCESS_LOST = "shopping-access-lost"
 internal const val TAG_ACCESS_LOST_FINISH = "shopping-access-lost-finish"
+
+/**
+ * Ce qui se pose par-dessus le mode courses : accès perdu, articles restants (« Terminer » ou courses expirées),
+ * panneau de l'article (#110) et erreur.
+ */
+@Composable
+internal fun ShoppingOverlays(
+    state: ShoppingUiState,
+    actions: ShoppingActions,
+    showsRemaining: Boolean,
+    onCancelRemaining: () -> Unit,
+) {
+    if (state.accessLost) {
+        AccessLostDialog(onFinish = { actions.onFinish(true) })
+    } else if (showsRemaining || state.expired) {
+        RemainingItemsSheet(
+            count = state.remainingCount,
+            expired = state.expired,
+            actions = actions,
+            onCancel = onCancelRemaining,
+        )
+    }
+    state.editing?.let { target ->
+        ItemEditSheet(target, onSave = actions.onSaveItem, onDismiss = actions.onCloseItemEditor)
+    }
+    state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
+}

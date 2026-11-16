@@ -18,4 +18,10 @@ class ShoppingActions(
     val onClose: () -> Unit = {},
     /** Retour haptique d'une coche (appelé avant [onToggle], seulement pour cocher). */
     val onCheckFeedback: () -> Unit = {},
+    /** « Quantité » du menu d'appui long, ou action TalkBack : ouvre le panneau de l'article (#110). */
+    val onEditItem: (ShoppingRow) -> Unit = {},
+    /** « Enregistrer » du panneau : texte des deux champs. */
+    val onSaveItem: (label: String, quantityText: String) -> Unit = { _, _ -> },
+    /** Panneau fermé sans enregistrer. */
+    val onCloseItemEditor: () -> Unit = {},
 )

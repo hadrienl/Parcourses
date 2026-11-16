@@ -69,6 +69,9 @@ fun ShoppingRoute(
                 onAnnouncementShown = viewModel::announcementShown,
                 onClose = onClose,
                 onCheckFeedback = { haptics.performHapticFeedback(HapticFeedbackType.Confirm) },
+                onEditItem = viewModel::openItemEditor,
+                onSaveItem = viewModel::saveItem,
+                onCloseItemEditor = viewModel::closeItemEditor,
             )
         }
     ShoppingScreen(state, viewModel.input, actions, modifier)

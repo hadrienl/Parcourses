@@ -1,0 +1,88 @@
+{
+  "id": "002-set-quantity-unit",
+  "function": "setQuantityUnit",
+  "description": "Raccourcis d'unité g / kg / l du panneau de l'article (#110). Sans quantité : une unité de base (100 g, 1 kg, 1 l). Même unité déjà posée (casse ignorée) : retirée. Sinon le nombre garde sa valeur et son écriture, l'unité remplace le reste, séparée par une espace. null : raccourci inactif (quantité sans nombre en tête).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "sans quantité, g",
+      "input": {
+        "quantity": null,
+        "unit": "g"
+      },
+      "expected": "100 g"
+    },
+    {
+      "name": "sans quantité, kg",
+      "input": {
+        "quantity": null,
+        "unit": "kg"
+      },
+      "expected": "1 kg"
+    },
+    {
+      "name": "sans quantité, l",
+      "input": {
+        "quantity": null,
+        "unit": "l"
+      },
+      "expected": "1 l"
+    },
+    {
+      "name": "nombre seul",
+      "input": {
+        "quantity": "2",
+        "unit": "kg"
+      },
+      "expected": "2 kg"
+    },
+    {
+      "name": "autre unité remplacée",
+      "input": {
+        "quantity": "500 g",
+        "unit": "kg"
+      },
+      "expected": "500 kg"
+    },
+    {
+      "name": "même unité : retirée",
+      "input": {
+        "quantity": "2 kg",
+        "unit": "kg"
+      },
+      "expected": "2"
+    },
+    {
+      "name": "même unité collée, capitales : retirée",
+      "input": {
+        "quantity": "1,5KG",
+        "unit": "kg"
+      },
+      "expected": "1,5"
+    },
+    {
+      "name": "décimales gardées",
+      "input": {
+        "quantity": "1,5 kg",
+        "unit": "l"
+      },
+      "expected": "1,5 l"
+    },
+    {
+      "name": "lot remplacé",
+      "input": {
+        "quantity": "6x33cl",
+        "unit": "l"
+      },
+      "expected": "6 l"
+    },
+    {
+      "name": "texte libre : inactif",
+      "input": {
+        "quantity": "un peu",
+        "unit": "g"
+      },
+      "expected": null
+    }
+  ]
+}

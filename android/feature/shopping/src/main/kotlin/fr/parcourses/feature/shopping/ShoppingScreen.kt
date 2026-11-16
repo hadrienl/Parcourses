@@ -147,17 +147,7 @@ internal fun ShoppingContent(
             ShoppingList(state, actions)
         }
     }
-    if (state.accessLost) {
-        AccessLostDialog(onFinish = { actions.onFinish(true) })
-    } else if (showsRemaining || state.expired) {
-        RemainingItemsSheet(
-            count = state.remainingCount,
-            expired = state.expired,
-            actions = actions,
-            onCancel = { showsRemaining = false },
-        )
-    }
-    state.errorMessage?.let { ErrorDialog(it, actions.onDismissError) }
+    ShoppingOverlays(state, actions, showsRemaining, onCancelRemaining = { showsRemaining = false })
 }
 
 /**

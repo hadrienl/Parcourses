@@ -44,6 +44,7 @@ private final class SpyHistory: ListRepository {
     itemsCalls += 1
     return try base.items(listId: listId)
   }
+  func item(id: UUID) throws -> ListItem? { try base.item(id: id) }
   func lists() throws -> [ShoppingList] { try base.lists() }
   func list(id: UUID) throws -> ShoppingList? { try base.list(id: id) }
   func createList(name: String, at date: Date) throws -> ShoppingList { try base.createList(name: name, at: date) }
@@ -59,6 +60,13 @@ private final class SpyHistory: ListRepository {
   }
   func setChecked(itemId: UUID, checkedAt: Date?, at date: Date) throws {
     try base.setChecked(itemId: itemId, checkedAt: checkedAt, at: date)
+  }
+  func updateItem(
+    itemId: UUID, label: String, normalizedName: String, categoryId: String, quantity: String?, at date: Date
+  ) throws {
+    try base.updateItem(
+      itemId: itemId, label: label, normalizedName: normalizedName, categoryId: categoryId, quantity: quantity,
+      at: date)
   }
   func setNotFound(itemId: UUID, notFoundAt: Date?, at date: Date) throws {
     try base.setNotFound(itemId: itemId, notFoundAt: notFoundAt, at: date)
@@ -152,13 +160,14 @@ private final class SpyHistory: ListRepository {
     #expect(model.isEmpty)
   }
 
-  /// Décision produit : une saisie ajoute toujours une ligne, sans fusion des doublons.
+  /// Décision produit : une saisie sans quantité ajoute toujours une ligne, sans fusion des doublons. Avec une
+  /// quantité, elle met à jour l'article non coché de même forme (#110, voir `ItemEditTests`).
   @Test func sameEntryTwiceAddsTwoRows() throws {
     let h = try Harness()
     let id = try h.lists.createList(name: "L", at: t0).id
     let model = h.detail(id)
     for _ in 0..<2 {
-      model.input = "2 tomates"
+      model.input = "tomates"
       model.submit()
     }
     #expect(model.sections.map(\.items.count) == [2])

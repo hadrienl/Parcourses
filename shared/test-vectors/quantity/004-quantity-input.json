@@ -1,0 +1,64 @@
+{
+  "id": "004-quantity-input",
+  "function": "quantityInput",
+  "description": "Champ libre de quantité du panneau de l'article : blancs de bord retirés, blancs intérieurs (espace insécable comprise) réduits à une espace, coupé à 50 points de code (list_items.quantity), sans blanc final. Vide : null (pas de quantité).",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "vide",
+      "input": {
+        "text": ""
+      },
+      "expected": null
+    },
+    {
+      "name": "blancs seuls",
+      "input": {
+        "text": "   "
+      },
+      "expected": null
+    },
+    {
+      "name": "texte gardé",
+      "input": {
+        "text": "500 g"
+      },
+      "expected": "500 g"
+    },
+    {
+      "name": "bords retirés",
+      "input": {
+        "text": "  2 kg  "
+      },
+      "expected": "2 kg"
+    },
+    {
+      "name": "blancs intérieurs réduits",
+      "input": {
+        "text": "6 \t x  33 cl"
+      },
+      "expected": "6 x 33 cl"
+    },
+    {
+      "name": "espace insécable réduite",
+      "input": {
+        "text": "500 g"
+      },
+      "expected": "500 g"
+    },
+    {
+      "name": "coupé à 50",
+      "input": {
+        "text": "123456789012345678901234567890123456789012345678901234567890"
+      },
+      "expected": "12345678901234567890123456789012345678901234567890"
+    },
+    {
+      "name": "coupé sans blanc final",
+      "input": {
+        "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bc"
+      },
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

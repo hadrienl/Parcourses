@@ -8,6 +8,8 @@ android {
 }
 
 dependencies {
+    // Panneau de l'article (#110) : − / + et raccourcis d'unité de `ItemQuantity`, fonctions pures.
+    implementation(project(":core:categorizer"))
     implementation(libs.androidx.core.ktx)
 
     testImplementation(libs.junit)

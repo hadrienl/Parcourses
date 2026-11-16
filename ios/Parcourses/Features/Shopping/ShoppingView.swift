@@ -16,9 +16,12 @@ struct ShoppingView: View {
   @FocusState private var inputIsFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorSchemeContrast) private var contrast
   /// Ligne sous le focus VoiceOver : elle le garde quand la liste se réordonne.
   @AccessibilityFocusState private var focusedRow: UUID?
+  /// Panneau de l'article, ouvert par « Quantité » (#110).
+  @State private var editing: ItemEditTarget?
 
   var body: some View {
     NavigationStack {
@@ -120,6 +123,15 @@ struct ShoppingView: View {
     .sensoryFeedback(.impact(weight: .light), trigger: uncheckTrigger)
     .safeAreaInset(edge: .bottom) { dock }
     .opaqueBottomBar()
+    // Article disparu (supprimé ailleurs, coché par un autre) ou courses arrêtées : le panneau se ferme.
+    .onChange(of: editableIds) { _, ids in
+      if let editing, !ids.contains(editing.id) { self.editing = nil }
+    }
+    .sheet(item: $editing) { target in
+      ItemEditSheet(target: target, largeText: dynamicTypeSize.isAccessibilitySize) { edit in
+        session.save(edit, for: target.id)
+      }
+    }
     .sheet(isPresented: remainingIsPresented) {
       RemainingItemsSheet(
         count: session.remainingCount, canCancel: !session.expired,
@@ -300,6 +312,7 @@ struct ShoppingView: View {
         Button("Décocher") { session.toggle(row) }
       } else {
         Button("Pas trouvé") { session.markNotFound(row) }
+        Button("Modifier la quantité") { edit(row) }
       }
     }
     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -309,10 +322,23 @@ struct ShoppingView: View {
       }
     }
     .contextMenu {
+      // Lignes à prendre seulement, comme Android.
       if !row.isChecked {
         Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
+        Button("Quantité", systemImage: "number") { edit(row) }
       }
     }
+  }
+
+  /// Articles que le panneau peut modifier : ceux à prendre, tant que les courses continuent.
+  private var editableIds: Set<UUID> {
+    guard session.accessEnd == nil, !session.expired else { return [] }
+    return Set(session.toBuy.filter { !$0.isChecked }.map(\.id))
+  }
+
+  /// Même panneau que l'écran Liste (#110).
+  private func edit(_ row: ShoppingRow) {
+    editing = ItemEditTarget(id: row.id, label: row.label, quantity: row.quantity)
   }
 
   /// Article tout juste ajouté : repéré par un fond d'accent léger.
@@ -436,7 +462,7 @@ struct ShoppingView: View {
   }
 
   private var entryField: some View {
-    TextField("Ajouter un article", text: $session.input, prompt: EntryPrompt.text)
+    TextField(EntryPrompt.shortPlaceholder, text: $session.input, prompt: EntryPrompt.shortText)
       .entryField(focus: $inputIsFocused)
       .submitLabel(.done)
       .accessibilityIdentifier("shoppingEntry")

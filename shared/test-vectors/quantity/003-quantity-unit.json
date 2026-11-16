@@ -1,0 +1,57 @@
+{
+  "id": "003-quantity-unit",
+  "function": "quantityUnit",
+  "description": "Raccourci d'unité sélectionné dans le panneau de l'article : g, kg ou l si c'est tout le reste après le nombre (casse ignorée), sinon null.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "sans quantité",
+      "input": {
+        "quantity": null
+      },
+      "expected": null
+    },
+    {
+      "name": "nombre seul",
+      "input": {
+        "quantity": "2"
+      },
+      "expected": null
+    },
+    {
+      "name": "grammes",
+      "input": {
+        "quantity": "500 g"
+      },
+      "expected": "g"
+    },
+    {
+      "name": "kilos collés, capitales",
+      "input": {
+        "quantity": "2KG"
+      },
+      "expected": "kg"
+    },
+    {
+      "name": "litres",
+      "input": {
+        "quantity": "1,5 l"
+      },
+      "expected": "l"
+    },
+    {
+      "name": "centilitres : pas un raccourci",
+      "input": {
+        "quantity": "33 cl"
+      },
+      "expected": null
+    },
+    {
+      "name": "texte libre",
+      "input": {
+        "quantity": "un peu"
+      },
+      "expected": null
+    }
+  ]
+}
