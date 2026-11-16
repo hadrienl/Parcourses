@@ -100,6 +100,31 @@ class ItemEditScreenTest : ListsTest() {
 
     // region Ligne
 
+    /**
+     * Pendant l'appui (#110), seuls la case et le texte s'enfoncent : la ligne, qui porte le fil du ticket (`.thread`),
+     * garde exactement sa place, et le contenu reste collé à son bord gauche, côté fil.
+     */
+    @Test
+    fun aPressSinksTheContentButNotTheThread() {
+        showList(ListDetailUiState(name = "Semaine", sections = sections, isLoaded = true))
+        val row = rule.onNodeWithContentDescription("lait, 500 g")
+        val content = rule.onNodeWithTag(TAG_ITEM_CONTENT, useUnmergedTree = true)
+        val rowAtRest = row.fetchSemanticsNode().boundsInRoot
+        val contentAtRest = content.fetchSemanticsNode().boundsInRoot
+
+        rule.mainClock.autoAdvance = false
+        row.performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(PRESS_MILLIS)
+        val rowPressed = row.fetchSemanticsNode().boundsInRoot
+        val contentPressed = content.fetchSemanticsNode().boundsInRoot
+        row.performTouchInput { up() }
+        rule.mainClock.autoAdvance = true
+
+        assertEquals(rowAtRest, rowPressed)
+        assertTrue("le contenu s'enfonce", contentPressed.width < contentAtRest.width)
+        assertEquals(contentAtRest.left, contentPressed.left, 0.5f)
+    }
+
     @Test
     fun aLongPressOpensTheItemSheetAndATapStillChecks() {
         showList(ListDetailUiState(name = "Semaine", sections = sections, isLoaded = true))
@@ -278,3 +303,6 @@ class ItemEditScreenTest : ListsTest() {
 
     // endregion
 }
+
+/** Durée de l'appui maintenu, sous le délai de l'appui long : le temps que la ligne s'enfonce. */
+private const val PRESS_MILLIS = 300L

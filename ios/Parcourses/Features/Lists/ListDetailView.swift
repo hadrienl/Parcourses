@@ -240,7 +240,9 @@ struct ListDetailView: View {
     }
   }
 
-  private func line(_ row: ItemRow, place: ThreadPlace, readOnly: Bool) -> some View {
+  /// `pressed` : appui en cours (#110). Seuls la case et le texte de l'article s'enfoncent ; le fil et sa perle,
+  /// dessinés par `ThreadRow` dans la gouttière, restent immobiles et continus d'une ligne à l'autre.
+  private func line(_ row: ItemRow, place: ThreadPlace, readOnly: Bool, pressed: Bool = false) -> some View {
     ThreadRow(place: place) {
       // Préparation : rien n'est parcouru, la case seule porte l'état coché.
       Bead(state: .idle)
@@ -248,19 +250,20 @@ struct ListDetailView: View {
       // L'état se lit sans couleur : case pleine avec coche, et texte barré.
       ItemLine(
         label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark,
-        readOnly: readOnly)
+        readOnly: readOnly
+      )
+      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
+      .opacity(pressed ? 0.85 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
     }
   }
 
-  /// Toucher coche, glisser supprime, maintenir ouvre le panneau de l'article (#110). Pendant l'appui, la ligne
-  /// s'enfonce ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au relâcher de l'appui
+  /// Toucher coche, glisser supprime, maintenir ouvre le panneau de l'article (#110). Pendant l'appui, la case et le
+  /// texte s'enfoncent (pas le fil) ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au relâcher de l'appui
   /// long.
   private func editableRow(_ row: ItemRow, place: ThreadPlace) -> some View {
     let pressed = pressedRow == row.id
-    return line(row, place: place, readOnly: false)
-      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1)
-      .opacity(pressed ? 0.85 : 1)
-      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
+    return line(row, place: place, readOnly: false, pressed: pressed)
       .contentShape(Rectangle())
       .onTapGesture { model.toggle(row) }
       .onLongPressGesture(minimumDuration: 0.5) {

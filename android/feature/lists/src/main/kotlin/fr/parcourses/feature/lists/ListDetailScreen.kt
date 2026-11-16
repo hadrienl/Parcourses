@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
@@ -434,26 +435,35 @@ private fun ItemRowView(
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
                     // « Modifier la quantité » est l'appui long libellé ci-dessus : pas d'action en double.
                     customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
-                }
-                // Le contenu s'enfonce, pas le fil : il reste continu d'une ligne à l'autre.
-                .graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
                 }.padding(start = ThreadLayout.contentStart),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TicketCheckBox(row.isChecked)
-        ItemLine(
-            name = row.label,
-            quantity = row.quantity,
-            style = TicketType.item,
-            color = if (row.isChecked) colors.checked else colors.ink,
-            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+        // Seuls la case et le texte s'enfoncent pendant l'appui (#110), depuis leur bord gauche : le fil, dessiné par
+        // `.thread` sur la ligne, reste immobile et continu, comme la marque d'auteur et la corbeille.
+        Row(
             modifier =
                 Modifier
                     .weight(1f)
-                    .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
-        )
+                    .graphicsLayer {
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }.testTag(TAG_ITEM_CONTENT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TicketCheckBox(row.isChecked)
+            ItemLine(
+                name = row.label,
+                quantity = row.quantity,
+                style = TicketType.item,
+                color = if (row.isChecked) colors.checked else colors.ink,
+                decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
+            )
+        }
         AuthorMark(row.authorMark)
         IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
@@ -583,6 +593,7 @@ private fun EntryField(
 internal const val TAG_ITEMS = "items"
 internal const val TAG_SUGGESTIONS = "suggestions"
 internal const val TAG_QUICK_ENTRY = "quickEntry"
+internal const val TAG_ITEM_CONTENT = "itemContent"
 internal const val TAG_ADD = "add"
 internal const val TAG_SHOP = "startShopping"
 internal const val TAG_QUANTITY_TIP = "quantityTip"
