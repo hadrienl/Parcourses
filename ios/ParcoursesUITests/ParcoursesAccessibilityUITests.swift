@@ -49,7 +49,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     @MainActor
     init(_ app: XCUIApplication, name: String, modal: Bool) {
       self.modal = modal
-      itemSheetIsShown = modal && name.hasPrefix("article") && app.buttons["saveItem"].exists
+      itemSheetIsShown =
+        modal && (name == "article" || name.hasPrefix("article-")) && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
       let keyboard = app.keyboards.firstMatch
       self.keyboard = keyboard.exists ? keyboard.frame : nil
@@ -77,11 +78,14 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     case known(String)
     /// Problème non localisé imputé à une ligne coupée par le dock : décompté sur le quota de l'écran.
     case cutLine
+    /// Texte de la liste voilé par la feuille du panneau de l'article (2 quater) : un seul par écran.
+    case veiledText
   }
 
   /// Problèmes non localisés admis par ligne coupée par le dock : le liseré visible de la ligne, mesuré par le
-  /// contraste et par le texte rogné. Au-delà, le problème est bloquant. Dans une liste à une colonne, une seule
-  /// ligne chevauche le haut du dock : le quota de l'écran est donc de 0 ou 2 (constaté : 1 à 2 sur iOS 18.6 en AX5).
+  /// contraste et par le texte rogné, ou, clavier ouvert, lu comme un texte sans élément. Au-delà, le problème est
+  /// bloquant. Dans une liste à une colonne, une seule ligne chevauche le haut du dock : le quota de l'écran est donc
+  /// de 0 ou 2 (constaté : 1 à 2 sur iOS 18.6 en AX5 ; 1 texte sans élément sur iOS 18.6, clavier ouvert).
   private static let issuesPerCutLine = 2
 
   /// Exceptions documentées. Retourne `nil` pour un problème bloquant.
@@ -105,11 +109,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    text »). Preuve, essais locaux sur iOS 26.5 (testAuditLists) : c'est le compteur « ARTICLES 03 » de
       //    l'écran Liste ; l'audit passe quand la feuille s'ouvre en pleine hauteur (liste cachée) et quand ce seul
       //    compteur est masqué, et échoue encore avec une seule détente, sans focus de saisie, avec un identifiant ou
-      //    `children: .combine`. Bornée à ces écrans, à ce type, sans élément localisé : le contenu du panneau et la
-      //    liste seule (« liste-remplie ») restent entièrement audités.
-      if screen.itemSheetIsShown && issue.auditType == .elementDetection {
-        return .known("2 quater texte voilé derrière le panneau de l'article")
-      }
+      //    `children: .combine`. Bornée à ces écrans, à ce type, sans élément localisé, et à **un** constat par
+      //    écran (le compte constaté en CI, iOS 18 et 26) : un second texte non localisé, dans le panneau ou
+      //    ailleurs, reste bloquant. La liste seule est auditée sans feuille (« liste-remplie »).
+      if screen.itemSheetIsShown && issue.auditType == .elementDetection { return .veiledText }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }
@@ -118,7 +121,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    de problèmes suit le nombre de suggestions affichées).
       let keyboardIssue = [.dynamicType, .contrast, .textClipped].contains(issue.auditType)
       if keyboardIsShown && keyboardIssue { return .known("2 bis clavier") }
-      let cutLineIssue = [.contrast, .textClipped, .elementDetection].contains(issue.auditType)
+      // Texte sans élément : seulement clavier ouvert, seul cas constaté.
+      let cutLineIssue =
+        [.contrast, .textClipped].contains(issue.auditType)
+        || (keyboardIsShown && issue.auditType == .elementDetection)
       guard cutLineIssue else { return nil }
       // 2 ter. Seulement si une ligne de la liste au premier plan est coupée par le bord du dock (cellule à cheval
       //    sur son haut). L'audit mesure alors le liseré de texte encore visible et ne sait pas localiser la ligne
@@ -283,11 +289,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   /// Une passe d'audit : problèmes bloquants, exceptions retenues, et quota de lignes coupées restant.
   @MainActor
   private static func auditPass(
-    _ app: XCUIApplication, _ types: XCUIAccessibilityAuditType, screen: Screen, cutLineQuota: Int
-  ) throws -> (problems: [String], exceptions: [String], cutLineQuota: Int) {
+    _ app: XCUIApplication, _ types: XCUIAccessibilityAuditType, screen: Screen, cutLineQuota: Int,
+    veiledTextQuota: Int
+  ) throws -> (problems: [String], exceptions: [String], cutLineQuota: Int, veiledTextQuota: Int) {
     var problems: [String] = []
     var exceptions: [String] = []
     var quota = cutLineQuota
+    var veiled = veiledTextQuota
     try app.performAccessibilityAudit(for: types) { issue in
       // Exception : journal sans l'élément, pour ne pas le résoudre une fois de plus pendant l'audit.
       let summary = "\(issue.auditType): \(issue.compactDescription)"
@@ -299,14 +307,18 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         quota -= 1
         exceptions.append("2 ter ligne coupée par le dock — \(summary)")
         return true
-      case .cutLine, nil:
+      case .veiledText where veiled > 0:
+        veiled -= 1
+        exceptions.append("2 quater texte voilé derrière le panneau de l'article — \(summary)")
+        return true
+      case .cutLine, .veiledText, nil:
         // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
         let element = issue.element.map { "\($0.elementType.rawValue) \($0.identifier) \($0.frame)" } ?? "écran"
         problems.append("\(summary) [\(element)] — \(issue.detailedDescription)")
         return true
       }
     }
-    return (problems, exceptions, quota)
+    return (problems, exceptions, quota, veiled)
   }
 
   /// Audit complet d'un écran. Les problèmes sont réunis puis consignés après l'audit, pas depuis son gestionnaire :
@@ -325,8 +337,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let state = Screen(app, name: screen, modal: modal)
     var problems: [String] = []
     var exceptions: [String] = []
-    // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
+    // Quota de l'écran, commun au contraste, au texte rogné et au texte sans élément, audités dans trois passes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
+    var veiledTextQuota = state.itemSheetIsShown ? 1 : 0
     for (pass, types) in Self.auditPasses {
       // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
       // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.
@@ -335,11 +348,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         // Durée de l'essai, à comparer aux 15 s du délai : la marge restante se lit dans les journaux de CI.
         let duration = { String(format: "%.1f s", Date.now.timeIntervalSince(start)) }
         do {
-          let result = try Self.auditPass(app, types, screen: state, cutLineQuota: cutLineQuota)
+          let result = try Self.auditPass(
+            app, types, screen: state, cutLineQuota: cutLineQuota, veiledTextQuota: veiledTextQuota)
           NSLog("AUDIT-DUREE[\(screen)] \(pass) : \(duration())")
           problems += result.problems
           exceptions += result.exceptions
           cutLineQuota = result.cutLineQuota
+          veiledTextQuota = result.veiledTextQuota
           break
         } catch let error as NSError where Self.isAuditTimeout(error) && attempt == 1 {
           NSLog("AUDIT[\(screen)] \(pass) : délai dépassé après \(duration()), nouvel essai")
