@@ -23,6 +23,13 @@ on:
       - "shared/contract/**"
       - "shared/reference/**"
       - ".github/workflows/supabase.yml"
+  # Lancement à la main : version longue du test Realtime après abonnement (#123).
+  workflow_dispatch:
+    inputs:
+      realtime_trials:
+        description: "Essais par délai du test Realtime après abonnement (#123) ; vide = version courte"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -34,7 +41,8 @@ concurrency:
 jobs:
   database:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Version longue du test Realtime (#123) : une dizaine de minutes de plus.
+    timeout-minutes: ${{ inputs.realtime_trials && 40 || 15 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,7 +117,9 @@ jobs:
       - name: Tests pgTAP
         run: supabase test db
 
-      - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage)
+      - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage, temps réel)
+        env:
+          REALTIME_123_TRIALS: ${{ inputs.realtime_trials }}
         run: deno test --allow-run --allow-read --allow-env --allow-net=127.0.0.1 supabase/tests/e2e/
 
       - name: Types et contrat à jour
