@@ -17,3 +17,12 @@ internal fun MutableList<NavKey>.closeShopping() {
     removeAll { it is Route.Shopping || it is Route.StorePicker || it is Route.ShoppingSummary }
     if (isEmpty()) add(Route.Lists)
 }
+
+/**
+ * Compte redevenu anonyme (#108 : déconnexion réussie, données supprimées, pile restaurée après coup) : l'écran Compte
+ * quitte la pile, un compte anonyme n'en a pas.
+ */
+internal fun MutableList<NavKey>.closeAccount() {
+    removeAll { it == Route.Account }
+    if (isEmpty()) add(Route.Lists)
+}

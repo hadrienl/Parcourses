@@ -16,6 +16,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import fr.parcourses.core.data.account.AccountEntry
 import fr.parcourses.core.data.account.AccountState
 import fr.parcourses.core.data.sharing.AccessChange
 import fr.parcourses.core.data.sharing.InviteErrorKind
@@ -145,6 +146,7 @@ fun ParcoursesNavHost(
     )
 
     val openSignIn = { if (backStack.lastOrNull() != Route.SignIn) backStack.add(Route.SignIn) }
+    val openAccount = { if (backStack.lastOrNull() != Route.Account) backStack.add(Route.Account) }
 
     NavDisplay(
         backStack = backStack,
@@ -183,6 +185,10 @@ fun ParcoursesNavHost(
                     val notices by container.sharingNotices.notices.collectAsState()
                     val sessionStuck by sessionStuckFlow.collectAsState()
                     val account by container.accountSession.state.collectAsState(AccountState())
+                    // Pastille du bouton compte (#108) : prénom relu quand un compte e-mail ne le connaît pas encore
+                    // (lancement, connexion, changement de compte). Un échec garde l'icône personne.
+                    val missingName = account.kind == AccountKind.Email && account.displayName == null
+                    LaunchedEffect(missingName) { if (missingName) container.accountSession.refresh() }
                     val unsentFlow = remember(container) { container.database.outbox().observeCount() }
                     val unsent by unsentFlow.collectAsState(0)
                     ListsRoute(
@@ -191,7 +197,7 @@ fun ParcoursesNavHost(
                         onOpen = { id -> backStack.openListFromLists(id) },
                         onAbout = { if (backStack.lastOrNull() != Route.About) backStack.add(Route.About) },
                         aboutNeedsAttention = sessionStuck,
-                        account = listsAccount(container, account, unsent, signOut, openSignIn),
+                        account = listsAccount(container, account, unsent, signOut, openSignIn, openAccount),
                         invitations =
                             ListsInvitationsUi(
                                 state = invitations,
@@ -218,20 +224,27 @@ fun ParcoursesNavHost(
                                 },
                         )
                     val resetState by reset.state.collectAsState()
-                    val deletionModel: AccountDeletionViewModel =
-                        viewModel(
-                            factory =
-                                viewModelFactory {
-                                    initializer {
-                                        AccountDeletionViewModel(
-                                            deletion = container.accountDeletion.state,
-                                            hasOpenVisit = { container.visits.openVisit() != null },
-                                            start = container.accountDeletion::start,
-                                            localOnly = container.isLocalOnly,
-                                        )
-                                    }
-                                },
-                        )
+                    val deletionModel = accountDeletionViewModel(container)
+                    val deletionState by deletionModel.state.collectAsState()
+                    val kind by container.accountKind.kind.collectAsState()
+                    AboutScreen(
+                        version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
+                        sessionReset = resetState,
+                        sessionResetActions = reset.actions,
+                        accountDeletion = deletionState,
+                        accountDeletionActions = deletionModel.actions,
+                        // Compte e-mail : « Vos données » est dans l'écran Compte (#108). Sans serveur, pas d'écran
+                        // Compte : la suppression reste ici, quel que soit le drapeau `account.kind`.
+                        isEmailAccount = container.gateway != null && kind == AccountKind.Email,
+                    )
+                }
+                entry<Route.Account> {
+                    val kind by container.accountKind.kind.collectAsState()
+                    // Un compte anonyme n'a pas d'écran Compte : déconnexion réussie, données supprimées, ou pile
+                    // restaurée après coup. Retour aux listes.
+                    LaunchedEffect(kind) { if (kind != AccountKind.Email) backStack.closeAccount() }
+                    val deletionModel = accountDeletionViewModel(container)
                     val deletionState by deletionModel.state.collectAsState()
                     val accountModel: AccountViewModel =
                         viewModel(
@@ -247,15 +260,12 @@ fun ParcoursesNavHost(
                                 },
                         )
                     val accountState by accountModel.state.collectAsState()
-                    AboutScreen(
-                        version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                        onBack = { if (backStack.lastOrNull() == Route.About) backStack.removeLastOrNull() },
-                        sessionReset = resetState,
-                        sessionResetActions = reset.actions,
-                        accountDeletion = deletionState,
-                        accountDeletionActions = deletionModel.actions,
+                    AccountScreen(
                         account = accountState,
                         accountActions = accountModel.actions,
+                        onBack = { if (backStack.lastOrNull() == Route.Account) backStack.removeLastOrNull() },
+                        accountDeletion = deletionState,
+                        accountDeletionActions = deletionModel.actions,
                     )
                 }
                 entry<Route.SignIn> {
@@ -452,25 +462,48 @@ fun ParcoursesNavHost(
 }
 
 /**
- * Compte, vu de l'écran Listes. Déconnexion en attente de purge : seul « Réessayer » est proposé (voile de la
+ * Compte, vu de l'écran Listes : bouton compte toujours visible avec un serveur (#108), « Se connecter » ou pastille.
+ * Déconnexion en attente de purge : le bouton reste, désactivé, et seul « Réessayer » est proposé (voile de la
  * déconnexion) ; se reconnecter ouvrirait un compte que la purge effacerait.
  */
+@Suppress("LongParameterList") // Les sources de l'écran Listes, sans état propre.
 private fun listsAccount(
     container: AppContainer,
     account: AccountState,
     unsent: Int,
     signOut: AccountSignOutState,
     openSignIn: () -> Unit,
+    openAccount: () -> Unit,
 ): ListsAccountUi {
     val free = signOut == AccountSignOutState.Idle
     return ListsAccountUi(
-        canSignIn = container.gateway != null && account.kind == AccountKind.Anonymous && free,
+        entry = AccountEntry.of(account.kind, account.displayName).takeIf { container.gateway != null },
+        displayName = account.displayName,
+        entryEnabled = free,
         needsSignIn = account.needsSignIn && free,
         unsentChanges = unsent,
         onSignIn = openSignIn,
+        onAccount = openAccount,
         onContinueWithoutAccount = container::continueWithoutAccount,
     )
 }
+
+/** « Vos données » (#68) : dans À propos pour un compte anonyme, dans l'écran Compte pour un compte e-mail. */
+@Composable
+private fun accountDeletionViewModel(container: AppContainer): AccountDeletionViewModel =
+    viewModel(
+        factory =
+            viewModelFactory {
+                initializer {
+                    AccountDeletionViewModel(
+                        deletion = container.accountDeletion.state,
+                        hasOpenVisit = { container.visits.openVisit() != null },
+                        start = container.accountDeletion::start,
+                        localOnly = container.isLocalOnly,
+                    )
+                }
+            },
+    )
 
 /** Invitations reçues : relues à l'ouverture, après une connexion et sur un signal `invitations`. */
 @Composable

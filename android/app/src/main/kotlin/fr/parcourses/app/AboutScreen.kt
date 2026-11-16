@@ -32,7 +32,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
-import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.CapsText
 import fr.parcourses.core.designsystem.OsmAttribution
 import fr.parcourses.core.designsystem.Ticket
@@ -47,12 +46,13 @@ const val PRIVACY_POLICY_URL = "https://parcourses.hadrien.eu/confidentialite/"
  * « À propos » (iOS : `AboutView`, lot 9.12) : d'où viennent les magasins (OpenStreetMap, ODbL), ce que l'app
  * enregistre et pourquoi, la police embarquée et la version. Mêmes textes qu'iOS.
  *
- * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement). La section
- * « Compte » (#87) montre l'adresse et le prénom, ou propose de se connecter. La section « Vos données » (#68), sous
- * « Confidentialité », propose de tout supprimer.
+ * La section « Session » n'apparaît que si la clé de session reste illisible (#51, Android seulement). Le compte a son
+ * écran (#108, [AccountScreen]) : la section « Vos données » (#68), sous « Confidentialité », ne reste ici que pour un
+ * compte anonyme, qui n'a pas d'écran Compte ; [isEmailAccount] la retire.
  *
  * Les textes sur les données suivent le type de compte (#87, lot 87.8, iOS : `isEmailAccount`) : identifiant anonyme,
- * ou compte e-mail (adresse et prénom), qui n'est jamais purgé pour inactivité.
+ * ou compte e-mail (adresse et prénom), qui n'est jamais purgé pour inactivité. Le lien vers la politique de
+ * confidentialité est là pour tous, avec ou sans serveur.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,11 +64,9 @@ fun AboutScreen(
     sessionResetActions: SessionResetActions = SessionResetActions(),
     accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
     accountDeletionActions: AccountDeletionActions = AccountDeletionActions(),
-    account: AccountUiState = AccountUiState(),
-    accountActions: AccountActions = AccountActions(),
+    isEmailAccount: Boolean = false,
 ) {
     val colors = Ticket.colors
-    val emailAccount = account.account.kind == AccountKind.Email
     Scaffold(
         modifier = modifier,
         containerColor = colors.desk,
@@ -93,55 +91,64 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
             ) {
                 if (sessionReset.visible) {
-                    Section(stringResource(R.string.about_session_title)) {
+                    InfoSection(stringResource(R.string.about_session_title)) {
                         SessionResetContent(sessionReset, sessionResetActions)
                     }
                 }
-                if (account.visible) {
-                    Section(stringResource(R.string.account_title)) { AccountContent(account, accountActions) }
-                }
-                Section(stringResource(R.string.about_data_title)) {
-                    Paragraph(stringResource(R.string.about_data_body))
+                InfoSection(stringResource(R.string.about_data_title)) {
+                    InfoParagraph(stringResource(R.string.about_data_body))
                     OsmAttribution(textAlign = TextAlign.Start)
                 }
-                PrivacySection(emailAccount, localOnly = accountDeletion.localOnly)
-                Section(stringResource(R.string.about_account_title)) {
-                    AccountDeletionContent(accountDeletion, accountDeletionActions, emailAccount)
+                PrivacySection(localOnly = accountDeletion.localOnly, isEmailAccount = isEmailAccount)
+                if (!isEmailAccount) {
+                    InfoSection(stringResource(R.string.about_account_title)) {
+                        AccountDeletionContent(accountDeletion, accountDeletionActions)
+                    }
                 }
-                Section(stringResource(R.string.about_font_title)) {
-                    Paragraph(stringResource(R.string.about_font_body))
+                InfoSection(stringResource(R.string.about_font_title)) {
+                    InfoParagraph(stringResource(R.string.about_font_body))
                 }
-                Section(stringResource(R.string.about_version_title)) {
-                    Paragraph(version)
+                InfoSection(stringResource(R.string.about_version_title)) {
+                    InfoParagraph(version)
                 }
             }
         }
     }
 }
 
-/** « Confidentialité ». [localOnly] : build sans Supabase, rien ne part vers un serveur. */
+/** Ce que l'app enregistre et pourquoi. Avec un serveur, où supprimer ces données : ci-dessous, ou l'écran Compte. */
 @Composable
 private fun PrivacySection(
-    emailAccount: Boolean,
     localOnly: Boolean,
+    isEmailAccount: Boolean,
 ) {
-    Section(stringResource(R.string.about_privacy_title)) {
-        Paragraph(stringResource(R.string.about_privacy_tracking))
-        Paragraph(stringResource(if (emailAccount) R.string.about_privacy_data_email else R.string.about_privacy_data))
-        Paragraph(stringResource(R.string.about_privacy_catalog))
-        Paragraph(stringResource(R.string.about_privacy_location))
-        // Seulement avec un serveur : sans lui, rien n'en part.
+    InfoSection(stringResource(R.string.about_privacy_title)) {
+        InfoParagraph(stringResource(R.string.about_privacy_tracking))
+        // Compte e-mail : les données sont rattachées au compte, plus à un identifiant anonyme (texte iOS).
+        InfoParagraph(
+            stringResource(if (isEmailAccount) R.string.about_privacy_data_email else R.string.about_privacy_data),
+        )
+        InfoParagraph(stringResource(R.string.about_privacy_catalog))
+        InfoParagraph(stringResource(R.string.about_privacy_location))
+        // Seulement avec un serveur : sans lui, rien n'en part. Compte e-mail : la suppression est dans l'écran Compte,
+        // pas « ci-dessous », et jamais de purge pour inactivité (pas de 365 jours).
         if (!localOnly) {
-            val deletion = if (emailAccount) R.string.about_privacy_deletion_email else R.string.about_privacy_deletion
-            Paragraph(stringResource(deletion))
+            val deletion =
+                if (isEmailAccount) {
+                    R.string.about_privacy_deletion_account
+                } else {
+                    R.string.about_privacy_deletion
+                }
+            InfoParagraph(stringResource(deletion))
         }
         // Même sans serveur : la politique décrit aussi ce qui reste sur l'appareil.
         PrivacyPolicyLink()
     }
 }
 
+/** Section d'un écran d'information (À propos, Compte) : titre lu comme un titre, puis son contenu. */
 @Composable
-private fun Section(
+internal fun InfoSection(
     title: String,
     content: @Composable () -> Unit,
 ) {
@@ -163,7 +170,7 @@ private fun Section(
 }
 
 @Composable
-private fun Paragraph(text: String) {
+internal fun InfoParagraph(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,

@@ -19,6 +19,12 @@
     <string name="lists_subtitle_done">Tout est coché</string>
     <!-- Compte (#87) : entrée d'un compte anonyme, session perdue d'un compte e-mail -->
     <string name="lists_sign_in">Se connecter</string>
+    <!-- Bouton compte d'un compte e-mail (#108), libellés lus par TalkBack -->
+    <string name="lists_account">Compte</string>
+    <string name="lists_account_named">Compte, %1$s</string>
+    <string name="lists_account_reconnect">%1$s. Reconnectez-vous pour synchroniser</string>
+    <!-- Action lue après « Appuyez deux fois pour » (iOS : indication « Ouvre votre compte ») -->
+    <string name="lists_account_hint">ouvrir votre compte</string>
     <string name="lists_session_lost">Reconnectez-vous pour synchroniser.</string>
     <string name="lists_session_reconnect">Se reconnecter</string>
     <string name="lists_session_anonymous">Continuer sans compte</string>

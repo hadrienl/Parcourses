@@ -3,16 +3,29 @@ package fr.parcourses.feature.lists
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTouchHeightIsEqualTo
+import androidx.compose.ui.test.assertTouchWidthIsEqualTo
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.account.AccountEntry
 import fr.parcourses.core.data.repository.ListSummary
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import org.junit.Assert.assertEquals
@@ -203,22 +216,28 @@ class ListsScreenTest {
                 )
             }
         }
+        // Sans serveur : pas de bouton compte.
         rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_ACCOUNT).assertDoesNotExist()
         rule.onNodeWithTag(TAG_SESSION_BANNER).assertDoesNotExist()
 
         // « Se connecter » en haut, et sous les listes l'invitation reçue par un anonyme (#87) : le bouton du haut.
-        account = ListsAccountUi(canSignIn = true, onSignIn = { signIns++ })
+        account = ListsAccountUi(entry = AccountEntry.SignIn, onSignIn = { signIns++ })
         rule.onNodeWithTag(TAG_SIGN_IN).performClick()
         assertEquals(1, signIns)
 
         // Compte e-mail sans session : bandeau, reconnexion, ou compte anonyme après confirmation.
         account =
             ListsAccountUi(
+                entry = AccountEntry.Account("H"),
+                displayName = "Hadrien",
                 needsSignIn = true,
                 onSignIn = { signIns++ },
                 onContinueWithoutAccount = { anonymous++ },
             )
         rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
+        // La pastille reste, et dit que la session est perdue.
+        rule.onNodeWithContentDescription("Compte, Hadrien. Reconnectez-vous pour synchroniser").assertExists()
         rule.onNodeWithText("Reconnectez-vous pour synchroniser.").assertExists()
         rule.onNodeWithTag(TAG_SESSION_RECONNECT).performClick()
         assertEquals(2, signIns)
@@ -228,5 +247,75 @@ class ListsScreenTest {
         rule.onNodeWithTag(TAG_ANONYMOUS_CONFIRM).performClick()
         assertEquals(1, anonymous)
         rule.onNodeWithText("Continuer sans compte ?").assertDoesNotExist()
+    }
+
+    private fun showAccount(account: () -> ListsAccountUi) {
+        rule.setContent {
+            ParcoursesTheme {
+                ListsScreen(
+                    state = ListsUiState(isLoaded = true),
+                    onOpen = {},
+                    onCreate = {},
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onDismissError = {},
+                    onAbout = {},
+                    account = account(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun aSignedInAccountKeepsAnAccountButtonThatOpensTheAccountScreen() {
+        var accounts = 0
+        var signIns = 0
+        showAccount {
+            ListsAccountUi(
+                entry = AccountEntry.Account("H"),
+                displayName = "Hadrien",
+                onSignIn = { signIns++ },
+                onAccount = { accounts++ },
+            )
+        }
+        rule.onNodeWithTag(TAG_SIGN_IN).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_ACCOUNT_INITIAL, useUnmergedTree = true).assertExists()
+        rule
+            .onNodeWithTag(TAG_ACCOUNT)
+            .assert(hasContentDescription("Compte, Hadrien"))
+            .assertHasClickAction()
+            // « Appuyez deux fois pour ouvrir votre compte » (iOS : indication « Ouvre votre compte »).
+            .assert(
+                SemanticsMatcher("ouvre le compte") {
+                    it.config.getOrNull(SemanticsActions.OnClick)?.label == "ouvrir votre compte"
+                },
+            ).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertIsEnabled()
+            .assertTouchHeightIsEqualTo(48.dp)
+            .assertTouchWidthIsEqualTo(48.dp)
+            .performClick()
+        assertEquals(1, accounts)
+        assertEquals(0, signIns)
+        // Un compte e-mail n'est pas invité à se connecter sous les listes.
+        rule.onNodeWithText("Se connecter").assertDoesNotExist()
+    }
+
+    @Test
+    fun withoutAFirstNameTheAccountButtonShowsAPerson() {
+        showAccount { ListsAccountUi(entry = AccountEntry.Account(null), displayName = " ") }
+        rule.onNodeWithTag(TAG_ACCOUNT_INITIAL, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_ACCOUNT).assert(hasContentDescription("Compte"))
+    }
+
+    @Test
+    fun theAccountButtonStaysVisibleButDisabledDuringAnUnfinishedSignOut() {
+        var account by mutableStateOf(ListsAccountUi(entry = AccountEntry.Account("H"), entryEnabled = false))
+        showAccount { account }
+        rule.onNodeWithTag(TAG_ACCOUNT).assertIsNotEnabled()
+
+        // Compte redevenu anonyme, purge pas finie : « Se connecter » reste visible, désactivé.
+        account = ListsAccountUi(entry = AccountEntry.SignIn, entryEnabled = false)
+        rule.onNodeWithTag(TAG_SIGN_IN).assertIsNotEnabled()
+        rule.onNodeWithTag(TAG_SIGN_IN).assertHeightIsAtLeast(48.dp)
     }
 }
