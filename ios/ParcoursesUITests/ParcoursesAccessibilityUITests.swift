@@ -430,8 +430,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
     let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
-    tomatoes.tap()
-    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 15))
+    tap(tomatoes, until: app.buttons["undo"])
     audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)

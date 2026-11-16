@@ -80,14 +80,12 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "2-liste-triee-inconnu")
 
     // Coche et annulation.
-    row(app, "tomates", "non coché", in: "shoppingList").tap()
-    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 15))
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: app.buttons["undo"])
     capture(app, "3-annulation")
-    app.buttons["undo"].tap()
-    XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").waitForExistence(timeout: 15))
+    tap(app.buttons["undo"], until: row(app, "tomates", "non coché", in: "shoppingList"))
 
     // La coche rejoint le panier après le délai d'inactivité.
-    row(app, "tomates", "non coché", in: "shoppingList").tap()
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: row(app, "tomates", "coché", in: "shoppingList"))
     XCTAssertTrue(app.staticTexts["Dans le panier (1)"].waitForExistence(timeout: 15))
 
     // Introuvable.

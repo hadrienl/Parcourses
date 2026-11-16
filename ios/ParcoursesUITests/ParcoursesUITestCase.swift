@@ -45,6 +45,32 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     element.typeText(text)
   }
 
+  /// Appuie sur `element` et attend `effect`, au plus `timeout` secondes en tout. Sur le simulateur iOS 18 chargé
+  /// de la CI, un appui peut se perdre (#116) : synthétisé au centre de l'élément, app au repos avant et après, mais
+  /// sans aucun effet. Constaté sur le bouton « Créer » de l'alerte « Nouvelle liste », encore à l'écran 15 s plus
+  /// tard avec son nom saisi, et sur la coche des tomates en mode courses, encore « non coché » 20 s plus tard.
+  /// L'appui n'est refait que si `element` est encore là, dans l'état qui l'a fait trouver (une ligne « non coché »,
+  /// une alerte encore ouverte) : un appui reçu, même tard, a changé cet état et n'est jamais doublé.
+  @MainActor
+  @discardableResult
+  func tap(
+    _ element: XCUIElement, until effect: XCUIElement, timeout: TimeInterval = 15, file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> Bool {
+    let deadline = Date.now.addingTimeInterval(timeout)
+    element.tap()
+    // Chaque essai attend l'effet 5 s, dans la limite de `timeout`.
+    while !effect.waitForExistence(timeout: min(5, max(deadline.timeIntervalSinceNow, 0))) {
+      guard deadline.timeIntervalSinceNow > 0 else {
+        XCTFail("effet attendu après l'appui : \(effect)", file: file, line: line)
+        return false
+      }
+      // État changé (appui reçu, effet encore en route) : on attend l'effet sans rien rejouer.
+      if element.exists { element.tap() }
+    }
+    return true
+  }
+
   @MainActor
   func row(_ app: XCUIApplication, _ label: String, _ state: String, in list: String? = nil) -> XCUIElement {
     let scope: XCUIElement = list.map { app.collectionViews[$0] } ?? app
@@ -148,9 +174,8 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 10))
     type("Samedi", into: name, app)
-    app.alerts.buttons["Créer"].tap()
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     for text in items {
       if !entry.hasFocus { entry.tap() }
       type(text + "\n", into: entry, app)
