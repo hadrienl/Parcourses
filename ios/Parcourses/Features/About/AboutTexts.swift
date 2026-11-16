@@ -46,8 +46,11 @@ nonisolated enum AboutTexts {
   }
 
   /// Message sous « Vos données ont été supprimées de cet appareil. » : le compte serveur était hors d'atteinte. Seul un
-  /// compte anonyme y sera purgé après 365 jours.
-  static func deletedFromDeviceMessage(isEmailAccount: Bool) -> String? {
-    isEmailAccount ? nil : "Celles de nos serveurs seront supprimées après 365 jours sans utilisation."
+  /// compte anonyme y sera purgé après 365 jours ; un compte e-mail ne l'est jamais seul, d'où la demande écrite (même
+  /// texte qu'Android, `about_account_done_local_body_email`).
+  static func deletedFromDeviceMessage(isEmailAccount: Bool) -> String {
+    isEmailAccount
+      ? "Écrivez-nous depuis l'adresse de votre compte : parcourses.hadrien.eu/supprimer-mes-donnees"
+      : "Celles de nos serveurs seront supprimées après 365 jours sans utilisation."
   }
 }

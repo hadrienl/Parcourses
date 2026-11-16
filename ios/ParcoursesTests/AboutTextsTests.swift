@@ -72,6 +72,8 @@ struct AboutTextsTests {
     #expect(
       AboutTexts.deletedFromDeviceMessage(isEmailAccount: false)
         == "Celles de nos serveurs seront supprimées après 365 jours sans utilisation.")
-    #expect(AboutTexts.deletedFromDeviceMessage(isEmailAccount: true) == nil)
+    #expect(
+      AboutTexts.deletedFromDeviceMessage(isEmailAccount: true)
+        == "Écrivez-nous depuis l'adresse de votre compte : parcourses.hadrien.eu/supprimer-mes-donnees")
   }
 }
