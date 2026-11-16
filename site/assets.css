@@ -55,3 +55,18 @@ ol > li::before {
 .broken { padding: 2rem 0; text-align: center; }
 a { color: var(--brand); }
 a:focus-visible, .button:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+/* Pages de texte : confidentialité, suppression des données (#87, lot 87.8). */
+.doc { max-width: 42rem; }
+.doc h2 { margin-top: 2rem; font-size: 1.1875rem; }
+.doc h3 { margin: 1.25rem 0 0.25rem; font-size: 1rem; }
+.doc ul { padding-left: 1.25rem; }
+.doc li { margin: 0.25rem 0; }
+.doc table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1rem; font-size: 0.9375rem; }
+.doc th, .doc td { padding: 0.5rem; border-bottom: 1px solid var(--raised); text-align: left; vertical-align: top; }
+.doc th { font-weight: 700; }
+.table-scroll { overflow-x: auto; }
+.top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.top a { font-size: 0.9375rem; }
+.foot { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--raised); color: var(--muted); font-size: 0.875rem; }
+.foot a { margin-right: 1rem; }

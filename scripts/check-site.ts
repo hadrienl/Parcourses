@@ -4,6 +4,7 @@
 //   - assetlinks.json : JSON valide, paquet = applicationId d'android/app/build.gradle.kts, empreintes SHA-256 ;
 //   - aucune ressource distante dans les fichiers du site (CSP stricte, ni police ni image ni script d'un autre hôte),
 //     ressources locales et ancres internes qui existent, image de partage locale ;
+//   - les pages /confidentialite/ et /supprimer-mes-donnees/ existent (#87, lot 87.8) ;
 //   - le jeton de la page /i/ suit la règle de SharingDecisions.parseInvitationLink (vecteur 001).
 //
 //   deno run --allow-read scripts/check-site.ts
@@ -62,18 +63,24 @@ try {
 
 // Aucune ressource distante, dans tous les fichiers texte du site (pages, styles, scripts, SVG).
 const walk = (dir: string): string[] =>
-  [...Deno.readDirSync(SITE + dir)].flatMap((e) =>
-    e.isDirectory ? walk(`${dir}${e.name}/`) : [`${dir}${e.name}`]
-  );
+  [...Deno.readDirSync(SITE + dir)].flatMap((e) => e.isDirectory ? walk(`${dir}${e.name}/`) : [`${dir}${e.name}`]);
 const files = walk("");
 for (const path of files.filter((p) => /\.(html|css|js|svg)$/.test(p))) {
   const text = read(path);
-  for (const m of text.matchAll(/(?:src|href|srcset)\s*=\s*["'](https?:)?\/\/[^"']*["']|url\(\s*['"]?(https?:)?\/\/|@import/g)) {
+  for (
+    const m of text.matchAll(
+      /(?:src|href|srcset)\s*=\s*["'](https?:)?\/\/[^"']*["']|url\(\s*['"]?(https?:)?\/\/|@import/g,
+    )
+  ) {
     fail(`${path} : ressource distante ${m[0]}`);
   }
   if (path.endsWith(".html")) {
-    if (!/Content-Security-Policy" content="default-src 'none'/.test(text)) fail(`${path} : CSP default-src 'none' attendue`);
-    if (!/Content-Security-Policy" content="[^"]*form-action 'none'/.test(text)) fail(`${path} : CSP form-action 'none' attendue`);
+    if (!/Content-Security-Policy" content="default-src 'none'/.test(text)) {
+      fail(`${path} : CSP default-src 'none' attendue`);
+    }
+    if (!/Content-Security-Policy" content="[^"]*form-action 'none'/.test(text)) {
+      fail(`${path} : CSP form-action 'none' attendue`);
+    }
     // style-src 'self' bloque sans bruit les styles en ligne : ils n'ont rien à faire dans les pages.
     if (/<style|\sstyle\s*=/.test(text)) fail(`${path} : style en ligne, bloqué par la CSP (style-src 'self')`);
     // Chaque ressource locale citée (/chemin) existe dans site/.
@@ -95,6 +102,15 @@ for (const path of files.filter((p) => /\.(html|css|js|svg)$/.test(p))) {
     const url = new RegExp(`<meta ${prop} content="([^"]+)"`).exec(home)?.[1];
     if (!url?.startsWith(`https://${DOMAIN}/`)) fail(`index.html : ${prop} doit pointer vers https://${DOMAIN}/`);
     else if (!files.includes(url.slice(`https://${DOMAIN}/`.length))) fail(`index.html : ${url} absent de site/`);
+  }
+}
+
+// Pages légales : le pied de page du site et la Play Console (#68 Q4) y renvoient.
+for (const page of ["confidentialite/index.html", "supprimer-mes-donnees/index.html"]) {
+  try {
+    if (!/<h1>/.test(read(page))) fail(`${page} : titre h1 absent`);
+  } catch {
+    fail(`${page} absente`);
   }
 }
 
