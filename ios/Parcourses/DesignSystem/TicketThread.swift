@@ -85,8 +85,10 @@ struct ThreadPath: Equatable {
   let next: Int
 }
 
-/// Calque du trait vu de la fenêtre : son haut, son échelle (un parent peut le réduire) et sa hauteur propre.
+/// Calque du trait vu de la fenêtre : son coin haut gauche, son échelle (un parent peut le réduire) et sa hauteur
+/// propre.
 nonisolated struct TrackGeometry: Equatable, Sendable {
+  var originX: CGFloat = 0
   var originY: CGFloat = 0
   var scale: CGFloat = 1
   var height: CGFloat = 0
@@ -102,10 +104,42 @@ final class ThreadTrackModel {
   /// Centre du marqueur de chaque arrêt, dans la fenêtre. Une valeur peut être périmée hors écran : seules celles des
   /// lignes visibles comptent.
   var markerY: [String: CGFloat] = [:]
-  /// Lignes affichées (`onAppear` / `onDisappear`). Un bout hors écran se décide par les indices.
-  var visible: Set<String> = []
+  /// Centre des gouttières, dans la fenêtre : toutes ont la même abscisse. `nil` avant la première mesure.
+  var markerX: CGFloat?
+  /// Gouttières affichées par arrêt (`onAppear` / `onDisappear`). Un compteur et non un ensemble : deux vues de même
+  /// identifiant peuvent se relayer (ligne d'article qui passe en lecture seule), et l'apparition de la nouvelle peut
+  /// précéder la disparition de l'ancienne. Un bout hors écran se décide par les indices.
+  var visibleCount: [String: Int] = [:]
   /// Calque du trait, qui couvre aussi les barres (le fond d'une `List` respecterait l'encart de sécurité).
   var track = TrackGeometry()
+
+  func gutterAppeared(_ id: String) {
+    visibleCount[id, default: 0] += 1
+  }
+
+  /// Dernière gouttière de l'arrêt partie : sa position, désormais périmée, est oubliée.
+  func gutterDisappeared(_ id: String) {
+    let count = (visibleCount[id] ?? 0) - 1
+    if count > 0 {
+      visibleCount[id] = count
+    } else {
+      visibleCount[id] = nil
+      markerY[id] = nil
+    }
+  }
+
+  /// Une gouttière a bougé : centre dans la fenêtre.
+  func gutterMoved(_ id: String, to center: CGPoint) {
+    markerY[id] = center.y
+    // Même valeur pour toutes les gouttières : on n'invalide le trait que si elle change.
+    if markerX != center.x { markerX = center.x }
+  }
+
+  /// Abscisse du trait dans le calque : celle, mesurée, des gouttières.
+  var trackX: CGFloat? {
+    guard let markerX, track.scale > 0 else { return nil }
+    return (markerX - track.originX) / track.scale
+  }
 
   /// Tronçons à dessiner pour `path`, dans le repère du calque. Comme sur Android, le trait couvre toute perle
   /// visible du fil, au-delà du premier ou du dernier marqueur s'il le faut (sans effet en A′, où rien ne glisse).
@@ -113,7 +147,7 @@ final class ThreadTrackModel {
     let ids = path.ids
     let height = track.height
     func local(_ id: String) -> CGFloat? {
-      guard visible.contains(id), let y = markerY[id], track.scale > 0 else { return nil }
+      guard visibleCount[id] != nil, let y = markerY[id], track.scale > 0 else { return nil }
       return (y - track.originY) / track.scale
     }
     let firstVisible = ids.firstIndex { local($0) != nil }
@@ -150,11 +184,10 @@ private struct ThreadTrack: View {
 
   var body: some View {
     let width = contrast == .increased ? TicketMetrics.threadWidthIncreased : TicketMetrics.threadWidth
-    // Centre de la gouttière : marge de ligne (`ticketRow`), puis la moitié de la gouttière. Coordonnées de début de
-    // ligne : SwiftUI retourne les formes en écriture de droite à gauche (vérifié au lot 0).
-    let x = Space.m + TicketMetrics.threadGutter / 2
+    // Abscisse mesurée sur les gouttières, dans la fenêtre : le calque est donc dessiné de gauche à droite, quel que
+    // soit le sens d'écriture (sinon SwiftUI retournerait la forme une seconde fois).
     ZStack {
-      if let segments = model.segments(for: path) {
+      if let x = model.trackX, let segments = model.segments(for: path) {
         TrackSegment(from: segments.top, to: segments.junction, x: x, width: width).fill(Palette.thread)
         TrackSegment(from: segments.junction, to: segments.bottom, x: x, width: width).fill(Palette.threadIdle)
       }
@@ -163,10 +196,12 @@ private struct ThreadTrack: View {
     .onGeometryChange(for: TrackGeometry.self) { proxy in
       let frame = proxy.frame(in: .global)
       let height = proxy.size.height
-      return TrackGeometry(originY: frame.minY, scale: height > 0 ? frame.height / height : 1, height: height)
+      let scale: CGFloat = height > 0 ? frame.height / height : 1
+      return TrackGeometry(originX: frame.minX, originY: frame.minY, scale: scale, height: height)
     } action: { geometry in
       model.track = geometry
     }
+    .environment(\.layoutDirection, .leftToRight)
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
@@ -210,13 +245,14 @@ struct ThreadGutter<Marker: View>: View {
       .frame(width: TicketMetrics.threadGutter, height: 0)
       .overlay { marker }
       .alignmentGuide(.threadMarker) { $0[VerticalAlignment.center] }
-      .onGeometryChange(for: CGFloat.self) { proxy in
-        proxy.frame(in: .global).midY
-      } action: { y in
-        track?.markerY[id] = y
+      .onGeometryChange(for: CGPoint.self) { proxy in
+        let frame = proxy.frame(in: .global)
+        return CGPoint(x: frame.midX, y: frame.midY)
+      } action: { center in
+        track?.gutterMoved(id, to: center)
       }
-      .onAppear { track?.visible.insert(id) }
-      .onDisappear { track?.visible.remove(id) }
+      .onAppear { track?.gutterAppeared(id) }
+      .onDisappear { track?.gutterDisappeared(id) }
       .allowsHitTesting(false)
       .accessibilityHidden(true)
   }
