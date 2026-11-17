@@ -24,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
@@ -98,6 +99,24 @@ class SharingSyncTest : DataTest() {
             gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Editor) }
             engine.drain(pull = true)
             assertEquals(AccessChange.Upgraded(listId, "Hadrien"), changes.last())
+        }
+
+    @Test
+    fun aDowngradeReceivedByThePullIsNoticedEvenIfTheNetworkCutsRightAfter() =
+        runBlocking {
+            val (listId, _) = sharedList(ListRole.Editor)
+            gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Viewer) }
+            // La descente écrit le rôle « lecteur », puis le réseau coupe pendant la lecture des articles (#120).
+            gateway.failNext("fetchItemsOfList", IOException("coupure"))
+
+            engine.drain(pull = true)
+
+            assertEquals(ListRole.Viewer, db.lists().get(listId)?.role)
+            assertEquals(listOf(AccessChange.Downgraded(listId, "Hadrien", 0)), changes)
+
+            // La descente suivante voit le même rôle : pas de seconde bannière.
+            engine.drain(pull = true)
+            assertEquals(1, changes.size)
         }
 
     @Test

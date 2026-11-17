@@ -36,7 +36,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.SerializationException
+import kotlinx.serialization.KSerializer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 import kotlin.time.Clock
@@ -469,13 +469,8 @@ class SyncEngine(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Charge utile illisible : la rejouer ne changerait rien.
-                    val remote =
-                        when (e) {
-                            is RemoteError -> e
-                            is SerializationException -> RemoteError.Rejected("payload", e)
-                            else -> RemoteError.Unexpected(e)
-                        }
+                    // Charge utile illisible : `readPayload` l'a déjà traduite en `Rejected("payload")`.
+                    val remote = e as? RemoteError ?: RemoteError.Unexpected(e)
                     if (handle(remote, work, singleChecks) == Next.Stop) return null
                 }
             }
@@ -494,63 +489,67 @@ class SyncEngine(
         val payload = work.payloads.first()
         when (work.kind) {
             OutboxKind.UpsertList -> {
-                gateway.saveList(OutboxCoding.decode(ListUpsert.serializer(), payload))
+                gateway.saveList(decode(ListUpsert.serializer(), payload))
             }
 
             OutboxKind.DeleteList -> {
-                gateway.deleteList(parse(work.entityId))
+                gateway.deleteList(readPayload { parse(work.entityId) })
             }
 
             OutboxKind.UpsertItem -> {
-                sendItem(work, OutboxCoding.decode(ListItemUpsert.serializer(), payload))
+                sendItem(work, decode(ListItemUpsert.serializer(), payload))
             }
 
             OutboxKind.DeleteItem -> {
-                val deletion = OutboxCoding.decode(ItemDeletionPayload.serializer(), payload)
+                val deletion = decode(ItemDeletionPayload.serializer(), payload)
+                val itemId = readPayload { parse(work.entityId) }
                 // Jamais arrivé au serveur : aucune ligne à supprimer, rien d'ambigu.
-                if (!gateway.deleteItem(parse(work.entityId)) && deletion.isOnServer) {
-                    resolveZeroRow(parse(work.entityId), deletion.listId)
-                }
+                if (!gateway.deleteItem(itemId) && deletion.isOnServer) resolveZeroRow(itemId, deletion.listId)
             }
 
             OutboxKind.CreateVisit -> {
-                gateway.createVisit(OutboxCoding.decode(VisitInsert.serializer(), payload))
+                gateway.createVisit(decode(VisitInsert.serializer(), payload))
             }
 
             OutboxKind.InsertChecks -> {
-                val uploads = work.payloads.mapNotNull { OutboxCoding.decode(CheckPayload.serializer(), it).upload() }
+                val uploads =
+                    readPayload { work.payloads.mapNotNull { decode(CheckPayload.serializer(), it).upload() } }
                 if (uploads.size != work.payloads.size) throw RemoteError.Rejected("check-without-target")
                 gateway.insertChecks(uploads)
             }
 
             OutboxKind.CloseVisit -> {
-                val close = OutboxCoding.decode(VisitClosePayload.serializer(), payload)
-                gateway.closeVisit(parse(close.visitId), close.endedAt)
+                val close = decode(VisitClosePayload.serializer(), payload)
+                gateway.closeVisit(readPayload { parse(close.visitId) }, close.endedAt)
             }
         }
     }
 
     private fun parse(id: String) = Uuid.parse(id)
 
+    /**
+     * Charge de la file : un JSON illisible, mais aussi un UUID ou une date malformés (`IllegalArgumentException`,
+     * dont `SerializationException` hérite), donnent `Rejected("payload")`. La rejouer ne changerait rien : l'entrée
+     * passe en `FAILED` sans retenir les suivantes (#120).
+     */
+    private inline fun <T> readPayload(read: () -> T): T =
+        try {
+            read()
+        } catch (e: IllegalArgumentException) {
+            throw RemoteError.Rejected("payload", e)
+        }
+
+    private fun <T> decode(
+        serializer: KSerializer<T>,
+        payload: ByteArray,
+    ): T = readPayload { OutboxCoding.decode(serializer, payload) }
+
     /** Liste d'un envoi d'article (ajout, modification, coche, suppression) ; `null` pour le reste. */
     private fun itemListOf(work: OutboxWork): String? =
         when (work.kind) {
-            OutboxKind.UpsertItem -> {
-                OutboxCoding
-                    .decode(
-                        ListItemUpsert.serializer(),
-                        work.payloads.first(),
-                    ).listId
-                    .toString()
-            }
-
-            OutboxKind.DeleteItem -> {
-                OutboxCoding.decode(ItemDeletionPayload.serializer(), work.payloads.first()).listId
-            }
-
-            else -> {
-                null
-            }
+            OutboxKind.UpsertItem -> decode(ListItemUpsert.serializer(), work.payloads.first()).listId.toString()
+            OutboxKind.DeleteItem -> decode(ItemDeletionPayload.serializer(), work.payloads.first()).listId
+            else -> null
         }
 
     /**
@@ -670,14 +669,20 @@ class SyncEngine(
         when {
             change.to == ListRole.Viewer -> {
                 var dropped = alreadyDropped
-                if (!reloaded && change.from != ListRole.Viewer) {
-                    val rows = serverItems ?: gateway.fetchItems(parse(change.listId))
-                    store.replaceItems(change.listId, rows, classify) {
-                        dropped += it
+                try {
+                    if (!reloaded && change.from != ListRole.Viewer) {
+                        val rows = serverItems ?: gateway.fetchItems(parse(change.listId))
+                        store.replaceItems(change.listId, rows, classify) {
+                            dropped += it
+                        }
                     }
-                }
-                if (change.from != ListRole.Viewer || dropped > 0) {
-                    notify(AccessChange.Downgraded(change.listId, ownerName, dropped))
+                } finally {
+                    // Le rôle « lecteur » est déjà écrit : la bannière s'affiche même si le rechargement échoue (#120),
+                    // sans quoi la descente suivante, qui voit le même rôle, ne l'afficherait jamais. Les entrées
+                    // restantes de la liste seront jetées à leur envoi (`refreshAccess`), qui met le nombre à jour.
+                    if (change.from != ListRole.Viewer || dropped > 0) {
+                        notify(AccessChange.Downgraded(change.listId, ownerName, dropped))
+                    }
                 }
             }
 
@@ -1087,6 +1092,7 @@ class SyncEngine(
      * Personnes des listes partagées et mon rôle (#87, lot 87.6) : compte e-mail seulement (un anonyme ne partage ni
      * ne rejoint). Un rôle changé sur une liste déjà partagée est signalé.
      */
+    @Suppress("TooGenericExceptionCaught") // toute panne est relancée après la boucle ; l'annulation tout de suite
     private suspend fun pullParticipants(me: String?) {
         if (dependencies.accountKind() != AccountKind.Email) {
             store.replaceParticipants(emptyList(), emptyList(), me)
@@ -1099,9 +1105,19 @@ class SyncEngine(
         val profiles = gateway.fetchProfiles(people.map(::parse))
         val names = profiles.associate { it.userId.toString() to it.displayName }
         val owners = store.lists().associate { it.id to it.ownerId }
+        // Tous les rôles sont déjà écrits : une panne sur une liste n'empêche pas d'annoncer les autres. La première
+        // panne est relancée ensuite, la descente sera reprise.
+        var failure: Exception? = null
         for (change in store.replaceParticipants(members, profiles, me)) {
-            roleChanged(change, owners[change.listId]?.let(names::get))
+            try {
+                roleChanged(change, owners[change.listId]?.let(names::get))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = failure ?: e
+            }
         }
+        failure?.let { throw it }
     }
 
     /**

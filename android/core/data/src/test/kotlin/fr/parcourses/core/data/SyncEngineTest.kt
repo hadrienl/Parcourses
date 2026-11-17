@@ -68,6 +68,58 @@ class SyncEngineTest : DataTest() {
         }
 
     @Test
+    fun aMalformedUuidOrDateInAPayloadIsRejectedWithoutBlockingTheQueue() =
+        runBlocking {
+            // Charges lisibles en JSON, mais un UUID ou une date qui ne se décode pas (#120).
+            val badList = Uuid.random().toString()
+            val visit = Uuid.random().toString()
+            db.outbox().enqueue(
+                "bad-list",
+                OutboxKind.UpsertList,
+                badList,
+                """{"id":"pas-un-uuid","name":"Courses"}""".encodeToByteArray(),
+                now,
+            )
+            db.outbox().enqueue(
+                "bad-check",
+                OutboxKind.InsertChecks,
+                Uuid.random().toString(),
+                """{"id":"pas-un-uuid","visitId":"$visit","productId":null,"categoryId":"dairy","checkedAt":"$now"}"""
+                    .encodeToByteArray(),
+                now,
+            )
+            db.outbox().enqueue(
+                "bad-close",
+                OutboxKind.CloseVisit,
+                visit,
+                """{"visitId":"$visit","endedAt":"pas-une-date"}""".encodeToByteArray(),
+                now,
+            )
+            val list = repository.createList("Courses", now)
+
+            val wake = engine.drain()
+
+            // Aucune nouvelle tentative : les trois entrées sont `FAILED` en `Rejected("payload")`.
+            assertNull(wake)
+            val failed = entries().filter { it.id.startsWith("bad-") }
+            assertEquals(setOf("bad-list", "bad-check", "bad-close"), failed.map { it.id }.toSet())
+            failed.forEach {
+                assertEquals(SyncState.FAILED, it.syncState)
+                assertTrue(it.lastError.orEmpty(), it.lastError.orEmpty().contains("rejected payload"))
+            }
+            // La liste suivante part quand même.
+            assertEquals(listOf("saveList:${list.id}"), gateway.callsOf("saveList"))
+            assertEquals(SyncState.SYNCED, db.lists().get(list.id)?.syncState)
+
+            // Une nouvelle passe ne les rejoue pas.
+            advance(1.hours)
+            engine.drain()
+            assertEquals(1, gateway.callsOf("saveList").size)
+            assertTrue(gateway.callsOf("insertChecks").isEmpty())
+            assertTrue(gateway.callsOf("closeVisit").isEmpty())
+        }
+
+    @Test
     fun aNetworkErrorWaitsWithoutConsumingAnAttempt() =
         runBlocking {
             val list = repository.createList("Courses", now)

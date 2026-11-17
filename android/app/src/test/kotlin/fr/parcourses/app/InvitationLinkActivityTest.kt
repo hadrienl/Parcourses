@@ -2,6 +2,7 @@ package fr.parcourses.app
 
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -16,6 +17,7 @@ import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -24,7 +26,8 @@ import org.robolectric.annotation.Config
 
 /**
  * Lien d'invitation reçu par [MainActivity] (#87, lot 87.7), dans l'application de l'app (base en mémoire, sans
- * Supabase) : lancement par l'alias des App Links, second lien par `onNewIntent`, puis recréation sans rejeu. Sans
+ * Supabase) : lancement par l'alias des App Links, second lien par `onNewIntent`, puis recréation sans rejeu ; lien
+ * reçu sans `FLAG_ACTIVITY_NEW_TASK` pendant que l'app est ouverte (#120). Sans
  * Supabase, la carte montre « n'est plus valable », ce qui suffit à savoir que l'écran `Route.Invitation` est ouvert
  * sur le jeton.
  */
@@ -72,7 +75,7 @@ class InvitationLinkActivityTest {
             // L'intention est vidée : une recréation ne retrouve pas le lien.
             scenario.onActivity { assertNull(it.intent.data) }
 
-            // `singleTop` : le second lien arrive dans l'activité ouverte et remplace l'écran du premier.
+            // `singleTask` : le second lien arrive dans l'activité ouverte et remplace l'écran du premier.
             scenario.onActivity { activity ->
                 InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(activity, delivered(second))
             }
@@ -86,6 +89,40 @@ class InvitationLinkActivityTest {
             rule.waitForIdle()
             assertEquals(0, invitationScreens())
             assertNull(container.pendingInvitation)
+        }
+    }
+
+    /**
+     * #120 : une app qui ouvre le lien dans sa propre tâche, sans `FLAG_ACTIVITY_NEW_TASK`. Robolectric ne simule pas
+     * les tâches : le test vérifie que tout lien d'invitation (alias https et schéma) se résout vers `MainActivity` en
+     * `singleTask`, donc vers l'instance ouverte de la tâche de Parcourses, puis que cette instance-là montre la carte.
+     */
+    @Test
+    fun aLinkFromAnotherTaskWithoutNewTaskOpensTheInvitationInTheOpenInstance() {
+        val https = host.takeIf { it.isNotEmpty() }?.let { "https://$it/i/#$first" }
+        val links = listOfNotNull("parcourses://invitation#$first", https)
+        for (url in links) {
+            val resolved = app.packageManager.queryIntentActivities(viewIntent(url), 0).map { it.activityInfo }
+            assertEquals(url, 1, resolved.size)
+            val info = resolved.single()
+            assertEquals(url, MainActivity::class.java.name, info.targetActivity ?: info.name)
+        }
+        val main = app.packageManager.getActivityInfo(ComponentName(app, MainActivity::class.java), 0)
+        assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, main.launchMode)
+
+        // Parcourses ouverte sur Mes listes, puis le lien arrive sans le drapeau : même instance, carte ouverte.
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            rule.waitForIdle()
+            assertEquals(0, invitationScreens())
+            lateinit var opened: MainActivity
+            scenario.onActivity { opened = it }
+            val withoutNewTask = delivered(first)
+            assertEquals(0, withoutNewTask.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+            scenario.onActivity { activity ->
+                InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(activity, withoutNewTask)
+            }
+            awaitInvitation(first)
+            scenario.onActivity { assertSame(opened, it) }
         }
     }
 

@@ -36,7 +36,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // `singleTop` : la Live Update ou le lien d'invitation touché pendant que l'app est ouverte arrive ici.
+    // `singleTask` : la Live Update ou le lien d'invitation reçu pendant que l'app est ouverte arrive ici, même lancé
+    // sans FLAG_ACTIVITY_NEW_TASK depuis la tâche d'une autre app (#120).
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

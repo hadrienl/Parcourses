@@ -33,8 +33,11 @@ import kotlin.uuid.Uuid
  * pour un compte e-mail, ouvert au premier plan ([foreground]) et fermé en arrière-plan ([background]). Les signaux
  * reçus sont regroupés sur [window] (300 ms), puis traduits par `SharingDecisions.signalActions` : une descente
  * ([requestPull]), la relecture des invitations ([invitationReloads]) ou celle de la feuille « Partager » ouverte
- * ([sharingReloads]). À chaque (re)jonction du canal, une descente : les messages manqués ne sont pas rejoués.
- * Aucune donnée ne passe par le signal : tout vient de la descente.
+ * ([sharingReloads]). À chaque (re)jonction du canal, une descente : les messages manqués ne sont pas rejoués. Puis
+ * une seconde, [followUpDelay] (2,5 s) plus tard, comme iOS (`subscribedFollowUpDelay`) : une écriture d'un autre
+ * membre faite juste après l'abonnement peut suivre la première descente sans que son signal soit acheminé : Realtime
+ * froid perd un signal écrit juste après `SUBSCRIBED` (#123, `docs/data-model.md`, « Limite : signal perdu juste après
+ * l'abonnement »). Aucune donnée ne passe par le signal : tout vient de la descente.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RealtimeSignals(
@@ -51,6 +54,8 @@ class RealtimeSignals(
     private val isEcho: (String) -> Boolean = { false },
     /** Fenêtre de l'écho : un signal ignoré est rattrapé par une descente à sa fin. */
     private val echoWindow: Duration = RecentSends.ECHO_WINDOW,
+    /** Seconde descente après chaque jonction ([SUBSCRIBED_FOLLOW_UP_DELAY]). */
+    private val followUpDelay: Duration = SUBSCRIBED_FOLLOW_UP_DELAY,
 ) {
     private val isForeground = MutableStateFlow(false)
     private val session = MutableStateFlow(0)
@@ -66,6 +71,9 @@ class RealtimeSignals(
 
     /** Descente programmée à la fin de la fenêtre d'écho, une à la fois. */
     private var echoPullJob: Job? = null
+
+    /** Seconde descente due après la dernière jonction : une seule à la fois. */
+    private var followUpPullJob: Job? = null
 
     /** Vrai tant que le canal est joint : pour les tests et le diagnostic, jamais pour décider d'un envoi. */
     val isConnected: StateFlow<Boolean> = connected.asStateFlow()
@@ -135,6 +143,9 @@ class RealtimeSignals(
             flushJob = null
             echoPullJob?.cancel()
             echoPullJob = null
+            // Sans canal, plus rien à rattraper : le retour au premier plan rouvre le canal, et sa jonction redescend.
+            followUpPullJob?.cancel()
+            followUpPullJob = null
             pendingActions.clear()
             pendingSheets.clear()
         }
@@ -144,8 +155,18 @@ class RealtimeSignals(
         when (event) {
             RealtimeEvent.Subscribed -> {
                 connected.value = true
-                // (Re)jonction : une descente, regroupée avec les signaux qui arrivent en même temps.
+                // (Re)jonction : une descente, regroupée avec les signaux qui arrivent en même temps, puis une seconde
+                // 2,5 s plus tard pour ce qui a été écrit entre la première et l'acheminement des signaux.
                 enqueue(listOf(SignalAction.Pull), null)
+                // Une seule seconde descente en attente : une nouvelle jonction remplace la précédente.
+                lock.withLock {
+                    followUpPullJob?.cancel()
+                    followUpPullJob =
+                        scope.launch {
+                            delay(followUpDelay)
+                            requestPull()
+                        }
+                }
             }
 
             is RealtimeEvent.Changed -> {
@@ -213,5 +234,12 @@ class RealtimeSignals(
         val WINDOW: Duration = 300.milliseconds
 
         val RETRY_DELAY: Duration = 10.seconds
+
+        /**
+         * Seconde descente après chaque jonction, même valeur qu'iOS (`RealtimeSignals.subscribedFollowUpDelay`) : la
+         * parade au signal perdu sur un Realtime froid (`docs/data-model.md`, « Limite : signal perdu juste après
+         * l'abonnement »).
+         */
+        val SUBSCRIBED_FOLLOW_UP_DELAY: Duration = 2_500.milliseconds
     }
 }
