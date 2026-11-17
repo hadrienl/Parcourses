@@ -3,29 +3,43 @@ package fr.parcourses.core.designsystem
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onLayoutRectChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -34,80 +48,129 @@ import androidx.compose.ui.unit.dp
 
 // region Fil du parcours
 
-/** Morceau du fil au-dessus ou au-dessous de la perle d'une ligne. */
-enum class ThreadSegment {
-    /** Pas de fil (début ou fin). */
-    None,
-
-    /** Déjà parcouru : accent. */
-    Passed,
-
-    /** Encore à parcourir. */
-    Ahead,
-}
-
 /** Perle d'une ligne : pleine (cochée), anneau large (suivante), anneau fin (à venir). */
 enum class Bead { None, Checked, Next, Idle }
 
 /** Trajet appris : fil plein. Ordre générique ou en apprentissage : la partie à venir est pointillée (#6). */
 enum class ThreadStyle { Solid, Dashed }
 
-@Immutable
-data class ThreadPiece(
-    val top: ThreadSegment,
-    val bottom: ThreadSegment,
-    val bead: Bead = Bead.None,
-)
-
 /**
- * Dessine le fil dans la gouttière de début de ligne (à droite en écriture de droite à gauche) : un segment au-dessus,
- * un au-dessous, la perle au milieu. Purement décoratif : l'état se lit sur la ligne elle-même.
+ * Gouttière d'une ligne (`ThreadGutter`, #115) : colonne fixe au début de la ligne qui porte la perle ou le nœud. Elle
+ * n'est jamais décalée, mise à l'échelle ni soulevée ; seul le couloir ([RowLane]) bouge. [threadKey] : clé
+ * `LazyColumn` de la ligne si elle est un arrêt du fil ; la gouttière publie alors la hauteur de son marqueur
+ * (`threadMarker`, son centre) vers le trait de la liste ([LocalThreadTrack]). Décorative.
  */
 @Composable
-fun Modifier.thread(
-    piece: ThreadPiece,
-    style: ThreadStyle,
-): Modifier {
+fun ThreadGutter(
+    threadKey: Any?,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val track = LocalThreadTrack.current
+    val publish =
+        if (track != null && threadKey != null) {
+            DisposableEffect(track, threadKey) { onDispose { track.centers.remove(threadKey) } }
+            // Sans rebond : la valeur doit arriver dans l'image même où la ligne bouge (lot 0 de #115).
+            Modifier.onLayoutRectChanged(throttleMillis = 0, debounceMillis = 0) { bounds ->
+                track.centers[threadKey] = bounds.positionInRoot.y + bounds.height / 2f
+            }
+        } else {
+            Modifier
+        }
+    Box(
+        modifier.size(TicketDimens.threadGutter).then(publish).clearAndSetSemantics { },
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+/** Perle d'une ligne, au centre de sa gouttière, sur fond papier : elle masque le trait dessous. */
+@Composable
+fun ThreadBead(
+    bead: Bead,
+    modifier: Modifier = Modifier,
+) {
     val colors = Ticket.colors
     val highContrast = Ticket.accessibility.highContrast
-    val idle = if (highContrast) colors.threadIdleHighContrast else colors.threadIdle
     val ring = if (highContrast) colors.ink else colors.threadIdle
     val width = if (highContrast) TicketDimens.threadWidthHighContrast else TicketDimens.threadWidth
     val reduced = Ticket.accessibility.reducedMotion
     val beadColor by animateColorAsState(
-        when (piece.bead) {
+        when (bead) {
             Bead.Checked, Bead.Next -> colors.thread
             Bead.Idle, Bead.None -> ring
         },
         animationSpec = TicketMotion.check(reduced),
         label = "bead",
     )
-    return drawBehind {
-        val center = ThreadLayout.start.toPx() + TicketDimens.threadGutter.toPx() / 2
-        val x = if (layoutDirection == LayoutDirection.Ltr) center else size.width - center
-        val y = size.height / 2
-        val stroke = width.toPx()
-        val dashed = PathEffect.dashPathEffect(floatArrayOf(stroke * 2, stroke * 2))
+    Spacer(modifier.fillMaxSize().drawBehind { drawBead(bead, center, beadColor, colors.paper, width.toPx()) })
+}
 
-        fun segment(
-            kind: ThreadSegment,
-            from: Float,
-            to: Float,
-        ) {
-            if (kind == ThreadSegment.None) return
-            val passed = kind == ThreadSegment.Passed
-            drawLine(
-                color = if (passed) colors.thread else idle,
-                start = Offset(x, from),
-                end = Offset(x, to),
-                strokeWidth = stroke,
-                pathEffect = if (!passed && style == ThreadStyle.Dashed) dashed else null,
-            )
-        }
-        segment(piece.top, 0f, y)
-        segment(piece.bottom, y, size.height)
-        drawBead(piece.bead, Offset(x, y), beadColor, colors.paper, stroke)
+/**
+ * Couloir d'une ligne (`RowLane`, #115) : case, libellé, points de conduite, quantité, marque d'auteur. Seule partie
+ * qui glisse, s'enfonce ou montre l'ondulation ; rogné à son bord, il passe sous la gouttière sans la recouvrir. Fond
+ * papier : pendant un tri ou un fondu, les textes de deux lignes qui se croisent ne se mêlent pas ; la gouttière, elle,
+ * reste transparente au trait.
+ */
+@Composable
+fun RowScope.RowLane(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Box(modifier.weight(1f).clipToBounds().background(Ticket.colors.paper), content = content)
+}
+
+/**
+ * Retour d'appui du couloir : l'ondulation ([laneIndication]) et l'enfoncement (0,97, depuis le bord de début) suivent
+ * [interaction], celle de la ligne entière, qui reste la cible de toucher (48 dp au moins) ; la gouttière n'est jamais
+ * touchée.
+ */
+@Composable
+fun Modifier.lanePress(interaction: InteractionSource): Modifier {
+    val scale = pressScale(interaction)
+    val origin = if (LocalLayoutDirection.current == LayoutDirection.Ltr) LANE_START_LTR else LANE_START_RTL
+    return laneIndication(interaction).graphicsLayer {
+        scaleX = scale.value
+        scaleY = scale.value
+        transformOrigin = origin
     }
+}
+
+/**
+ * Ondulation du couloir pour l'interaction [interaction] de la ligne entière. L'appui est relevé dans le repère de la
+ * ligne : sa position est ramenée dans celui du couloir (décalé de la marge et de la gouttière en écriture de gauche à
+ * droite), pour que l'onde parte sous le doigt.
+ */
+@Composable
+fun Modifier.laneIndication(interaction: InteractionSource): Modifier {
+    val lane = remember { MutableInteractionSource() }
+    val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val shift = with(LocalDensity.current) { if (ltr) (ThreadLayout.start + TicketDimens.threadGutter).toPx() else 0f }
+    LaunchedEffect(interaction, shift) {
+        val presses = HashMap<PressInteraction.Press, PressInteraction.Press>()
+        interaction.interactions.collect { event ->
+            val mapped =
+                when (event) {
+                    is PressInteraction.Press -> {
+                        PressInteraction.Press(event.pressPosition - Offset(shift, 0f)).also { presses[event] = it }
+                    }
+
+                    is PressInteraction.Release -> {
+                        presses.remove(event.press)?.let { PressInteraction.Release(it) }
+                    }
+
+                    is PressInteraction.Cancel -> {
+                        presses.remove(event.press)?.let { PressInteraction.Cancel(it) }
+                    }
+
+                    else -> {
+                        event
+                    }
+                }
+            if (mapped != null) lane.emit(mapped)
+        }
+    }
+    return indication(lane, ripple())
 }
 
 private fun DrawScope.drawBead(
@@ -162,35 +225,40 @@ fun AisleNode(
 }
 
 /**
- * Ligne de titre de rayon sur le fil : nœud dans la gouttière, nom en capitales. [trailing] : étiquette éventuelle
- * (« ↑ appris »). La sémantique (titre, nombre d'articles) est posée par l'appelant.
+ * Ligne de titre de rayon sur le fil : nœud dans la gouttière ([threadKey] : clé `LazyColumn` de la ligne, arrêt du
+ * fil), nom en capitales. [trailing] : étiquette éventuelle (« ↑ appris »). Seul le titre a un fond papier : la
+ * gouttière laisse voir le trait de la liste. La sémantique (titre, nombre d'articles) est posée par l'appelant.
  */
 @Composable
 fun AisleLine(
     categoryId: String,
     title: String,
-    piece: ThreadPiece,
-    style: ThreadStyle,
+    threadKey: Any?,
     modifier: Modifier = Modifier,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        modifier
-            .fillMaxWidth()
-            .background(Ticket.colors.paper)
-            .thread(piece, style)
-            .heightIn(min = TicketDimens.touchMin)
-            .padding(start = ThreadLayout.start, end = ThreadLayout.end),
+        modifier.fillMaxWidth().padding(start = ThreadLayout.start),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(TicketDimens.threadGutter), contentAlignment = Alignment.Center) { AisleNode(categoryId) }
-        CapsText(
-            title,
-            style = TicketType.aisle,
-            color = Ticket.colors.inkMuted,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceXs, top = 4.dp, bottom = 4.dp),
-        )
-        trailing()
+        ThreadGutter(threadKey) { AisleNode(categoryId) }
+        // Titre sur fond papier, comme le couloir d'un article : il ne se mêle pas à une ligne qui le croise.
+        Row(
+            Modifier
+                .weight(1f)
+                .background(Ticket.colors.paper)
+                .heightIn(min = TicketDimens.touchMin)
+                .padding(end = ThreadLayout.end),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CapsText(
+                title,
+                style = TicketType.aisle,
+                color = Ticket.colors.inkMuted,
+                modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceXs, top = 4.dp, bottom = 4.dp),
+            )
+            trailing()
+        }
     }
 }
 
@@ -207,26 +275,6 @@ fun LearnedTag(modifier: Modifier = Modifier) {
 
 // endregion
 
-/**
- * Fil d'une suite de [count] éléments (titres de rayon et lignes, dans l'ordre affiché) dont [next] est la position de
- * l'article suivant ([count] quand tout est pris) : parcouru jusqu'à la perle suivante, à venir ensuite.
- */
-fun threadSegments(
-    count: Int,
-    next: Int,
-): List<Pair<ThreadSegment, ThreadSegment>> =
-    List(count) { i ->
-        val top =
-            when {
-                i == 0 -> ThreadSegment.None
-                i <= next -> ThreadSegment.Passed
-                else -> ThreadSegment.Ahead
-            }
-        val bottom =
-            when {
-                i == count - 1 -> ThreadSegment.None
-                i < next -> ThreadSegment.Passed
-                else -> ThreadSegment.Ahead
-            }
-        top to bottom
-    }
+/** Origine de l'enfoncement du couloir : son bord de début, à mi-hauteur. */
+private val LANE_START_LTR = TransformOrigin(0f, 0.5f)
+private val LANE_START_RTL = TransformOrigin(1f, 0.5f)
