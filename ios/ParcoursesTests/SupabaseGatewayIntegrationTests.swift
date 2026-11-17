@@ -1181,6 +1181,8 @@ struct AccountsIntegrationTests {
     let atResume = try #require(a.resumes.cursors.last)
     #expect(a.resumes.cursors.count == resumesBefore + 1)
     #expect(atResume.accountId == accountB && atResume.kind == .email)
+    // Et toujours B une fois la passe faite.
+    #expect(a.cursors.accountId == accountB && a.cursors.accountKind == .email)
     #expect(try a.listNames() == ["IT-87 de B"])
     #expect(try await other.remote.fetchLists(updatedAfter: nil).map(\.name) == ["IT-87 de B"])
     #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)
