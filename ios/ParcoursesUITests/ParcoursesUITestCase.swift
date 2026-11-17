@@ -61,11 +61,15 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     line: UInt = #line
   ) -> Bool {
     let deadline = Date.now.addingTimeInterval(timeout)
-    let ready = NSPredicate(format: "exists == true AND isEnabled == true")
-    let enabled = XCTNSPredicateExpectation(predicate: ready, object: element)
-    guard XCTWaiter().wait(for: [enabled], timeout: timeout) == .completed else {
-      XCTFail("élément toujours inactif : \(element)", file: file, line: line)
-      return false
+    // Un seul instantané par essai. Le prédicat `exists AND isEnabled` en demandait deux, et deux requêtes lentes
+    // (10 s puis 4 s, CI iOS latest, `testAuditShoppingAX5` sur 5335023) épuisaient les 15 s sur une ligne déjà
+    // trouvée et active.
+    while (try? element.snapshot())?.isEnabled != true {
+      guard deadline.timeIntervalSinceNow > 0 else {
+        XCTFail("élément toujours inactif : \(element)", file: file, line: line)
+        return false
+      }
+      Thread.sleep(forTimeInterval: 0.2)
     }
     element.tap()
     // Chaque essai attend l'effet 5 s, dans la limite de `timeout`.
