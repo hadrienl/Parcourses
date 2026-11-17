@@ -97,6 +97,9 @@ class AccountDeletionTest : DataTest() {
     /** Drapeau `account.kind` de l'appareil, effacé par la purge comme dans l'app. */
     private val kind = InMemoryAccountKindFlag()
 
+    /** Stockage de la session bloqué (#51) : la clé ne s'ouvre plus depuis plusieurs essais. */
+    private var storageStuck = false
+
     /** Un lancement de l'app : moteur neuf, rien en mémoire ; base, drapeau, session et serveur restent. */
     private fun deletion(withServer: Boolean = true) =
         AccountDeletion(
@@ -107,6 +110,7 @@ class AccountDeletionTest : DataTest() {
             isOnline = { online },
             timing = AccountDeletionTiming(timeout = 200.milliseconds, now = { now }),
             accountKind = { kind.kind.value },
+            isSessionStorageStuck = { storageStuck },
         )
 
     private inner class Host : AccountDeletionHost {
@@ -518,6 +522,45 @@ class AccountDeletionTest : DataTest() {
             assertEquals(AccountDeletionOutcome.Failed(AccountDeletionError.Unknown), deletion().run())
 
             assertTrue(flag.isPending)
+        }
+
+    /**
+     * #51 : clé de session durablement illisible. La session ne se relira pas : elle compte comme absente (C3), et
+     * l'appareil est purgé au lieu de laisser le doute, et son dialogue, sans fin.
+     */
+    @Test
+    fun aStuckStorageCountsAsNoSessionAndOnlyThePurgeOfTheDeviceRemains() =
+        runBlocking {
+            everythingOnTheDevice()
+            storageStuck = true
+            // Clé illisible : rien de ce qui passe par la session n'aboutit.
+            gateway.failNext("sessionAccountId", RemoteError.SecureStorageLocked(), times = 2)
+            gateway.failNext("deleteAccount", RemoteError.SecureStorageLocked())
+
+            assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = false), deletion().run())
+
+            // Le serveur n'est pas touché : son compte part avec la purge des comptes inactifs.
+            assertTrue(gateway.callsOf("deleteAccount").isEmpty())
+            assertTrue(gateway.deletedAccounts.isEmpty())
+            assertNull(flag.read())
+            for (table in personalTables) assertEquals(table, 0L, count(table))
+            assertEquals(1, gateway.callsOf("signOutLocally").size)
+            assertEquals(0, sessionsWhilePending)
+        }
+
+    @Test
+    fun cancellingWhileTheStorageIsStuckKeepsTheData() =
+        runBlocking {
+            val account = everythingOnTheDevice()
+            flag.write(attempted(account))
+            storageStuck = true
+            gateway.failNext("sessionAccountId", RemoteError.SecureStorageLocked())
+
+            assertEquals(AccountDeletionOutcome.Cancelled, deletion().cancel())
+
+            assertNull(flag.read())
+            assertEquals(1L, count("lists"))
+            assertEquals("resumeSync", host.events.last())
         }
 
     @Test
