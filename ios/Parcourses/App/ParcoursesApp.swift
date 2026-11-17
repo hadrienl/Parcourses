@@ -55,7 +55,7 @@ struct ParcoursesApp: App {
   /// Suppression interrompue par un arrêt de l'app : elle reprend avant tout, sans synchronisation ni connexion.
   @ViewBuilder private func content(_ environment: AppEnvironment) -> some View {
     if app.isResumingDeletion, let deletion = app.deletion {
-      AccountDeletionResumeView(deletion: deletion, isEmailAccount: app.account?.kind == .email) {
+      AccountDeletionResumeView(deletion: deletion) {
         app.endDeletionResume()
       }
     } else {

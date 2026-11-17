@@ -390,6 +390,54 @@ non autorisé. La politique compare aussi le topic de chaque ligne au canal rejo
 membre reçoit `list`, puis `members` (la cascade sur `list_members`) : sans effet, les apps font une seule descente.
 La migration échoue si `realtime.send` ou `realtime.messages` manquent.
 
+**Limite : signal perdu juste après l'abonnement** (#123, test `supabase/tests/e2e/realtime_after_subscribe.test.ts`).
+Realtime ferme sa connexion à la base après environ 10 minutes sans aucun abonné sur le projet (10 contrôles espacés de
+60 s). Le premier abonnement qui suit la rouvre et reçoit `SUBSCRIBED` aussitôt, mais Realtime démarre en tâche de fond la
+réplication de `realtime.messages`. Celle-ci passe par un slot logique temporaire, `supabase_realtime_messages_replication_slot_`.
+Un message validé avant la création de ce slot reste dans `realtime.messages` sans jamais être diffusé. Le trigger, `realtime.send` et
+l'autorisation du canal privé ne sont pas en cause : le test vérifie que chaque signal perdu est bien écrit, au bon topic.
+Tant que la réplication tourne (Realtime « chaud »), rien ne se perd. Mesures sur la pile locale (Realtime v2.143.4),
+signaux perdus quand un autre membre lance son écriture (requête PATCH) N ms après `SUBSCRIBED`, chaque essai sur une
+connexion WebSocket neuve :
+
+| Écriture après `SUBSCRIBED` | Realtime chaud | Realtime froid |
+| --- | --- | --- |
+| 0 ms | 0 / 100 | 100 / 100, et 30 / 30 au balayage |
+| 10 ms | | 29 / 30 |
+| 20 ms | | 10 / 30 |
+| 30 et 40 ms | | 0 / 60 |
+| 50 ms | 0 / 100 | 2 / 100 |
+| 60, 80 et 100 ms | | 0 / 90 |
+| 200 ms | 0 / 100 | 1 / 100 |
+| dès « Replication connection established » | 0 / 100 | 0 / 100 |
+
+La fenêtre dure donc une vingtaine de millisecondes en local, avec une traîne au-delà de 200 ms, et se ferme avant le message système
+« Replication connection established » (option de jonction `broadcast.replication_ready`, reçu vers 500 ms : Realtime
+vérifie toutes les 500 ms). Sur l'hébergé, non mesuré, elle est sans doute plus longue : la base y est plus loin.
+La création du slot attend aussi la fin des transactions en cours sur la base (point de cohérence du décodage logique) :
+une transaction longue, un job pg_cron par exemple, allonge la fenêtre sans borne fixe. C'est l'explication probable de
+la traîne. Avec peu d'utilisateurs, le cas froid est le cas courant : le premier membre qui ouvre l'app après 10 minutes de calme.
+
+Rien ne se corrige dans notre schéma : le message est écrit, c'est Realtime qui ne le relit pas. Garder Realtime chaud (un
+abonné permanent) a été écarté : une connexion occupée en permanence, pour un comportement que Realtime ne garantit pas
+(redémarrage, rééquilibrage du tenant). Le rejeu Broadcast (`broadcast.replay`) ne couvre pas non plus la fenêtre : il lit
+les messages au moment de la jonction, avant `SUBSCRIBED`. **Parade officielle : la seconde descente des apps**,
+2,5 s après chaque `SUBSCRIBED` (iOS : `RealtimeSignals.subscribedFollowUpDelay` ; Android :
+`RealtimeSignals.SUBSCRIBED_FOLLOW_UP_DELAY`). Elle couvre le cas courant, une fenêtre de moins de 2,5 s, mais pas tous
+les cas :
+
+- **création du slot retardée au-delà de 2,5 s** : transaction longue sur la base, ou slot encore tenu par l'ancienne
+  connexion après un redémarrage ou un rééquilibrage de Realtime. Dans ce dernier cas, Realtime abandonne
+  (« Replication slot already exists and in use ») et ne réessaie qu'après au moins 5 s ;
+- **réplication coupée alors que le canal reste abonné** : Realtime la relance après 5 s à 5 min (pendant 2 h au plus),
+  sans nouveau `SUBSCRIBED`. Le slot étant temporaire, ce qui est écrit pendant la coupure est perdu, et aucune seconde
+  descente ne part. Seules les descentes ordinaires (retour au premier plan, reprise) rattrapent ces écritures.
+
+Piste, si les SDK transmettent l'option : déclencher la seconde descente sur le message « Replication connection
+established » plutôt qu'après un délai fixe. Avec cette option, Realtime ferme le canal si la réplication n'est pas prête
+avant son délai (`replication_ready_timeout`) : l'app doit alors se réabonner. Autre piste, en amont : demander à Supabase
+que `SUBSCRIBED` attende la réplication sur un canal privé.
+
 **Suppression du compte** (`delete_my_account`, #68) : chaque liste partagée du compte est d'abord confiée à son éditeur
 le plus ancien, à défaut à son lecteur le plus ancien ; ce membre quitte `list_members`. Une liste sans membre part avec
 le compte. Les invitations envoyées par le compte partent avec lui. Les membres de ses listes sont verrouillés d'abord :

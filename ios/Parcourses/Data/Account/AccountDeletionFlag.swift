@@ -20,15 +20,21 @@ nonisolated struct AccountDeletionFlag: Codable, Equatable, Sendable {
   /// La RPC a été envoyée au moins une fois : un refus ou un envoi impossible ne prouvent plus que rien n'a été
   /// supprimé, seul `confirmAccountDeleted` permet alors d'abandonner.
   var rpcAttempted: Bool
+  /// Type du compte à supprimer, noté avec le premier drapeau (#122) : la purge efface `account.kind` avant la fin, et
+  /// une reprise doit encore savoir quel message donner. `nil` : drapeau écrit avant #122, `account.kind` fait foi.
+  var accountKind: AccountKind?
 
-  init(accountId: UUID?, phase: AccountDeletionPhase, rpcAttempted: Bool = false) {
+  init(
+    accountId: UUID?, phase: AccountDeletionPhase, rpcAttempted: Bool = false, accountKind: AccountKind? = nil
+  ) {
     self.accountId = accountId
     self.phase = phase
     self.rpcAttempted = rpcAttempted
+    self.accountKind = accountKind
   }
 
   private enum CodingKeys: String, CodingKey {
-    case accountId, phase, rpcAttempted
+    case accountId, phase, rpcAttempted, accountKind
   }
 
   init(from decoder: any Decoder) throws {
@@ -37,6 +43,9 @@ nonisolated struct AccountDeletionFlag: Codable, Equatable, Sendable {
     phase = try container.decode(AccountDeletionPhase.self, forKey: .phase)
     // Absent : traité comme envoyé, la prudence l'emporte.
     rpcAttempted = try container.decodeIfPresent(Bool.self, forKey: .rpcAttempted) ?? true
+    // Valeur inconnue (version future) : comme `account.kind`, elle compte comme un compte e-mail.
+    accountKind = try container.decodeIfPresent(String.self, forKey: .accountKind)
+      .map { AccountKind(rawValue: $0) ?? .email }
   }
 }
 
@@ -69,7 +78,7 @@ nonisolated struct UserDefaultsAccountDeletionFlagStore: AccountDeletionFlagStor
   }
 
   func save(_ flag: AccountDeletionFlag) {
-    // L'encodage d'une structure de deux champs ne peut pas échouer.
+    // L'encodage d'une structure de quatre champs simples ne peut pas échouer.
     let data = (try? JSONEncoder().encode(flag)) ?? Data()
     defaults.set(data, forKey: AccountDeletionFlag.key)
   }

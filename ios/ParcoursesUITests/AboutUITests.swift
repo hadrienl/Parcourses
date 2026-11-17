@@ -7,6 +7,8 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
   private static let anonymousRetention =
     "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
   private static let sharedListsSentence = "Une liste que vous partagez avec d'autres passe à l'un de ses membres."
+  private static let emailRetention =
+    "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 3 ans sans utilisation de l'app ; un e-mail vous prévient au moins 30 jours avant."
 
   /// Build sans serveur : le lien est là, sans phrase sur la purge.
   @MainActor
@@ -21,16 +23,16 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     capture(app, "a-propos-sans-serveur")
   }
 
-  /// Compte e-mail (#108) : À propos garde le lien et renvoie vers l'écran Compte, sans parler de purge ; la
-  /// suppression, dans Compte, nomme le compte et dit ce que deviennent les listes partagées.
+  /// Compte e-mail (#108) : À propos garde le lien, renvoie vers l'écran Compte et annonce la purge à 3 ans (#118,
+  /// #122) ; la suppression, dans Compte, nomme le compte et dit ce que deviennent les listes partagées.
   @MainActor
-  func testEmailAccountIsNeverPurgedForInactivity() {
+  func testEmailAccountMentionsTheThreeYearPurge() {
     let app = launchWithServer("owner")
     openAbout(app)
     // Ordre de l'écran : conservation, lien, puis « Vos données » ; avec serveur, le lien est sous le pli.
     let retention = app.staticTexts["aboutRetention"]
     reveal(retention, in: app)
-    XCTAssertEqual(retention.label, "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte.")
+    XCTAssertEqual(retention.label, Self.emailRetention)
     let link = policyLink(app)
     reveal(link, in: app)
     XCTAssertTrue(link.exists)
@@ -80,8 +82,11 @@ nonisolated final class AboutUITests: ParcoursesUITestCase {
     let confirmation = openConfirmation(app)
     XCTAssertTrue(
       hasText(
-        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. \(Self.sharedListsSentence) Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif.",
+        "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif.",
         in: confirmation))
+    // Un compte anonyme ne peut pas partager de liste (#122).
+    let sharedLists = NSPredicate(format: "label CONTAINS %@", Self.sharedListsSentence)
+    XCTAssertFalse(confirmation.staticTexts.matching(sharedLists).firstMatch.exists)
     confirmation.buttons["Annuler"].firstMatch.tap()
     XCTAssertTrue(confirmation.waitForNonExistence(timeout: 15))
   }

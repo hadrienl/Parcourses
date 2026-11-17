@@ -17,7 +17,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.designsystem.ParcoursesTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -105,17 +105,27 @@ class AboutScreenTest {
         assertAbsent(R.string.about_account_body_email)
     }
 
+    /** #122 : un compte anonyme ne peut pas partager de liste, sa confirmation n'en parle pas. Même texte qu'iOS. */
     @Test
-    fun theConfirmationOfAnAnonymousAccountAlsoMentionsTheSharedLists() {
+    fun theConfirmationOfAnAnonymousAccountSaysNothingAboutSharedLists() {
         show(confirming = true)
 
         val body = text(R.string.about_account_confirm_body)
         rule.onNodeWithText(body).assertIsDisplayed()
-        assertTrue(body.contains("ainsi que votre identifiant anonyme. $SHARED_LISTS"))
+        assertEquals(
+            "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi " +
+                "que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est " +
+                "conservée. C'est définitif.",
+            body,
+        )
+        assertFalse(body.contains(SHARED_LISTS))
     }
 
     internal companion object {
-        /** #87, lot 87.8 : à la suppression, une liste partagée change de propriétaire au lieu de disparaître. */
+        /**
+         * #87, lot 87.8 : à la suppression, une liste partagée change de propriétaire au lieu de disparaître. Compte
+         * e-mail seulement (#122).
+         */
         const val SHARED_LISTS = "Une liste que vous partagez avec d'autres passe à l'un de ses membres."
     }
 }

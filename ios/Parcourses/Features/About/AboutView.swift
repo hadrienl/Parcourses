@@ -83,7 +83,7 @@ struct AboutView: View {
           interruptsShopping: interruptsShopping))
     }
     // « Vos données » n'est ici que pour un compte anonyme : un compte e-mail supprime ses données depuis Compte.
-    .accountDeletionPresentation(deletion, isEmailAccount: false)
+    .accountDeletionPresentation(deletion)
     // Purge de déconnexion en cours ou en échec (« Continuer sans compte », reprise au lancement) : À propos ouvert
     // par-dessus Mes listes porte le voile et l'alerte, que Mes listes masque alors.
     .signOutFailurePresentation(account)

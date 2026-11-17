@@ -311,9 +311,12 @@ final class DeletionHarness: AccountDeletionHost {
   )
     -> AccountDeletion
   {
+    let defaults = defaults
     let deletion = AccountDeletion(
       gateway: gateway ?? self.gateway, flags: flags,
       purge: LocalDataPurge(container: container, keychain: secure, defaults: defaults, urlCache: urlCache),
+      // Comme l'app : le drapeau `account.kind` des préférences, que la purge efface.
+      accountKind: { UserDefaultsAccountKindStore(defaults: defaults).kind },
       isOnline: { [unowned self] in online }, timeout: .seconds(2), now: { [unowned self] in clock },
       checkpoint: checkpoint)
     deletion.host = self
@@ -635,7 +638,9 @@ struct AccountDeletionTests {
     await deletion.delete()
 
     #expect(deletion.status == .failed(.unknown))
-    #expect(app.flags.load() == AccountDeletionFlag(accountId: old, phase: .requested, rpcAttempted: true))
+    #expect(
+      app.flags.load()
+        == AccountDeletionFlag(accountId: old, phase: .requested, rpcAttempted: true, accountKind: .anonymous))
     #expect(!app.hostCalls.contains("resumeSync"))
     #expect(await app.engine.isSuspended)
     try app.expectIntact()
@@ -793,10 +798,59 @@ struct AccountDeletionTests {
     let relaunched = app.makeDeletion()
     await relaunched.resumeIfNeeded()
 
-    #expect(relaunched.status == .deletedFromDevice)
+    #expect(relaunched.status == .deletedFromDevice(isEmailAccount: false))
     #expect(await app.gateway.calls.contains("deleteAccount") == false)
     #expect(await app.gateway.accounts.contains(old))
     try app.expectPurged()
+  }
+
+  /// Compte e-mail sans session, purge interrompue juste après l'effacement d'`account.kind` (#122) : la reprise lit
+  /// le type de compte dans le drapeau et donne encore le message d'un compte e-mail, pas celui des 365 jours.
+  @Test func anInterruptedPurgeOfAnEmailAccountKeepsItsMessage() async throws {
+    let app = try DeletionHarness()
+    try app.seedEverything()
+    let old = try await app.signInAndSync()
+    let kinds = UserDefaultsAccountKindStore(defaults: app.defaults)
+    kinds.save(.email)
+    try app.secure.removeValue(forKey: DeletionGateway.sessionKey)
+    let interrupted = app.makeDeletion { if $0 == .purge(.preferencesPurged) { throw CancellationError() } }
+    await interrupted.delete()
+    #expect(kinds.kind == .anonymous)
+    #expect(app.flags.load()?.accountKind == .email)
+
+    app.relaunch()
+    let relaunched = app.makeDeletion()
+    await relaunched.resumeIfNeeded()
+
+    #expect(relaunched.status == .deletedFromDevice(isEmailAccount: true))
+    #expect(await app.gateway.calls.contains("deleteAccount") == false)
+    #expect(await app.gateway.accounts.contains(old))
+    #expect(app.flags.load() == nil)
+    try app.expectPurged()
+  }
+
+  /// Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne. Il est noté dans le
+  /// drapeau avant la purge : une reprise interrompue à son tour garde le message d'un compte e-mail.
+  @Test func aFlagWithoutTheAccountKindFallsBackToTheDeviceKind() async throws {
+    let app = try DeletionHarness()
+    try app.seedEverything()
+    try await app.signInAndSync()
+    let kinds = UserDefaultsAccountKindStore(defaults: app.defaults)
+    kinds.save(.email)
+    app.flags.save(AccountDeletionFlag(accountId: UUID(), phase: .requested, rpcAttempted: true))
+
+    app.relaunch()
+    let interrupted = app.makeDeletion { if $0 == .purge(.preferencesPurged) { throw CancellationError() } }
+    await interrupted.resumeIfNeeded()
+    #expect(kinds.kind == .anonymous)
+    #expect(app.flags.load()?.accountKind == .email)
+
+    app.relaunch()
+    let relaunched = app.makeDeletion()
+    await relaunched.resumeIfNeeded()
+
+    #expect(relaunched.status == .deletedFromDevice(isEmailAccount: true))
+    #expect(app.flags.load() == nil)
   }
 
   /// Relance avec la session d'un autre compte que celui du drapeau : comme sans session.
@@ -810,7 +864,7 @@ struct AccountDeletionTests {
     let relaunched = app.makeDeletion()
     await relaunched.resumeIfNeeded()
 
-    #expect(relaunched.status == .deletedFromDevice)
+    #expect(relaunched.status == .deletedFromDevice(isEmailAccount: false))
     #expect(await app.gateway.calls.contains("deleteAccount") == false)
     #expect(await app.gateway.accounts.contains(current))
     try app.expectPurged()
@@ -903,6 +957,13 @@ struct AccountDeletionTests {
     // Sans `rpcAttempted` : la prudence l'emporte, l'envoi est supposé fait.
     defaults.set(Data(#"{"phase":"requested"}"#.utf8), forKey: AccountDeletionFlag.key)
     #expect(flags.load() == AccountDeletionFlag(accountId: nil, phase: .requested, rpcAttempted: true))
+    // Type de compte (#122) : relu après une relance ; une valeur inconnue (version future) compte comme un compte
+    // e-mail, comme `account.kind`.
+    flags.save(AccountDeletionFlag(accountId: account, phase: .requested, accountKind: .email))
+    #expect(UserDefaultsAccountDeletionFlagStore(defaults: defaults).load()?.accountKind == .email)
+    let future = #"{"phase":"requested","rpcAttempted":false,"accountKind":"guest"}"#
+    defaults.set(Data(future.utf8), forKey: AccountDeletionFlag.key)
+    #expect(flags.load() == AccountDeletionFlag(accountId: nil, phase: .requested, accountKind: .email))
     flags.clear()
     #expect(!flags.isDeletionPending)
   }

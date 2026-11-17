@@ -73,8 +73,8 @@ struct AccountView: View {
           deletesServerData: deletion?.deletesServerData ?? false, isEmailAccount: true,
           interruptsShopping: interruptsShopping))
     }
-    // Écran d'un compte e-mail seulement : constante, car la purge remet `account.kind` à zéro avant le message de fin.
-    .accountDeletionPresentation(deletion, isEmailAccount: true)
+    // Le message de fin suit le type de compte noté dans le drapeau de suppression (#122), pas `account.kind`, purgé.
+    .accountDeletionPresentation(deletion)
     .accountPrompts($prompts, account: account)
     .signOutFailurePresentation(account)
     .overlay {
