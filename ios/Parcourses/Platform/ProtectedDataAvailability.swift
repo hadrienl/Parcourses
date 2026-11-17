@@ -26,6 +26,10 @@ nonisolated final class ProtectedDataAvailability: Sendable {
     _ = center.addObserver(
       forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil, queue: nil
     ) { _ in state.update(false) }
+    // Assurance : relu à chaque retour au premier plan, au cas où une notification aurait manqué.
+    _ = center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+      MainActor.assumeIsolated { state.update(UIApplication.shared.isProtectedDataAvailable) }
+    }
     return state
   }
 }

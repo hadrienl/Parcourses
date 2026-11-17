@@ -955,7 +955,7 @@ struct AccountDeletionTests {
     let (keychain, clock) = app.makeAppKeychain()
     await app.gateway.setLocalSessionFailure(.keychainLocked)
     app.secure.failsRemoveAll = true
-    // Lectures de la session refusées par la passerelle, notées par le même suivi que dans l'app.
+    // Le faux serveur ne passe pas par le moniteur : les échecs de lecture que la passerelle y noterait dans l'app sont notés ici à la main.
     keychain.monitor.recordFailuresUntilStuck(clock: clock)
     await app.gateway.clearCalls()
 
