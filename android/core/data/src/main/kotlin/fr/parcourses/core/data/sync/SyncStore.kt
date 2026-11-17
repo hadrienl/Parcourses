@@ -273,25 +273,25 @@ class SyncStore(
         shift: Duration,
     ): ByteArray? =
         when (entry.kind()) {
-                OutboxKind.CreateVisit -> {
-                    val row = OutboxCoding.decode(VisitInsert.serializer(), entry.payload)
-                    OutboxCoding.encode(VisitInsert.serializer(), row.copy(startedAt = row.startedAt - shift))
-                }
-
-                OutboxKind.InsertChecks -> {
-                    val row = OutboxCoding.decode(CheckPayload.serializer(), entry.payload)
-                    OutboxCoding.encode(CheckPayload.serializer(), row.with(row.checkedAt - shift))
-                }
-
-                OutboxKind.CloseVisit -> {
-                    val row = OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload)
-                    OutboxCoding.encode(VisitClosePayload.serializer(), row.copy(endedAt = row.endedAt - shift))
-                }
-
-                else -> {
-                    null
-                }
+            OutboxKind.CreateVisit -> {
+                val row = OutboxCoding.decode(VisitInsert.serializer(), entry.payload)
+                OutboxCoding.encode(VisitInsert.serializer(), row.copy(startedAt = row.startedAt - shift))
             }
+
+            OutboxKind.InsertChecks -> {
+                val row = OutboxCoding.decode(CheckPayload.serializer(), entry.payload)
+                OutboxCoding.encode(CheckPayload.serializer(), row.with(row.checkedAt - shift))
+            }
+
+            OutboxKind.CloseVisit -> {
+                val row = OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload)
+                OutboxCoding.encode(VisitClosePayload.serializer(), row.copy(endedAt = row.endedAt - shift))
+            }
+
+            else -> {
+                null
+            }
+        }
 
     /** Date envoyée de l'entrée ; `null` si sa charge est illisible : elle ne compte pas dans le décalage. */
     private fun sentDate(entry: OutboxEntryEntity): Instant? =

@@ -39,8 +39,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // `singleTop` : la Live Update ou le lien d'invitation touché pendant que l'app est ouverte arrive ici, comme un lien
-    // relayé depuis la tâche d'une autre app (#120).
+    // `singleTop` : la Live Update ou le lien d'invitation touché pendant que l'app est ouverte arrive ici, comme un
+    // lien relayé depuis la tâche d'une autre app (#120).
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -53,23 +53,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Lien ouvert par une autre app sans FLAG_ACTIVITY_NEW_TASK (navigateur intégré, #120) : cette instance est née dans
-     * la tâche de l'appelant, et celle que l'on retrouve depuis les apps récentes ne montrerait pas le lien. Il est
-     * relancé vers la tâche de Parcourses ([AppLinkIntents.relayed]), où l'instance ouverte le reçoit par [onNewIntent],
-     * puis cette instance se ferme sans rien afficher ni suivre le lien. `true` si le lien est relayé.
+     * Lien ouvert par une autre app sans FLAG_ACTIVITY_NEW_TASK (navigateur intégré, #120) : cette instance est née
+     * dans la tâche de l'appelant, et celle que l'on retrouve depuis les apps récentes ne montrerait pas le lien. Il
+     * est relancé vers la tâche de Parcourses ([AppLinkIntents.relayed]), où l'instance ouverte le reçoit par
+     * [onNewIntent], puis cette instance se ferme sans rien afficher ni suivre le lien. `true` si le lien est relayé.
      */
     private fun relayToOwnTask(intent: Intent?): Boolean {
-        val relayed = AppLinkIntents.relayed(intent, this) ?: return false
-        if (isTaskRoot || isInOwnTask()) return false
-        startActivity(relayed)
-        finish()
-        return true
+        val relayed = AppLinkIntents.relayed(intent, this)?.takeUnless { isTaskRoot || isInOwnTask() }
+        relayed?.let {
+            startActivity(it)
+            finish()
+        }
+        return relayed != null
     }
 
-    /** Tâche de Parcourses : `appTasks` ne liste que les tâches de l'app, pas celle d'une autre app qui nous héberge. */
+    /** Tâche de Parcourses : `appTasks` liste les tâches de l'app, pas celle d'une autre app qui nous héberge. */
     private fun isInOwnTask(): Boolean =
         getSystemService(ActivityManager::class.java).appTasks.any { task ->
-            val info = task.taskInfo
+            val info = task.taskInfo ?: return@any false
             val id =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     info.taskId

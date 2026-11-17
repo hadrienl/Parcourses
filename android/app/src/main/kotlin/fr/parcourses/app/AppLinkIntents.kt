@@ -25,8 +25,8 @@ internal object AppLinkIntents {
     /**
      * Le lien à relancer vers la tâche de Parcourses (#120), ou `null` si l'intention n'est pas un lien à suivre. Une
      * intention neuve et explicite (action, adresse, [MainActivity]) : rien d'autre de l'appelant n'est relancé.
-     * `NEW_TASK` vise la tâche de Parcourses, `CLEAR_TOP | SINGLE_TOP` y remet l'instance ouverte au premier plan et lui
-     * passe le lien par `onNewIntent`, sans seconde instance.
+     * `NEW_TASK` vise la tâche de Parcourses ; `CLEAR_TOP | SINGLE_TOP` y remet l'instance ouverte au premier plan et
+     * lui passe le lien par `onNewIntent`, sans seconde instance.
      */
     fun relayed(
         intent: Intent?,

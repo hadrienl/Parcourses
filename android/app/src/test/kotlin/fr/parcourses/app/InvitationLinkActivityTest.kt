@@ -94,8 +94,8 @@ class InvitationLinkActivityTest {
     }
 
     /**
-     * #120 : une app ouvre le lien dans sa propre tâche, sans `FLAG_ACTIVITY_NEW_TASK`. L'instance née là (pas racine de
-     * sa tâche, absente des tâches de l'app) relance le lien vers la tâche de Parcourses et se ferme sans le suivre ;
+     * #120 : une app ouvre le lien dans sa propre tâche, sans `FLAG_ACTIVITY_NEW_TASK`. L'instance née là (pas racine
+     * de sa tâche, absente des tâches de l'app) relance le lien vers la tâche de Parcourses et se ferme sans le suivre ;
      * le lien relancé ouvre la carte.
      */
     @Test

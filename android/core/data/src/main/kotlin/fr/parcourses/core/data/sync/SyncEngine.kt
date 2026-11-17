@@ -1117,9 +1117,9 @@ class SyncEngine(
         val profiles = gateway.fetchProfiles(people.map(::parse))
         val names = profiles.associate { it.userId.toString() to it.displayName }
         val owners = store.lists().associate { it.id to it.ownerId }
-        // Tous les rôles sont déjà écrits : une panne sur une liste, ou une annulation (WorkManager arrête la passe à la
-        // coupure du réseau), n'empêche pas d'annoncer les autres, sans plus rien recharger. La première est relancée
-        // ensuite : la descente sera reprise.
+        // Tous les rôles sont déjà écrits : une panne sur une liste, ou une annulation (WorkManager arrête la passe
+        // à la coupure du réseau), n'empêche pas d'annoncer les autres, sans plus rien recharger. La première est
+        // relancée ensuite : la descente sera reprise.
         var failure: Exception? = null
         for (change in store.replaceParticipants(members, profiles, me)) {
             val ownerName = owners[change.listId]?.let(names::get)
