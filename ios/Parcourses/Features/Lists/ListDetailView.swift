@@ -36,6 +36,11 @@ struct ListDetailView: View {
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
   @State private var editTrigger = 0
+  /// Positions des perles, lues par le trait unique du fil (#115).
+  @State private var thread = ThreadTrackModel()
+  /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
+  @State private var openLane: String?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   private let quantityTip = QuantityTip()
 
@@ -53,10 +58,10 @@ struct ListDetailView: View {
     let lines = model.sections.flatMap { section in
       [ListLine.aisle(section)] + section.items.map(ListLine.item)
     }
-    // Écran de préparation : le fil est tracé, rien n'est encore parcouru.
-    let places = ThreadPlace.places(count: lines.count, reached: nil, progress: false)
+    // Écran de préparation : le fil est tracé, rien n'est encore parcouru (la perle suivante est la première).
+    let path = ThreadPath(ids: lines.map(\.id), next: 0)
     List {
-      if !model.isMissing { titleLine.ticketRow() }
+      if !model.isMissing { titleLine.closesOpenLane(closeLane).ticketRow() }
       if let change = accessChange { accessBanner(change).ticketRow() }
       if isOffline { offlineBanner.ticketRow() }
       if model.access.isReadOnly {
@@ -66,7 +71,7 @@ struct ListDetailView: View {
           .ticketRow()
       }
       if !model.isEmpty {
-        header.ticketRow()
+        header.closesOpenLane(closeLane).ticketRow()
         lastChangeLine.ticketRow()
         if model.access.capabilities.canEditItems {
           TipView(quantityTip, arrowEdge: nil)
@@ -76,21 +81,29 @@ struct ListDetailView: View {
             .ticketRow()
         }
       }
-      ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
+      ForEach(lines) { line in
         switch line {
         case .aisle(let section):
-          aisleRow(section, place: place).ticketRow()
+          aisleRow(section, threadId: line.id).threadLineRow()
         case .item(let row):
-          itemRow(row, place: place)
+          itemRow(row, threadId: line.id)
         }
       }
     }
     .listStyle(.plain)
+    .threadTrack(thread, path: path)
     .ticketBackground()
     .environment(\.defaultMinListRowHeight, 0)
     // Repère des tests UI (audit d'accessibilité) : la liste de l'écran Liste.
     .accessibilityIdentifier("itemList")
     .scrollDismissesKeyboard(.interactively)
+    .onScrollPhaseChange { _, phase in
+      if phase.isScrolling { closeLane() }
+    }
+    .onChange(of: openableLanes(lines)) { _, ids in
+      // Ligne ouverte partie (supprimée ici ou ailleurs), ou liste passée en lecture seule : plus rien n'est ouvert.
+      if let openLane, !ids.contains(openLane) { self.openLane = nil }
+    }
     .overlay {
       if model.wasRemoved {
         removedState
@@ -226,65 +239,114 @@ struct ListDetailView: View {
   }
 
   /// Nœud d'un rayon sur le fil, lu comme un en-tête.
-  private func aisleRow(_ section: ItemSection, place: ThreadPlace) -> some View {
+  private func aisleRow(_ section: ItemSection, threadId: String) -> some View {
     AisleLine(
-      aisleId: section.categoryId, title: section.title, identifier: "aisle-\(section.categoryId)", place: place)
+      aisleId: section.categoryId, title: section.title, identifier: "aisle-\(section.categoryId)",
+      threadId: threadId)
   }
 
-  @ViewBuilder private func itemRow(_ row: ItemRow, place: ThreadPlace) -> some View {
+  @ViewBuilder private func itemRow(_ row: ItemRow, threadId: String) -> some View {
     if model.access.isReadOnly {
-      readOnlyRow(row, place: place)
+      readOnlyRow(row, threadId: threadId)
     } else {
-      editableRow(row, place: place)
+      editableRow(row, threadId: threadId)
     }
   }
 
-  /// `pressed` : appui en cours (#110). Seuls la case et le texte de l'article s'enfoncent (`ItemLine`) ; le fil et sa
-  /// perle, dessinés par `ThreadRow` dans la gouttière, et la marque d'auteur restent immobiles.
-  private func line(_ row: ItemRow, place: ThreadPlace, readOnly: Bool, pressed: Bool = false) -> some View {
-    ThreadRow(place: place) {
-      // Préparation : rien n'est parcouru, la case seule porte l'état coché.
-      Bead(state: .idle)
-    } content: {
-      // L'état se lit sans couleur : case pleine avec coche, et texte barré.
-      ItemLine(
-        label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark,
-        readOnly: readOnly, pressed: pressed)
-    }
+  /// `pressed` : appui en cours (#110). Seuls la case et le texte de l'article s'enfoncent (`ItemLine`) ; le fil, sa
+  /// perle dans la gouttière (`ThreadRow`) et la marque d'auteur restent immobiles.
+  private func itemLine(_ row: ItemRow, readOnly: Bool, pressed: Bool = false) -> some View {
+    // L'état se lit sans couleur : case pleine avec coche, et texte barré.
+    ItemLine(
+      label: row.label, quantity: row.quantity, isChecked: row.isChecked, authorMark: row.authorMark,
+      readOnly: readOnly, pressed: pressed)
   }
 
   /// Toucher coche, glisser supprime, maintenir ouvre le panneau de l'article (#110). Pendant l'appui, la case et le
   /// texte s'enfoncent (pas le fil) ; au déclenchement, une vibration. Pas de `Button` : son action partirait aussi au
-  /// relâcher de l'appui long.
-  private func editableRow(_ row: ItemRow, place: ThreadPlace) -> some View {
+  /// relâcher de l'appui long. Le glisser maison ne décale que le couloir (#115) ; « Supprimer » reste aussi une
+  /// action VoiceOver, et son bouton, qui n'existe que ligne ouverte, est hors de l'élément de la ligne.
+  private func editableRow(_ row: ItemRow, threadId: String) -> some View {
     let pressed = pressedRow == row.id
-    return line(row, place: place, readOnly: false, pressed: pressed)
-      .contentShape(Rectangle())
-      .onTapGesture { model.toggle(row) }
-      .onLongPressGesture(minimumDuration: 0.5) {
-        edit(row)
-      } onPressingChanged: { pressing in
-        if pressing {
-          pressedRow = row.id
-        } else if pressedRow == row.id {
-          pressedRow = nil
-        }
+    let delete = LaneAction(
+      title: "Supprimer", systemImage: "trash", tint: Self.deleteTint.fill, foreground: Self.deleteTint.icon,
+      allowsFullSwipe: false
+    ) { self.delete(row) }
+    return ThreadRow(id: threadId) {
+      // Préparation : rien n'est parcouru, la case seule porte l'état coché.
+      Bead(state: .idle)
+    } lane: {
+      RowLane(id: threadId, openId: $openLane, action: delete) {
+        itemLine(row, readOnly: false, pressed: pressed)
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel(row.accessibilityLabel)
+          .accessibilityValue(row.accessibilityState)
+          .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
+          .accessibilityAddTraits([.isButton, .isToggle])
+          .accessibilityAction {
+            // Double-toucher VoiceOver : il coche, et referme la ligne ouverte s'il y en a une.
+            closeLane()
+            model.toggle(row)
+          }
+          .accessibilityActions {
+            if row.isChecked { Button("Décocher") { model.toggle(row) } }
+            Button("Modifier la quantité") { edit(row) }
+            Button("Supprimer") { self.delete(row) }
+          }
       }
-      .ticketRow()
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel(row.accessibilityLabel)
-      .accessibilityValue(row.accessibilityState)
-      .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
-      .accessibilityAddTraits([.isButton, .isToggle])
-      .accessibilityAction { model.toggle(row) }
-      .accessibilityActions {
-        if row.isChecked { Button("Décocher") { model.toggle(row) } }
-        Button("Modifier la quantité") { edit(row) }
+    }
+    // Toute la ligne est touchable, gouttière comprise.
+    .contentShape(Rectangle())
+    .onTapGesture {
+      // Une ligne ouverte se referme d'abord.
+      if openLane != nil {
+        closeLane()
+      } else {
+        model.toggle(row)
       }
-      .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
-      .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-        Button("Supprimer", systemImage: "trash", role: .destructive) { model.delete(row) }
+    }
+    .onLongPressGesture(minimumDuration: 0.5) {
+      edit(row)
+    } onPressingChanged: { pressing in
+      if pressing {
+        pressedRow = row.id
+      } else if pressedRow == row.id {
+        pressedRow = nil
       }
+    }
+    .threadLineRow()
+    .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
+  }
+
+  /// Teinte du glisser « Supprimer », celle du `.swipeActions` natif de Mes listes : l'accent de l'app sur iOS 26 (le
+  /// pictogramme prend `onAccent`, le blanc ne tient que 2,3:1 sur l'accent sombre) ; le rouge sur iOS 18.
+  private static var deleteTint: (fill: Color, icon: Color) {
+    if #available(iOS 26, *) {
+      (Palette.accent, Palette.onAccent)
+    } else {
+      (Palette.deleteSwipe, .white)
+    }
+  }
+
+  /// Suppression sans animation de la liste (option A′, #115) : la ligne part d'un coup, le trait reste exact.
+  private func delete(_ row: ItemRow) {
+    openLane = nil
+    model.delete(row)
+  }
+
+  /// Lignes qui peuvent être ouvertes par le glisser : les articles, tant que la liste se modifie ici.
+  private func openableLanes(_ lines: [ListLine]) -> Set<String> {
+    guard !model.access.isReadOnly else { return [] }
+    return Set(
+      lines.compactMap { line in
+        if case .item = line { return line.id }
+        return nil
+      })
+  }
+
+  private func closeLane() {
+    guard openLane != nil else { return }
+    withAnimation(LaneMotion.settle(reduced: reduceMotion)) { openLane = nil }
   }
 
   /// Articles que le panneau peut modifier.
@@ -302,18 +364,22 @@ struct ListDetailView: View {
   }
 
   /// Lecteur : ni case ni coche ; toucher un article le rappelle une fois (maquette, écran 7).
-  private func readOnlyRow(_ row: ItemRow, place: ThreadPlace) -> some View {
-    line(row, place: place, readOnly: true)
-      .contentShape(Rectangle())
-      .onTapGesture {
-        guard !readOnlyNoticeShown else { return }
-        readOnlyNoticeShown = true
-        show("Lecture seule\u{00A0}: cette liste ne se modifie pas ici.")
-      }
-      .ticketRow()
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(row.accessibilityLabel)
-      .accessibilityValue(row.isChecked ? "dans le panier" : "")
+  private func readOnlyRow(_ row: ItemRow, threadId: String) -> some View {
+    ThreadRow(id: threadId) {
+      Bead(state: .idle)
+    } lane: {
+      itemLine(row, readOnly: true)
+    }
+    .contentShape(Rectangle())
+    .onTapGesture {
+      guard !readOnlyNoticeShown else { return }
+      readOnlyNoticeShown = true
+      show("Lecture seule\u{00A0}: cette liste ne se modifie pas ici.")
+    }
+    .threadLineRow()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(row.accessibilityLabel)
+    .accessibilityValue(row.isChecked ? "dans le panier" : "")
   }
 
   // MARK: - Partage (#87, lot 87.4)
@@ -502,6 +568,7 @@ struct ListDetailView: View {
       }
     }
     .floatingDock()
+    .closesOpenLane(closeLane)
   }
 
   /// Le clavier reste ouvert : on enchaîne les articles.

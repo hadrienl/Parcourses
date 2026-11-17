@@ -27,6 +27,9 @@ enum Palette {
   /// Fond du balayage « Pas trouvé », sous un libellé blanc imposé par le système : l'ocre de l'épicerie claire
   /// (5,6:1) dans les deux apparences. L'ocre sombre (`Aisle.grocery`) n'y tient que 1,9:1.
   static let notFoundSwipe = dynamic(light: 0xA3520A, dark: 0xA3520A)
+  /// Fond du glisser « Supprimer » de l'écran Liste (#115, glisser maison) : le rouge destructif clair (5,4:1 sous un
+  /// libellé blanc) dans les deux apparences. Le rouge sombre (`Sharing.destructive`) n'y tient que 2,8:1.
+  static let deleteSwipe = dynamic(light: 0xD70015, dark: 0xD70015)
 
   /// Familles de couleur des rayons. La couleur ne touche que le trait de l'icône et l'anneau du nœud : le libellé
   /// du rayon est toujours affiché.
@@ -125,17 +128,13 @@ enum TicketFont {
   }
 }
 
-/// Mouvement (#6) : ressorts du ticket, et fondu de 150 ms sans déplacement quand les animations sont réduites.
+/// Mouvement (#6) : ressorts du ticket, et fondu de 150 ms sans déplacement quand les animations sont réduites. Le
+/// jeton `motion.reorder` n'a pas d'équivalent iOS : les listes à fil changent d'ordre d'un coup (#115, option A′) ; il
+/// reste employé par Android (`TicketMotion.reorder`).
 enum Motion {
   /// Coche : la case et la perle se remplissent.
   static func check(reduced: Bool) -> Animation {
     reduced ? fade : .spring(response: 0.25, dampingFraction: 0.8)
-  }
-
-  /// Réordonnancement des lignes et des rayons. Mouvement réduit : aucun déplacement, les lignes changent de place
-  /// d'un coup (une liste ne sait pas fondre son ordre sans perdre le défilement et le focus VoiceOver).
-  static func reorder(reduced: Bool) -> Animation? {
-    reduced ? nil : .spring(response: 0.4, dampingFraction: 1)
   }
 
   /// Apparitions et disparitions (bannière, étiquette « ↑ appris »).

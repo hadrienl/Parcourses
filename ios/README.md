@@ -19,7 +19,11 @@ cd ios && xcodegen generate && open Parcourses.xcodeproj
   `design/tokens-ticket-v2.json`. Couleurs dynamiques : clair, sombre, et variantes Contraste augmenté.
 - `.parcoursesGlass()` : verre sur iOS 26+, `.regularMaterial` et filet sur iOS 18, papier opaque avec Réduire la
   transparence. Réservé aux contrôles flottants (dock, bannière « Annuler ») ; le ticket reste opaque.
-- Fil du parcours : `ThreadRow` (gouttière, perle ou nœud à l'accroche `threadAnchor()`), `AisleLine`, `ItemLine`.
+- Fil du parcours (#115, `docs/design/115-fil-immobile.md`, option A′) : trait unique sous la liste
+  (`.threadTrack(model, path:)`, `ThreadTrackModel`, `threadTrackSegments`), gouttière fixe (`ThreadGutter`, perle ou
+  nœud aligné sur `.threadMarker`) et couloir mobile (`RowLane`, glisser maison, `LanePressStyle`) réunis par
+  `ThreadRow` ; `AisleLine`, `ItemLine`. Les lignes à fil prennent `threadLineRow()` (fond transparent). Les listes à
+  fil changent d'ordre sans animation : seuls la case et la perle s'animent, sur place.
 
 ## Installer sur un iPhone
 

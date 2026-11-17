@@ -33,6 +33,10 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let xyzzy = row(app, "xyzzy", "non coché")
     reveal(xyzzy, in: app, betweenBars: true)
     xyzzy.swipeLeft()
+    // Glisser maison (#115) : un seul bouton, celui de la ligne ouverte, hors de l'élément de la ligne.
+    XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+    XCTAssertEqual(app.buttons.matching(identifier: "Supprimer").count, 1)
+    capture(app, "2b-ligne-ouverte")
     app.buttons["Supprimer"].firstMatch.tap()
     XCTAssertTrue(row(app, "xyzzy", "non coché").waitForNonExistence(timeout: 15))
 
@@ -114,6 +118,294 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     app.buttons["closeSummary"].tap()
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
     XCTAssertTrue(row(app, "pommes", "non coché").exists)
+  }
+
+  /// Glisser maison du mode courses (#115) : un glisser tenu ouvre la ligne sans bouger le fil, un toucher la referme,
+  /// et le glisser complet passe l'article dans « Introuvable » sans toucher le bouton. Puis captures du trait dans
+  /// les situations où ses mesures pourraient décrocher : feuille « Quantité », défilement rapide, panier en bas de
+  /// liste replié et déplié.
+  @MainActor
+  func testFullSwipeMarksNotFound() {
+    let app = enterShopping(
+      confidenceQ: nil,
+      items: [
+        "lait", "tomates", "xyzzy", "pain", "beurre", "yaourts", "jambon", "lessive", "café", "riz", "pâtes", "oeufs",
+      ])
+    let milk = row(app, "lait", "non coché", in: "shoppingList")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["Pas trouvé"].exists, "le bouton n'existe que ligne ouverte")
+
+    // Glisser lent, tenu : capture pendant le geste, puis la ligne reste ouverte au relâcher.
+    milk.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).press(
+      forDuration: 0.05, thenDragTo: milk.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    let notFound = app.buttons["Pas trouvé"]
+    XCTAssertTrue(notFound.waitForExistence(timeout: 15), "le glisser ouvre la ligne")
+    XCTAssertEqual(app.buttons.matching(identifier: "Pas trouvé").count, 1)
+    capture(app, "glisser-ouvert")
+
+    // Toucher la ligne ouverte la referme, sans la cocher.
+    row(app, "lait", "non coché", in: "shoppingList").tap()
+    XCTAssertTrue(notFound.waitForNonExistence(timeout: 15), "le toucher referme la ligne")
+    XCTAssertTrue(row(app, "lait", "non coché", in: "shoppingList").exists)
+
+    // Glisser complet : au-delà de 60 % du couloir, l'action part au relâcher.
+    let start = milk.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+    start.press(
+      forDuration: 0.05, thenDragTo: milk.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    // « Introuvable » est sous la ligne de flottaison avec ces douze articles : la bannière dit ce qui s'est passé.
+    let message = app.staticTexts.matching(identifier: "undoMessage").firstMatch
+    XCTAssertTrue(message.waitForExistence(timeout: 15))
+    XCTAssertEqual(message.label, "lait introuvable")
+    XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").exists)
+    capture(app, "glisser-complet")
+    threadCaptures(app)
+  }
+
+  /// Captures du trait unique (#115, relecture de la PR #136) : à regarder, le trait doit passer par les perles, sans
+  /// trou ni dépassement.
+  @MainActor
+  private func threadCaptures(_ app: XCUIApplication) {
+    let list = app.collectionViews["shoppingList"]
+    // Un article au panier, pour avoir le panier en bas de liste (sous la ligne de flottaison : la bannière fait foi).
+    let checked = app.staticTexts.matching(
+      NSPredicate(format: "identifier == %@ AND label == %@", "undoMessage", "tomates coché")
+    ).firstMatch
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: checked)
+
+    // Feuille « Quantité » ouverte, puis refermée.
+    let bread = row(app, "pain", "non coché", in: "shoppingList")
+    reveal(bread, in: app, betweenBars: true)
+    bread.press(forDuration: 1.2)
+    let quantity = app.buttons["Quantité"]
+    XCTAssertTrue(quantity.waitForExistence(timeout: 15))
+    quantity.tap()
+    let save = app.buttons["saveItem"]
+    XCTAssertTrue(save.waitForExistence(timeout: 15))
+    capture(app, "fil-feuille-quantite-ouverte")
+    save.tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 15))
+    capture(app, "fil-feuille-quantite-fermee")
+
+    // Défilement rapide : captures pendant l'élan.
+    list.swipeUp(velocity: .fast)
+    capture(app, "fil-defilement-rapide-1")
+    capture(app, "fil-defilement-rapide-2")
+    list.swipeDown(velocity: .fast)
+    capture(app, "fil-defilement-rapide-3")
+
+    // Tout en bas, panier déplié puis replié.
+    for _ in 0..<3 { list.swipeUp() }
+    let basket = app.descendants(matching: .any)["basket"].firstMatch
+    XCTAssertTrue(basket.waitForExistence(timeout: 15))
+    capture(app, "fil-bas-de-liste")
+    basket.tap()
+    capture(app, "fil-panier-deplie")
+    basket.tap()
+    capture(app, "fil-panier-replie")
+  }
+
+  /// Glisser vers la fin de ligne sur l'écran Liste (#115) : ligne ouverte, il la referme sans quitter l'écran ; ligne
+  /// fermée, il laisse passer le geste retour plein écran d'iOS 26 et ramène à « Mes listes ».
+  @MainActor
+  func testRightSwipeClosesAnOpenRowOrGoesBack() {
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "xyzzy"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+
+    // Ligne ouverte : le glisser vers la droite la referme, l'écran reste.
+    tomatoes.swipeLeft()
+    let delete = app.buttons["Supprimer"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 15))
+    row(app, "tomates", "non coché").swipeRight()
+    XCTAssertTrue(delete.waitForNonExistence(timeout: 15), "le glisser vers la droite referme la ligne")
+    XCTAssertTrue(app.descendants(matching: .any)["listTitle"].exists, "l'écran Liste reste affiché")
+    XCTAssertTrue(row(app, "tomates", "non coché").exists)
+
+    // Ligne fermée : le geste retour plein écran (iOS 26) l'emporte, depuis le milieu de la ligne.
+    row(app, "tomates", "non coché").swipeRight()
+    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+      XCTAssertTrue(app.navigationBars["Mes listes"].waitForExistence(timeout: 15), "retour à « Mes listes »")
+    } else {
+      // iOS 18 : pas de geste retour plein écran, rien ne se passe.
+      XCTAssertFalse(delete.exists)
+      XCTAssertTrue(app.descendants(matching: .any)["listTitle"].exists)
+    }
+  }
+
+  /// Capture locale en écriture de droite à gauche : gouttière et trait à droite, sur les perles.
+  /// `TEST_RUNNER_PARCOURSES_RTL_CAPTURE=1 xcodebuild test … -only-testing:…/testRightToLeftThreadCapture`.
+  @MainActor
+  func testRightToLeftThreadCapture() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_RTL_CAPTURE"] != nil, "vérification locale seulement")
+    let app = launch(
+      reset: true, launchArguments: ["-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES"])
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "2 laits", "xyzzy"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let milk = row(app, "laits, 2", "non coché")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    capture(app, "fil-rtl-repos")
+    milk.swipeRight()
+    XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15), "swipeRight ouvre la ligne en RTL")
+    capture(app, "fil-rtl-ouvert")
+  }
+
+  /// Captures locales du bouton révélé par le glisser (#115) : `.swipeActions` natif de l'écran des listes contre
+  /// glisser maison d'un article, en clair et en sombre.
+  /// `TEST_RUNNER_PARCOURSES_SWIPE_CAPTURE=1 xcodebuild test … -only-testing:…/testSwipeActionShapesCapture`.
+  @MainActor
+  func testSwipeActionShapesCapture() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_SWIPE_CAPTURE"] != nil, "vérification locale seulement")
+    for (dark, suffix) in [(false, "clair"), (true, "sombre")] {
+      let app = launch(reset: true, dark: dark)
+      XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+      app.buttons["Nouvelle liste"].tap()
+      let name = app.alerts.textFields.firstMatch
+      XCTAssertTrue(name.waitForExistence(timeout: 15))
+      type("Semaine", into: name, app)
+      let entry = app.textFields["quickEntry"]
+      tap(app.alerts.buttons["Créer"], until: entry)
+      for text in ["tomates", "2 laits"] {
+        if !entry.hasFocus { entry.tap() }
+        type(text + "\n", into: entry, app)
+      }
+      // Clavier fermé : la ligne ouverte est entière à l'écran.
+      app.collectionViews["itemList"].swipeDown()
+      let tomatoes = row(app, "tomates", "non coché")
+      XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+      tomatoes.swipeLeft()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      capture(app, "glisser-maison-\(suffix)")
+      row(app, "tomates", "non coché").tap()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForNonExistence(timeout: 15))
+
+      app.navigationBars.buttons.firstMatch.tap()
+      let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+      XCTAssertTrue(list.waitForExistence(timeout: 15))
+      list.swipeLeft()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      capture(app, "glisser-natif-\(suffix)")
+      if ProcessInfo.processInfo.environment["PARCOURSES_SWIPE_FULL"] != nil {
+        // Glisser complet tenu, pour l'enregistrement d'écran (`simctl io recordVideo`).
+        list.tap()
+        list.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(
+          forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)),
+          withVelocity: .slow, thenHoldForDuration: 2)
+        _ = app.buttons["Supprimer la liste"].waitForExistence(timeout: 5)
+      }
+      app.terminate()
+    }
+  }
+
+  /// Film local de l'ouverture et de la fermeture d'une ligne au doigt (#115, retours de la PR #136), en sombre comme
+  /// sur l'iPhone : article de l'écran Liste (glisser maison) puis liste de « Mes listes » (`.swipeActions` natif),
+  /// relâcher lent puis vif. Les pauses de 2 s séparent les gestes dans l'enregistrement (`simctl io recordVideo`).
+  @MainActor
+  func testSwipeCloseFilm() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
+    let app = launch(reset: true, dark: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "2 laits"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+    closeFilm(app, element: { self.row(app, "tomates", "non coché") })
+    app.navigationBars.buttons.firstMatch.tap()
+    let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 15))
+    closeFilm(app, element: { list })
+  }
+
+  /// Ouvre la ligne au doigt et la referme au doigt, lentement puis d'un geste vif.
+  @MainActor
+  private func closeFilm(_ app: XCUIApplication, element: () -> XCUIElement) {
+    for velocity in [XCUIGestureVelocity(250), XCUIGestureVelocity(2500)] {
+      let closed = element()
+      closed.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).press(
+        forDuration: 0.05, thenDragTo: closed.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)),
+        withVelocity: velocity, thenHoldForDuration: 0)
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      Thread.sleep(forTimeInterval: 2)
+      let row = element()
+      // Départ au milieu de la ligne : près du bord, c'est le geste retour qui prend le toucher.
+      row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+        forDuration: 0.05, thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)),
+        withVelocity: velocity, thenHoldForDuration: 0)
+      XCTAssertTrue(app.buttons["Supprimer"].waitForNonExistence(timeout: 15))
+      Thread.sleep(forTimeInterval: 2)
+    }
+  }
+
+  /// Film local du délai de l'appui long (#115, retour de la PR #136) : ligne de « Mes listes » (`.contextMenu`
+  /// natif), puis article de l'écran Liste (panneau de l'article). Trois appuis chacun ; l'heure de chaque appui est
+  /// écrite dans le journal (`APPUI`), à rapprocher de la première image du menu dans l'enregistrement.
+  @MainActor
+  func testLongPressDelayFilm() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    if !entry.hasFocus { entry.tap() }
+    type("tomates\n", into: entry, app)
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+    for _ in 0..<3 {
+      Thread.sleep(forTimeInterval: 2)
+      print("APPUI liste-article \(Date.now.timeIntervalSince1970)")
+      row(app, "tomates", "non coché").press(forDuration: 1.5)
+      XCTAssertTrue(app.buttons["cancelItem"].waitForExistence(timeout: 15))
+      app.buttons["cancelItem"].tap()
+      XCTAssertTrue(app.buttons["cancelItem"].waitForNonExistence(timeout: 15))
+    }
+    app.navigationBars.buttons.firstMatch.tap()
+    let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 15))
+    for _ in 0..<3 {
+      Thread.sleep(forTimeInterval: 2)
+      print("APPUI mes-listes \(Date.now.timeIntervalSince1970)")
+      list.press(forDuration: 1.5)
+      XCTAssertTrue(app.buttons["Renommer"].waitForExistence(timeout: 15))
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+      XCTAssertTrue(app.buttons["Renommer"].waitForNonExistence(timeout: 15))
+    }
   }
 
   /// En-têtes selon ce que l'instantané en cache sait du magasin.

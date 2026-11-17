@@ -6,27 +6,8 @@ import UIKit
 
 @testable import Parcourses
 
-/// Habillage B3 « Ticket filé » (lot 9.11) : fil, lignes du ticket, rayons, jetons de couleur.
+/// Habillage B3 « Ticket filé » (lot 9.11) : lignes du ticket, rayons, jetons de couleur. Le fil : `ThreadTrackTests`.
 struct TicketThreadTests {
-  @Test func threadIsTravelledUpToTheNextItem() {
-    let places = ThreadPlace.places(count: 4, reached: 2, progress: true)
-    #expect(places.map(\.reachesMarker) == [true, true, true, false])
-    #expect(places.map(\.passesThrough) == [true, true, false, false])
-    #expect(places.map(\.isFirst) == [true, false, false, false])
-    #expect(places.map(\.isLast) == [false, false, false, true])
-  }
-
-  @Test func everythingIsTravelledWithoutANextItem() {
-    let places = ThreadPlace.places(count: 3, reached: nil, progress: true)
-    #expect(places.allSatisfy { $0.reachesMarker && $0.passesThrough })
-  }
-
-  /// Écran Liste : le fil est tracé, rien n'est parcouru.
-  @Test func nothingIsTravelledWithoutProgress() {
-    let places = ThreadPlace.places(count: 3, reached: nil, progress: false)
-    #expect(places.allSatisfy { !$0.reachesMarker && !$0.passesThrough })
-  }
-
   @Test func counterHasTwoDigits() {
     #expect(ShoppingView.counter(0) == "00")
     #expect(ShoppingView.counter(5) == "05")
@@ -148,6 +129,13 @@ struct PaletteContrastTests {
     let traits = Self.traits(appearance)
     let ratio = Self.contrast(.white, Self.resolve(Palette.notFoundSwipe, traits))
     #expect(ratio >= 4.5, "blanc sur notFoundSwipe : \(ratio)")
+  }
+
+  /// Le libellé blanc du glisser « Supprimer » de l'écran Liste (#115) se lit sur sa teinte, en sombre comme en clair.
+  @Test(arguments: 0..<4) func deleteSwipeLabelIsReadable(appearance: Int) {
+    let traits = Self.traits(appearance)
+    let ratio = Self.contrast(.white, Self.resolve(Palette.deleteSwipe, traits))
+    #expect(ratio >= 4.5, "blanc sur deleteSwipe : \(ratio)")
   }
 
   /// Contraste augmenté : le fil à parcourir et les anneaux des perles tiennent 3:1.
