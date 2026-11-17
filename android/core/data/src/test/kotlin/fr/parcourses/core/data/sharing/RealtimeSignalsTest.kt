@@ -22,7 +22,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.uuid.Uuid
 
-/** `RealtimeSignals` (#87 §6.2, §6.6) : regroupement, premier plan seulement, descente à la (re)jonction. */
+/**
+ * `RealtimeSignals` (#87 §6.2, §6.6) : regroupement, premier plan seulement, descente à la (re)jonction puis seconde
+ * descente 2,5 s plus tard (#120).
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class RealtimeSignalsTest {
@@ -32,6 +35,10 @@ class RealtimeSignalsTest {
     private val list = Uuid.random()
     private val kind = MutableStateFlow(AccountKind.Email)
     private var pulls = 0
+
+    /** Version des données du faux dépôt, relevée à chaque descente : ce que chaque descente a pu voir. */
+    private var serverVersion = 0
+    private val pulledVersions = mutableListOf<Int>()
 
     /** Canal simulé : compte ses ouvertures et ses fermetures. */
     private class FakeSource : RealtimeSignalSource {
@@ -60,7 +67,10 @@ class RealtimeSignalsTest {
             source = source,
             accountId = { account },
             accountKind = kind,
-            requestPull = { pulls += 1 },
+            requestPull = {
+                pulls += 1
+                pulledVersions += serverVersion
+            },
             scope = backgroundScope,
             isEcho = { it in echoes },
         )
@@ -246,5 +256,116 @@ class RealtimeSignalsTest {
             source.events.emit(changed("items", Uuid.random()))
             advanceTimeBy(400)
             assertEquals(3, pulls)
+        }
+
+    @Test
+    fun aSecondPullFollowsTheSubscriptionTwoAndAHalfSecondsLater() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(301)
+            runCurrent()
+            assertEquals(listOf(0), pulledVersions)
+
+            // Un autre membre coche juste après la première descente, et son signal n'arrive pas (#123).
+            serverVersion = 1
+            advanceTimeBy(2_500 - 301 - 1)
+            runCurrent()
+            assertEquals(1, pulls)
+            advanceTimeBy(2)
+            runCurrent()
+            // La seconde descente part 2,5 s après la jonction et voit la coche.
+            assertEquals(listOf(0, 1), pulledVersions)
+
+            // Une seule : rien de plus ensuite.
+            advanceTimeBy(60_000)
+            assertEquals(2, pulls)
+        }
+
+    @Test
+    fun aNewSubscriptionReplacesThePendingSecondPull() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(2_000)
+            // Le canal se rejoint avant la seconde descente : elle est remplacée par celle de la nouvelle jonction.
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(400)
+            assertEquals(2, pulls)
+            advanceTimeBy(2_000)
+            runCurrent()
+            // 2,5 s après la première jonction : rien.
+            assertEquals(2, pulls)
+            advanceTimeBy(200)
+            runCurrent()
+            // 2,5 s après la seconde : une seule seconde descente.
+            assertEquals(3, pulls)
+            advanceTimeBy(60_000)
+            assertEquals(3, pulls)
+        }
+
+    @Test
+    fun closingTheChannelCancelsThePendingSecondPull() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(400)
+            assertEquals(1, pulls)
+
+            // Arrière-plan : le canal se ferme, la seconde descente n'a plus lieu.
+            signals.background()
+            runCurrent()
+            advanceTimeBy(60_000)
+            assertEquals(1, pulls)
+
+            // Même chose quand le compte n'ouvre plus de canal (compte anonyme).
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(400)
+            assertEquals(2, pulls)
+            kind.value = AccountKind.Anonymous
+            runCurrent()
+            advanceTimeBy(60_000)
+            assertEquals(2, pulls)
+
+            // Ou quand le canal est rouvert pour un autre compte : seule la jonction du nouveau canal en programme une.
+            kind.value = AccountKind.Email
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(400)
+            assertEquals(3, pulls)
+            account = Uuid.random()
+            signals.sessionChanged()
+            runCurrent()
+            advanceTimeBy(60_000)
+            assertEquals(3, pulls)
+        }
+
+    @Test
+    fun theSecondPullReplacesThePendingEchoPull() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(1_000)
+            assertEquals(1, pulls)
+
+            // Écho de mes envois à 1 s : sa descente est due en fin de fenêtre (3 s), après la seconde (2,5 s).
+            echoes = setOf(list.toString())
+            source.events.emit(changed("items"))
+            advanceTimeBy(1_501)
+            runCurrent()
+            assertEquals(2, pulls)
+            // La seconde descente a tout relu : la descente de l'écho n'a plus lieu.
+            advanceTimeBy(60_000)
+            assertEquals(2, pulls)
         }
 }

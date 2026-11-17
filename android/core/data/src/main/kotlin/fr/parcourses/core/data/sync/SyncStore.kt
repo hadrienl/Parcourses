@@ -263,36 +263,53 @@ class SyncStore(
         entry: OutboxEntryEntity,
         shift: Duration,
     ) {
-        val payload =
-            when (entry.kind()) {
-                OutboxKind.CreateVisit -> {
-                    val row = OutboxCoding.decode(VisitInsert.serializer(), entry.payload)
-                    OutboxCoding.encode(VisitInsert.serializer(), row.copy(startedAt = row.startedAt - shift))
-                }
-
-                OutboxKind.InsertChecks -> {
-                    val row = OutboxCoding.decode(CheckPayload.serializer(), entry.payload)
-                    OutboxCoding.encode(CheckPayload.serializer(), row.with(row.checkedAt - shift))
-                }
-
-                OutboxKind.CloseVisit -> {
-                    val row = OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload)
-                    OutboxCoding.encode(VisitClosePayload.serializer(), row.copy(endedAt = row.endedAt - shift))
-                }
-
-                else -> {
-                    null
-                }
-            }
+        // Charge illisible : laissée telle quelle, elle finira en `FAILED` à son propre envoi (#120).
+        val payload = readable { shifted(entry, shift) }
         if (payload != null) outbox.setPayload(entry.id, payload)
     }
 
-    private fun sentDate(entry: OutboxEntryEntity): Instant? =
+    private fun shifted(
+        entry: OutboxEntryEntity,
+        shift: Duration,
+    ): ByteArray? =
         when (entry.kind()) {
-            OutboxKind.CreateVisit -> OutboxCoding.decode(VisitInsert.serializer(), entry.payload).startedAt
-            OutboxKind.InsertChecks -> OutboxCoding.decode(CheckPayload.serializer(), entry.payload).checkedAt
-            OutboxKind.CloseVisit -> OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload).endedAt
-            else -> null
+            OutboxKind.CreateVisit -> {
+                val row = OutboxCoding.decode(VisitInsert.serializer(), entry.payload)
+                OutboxCoding.encode(VisitInsert.serializer(), row.copy(startedAt = row.startedAt - shift))
+            }
+
+            OutboxKind.InsertChecks -> {
+                val row = OutboxCoding.decode(CheckPayload.serializer(), entry.payload)
+                OutboxCoding.encode(CheckPayload.serializer(), row.with(row.checkedAt - shift))
+            }
+
+            OutboxKind.CloseVisit -> {
+                val row = OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload)
+                OutboxCoding.encode(VisitClosePayload.serializer(), row.copy(endedAt = row.endedAt - shift))
+            }
+
+            else -> {
+                null
+            }
+        }
+
+    /** Date envoyée de l'entrée ; `null` si sa charge est illisible : elle ne compte pas dans le décalage. */
+    private fun sentDate(entry: OutboxEntryEntity): Instant? =
+        readable {
+            when (entry.kind()) {
+                OutboxKind.CreateVisit -> OutboxCoding.decode(VisitInsert.serializer(), entry.payload).startedAt
+                OutboxKind.InsertChecks -> OutboxCoding.decode(CheckPayload.serializer(), entry.payload).checkedAt
+                OutboxKind.CloseVisit -> OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload).endedAt
+                else -> null
+            }
+        }
+
+    /** Charge illisible (JSON, UUID, date ; `SerializationException` hérite d'`IllegalArgumentException`) : `null`. */
+    private inline fun <T> readable(read: () -> T?): T? =
+        try {
+            read()
+        } catch (_: IllegalArgumentException) {
+            null
         }
 
     /**

@@ -422,8 +422,9 @@ Rien ne se corrige dans notre schéma : le message est écrit, c'est Realtime qu
 abonné permanent) a été écarté : une connexion occupée en permanence, pour un comportement que Realtime ne garantit pas
 (redémarrage, rééquilibrage du tenant). Le rejeu Broadcast (`broadcast.replay`) ne couvre pas non plus la fenêtre : il lit
 les messages au moment de la jonction, avant `SUBSCRIBED`. **Parade officielle : la seconde descente des apps**,
-2,5 s après chaque `SUBSCRIBED` (iOS : `RealtimeSignals.subscribedFollowUpDelay` ; Android : #120). Elle couvre le cas
-courant, une fenêtre de moins de 2,5 s, mais pas tous les cas :
+2,5 s après chaque `SUBSCRIBED` (iOS : `RealtimeSignals.subscribedFollowUpDelay` ; Android :
+`RealtimeSignals.SUBSCRIBED_FOLLOW_UP_DELAY`). Elle couvre le cas courant, une fenêtre de moins de 2,5 s, mais pas tous
+les cas :
 
 - **création du slot retardée au-delà de 2,5 s** : transaction longue sur la base, ou slot encore tenu par l'ancienne
   connexion après un redémarrage ou un rééquilibrage de Realtime. Dans ce dernier cas, Realtime abandonne
