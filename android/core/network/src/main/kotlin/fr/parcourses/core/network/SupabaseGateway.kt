@@ -298,12 +298,14 @@ class SupabaseGateway internal constructor(
     }
 
     /**
-     * Session et dernier compte oubliés, même si la clé ne s'ouvre plus. Le stockage d'abord : `clearSession` passe par
-     * `SessionManager.deleteSession`, qui relit le stockage et échouerait sur une clé illisible. Puis `clearSession`
-     * arrête le rafraîchissement automatique et vide la session en mémoire, sans réseau (au contraire de
-     * `signOut(SignOutScope.LOCAL)`, qui appelle `/logout`).
+     * Session et dernier compte oubliés, même si la clé ne s'ouvre plus. D'abord l'arrêt du rafraîchissement
+     * automatique : un rafraîchissement en vol réécrirait la session après son effacement, et sans dernier compte connu
+     * elle serait adoptée au lancement suivant. Puis le stockage : `clearSession` passe par
+     * `SessionManager.deleteSession`, qui relit le stockage et échouerait sur une clé illisible. Enfin `clearSession`
+     * vide la session en mémoire, sans réseau (au contraire de `signOut(SignOutScope.LOCAL)`, qui appelle `/logout`).
      */
     private suspend fun forgetSession() {
+        auth.stopAutoRefreshForCurrentSession()
         store.clear()
         auth.clearSession()
     }

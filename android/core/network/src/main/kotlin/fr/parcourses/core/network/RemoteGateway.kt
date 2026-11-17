@@ -184,8 +184,9 @@ interface RemoteGateway {
     /**
      * Déconnexion locale, **sans appel au serveur** : la session du SDK, la session enregistrée et le dernier compte
      * connu sont vidés. Le prochain [ensureSession] adopte alors un nouveau compte sans le signaler comme un
-     * changement (aucune réidentification). Le jeu de clés et la clé du Keystore restent.
-     * @throws RemoteError.SecureStorageLocked si le stockage chiffré refuse l'écriture.
+     * changement (aucune réidentification). Le jeu de clés et la clé du Keystore restent, sauf s'ils ne
+     * s'ouvrent plus : ils partent alors avec la session (`SecureStateStore.clear`).
+     * @throws RemoteError.SecureStorageLocked si le stockage chiffré refuse l'effacement.
      */
     suspend fun signOutLocally()
 

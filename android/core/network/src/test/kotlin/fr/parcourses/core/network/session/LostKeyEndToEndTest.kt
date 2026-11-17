@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -113,6 +114,43 @@ class LostKeyEndToEndTest {
     @Test
     fun signingOutLocallyEmptiesASessionWhoseKeyNoLongerOpens() =
         signingOutOfAStuckSession { it.gateway.signOutLocally() }
+
+    /**
+     * Keystore mort pour de bon : la clé détruite ne se recrée pas, l'état vide ne peut pas être chiffré. La session,
+     * que plus rien ne déchiffre, part quand même : la purge qui suit ne doit jamais rester bloquée.
+     */
+    @Test
+    fun aKeystoreThatCanNoLongerCreateKeysStillLetsTheSessionGo() =
+        runBlocking<Unit> {
+            val env = FakeKeysetEnvironment()
+            val firstScope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
+            val first = launch(env, FakeSupabase(), firstScope)
+            first.gateway.ensureSession()
+            first.close()
+            firstScope.cancel()
+
+            val dead =
+                object : KeysetEnvironment by env {
+                    override fun build(): Aead = throw GeneralSecurityException("Keystore mort")
+                }
+            val server = FakeSupabase().apply { userId = "bbbbbbbb-0000-4000-8000-000000000002" }
+            val secondScope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
+            val second = launch(dead, server, secondScope)
+            try {
+                second.gateway.signOutLocally()
+
+                assertEquals(SecureState(), second.store.read())
+                assertEquals(1, env.masterKeyDeletions)
+                assertFalse(File(folder.root, "datastore/session.pb").exists())
+                // Aucun compte ne naît sans pouvoir enregistrer sa session.
+                val error = runCatching { second.gateway.ensureSession() }.exceptionOrNull()
+                assertTrue("attendu SecureStorageLocked, reçu $error", error is RemoteError.SecureStorageLocked)
+                assertEquals(0, server.signUps)
+            } finally {
+                second.close()
+                secondScope.cancel()
+            }
+        }
 
     @Test
     fun aResetOfAStuckSessionYieldsAnAccountChangeAndKeepsTheKnownAccount() =

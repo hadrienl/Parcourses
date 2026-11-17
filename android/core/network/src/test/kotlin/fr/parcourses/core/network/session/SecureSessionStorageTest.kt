@@ -342,10 +342,16 @@ class SecureSessionStorageTest {
     fun clearingAStuckSessionDestroysItsKeyAndTheKnownAccount() =
         runBlocking {
             val (state, env) = stuckStore(File(folder.root, "datastore/clear.pb"))
-            assertThrows(SecureStorageUnavailableException::class.java) { runBlocking { state.read() } }
+            repeat(KeyAccessMonitor.STUCK_AFTER_FAILURES) {
+                assertThrows(SecureStorageUnavailableException::class.java) { runBlocking { state.read() } }
+                clock += KeyAccessMonitor.STUCK_AFTER_MILLIS
+            }
+            assertTrue(state.isStuck.value)
 
             state.clear()
 
+            // La nouvelle clé s'ouvre : la section « Session » d'À propos disparaît.
+            assertFalse(state.isStuck.value)
             assertEquals(SecureState(), state.read())
             assertEquals(1, env.keysetDeletions)
             assertEquals(1, env.masterKeyDeletions)
