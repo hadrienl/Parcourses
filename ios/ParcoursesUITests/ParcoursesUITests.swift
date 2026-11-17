@@ -13,10 +13,8 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     XCTAssertFalse(app.alerts.buttons["Créer"].isEnabled)
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
       if !entry.hasFocus { entry.tap() }
       type(text + "\n", into: entry, app)
@@ -80,15 +78,16 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "2-liste-triee-inconnu")
 
     // Coche et annulation.
-    row(app, "tomates", "non coché", in: "shoppingList").tap()
-    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 15))
+    // Une coche, une seule : un second appui reçu (le premier arrivé en retard) aurait décoché les tomates et retiré
+    // la bannière.
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: app.buttons["undo"])
+    XCTAssertEqual(app.staticTexts.matching(identifier: "undoMessage").firstMatch.label, "tomates coché")
     capture(app, "3-annulation")
-    app.buttons["undo"].tap()
-    XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").waitForExistence(timeout: 15))
+    tap(app.buttons["undo"], until: row(app, "tomates", "non coché", in: "shoppingList"))
 
-    // La coche rejoint le panier après le délai d'inactivité.
-    row(app, "tomates", "non coché", in: "shoppingList").tap()
-    XCTAssertTrue(app.staticTexts["Dans le panier (1)"].waitForExistence(timeout: 15))
+    // La coche rejoint le panier après le délai d'inactivité. La ligne « coché » ne reste dans son rayon que ces
+    // 600 ms : l'effet attendu est le panier.
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: app.staticTexts["Dans le panier (1)"])
 
     // Introuvable.
     row(app, "xyzzy", "non coché", in: "shoppingList").swipeLeft()
@@ -185,11 +184,9 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     // Le cadre de l'élément est celui de la case : le texte commence après sa marge de 12 pt.
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     if !entry.hasFocus { entry.tap() }
     // Mots justes en français comme en anglais : un appui sur un mot souligné par le correcteur (clavier anglais
     // du simulateur de CI) le sélectionne au lieu d'y placer le curseur.

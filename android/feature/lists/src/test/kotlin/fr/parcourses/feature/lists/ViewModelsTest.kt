@@ -1,5 +1,6 @@
 package fr.parcourses.feature.lists
 
+import android.os.Looper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.repository.ListRepository
 import fr.parcourses.core.data.repository.RoomCategoryRepository
@@ -26,6 +27,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -524,7 +526,7 @@ class ViewModelsTest : ListsTest() {
             val other = lists.createList("Autre", clock).id
             lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
         }
-        val computation = StandardTestDispatcher()
+        val computation = StandardTestDispatcher().also { testDispatchers += it }
         val model = gatedModel(id, GatedLists(lists, CompletableDeferred(Unit)), computation)
         // Un écran abonné, comme en vrai : l'état n'est calculé que pour un abonné.
         val screen = CoroutineScope(Dispatchers.Unconfined).launch { model.uiState.collect {} }
@@ -533,7 +535,8 @@ class ViewModelsTest : ListsTest() {
             model.uiState.pumping(computation) { it.isLoaded }
             model.type("tom")
             Thread.sleep(SETTLE_MS)
-            // Le fil principal (ici `Unconfined`) n'a pas calculé la recherche à la frappe.
+            shadowOf(Looper.getMainLooper()).idle()
+            // Le fil principal a tourné, mais n'a pas calculé la recherche à la frappe.
             assertTrue(
                 model.uiState.value.suggestions
                     .isEmpty(),
@@ -550,25 +553,21 @@ class ViewModelsTest : ListsTest() {
         }
     }
 
-    /** Fait tourner [dispatcher] jusqu'à ce que l'état réponde au prédicat (au plus 5 s). */
+    /** Fait tourner [dispatcher] et le fil principal jusqu'à ce que l'état réponde au prédicat (au plus 5 s). */
     private fun <T> StateFlow<T>.pumping(
         dispatcher: TestDispatcher,
         predicate: (T) -> Boolean,
     ): T {
-        val deadline = System.currentTimeMillis() + PUMP_MS
-        while (System.currentTimeMillis() < deadline) {
-            dispatcher.scheduler.runCurrent()
-            if (predicate(value)) return value
-            Thread.sleep(PUMP_STEP_MS)
-        }
-        error("État attendu non atteint : $value")
+        pumpMain(
+            { "état attendu, dernier vu : $value" },
+            step = { dispatcher.scheduler.runCurrent() },
+        ) { predicate(value) }
+        return value
     }
 
     // endregion
 
     private companion object {
         const val SETTLE_MS = 300L
-        const val PUMP_MS = 5_000L
-        const val PUMP_STEP_MS = 10L
     }
 }

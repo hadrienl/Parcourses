@@ -107,6 +107,20 @@ class SyncSchedulerPoliciesTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
+    /**
+     * Attend [latch] en faisant tourner le fil principal. WorkManager y appelle `startWork` une fois la passe
+     * « en cours » : un `await` qui le bloque n'est servi que si un `idle()` antérieur est passé après cet envoi.
+     * Sinon la passe ne démarre jamais (CI, #113).
+     */
+    private fun awaitOnMain(latch: CountDownLatch) {
+        val deadline = System.currentTimeMillis() + WAIT_SECONDS * MILLIS
+        while (true) {
+            shadowOf(Looper.getMainLooper()).idle()
+            if (latch.await(STEP_MS, TimeUnit.MILLISECONDS)) return
+            check(System.currentTimeMillis() < deadline) { "passe jamais démarrée" }
+        }
+    }
+
     private fun awaitState(
         info: WorkInfo,
         vararg states: WorkInfo.State,
@@ -163,7 +177,7 @@ class SyncSchedulerPoliciesTest {
         val first = requests().single()
         connect(first)
         awaitState(first, WorkInfo.State.RUNNING)
-        assertTrue(firstRunStarted.await(WAIT_SECONDS, TimeUnit.SECONDS))
+        awaitOnMain(firstRunStarted)
 
         // Écriture faite pendant la passe, après sa dernière vérification : `KEEP` l'ignorait.
         scheduler.enqueue(pull = false)
