@@ -1,3 +1,4 @@
+import ActivityKit
 import Domain
 import Foundation
 import SortEngine
@@ -1689,6 +1690,17 @@ private final class MemoryDismissals: ActivityDismissals, @unchecked Sendable {
     controller.update(state: ActivityState(remaining: 0, total: 3), lastActivity: t0)
     await controller.waitUntilIdle()
     #expect(await refusing.calls == [.request(visitA), .request(visitA)])
+  }
+
+  /// #52 : un refus durable ne se retente qu'au premier plan, comme des activités désactivées. Des attributs trop
+  /// gros (nom de liste démesuré) le restent à chaque coche.
+  @Test func aDurableRefusalWaitsForTheForeground() {
+    for error in [ActivityAuthorizationError.denied, .unentitled, .attributesTooLarge] {
+      #expect(ActivityKitBackend.result(for: error) == .unavailable)
+    }
+    for error in [ActivityAuthorizationError.targetMaximumExceeded, .globalMaximumExceeded, .persistenceFailure] {
+      #expect(ActivityKitBackend.result(for: error) == .failed)
+    }
   }
 
   @Test func updatesAfterTheEndAreIgnored() async {

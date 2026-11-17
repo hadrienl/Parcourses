@@ -60,7 +60,8 @@ struct ShoppingLiveActivity: Widget {
           .accessibilityLabel(state.summary(isStale: isStale))
           .islandInk()
       }
-      .keylineTint(islandAccent)
+      // Le contour s'estompe avec le contenu quand la visite est inactive.
+      .keylineTint(isStale && !state.isFinished ? islandMuted : islandAccent)
     }
   }
 }
@@ -68,6 +69,8 @@ struct ShoppingLiveActivity: Widget {
 /// Accent du ticket en sombre, pour la teinte du contour de l'îlot (résolue hors de l'environnement des vues).
 private let islandAccent = Color(
   uiColor: UIColor(Palette.accent).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
+private let islandMuted = Color(
+  uiColor: UIColor(Palette.inkMuted).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
 
 extension View {
   /// La Dynamic Island est toujours noire : les jetons du ticket y prennent leur valeur sombre.
