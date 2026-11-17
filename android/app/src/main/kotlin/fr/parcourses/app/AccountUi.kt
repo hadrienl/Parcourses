@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -42,6 +45,7 @@ import fr.parcourses.core.data.account.AccountSignOut
 import fr.parcourses.core.data.account.AccountSignOutError
 import fr.parcourses.core.data.account.AccountSignOutOutcome
 import fr.parcourses.core.data.account.AccountState
+import fr.parcourses.core.data.account.PurgeFailure
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import kotlinx.coroutines.CancellationException
@@ -51,6 +55,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -149,6 +154,11 @@ data class AccountUiState(
     val signingOut: Boolean = false,
     val editingName: Boolean = false,
     val nameSaveFailed: Boolean = false,
+    /**
+     * Changement de compte bloqué (#129) : `account.switch` laissé par un rejeu en échec, seuil franchi. Non nul, le
+     * bandeau « Changement de compte inachevé » s'affiche ; son code va dans l'objet de « Nous écrire ».
+     */
+    val switchBlocked: PurgeFailure? = null,
 )
 
 data class AccountActions(
@@ -160,13 +170,19 @@ data class AccountActions(
     val onEditName: () -> Unit = {},
     val onSaveName: (String) -> Unit = {},
     val onDismissName: () -> Unit = {},
+    /** « Réessayer » du bandeau « Changement de compte inachevé » : rejeu, puis synchronisation s'il aboutit. */
+    val onRetrySwitch: () -> Unit = {},
 )
 
-/** Écran Compte : état du compte ([AccountSession]), prénom, déconnexion ([AccountSignOutController]). */
+/**
+ * Écran Compte : état du compte ([AccountSession]), prénom, déconnexion ([AccountSignOutController]), changement de
+ * compte bloqué ([AccountSession.blockedSwitch], [onRetrySwitch]).
+ */
 class AccountViewModel(
     private val session: AccountSession?,
     private val signOut: AccountSignOutController?,
     onSignIn: () -> Unit,
+    onRetrySwitch: () -> Unit = {},
 ) : ViewModel() {
     private val confirming = MutableStateFlow(false)
     private val unsent = MutableStateFlow(0)
@@ -174,9 +190,12 @@ class AccountViewModel(
     private val saveFailed = MutableStateFlow(false)
     private val accountFlow = session?.state ?: MutableStateFlow(AccountState())
     private val signOutFlow = signOut?.state ?: MutableStateFlow(AccountSignOutState.Idle)
+    private val blockedSwitchFlow = session?.blockedSwitch ?: flowOf(null)
+    private val withSwitch = combine(accountFlow, blockedSwitchFlow, ::Pair)
 
     val state: StateFlow<AccountUiState> =
-        combine(accountFlow, signOutFlow, confirming, editing, saveFailed) { account, out, confirm, edit, failed ->
+        combine(withSwitch, signOutFlow, confirming, editing, saveFailed) { both, out, confirm, edit, failed ->
+            val (account, blocked) = both
             val running = out == AccountSignOutState.Running
             AccountUiState(
                 account = account,
@@ -185,6 +204,7 @@ class AccountViewModel(
                 signingOut = running,
                 editingName = edit,
                 nameSaveFailed = failed,
+                switchBlocked = blocked,
             )
         }.stateIn(viewModelScope, SharingStarted.Eagerly, AccountUiState())
 
@@ -200,6 +220,7 @@ class AccountViewModel(
             },
             onSaveName = ::saveName,
             onDismissName = { editing.value = false },
+            onRetrySwitch = onRetrySwitch,
         )
 
     init {
@@ -349,12 +370,17 @@ private fun NameDialog(
     )
 }
 
-/** Par-dessus toute l'app : voile « Déconnexion… », puis le message d'échec. */
+/**
+ * Par-dessus toute l'app : voile « Déconnexion… », puis le message d'échec. [blockedPurge] : purge en échec au moins
+ * `AccountSession.PURGE_FAILURE_THRESHOLD` fois (#129) ; l'alerte propose alors de libérer de l'espace et « Nous
+ * écrire ».
+ */
 @Composable
 internal fun AccountSignOutOverlay(
     state: AccountSignOutState,
     onAcknowledge: () -> Unit,
     onRetry: () -> Unit = {},
+    blockedPurge: PurgeFailure? = null,
 ) {
     when (state) {
         AccountSignOutState.Idle -> {
@@ -386,19 +412,14 @@ internal fun AccountSignOutOverlay(
 
         is AccountSignOutState.Failed -> {
             if (state.error == AccountSignOutError.Unknown) {
-                SignOutRetry(onRetry)
+                SignOutRetry(onRetry, blockedPurge)
                 return
             }
-            val text =
-                when (state.error) {
-                    AccountSignOutError.Offline -> R.string.account_sign_out_offline
-                    AccountSignOutError.Unknown -> R.string.account_sign_out_failed
-                }
             AlertDialog(
                 onDismissRequest = onAcknowledge,
                 text = {
                     Text(
-                        stringResource(text),
+                        stringResource(R.string.account_sign_out_offline),
                         modifier =
                             Modifier
                                 .testTag(
@@ -416,17 +437,40 @@ internal fun AccountSignOutOverlay(
     }
 }
 
-/** Purge inachevée (drapeau posé) : ni Retour ni appui à côté, « Réessayer » seulement, sans redémarrer l'app. */
+/**
+ * Purge inachevée (drapeau posé) : ni Retour ni appui à côté, « Réessayer », sans redémarrer l'app. Titre et message
+ * d'iOS. À partir du seuil ([blocked], #129) : libérer de l'espace ou réinstaller, et « Nous écrire », qui ouvre la
+ * messagerie sans fermer l'alerte ; sans messagerie, l'adresse s'affiche, sélectionnable.
+ */
 @Composable
-private fun SignOutRetry(onRetry: () -> Unit) {
+private fun SignOutRetry(
+    onRetry: () -> Unit,
+    blocked: PurgeFailure?,
+) {
+    val context = LocalContext.current
+    var noMailApp by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text(stringResource(R.string.account_sign_out_failed_title)) },
         text = {
-            Text(
-                stringResource(R.string.account_sign_out_failed),
-                modifier = Modifier.testTag(TAG_SIGN_OUT_MESSAGE).semantics { liveRegion = LiveRegionMode.Polite },
-            )
+            // Message long aux grandes polices : il défile, les boutons restent visibles.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
+                val body =
+                    if (blocked != null) {
+                        R.string.account_sign_out_failed_blocked_body
+                    } else {
+                        R.string.account_sign_out_failed_body
+                    }
+                Text(
+                    stringResource(body),
+                    modifier = Modifier.testTag(TAG_SIGN_OUT_MESSAGE).semantics { liveRegion = LiveRegionMode.Polite },
+                )
+                if (blocked != null && noMailApp) PurgeSupportAddress(TAG_SIGN_OUT_CONTACT_ADDRESS)
+            }
         },
         confirmButton = {
             TextButton(
@@ -434,10 +478,21 @@ private fun SignOutRetry(onRetry: () -> Unit) {
                 modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_SIGN_OUT_RETRY),
             ) { Text(stringResource(R.string.account_retry)) }
         },
+        dismissButton =
+            blocked?.let { failure ->
+                {
+                    TextButton(
+                        onClick = { if (!openPurgeSupport(context, failure)) noMailApp = true },
+                        modifier = Modifier.heightIn(min = TicketDimens.touchMin).testTag(TAG_SIGN_OUT_CONTACT),
+                    ) { Text(stringResource(R.string.purge_contact)) }
+                }
+            },
     )
 }
 
 internal const val TAG_SIGN_OUT_RETRY = "account-sign-out-retry"
+internal const val TAG_SIGN_OUT_CONTACT = "account-sign-out-contact"
+internal const val TAG_SIGN_OUT_CONTACT_ADDRESS = "account-sign-out-contact-address"
 internal const val TAG_ACCOUNT_SIGN_OUT = "account-sign-out"
 internal const val TAG_ACCOUNT_SIGN_OUT_CONFIRM = "account-sign-out-confirm"
 internal const val TAG_ACCOUNT_NAME_FIELD = "account-name-field"

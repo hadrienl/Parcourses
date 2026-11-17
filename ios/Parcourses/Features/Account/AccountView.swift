@@ -19,6 +19,10 @@ struct AccountView: View {
   var body: some View {
     NavigationStack {
       List {
+        // Changement de compte bloqué par une purge qui échoue toujours (#129) : en tête, avant tout le reste.
+        if account.isSwitchBlocked {
+          SwitchBlockedSection(account: account)
+        }
         if account.needsSignIn, !account.isSignOutPending {
           Section {
             HStack(alignment: .firstTextBaseline, spacing: Space.xs) {

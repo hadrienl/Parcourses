@@ -89,7 +89,7 @@ final class AppEnvironment {
     let sync = sync
     let visits = visits
     return AccountDeletion(
-      gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: LocalDataPurge(container: container),
+      gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: Self.makePurge(container),
       accountKind: { UserDefaultsAccountKindStore().kind },
       isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil },
       beginBackgroundWork: {
@@ -98,6 +98,15 @@ final class AppEnvironment {
         activity.begin {}
         return { activity.end() }
       })
+  }
+
+  /// Purge de l'appareil. Tests UI : purges forcées en échec (#129).
+  private static func makePurge(_ container: ModelContainer) -> LocalDataPurge {
+    #if DEBUG
+      return LocalDataPurge(container: container, injectedFailure: UITestPurgeFailures.inject)
+    #else
+      return LocalDataPurge(container: container)
+    #endif
   }
 
   /// Compte de l'appareil (#87) : liaison d'une adresse, connexion, déconnexion.
@@ -121,7 +130,7 @@ final class AppEnvironment {
       suspendSync: { await sync?.suspend() },
       resumeSync: { await sync?.resumeAndWait() })
     return AccountSession(
-      gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: LocalDataPurge(container: container),
+      gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: Self.makePurge(container),
       cursors: cursors, operations: operations,
       dependencies: AccountSession.Dependencies(
         isOnline: { sync?.isOnline ?? true },

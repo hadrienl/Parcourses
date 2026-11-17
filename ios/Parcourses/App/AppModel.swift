@@ -20,6 +20,8 @@ final class AppModel {
   /// Une opération de compte à la fois (vérification d'un code, rejeux, déconnexion), même d'une reconstruction à
   /// l'autre de l'app.
   private let accountOperations = AccountOperationQueue()
+  /// Passée en arrière-plan depuis le lancement : seule une activation qui suit est un retour au premier plan.
+  @ObservationIgnored private var hasEnteredBackground = false
 
   init(
     flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
@@ -50,10 +52,19 @@ final class AppModel {
   }
 
   /// Retour au premier plan : un changement de compte encore dû (rejeu en échec, ou purge restée en attente après un
-  /// code vérifié) est rejoué, puis le compte relu.
+  /// code vérifié) est rejoué, puis le compte relu. Pas à l'activation du lancement : le rejeu de lancement
+  /// (`resumePendingSwitch`) s'en charge, et un second essai compterait un second échec de purge (#129). Le drapeau
+  /// est consommé : une activation sans passage en arrière-plan (Centre de contrôle, alerte système) ne rejoue pas.
   func foreground() async {
-    if await account?.replayPendingSwitch() == true { sync?.resume() }
+    let isReturning = hasEnteredBackground
+    hasEnteredBackground = false
+    if isReturning, await account?.replayPendingSwitch() == true { sync?.resume() }
     await account?.refresh()
+  }
+
+  /// L'app est passée en arrière-plan : la prochaine activation est un retour au premier plan.
+  func enteredBackground() {
+    hasEnteredBackground = true
   }
 
   var sync: SyncRuntime? {

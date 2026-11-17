@@ -72,8 +72,8 @@ private struct AccountPromptsPresentation: ViewModifier {
 
 extension View {
   /// Purge de la déconnexion en échec : « Réessayer », seule issue. Reportée, elle reprendrait au lancement suivant et
-  /// effacerait un compte ouvert entre-temps. `isHidden` : une feuille est ouverte par-dessus, c'est elle qui présente
-  /// l'alerte.
+  /// effacerait un compte ouvert entre-temps. À partir du seuil d'échecs (#129), le message dit quoi faire et « Nous
+  /// écrire » s'ajoute. `isHidden` : une feuille est ouverte par-dessus, c'est elle qui présente l'alerte.
   func signOutFailurePresentation(_ account: AccountSession?, isHidden: Bool = false) -> some View {
     modifier(SignOutFailurePresentation(account: account, isHidden: isHidden))
   }
@@ -82,19 +82,50 @@ extension View {
 private struct SignOutFailurePresentation: ViewModifier {
   let account: AccountSession?
   let isHidden: Bool
+  @Environment(\.openURL) private var openURL
+  /// « Nous écrire » touché : l'alerte, fermée par son bouton, revient dès que le `mailto:` est parti (elle attend le
+  /// retour dans l'app), ou à la fermeture de la feuille de l'adresse.
+  @State private var isContacting = false
+  /// Aucune app de messagerie : l'adresse s'affiche dans une feuille, en texte sélectionnable.
+  @State private var showsAddress = false
 
   func body(content: Content) -> some View {
-    content.alert("La déconnexion n'a pas abouti.", isPresented: isPresented) {
-      Button("Réessayer") { Task { await account?.retrySignOut() } }
-        .accessibilityIdentifier("retrySignOut")
-    } message: {
-      Text("Vos listes sont peut-être encore sur cet appareil. Réessayez pour terminer la déconnexion.")
+    content
+      .alert(PurgeHelpTexts.signOutTitle, isPresented: isPresented) {
+        Button(PurgeHelpTexts.retry) { Task { await account?.retrySignOut() } }
+          .accessibilityIdentifier("retrySignOut")
+        if needsHelp {
+          Button(PurgeHelpTexts.contact) { contact() }
+            .accessibilityIdentifier("contactSupport")
+        }
+      } message: {
+        Text(needsHelp ? PurgeHelpTexts.signOutHelpMessage : PurgeHelpTexts.signOutMessage)
+      }
+      .sheet(isPresented: $showsAddress, onDismiss: { isContacting = false }, content: PurgeSupportSheet.init)
+  }
+
+  private var needsHelp: Bool { account?.needsPurgeHelp == true }
+
+  private var failure: PurgeFailure {
+    account?.lastPurgeFailure ?? PurgeFailure(operation: .signOut, step: .unknown)
+  }
+
+  private func contact() {
+    isContacting = true
+    openURL(failure.supportMailto) { accepted in
+      if accepted {
+        isContacting = false
+      } else {
+        showsAddress = true
+      }
     }
   }
 
-  /// « Réessayer » change l'état du compte : la fermeture de l'alerte n'a rien à écrire.
+  /// « Réessayer » change l'état du compte, « Nous écrire » celui de l'écran : la fermeture de l'alerte n'a rien à
+  /// écrire.
   private var isPresented: Binding<Bool> {
-    Binding(get: { account?.signOutFailed == true && !isHidden }, set: { _ in })
+    Binding(
+      get: { account?.signOutFailed == true && !isHidden && !isContacting && !showsAddress }, set: { _ in })
   }
 }
 

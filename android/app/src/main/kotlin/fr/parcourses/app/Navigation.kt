@@ -64,6 +64,9 @@ fun ParcoursesNavHost(
     val deletion by container.accountDeletion.state.collectAsState()
     val signOutFlow = remember(container) { container.accountSignOut?.state ?: NoSignOut }
     val signOut by signOutFlow.collectAsState()
+    // Purge en échec au moins 3 fois (#129) : l'alerte de la déconnexion propose de libérer de l'espace et d'écrire.
+    val blockedPurgeFlow = remember(container) { container.accountSession.blockedPurge }
+    val blockedPurge by blockedPurgeFlow.collectAsState(initial = null)
 
     // Reprise de compte : les écrans ouverts suivent leurs nouveaux identifiants.
     LaunchedEffect(container) {
@@ -143,6 +146,7 @@ fun ParcoursesNavHost(
         signOut,
         onAcknowledge = { container.accountSignOut?.acknowledge() },
         onRetry = { container.accountSignOut?.start() },
+        blockedPurge = blockedPurge,
     )
 
     val openSignIn = { if (backStack.lastOrNull() != Route.SignIn) backStack.add(Route.SignIn) }
@@ -255,6 +259,7 @@ fun ParcoursesNavHost(
                                             session = container.accountSession.takeIf { container.gateway != null },
                                             signOut = container.accountSignOut,
                                             onSignIn = openSignIn,
+                                            onRetrySwitch = container::retryAccountSwitch,
                                         )
                                     }
                                 },

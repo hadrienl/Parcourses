@@ -8,8 +8,12 @@
   /// - `viewer` : Tom, lecteur de cette liste ;
   /// - `invitation` : Léa, une invitation d'Hadrien en attente ;
   /// - `anonymous` : compte anonyme, une liste à soi (« Partager » passe par la connexion).
+  ///
+  /// `PARCOURSES_TEST_PENDING_SWITCH=1` : changement de compte interrompu (drapeau `account.switch` posé), rejoué au
+  /// lancement vers le compte du scénario (#129).
   actor UITestSharingGateway: RemoteGateway {
     static let variable = "PARCOURSES_TEST_SHARING"
+    static let pendingSwitchVariable = "PARCOURSES_TEST_PENDING_SWITCH"
 
     nonisolated enum Scenario: String {
       case owner, viewer, invitation, anonymous
@@ -42,6 +46,14 @@
       UserDefaultsSyncCursors().removeAll()
       UserDefaultsAccountKindStore().clear()
       if scenario != .anonymous { UserDefaultsAccountKindStore().save(.email) }
+      // Ni déconnexion ni changement de compte laissés en plan par un test interrompu (#129).
+      UserDefaultsAccountSignOutFlagStore().clear()
+      let switchFlags = UserDefaultsAccountSwitchFlagStore()
+      if ProcessInfo.processInfo.environment[pendingSwitchVariable] == "1" {
+        switchFlags.save()
+      } else {
+        switchFlags.clear()
+      }
       return UITestSharingGateway(scenario: scenario)
     }
 
