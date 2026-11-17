@@ -94,6 +94,16 @@ interface SecureStateStore {
     }
 
     /**
+     * Oublie la session **et** le dernier compte connu (déconnexion, fin de « Supprimer mes données »), sans avoir à
+     * lire la session : si la clé ne s'ouvre plus, le matériel de clé, qui ne protégeait que cette session, est détruit
+     * avec elle. Sinon, une clé illisible bloquerait pour toujours la purge qui suit (#51).
+     * @throws SecureStorageUnavailableException si le Keystore refuse l'effacement : réessayer plus tard.
+     */
+    suspend fun clear() {
+        update { SecureState() }
+    }
+
+    /**
      * Repart d'une session vide quand la clé reste inaccessible : le matériel de clé est détruit puis recréé, la
      * session effacée. Le dernier compte connu est **conservé** : la synchronisation réidentifiera les données
      * locales pour le prochain compte, comme après une clé perdue.

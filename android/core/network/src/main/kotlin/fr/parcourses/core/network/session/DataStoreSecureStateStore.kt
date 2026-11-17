@@ -96,6 +96,20 @@ class DataStoreSecureStateStore internal constructor(
             }
         }
 
+    override suspend fun clear() {
+        lock.withLock {
+            readingErrors {
+                // Clé illisible : la session l'est aussi et part de toute façon. Son matériel de clé part avec elle,
+                // sans quoi l'état vide ne pourrait pas être écrit.
+                val usable = withContext(io) { runCatching { aead.get() }.isSuccess }
+                if (!usable) withContext(io) { keys.destroy() }
+                // Fichier chiffré par l'ancienne clé : illisible, il est remplacé par un état vide (voir `create`).
+                sessions.updateData { SessionHolder() }
+                accounts.updateData { AccountMarker() }
+            }
+        }
+    }
+
     private suspend inline fun <T> readingErrors(block: () -> T): T =
         try {
             block()

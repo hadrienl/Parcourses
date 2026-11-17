@@ -320,6 +320,38 @@ class SecureSessionStorageTest {
         }
 
     @Test
+    fun clearingKeepsAKeyThatOpens() =
+        runBlocking {
+            val file = File(folder.root, "clear.pb")
+            val env = FakeKeysetEnvironment()
+            val source = KeystoreAeadSource(env)
+            val state = storeFrom(file, source, keys = source)
+            state.update { SecureState(session, "account-1") }
+
+            state.clear()
+
+            assertEquals(SecureState(), state.read())
+            assertFalse(env.erased)
+            // Même clé après un redémarrage : la session suivante se relit.
+            EncryptedSessionManager(state).saveSession(session)
+            restart()
+            assertEquals(session, EncryptedSessionManager(storeFrom(file, KeystoreAeadSource(env))).loadSession())
+        }
+
+    @Test
+    fun clearingAStuckSessionDestroysItsKeyAndTheKnownAccount() =
+        runBlocking {
+            val (state, env) = stuckStore(File(folder.root, "datastore/clear.pb"))
+            assertThrows(SecureStorageUnavailableException::class.java) { runBlocking { state.read() } }
+
+            state.clear()
+
+            assertEquals(SecureState(), state.read())
+            assertEquals(1, env.keysetDeletions)
+            assertEquals(1, env.masterKeyDeletions)
+        }
+
+    @Test
     fun anEmptyFileIsNotWritableWithoutItsKey() =
         runBlocking<Unit> {
             // Premier lancement : rien à lire, donc la lecture seule ne touche jamais la clé.
