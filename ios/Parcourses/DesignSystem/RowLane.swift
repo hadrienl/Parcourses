@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import UIKit.UIGestureRecognizerSubclass
 
 // Couloir d'une ligne du ticket (#115, `docs/design/115-fil-immobile.md` §6.2) : seule partie de la ligne qui glisse
 // ou s'enfonce. Le glisser maison remplace `.swipeActions`, qui décalait toute la cellule, fil compris, et dont le
@@ -19,15 +18,13 @@ enum LaneMotion {
   }
 
   /// Relâcher : le ressort part à la vitesse du doigt, exprimée en part de la distance restante par seconde, pour que
-  /// le couloir finisse le mouvement sans marquer d'arrêt. Sans rebond quand les animations sont réduites.
-  static func release(velocity: CGFloat, from current: CGFloat, to target: CGFloat, reduced: Bool) -> Animation {
+  /// le couloir finisse le mouvement sans marquer d'arrêt. Jamais de rebond, animations réduites ou non.
+  static func release(velocity: CGFloat, from current: CGFloat, to target: CGFloat) -> Animation {
     let distance = target - current
     let initial = abs(distance) < 1 ? 0 : min(max(velocity / distance, -20), 20)
-    return .interpolatingSpring(duration: 0.35, bounce: reduced ? 0 : 0.1, initialVelocity: Double(initial))
+    // Sans rebond, comme le `.swipeActions` natif : un rebond faisait osciller la ligne au relâcher d'un glisser lent.
+    return .interpolatingSpring(duration: 0.35, bounce: 0, initialVelocity: Double(initial))
   }
-
-  /// Pan immobile depuis ce délai : il échoue, et laisse la main au toucher, à l'appui long et au menu.
-  static let stillPanTimeout: Duration = .milliseconds(200)
 }
 
 /// Action révélée par le glisser du couloir.
@@ -150,7 +147,7 @@ struct RowLane<Content: View>: View {
     let projected = -(offset + velocity * 0.15)
     let opens = abs(velocity) > 300 ? velocity < 0 : projected > actionWidth / 2
     let target: CGFloat = opens ? -actionWidth : 0
-    let animation = LaneMotion.release(velocity: velocity, from: shown, to: target, reduced: reduceMotion)
+    let animation = LaneMotion.release(velocity: velocity, from: shown, to: target)
     withAnimation(animation) {
       drag = 0
       if opens {
@@ -324,29 +321,6 @@ final class LanePanState {
   var isOpen = false
 }
 
-/// Pan qui échoue aussi s'il n'a pas démarré après `LaneMotion.stillPanTimeout` (sécurité). La parade principale à
-/// l'appui long qui cochait est ailleurs (`Coordinator.gestureRecognizer(_:shouldRecognizeSimultaneouslyWith:)`) : un
-/// échec posé hors des événements de toucher n'est pas toujours pris en compte avant le relâcher (CI lente, 63912a2).
-final class LanePanRecognizer: UIPanGestureRecognizer {
-  private var touchGeneration = 0
-
-  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-    super.touchesBegan(touches, with: event)
-    touchGeneration += 1
-    let generation = touchGeneration
-    Task { [weak self] in
-      try? await Task.sleep(for: LaneMotion.stillPanTimeout)
-      guard let self, self.touchGeneration == generation, self.state == .possible else { return }
-      self.state = .failed
-    }
-  }
-
-  override func reset() {
-    super.reset()
-    touchGeneration += 1
-  }
-}
-
 /// Pan horizontal du couloir : il ne démarre que si le geste part d'abord à l'horizontale, hors des 24 pt du bord
 /// d'écran. Il ne gêne ni le défilement de la liste, ni le toucher, ni l'appui long. Ligne fermée, il refuse un
 /// mouvement vers la fin de ligne et cède au geste retour (bord d'écran, et plein écran sur iOS 26) ; ligne ouverte,
@@ -360,31 +334,29 @@ private struct LanePan: UIGestureRecognizerRepresentable {
   let onCancel: () -> Void
   @Environment(\.layoutDirection) private var direction
 
-  func makeUIGestureRecognizer(context: Context) -> LanePanRecognizer {
-    let pan = LanePanRecognizer()
+  func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+    let pan = UIPanGestureRecognizer()
     pan.delegate = context.coordinator
     configure(pan, context.coordinator)
     return pan
   }
 
-  func updateUIGestureRecognizer(_ recognizer: LanePanRecognizer, context: Context) {
+  func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
     configure(recognizer, context.coordinator)
   }
 
-  private func configure(_ recognizer: LanePanRecognizer, _ coordinator: Coordinator) {
+  private func configure(_ recognizer: UIPanGestureRecognizer, _ coordinator: Coordinator) {
     recognizer.isEnabled = isEnabled
     coordinator.state = state
     coordinator.sign = direction == .rightToLeft ? -1 : 1
   }
 
-  func handleUIGestureRecognizerAction(_ recognizer: LanePanRecognizer, context: Context) {
+  func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
     // Décalage logique : négatif vers le début de ligne (côté gouttière), quel que soit le sens d'écriture.
     let sign: CGFloat = direction == .rightToLeft ? -1 : 1
     let translation = recognizer.translation(in: recognizer.view).x * sign
     let velocity = recognizer.velocity(in: recognizer.view).x * sign
     switch recognizer.state {
-    // Le glisser démarre : le menu, l'appui long et le toucher de la ligne, reconnus en même temps que lui, s'effacent.
-    case .began: context.coordinator.cancelCompanions()
     case .changed: onChange(translation)
     case .ended: onEnd(velocity)
     case .cancelled, .failed: onCancel()
@@ -427,29 +399,16 @@ private struct LanePan: UIGestureRecognizerRepresentable {
       isOpen && other === Self.contentPopGesture(near: gesture.view)
     }
 
-    /// Gestes qui ne sont pas des pans (menu contextuel, appui long, toucher du bouton) : reconnus en même temps que le
-    /// couloir, pour qu'aucun n'attende son échec. Sinon, le pan d'un doigt immobile restait en attente jusqu'au
-    /// relâcher : le menu ne s'ouvrait pas (ou seulement au relâcher), et le relâcher cochait l'article (iPhone, et CI
-    /// « app (iOS latest) » de 63912a2). Les pans (défilement, gestes retour) gardent leurs règles d'exclusion.
+    /// Interaction du menu contextuel (gestes d'UIKit qui ne sont pas des pans) : reconnue en même temps que le couloir,
+    /// pour qu'elle n'attende pas son échec. Sinon, le pan d'un doigt immobile restait en attente jusqu'au relâcher :
+    /// le menu ne s'ouvrait pas (ou seulement au relâcher), et le relâcher cochait l'article (iPhone, et CI « app (iOS
+    /// latest) » de 63912a2). Les gestes de SwiftUI (toucher, bouton, appui long) et les pans (défilement, gestes
+    /// retour) gardent leur exclusion : un glisser qui démarre les annule, sans menu ni coche au relâcher.
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
       guard !(other is UIPanGestureRecognizer) else { return false }
-      companions.add(other)
-      return true
-    }
-
-    /// Gestes reconnus en même temps que le couloir pendant ce toucher.
-    private let companions = NSHashTable<UIGestureRecognizer>.weakObjects()
-
-    /// Annule ces gestes quand le glisser démarre (désactivé puis réactivé, un geste en cours passe à « annulé ») :
-    /// un glisser n'ouvre pas le menu et ne coche pas la ligne au relâcher.
-    func cancelCompanions() {
-      for other in companions.allObjects where other.state != .failed && other.state != .cancelled {
-        other.isEnabled = false
-        other.isEnabled = true
-      }
-      companions.removeAllObjects()
+      return !NSStringFromClass(type(of: other)).contains("SwiftUI")
     }
 
     /// Geste retour plein écran de la pile de navigation (iOS 26), s'il y en a une.
