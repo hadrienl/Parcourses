@@ -3,6 +3,7 @@ package fr.parcourses.feature.lists
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,10 +103,11 @@ import fr.parcourses.core.designsystem.ItemLine
 import fr.parcourses.core.designsystem.MemberAvatar
 import fr.parcourses.core.designsystem.MemberStack
 import fr.parcourses.core.designsystem.NoticeCard
+import fr.parcourses.core.designsystem.RowLane
 import fr.parcourses.core.designsystem.SharingBadge
+import fr.parcourses.core.designsystem.ThreadBead
+import fr.parcourses.core.designsystem.ThreadGutter
 import fr.parcourses.core.designsystem.ThreadLayout
-import fr.parcourses.core.designsystem.ThreadPiece
-import fr.parcourses.core.designsystem.ThreadStyle
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketCheckBox
 import fr.parcourses.core.designsystem.TicketDimens
@@ -115,8 +117,7 @@ import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
-import fr.parcourses.core.designsystem.thread
-import fr.parcourses.core.designsystem.threadSegments
+import fr.parcourses.core.designsystem.laneIndication
 import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
@@ -200,35 +201,48 @@ internal fun AuthorMark(mark: String?) {
 @Composable
 internal fun ReadOnlyItemRow(
     row: ItemRow,
-    piece: ThreadPiece,
+    bead: Bead,
     onTap: () -> Unit,
 ) {
     val colors = Ticket.colors
     val basket = stringResource(R.string.ro_item_in_basket)
     val label = spokenLabel(row).let { if (row.isChecked) "$it, $basket" else it }
+    val interaction = remember { MutableInteractionSource() }
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .thread(piece, ThreadStyle.Solid)
-                .heightIn(min = TicketDimens.rowMin)
-                .clickable(onClick = onTap)
+                // L'ondulation est dans le couloir, jamais sur la gouttière (#115).
+                .clickable(interactionSource = interaction, indication = null, onClick = onTap)
                 .clearAndSetSemantics { contentDescription = label }
-                .padding(start = ThreadLayout.contentStart, end = TicketDimens.spaceM),
+                .padding(start = ThreadLayout.start),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(TicketDimens.checkBox), contentAlignment = Alignment.Center) {
-            if (row.isChecked) Icon(Icons.Default.Check, contentDescription = null, tint = colors.checked)
+        ThreadGutter(row.id) { ThreadBead(bead) }
+        RowLane {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .laneIndication(interaction)
+                        .heightIn(min = TicketDimens.rowMin)
+                        .padding(start = TicketDimens.spaceXs, end = TicketDimens.spaceM),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(TicketDimens.checkBox), contentAlignment = Alignment.Center) {
+                    if (row.isChecked) Icon(Icons.Default.Check, contentDescription = null, tint = colors.checked)
+                }
+                ItemLine(
+                    name = row.label,
+                    quantity = row.quantity,
+                    style = TicketType.item,
+                    color = if (row.isChecked) colors.checked else colors.ink,
+                    decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                    modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
+                )
+                AuthorMark(row.authorMark)
+            }
         }
-        ItemLine(
-            name = row.label,
-            quantity = row.quantity,
-            style = TicketType.item,
-            color = if (row.isChecked) colors.checked else colors.ink,
-            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
-        )
-        AuthorMark(row.authorMark)
     }
 }
 

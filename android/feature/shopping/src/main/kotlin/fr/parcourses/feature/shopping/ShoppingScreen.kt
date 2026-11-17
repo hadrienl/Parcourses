@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,15 +38,16 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import fr.parcourses.core.designsystem.Bead
+import fr.parcourses.core.designsystem.LocalThreadTrack
 import fr.parcourses.core.designsystem.OsmAttribution
-import fr.parcourses.core.designsystem.ThreadPiece
-import fr.parcourses.core.designsystem.ThreadSegment
+import fr.parcourses.core.designsystem.ThreadPath
 import fr.parcourses.core.designsystem.ThreadStyle
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketMotion
 import fr.parcourses.core.designsystem.TicketSheet
-import fr.parcourses.core.designsystem.threadSegments
+import fr.parcourses.core.designsystem.rememberThreadTrackState
+import fr.parcourses.core.designsystem.threadTrack
 import kotlinx.coroutines.delay
 
 /**
@@ -186,13 +188,20 @@ internal fun ReorderAnnouncer(
 
 /** Un élément de la partie « à prendre » du ticket : un titre de rayon ou un article, dans l'ordre du fil. */
 private sealed interface Stop {
+    /** Clé `LazyColumn` de l'arrêt, que sa gouttière publie vers le trait. */
+    val key: String
+
     data class Aisle(
         val section: ShoppingSection,
-    ) : Stop
+    ) : Stop {
+        override val key get() = "aisle-${section.id}"
+    }
 
     data class Item(
         val row: ShoppingRow,
-    ) : Stop
+    ) : Stop {
+        override val key get() = row.id
+    }
 }
 
 /** Arrêts du fil : un titre par section puis ses articles ; sans section, les articles seuls. */
@@ -212,7 +221,9 @@ private class ThreadView(
 ) {
     /** Position de l'article suivant, le premier non coché ; la fin quand tout est pris. */
     val next: Int = stops.indexOfFirst { it is Stop.Item && !it.row.isChecked }.let { if (it < 0) stops.size else it }
-    val segments = threadSegments(stops.size, next)
+
+    /** Le fil dans la `LazyColumn` : ses arrêts suivent l'en-tête du ticket (index 0). */
+    val path = ThreadPath(keys = stops.map(Stop::key), startIndex = 1, next = next, style = style)
 
     fun bead(
         index: Int,
@@ -247,24 +258,28 @@ internal fun ShoppingList(
             risen = rememberRisenRuns(state.sections, learned),
             reduced = Ticket.accessibility.reducedMotion,
         )
-    LazyColumn(
-        Modifier.fillMaxSize().testTag(TAG_ITEMS),
-        state = listState,
-        contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
-    ) {
-        item(key = "header", contentType = "header") { Header(state) }
-        toBuy(view, state.highlightedItemId, actions)
-        notFound(state.notFound, view.reduced, actions)
-        if (state.basket.isNotEmpty()) {
-            item(key = "basket-header", contentType = "basket") {
-                BasketHeader(state.basket.size, basketExpanded) { basketExpanded = !basketExpanded }
+    val track = rememberThreadTrackState()
+    // Le trait est dessiné une fois, derrière les lignes ; chaque ligne ne porte que sa perle (#115).
+    CompositionLocalProvider(LocalThreadTrack provides track) {
+        LazyColumn(
+            Modifier.fillMaxSize().threadTrack(track, listState, view.path).testTag(TAG_ITEMS),
+            state = listState,
+            contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
+        ) {
+            item(key = "header", contentType = "header") { Header(state) }
+            toBuy(view, state.highlightedItemId, actions)
+            notFound(state.notFound, view.reduced, actions)
+            if (state.basket.isNotEmpty()) {
+                item(key = "basket-header", contentType = "basket") {
+                    BasketHeader(state.basket.size, basketExpanded) { basketExpanded = !basketExpanded }
+                }
+                if (basketExpanded) basket(state.basket, view, actions)
             }
-            if (basketExpanded) basket(state.basket, view, actions)
-        }
-        // Magasins d'OpenStreetMap (ODbL) : mention en pied de ticket, sans gêner la lecture de la liste.
-        if (state.storeName != null) {
-            item(key = "attribution", contentType = "attribution") {
-                OsmAttribution(Modifier.padding(top = TicketDimens.spaceL))
+            // Magasins d'OpenStreetMap (ODbL) : mention en pied de ticket, sans gêner la lecture de la liste.
+            if (state.storeName != null) {
+                item(key = "attribution", contentType = "attribution") {
+                    OsmAttribution(Modifier.padding(top = TicketDimens.spaceL))
+                }
             }
         }
     }
@@ -276,14 +291,12 @@ private fun LazyListScope.toBuy(
     actions: ShoppingActions,
 ) {
     view.stops.forEachIndexed { index, stop ->
-        val (top, bottom) = view.segments[index]
         when (stop) {
             is Stop.Aisle -> {
-                item(key = "aisle-${stop.section.id}", contentType = "aisle") {
+                item(key = stop.key, contentType = "aisle") {
                     AisleHeader(
                         section = stop.section,
-                        piece = ThreadPiece(top, bottom),
-                        style = view.style,
+                        threadKey = stop.key,
                         risen = stop.section.id in view.risen,
                         modifier = Modifier.ticketMotion(this, view.reduced),
                     )
@@ -294,12 +307,12 @@ private fun LazyListScope.toBuy(
                 val row = stop.row
                 val look =
                     RowLook(
-                        piece = ThreadPiece(top, bottom, view.bead(index, row)),
-                        style = view.style,
+                        bead = view.bead(index, row),
+                        threadKey = stop.key,
                         isNext = index == view.next,
                         highlighted = highlightedItemId == row.id,
                     )
-                item(key = row.id, contentType = "row") {
+                item(key = stop.key, contentType = "row") {
                     ItemRow(row, look, actions, Modifier.ticketMotion(this, view.reduced))
                 }
             }
@@ -316,7 +329,9 @@ private fun LazyListScope.notFound(
     item(key = "not-found-header", contentType = "title") {
         SectionTitle(stringResource(R.string.shopping_not_found_title))
     }
-    items(rows, key = { it.id }, contentType = { "not-found" }) { row ->
+    // Clés préfixées par section : une ligne qui change de section sort puis entre en fondu, au lieu de glisser hors
+    // du fil (#115).
+    items(rows, key = { "nf-${it.id}" }, contentType = { "not-found" }) { row ->
         NotFoundRow(row, { actions.onRestore(row) }, Modifier.ticketMotion(this, reduced))
     }
 }
@@ -327,8 +342,9 @@ private fun LazyListScope.basket(
     view: ThreadView,
     actions: ShoppingActions,
 ) {
-    val look = RowLook(ThreadPiece(ThreadSegment.None, ThreadSegment.None, Bead.Checked), view.style)
-    items(rows, key = { it.id }, contentType = { "row" }) { row ->
+    // Perles pleines, hors du fil : elles ne publient pas de marqueur.
+    val look = RowLook(bead = Bead.Checked, threadKey = null)
+    items(rows, key = { "basket-${it.id}" }, contentType = { "row" }) { row ->
         ItemRow(row, look, actions, Modifier.ticketMotion(this, view.reduced))
     }
 }

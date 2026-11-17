@@ -3,6 +3,7 @@ package fr.parcourses.feature.shopping
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,16 +43,18 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import fr.parcourses.core.designsystem.AvatarSize
+import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.ItemLine
 import fr.parcourses.core.designsystem.MemberAvatar
+import fr.parcourses.core.designsystem.RowLane
+import fr.parcourses.core.designsystem.ThreadBead
+import fr.parcourses.core.designsystem.ThreadGutter
 import fr.parcourses.core.designsystem.ThreadLayout
-import fr.parcourses.core.designsystem.ThreadPiece
-import fr.parcourses.core.designsystem.ThreadStyle
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketCheckBox
 import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketType
-import fr.parcourses.core.designsystem.thread
+import fr.parcourses.core.designsystem.lanePress
 import kotlinx.coroutines.flow.distinctUntilChanged
 import fr.parcourses.core.designsystem.R as DesignR
 
@@ -115,37 +118,36 @@ internal fun ItemRow(
             },
         )
     SwipeTracker(swipe, actions.onSwiping)
-    SwipeToDismissBox(
-        state = swipe,
-        modifier = modifier,
-        enableDismissFromStartToEnd = !row.isChecked,
-        enableDismissFromEndToStart = !row.isChecked,
-        backgroundContent = {},
-    ) {
-        ItemRowContent(row, look, actions)
-    }
+    ItemRowContent(row, look, actions, swipe, modifier)
 }
 
-/** Apparence d'une ligne sur le fil : son morceau de fil, le style du fil, et si c'est l'article suivant. */
+/**
+ * Apparence d'une ligne sur le fil : sa perle, sa clé `LazyColumn` si elle est un arrêt du fil (`null` au panier, hors
+ * du fil), si c'est l'article suivant et s'il vient d'être ajouté.
+ */
 @Immutable
 internal data class RowLook(
-    val piece: ThreadPiece,
-    val style: ThreadStyle,
+    val bead: Bead,
+    val threadKey: Any?,
     val isNext: Boolean = false,
     val highlighted: Boolean = false,
 )
 
 /**
- * Contenu d'une ligne. Appui long sur une ligne à prendre : menu « Pas trouvé », « Quantité » (#110), avec vibration au
- * déclenchement ; « Quantité » ouvre le panneau de l'article, que TalkBack offre aussi en action « Modifier la
- * quantité ».
+ * Contenu d'une ligne : la gouttière (perle) reste fixe, seul le couloir glisse (balayage), s'enfonce et ondule (#115).
+ * Toute la ligne reste la cible de toucher. Appui long sur une ligne à prendre : menu « Pas trouvé », « Quantité »
+ * (#110), avec vibration au déclenchement ; « Quantité » ouvre le panneau de l'article, que TalkBack offre aussi en
+ * action « Modifier la quantité ».
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Suppress("LongMethod") // Une ligne : gestes, menu, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 internal fun ItemRowContent(
     row: ShoppingRow,
     look: RowLook,
     actions: ShoppingActions,
+    swipe: SwipeToDismissBoxState,
+    modifier: Modifier = Modifier,
 ) {
     val colors = Ticket.colors
     val checkLabel = stringResource(R.string.shopping_action_check)
@@ -153,15 +155,16 @@ internal fun ItemRowContent(
     val state = rowStateDescription(row)
     val custom = rowAccessibilityActions(row, actions)
     var menuOpen by remember { mutableStateOf(false) }
-    Box {
+    val interaction = remember { MutableInteractionSource() }
+    Box(modifier) {
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(if (look.highlighted) colors.accent.copy(alpha = HIGHLIGHT_ALPHA) else colors.paper)
-                    .thread(look.piece, look.style)
-                    .heightIn(min = TicketDimens.rowMin)
                     .combinedClickable(
+                        interactionSource = interaction,
+                        // L'ondulation est dans le couloir (`lanePress`), jamais sur la gouttière.
+                        indication = null,
                         onClickLabel = if (row.isChecked) uncheckLabel else checkLabel,
                         role = Role.Checkbox,
                         // Menu sur une ligne à prendre seulement : cochée, l'appui long ne fait rien.
@@ -174,20 +177,52 @@ internal fun ItemRowContent(
                         contentDescription = row.accessibilityLabel
                         stateDescription = state
                         customActions = custom
-                    }.padding(start = ThreadLayout.contentStart, end = ThreadLayout.end, top = 6.dp, bottom = 6.dp),
+                    }.padding(start = ThreadLayout.start),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // L'état se lit sans couleur : case pleine et cochée, texte barré.
-            TicketCheckBox(row.isChecked)
-            ItemLine(
-                name = row.label,
-                quantity = row.quantity,
-                style = if (look.isNext) TicketType.itemNext else TicketType.item,
-                color = if (row.isChecked) colors.checked else colors.ink,
-                decoration = if (row.isChecked) TextDecoration.LineThrough else null,
-                modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
-            )
-            CheckedByMark(row.checkedBy)
+            ThreadGutter(look.threadKey) { ThreadBead(look.bead) }
+            RowLane {
+                SwipeToDismissBox(
+                    state = swipe,
+                    enableDismissFromStartToEnd = !row.isChecked,
+                    enableDismissFromEndToStart = !row.isChecked,
+                    backgroundContent = {},
+                ) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                // Article tout juste ajouté : surligné dans son couloir seulement (D3).
+                                .then(
+                                    if (look.highlighted) {
+                                        Modifier.background(colors.accent.copy(alpha = HIGHLIGHT_ALPHA))
+                                    } else {
+                                        Modifier
+                                    },
+                                ).lanePress(interaction)
+                                .heightIn(min = TicketDimens.rowMin)
+                                .padding(
+                                    start = TicketDimens.spaceXs,
+                                    end = ThreadLayout.end,
+                                    top = 6.dp,
+                                    bottom = 6.dp,
+                                ).testTag(TAG_ROW_LANE),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // L'état se lit sans couleur : case pleine et cochée, texte barré.
+                        TicketCheckBox(row.isChecked)
+                        ItemLine(
+                            name = row.label,
+                            quantity = row.quantity,
+                            style = if (look.isNext) TicketType.itemNext else TicketType.item,
+                            color = if (row.isChecked) colors.checked else colors.ink,
+                            decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceS),
+                        )
+                        CheckedByMark(row.checkedBy)
+                    }
+                }
+            }
         }
         RowMenu(
             expanded = menuOpen && !row.isChecked,
@@ -283,6 +318,7 @@ private fun CheckedByMark(mark: String?) {
 }
 
 internal const val TAG_CHECKED_BY = "shopping-checked-by"
+internal const val TAG_ROW_LANE = "shopping-row-lane"
 internal const val TAG_ROW_MENU = "shopping-row-menu"
 internal const val TAG_ROW_MENU_NOT_FOUND = "shopping-row-menu-not-found"
 internal const val TAG_ROW_MENU_QUANTITY = "shopping-row-menu-quantity"
