@@ -1,6 +1,6 @@
 # #115 : fil du ticket immobile
 
-> Conception seule, à valider avant tout code. Base de lecture : `main` (4d0f5fd) et la branche de la PR #112
+> Conception **validée le 2026-11-17 : option B**, décisions au §8. Base de lecture : `main` (4d0f5fd) et la branche de la PR #112
 > (`feat/item-quantity-edit`), qui a déjà rendu l'appui long de l'écran Liste conforme.
 > Maquette animée : [`design/fil-immobile.html`](../../design/fil-immobile.html) (« Aujourd'hui » et « Proposé » côte
 > à côte : glisser, coche, tri, appui long ; ralenti et mouvement réduit).
@@ -18,9 +18,9 @@ Ce que « immobile » veut dire, précisément :
 
 - le trait ne change **jamais** d'abscisse et n'est **jamais** interrompu, recouvert ou atténué par morceaux ;
 - une perle ou un nœud ne quitte jamais le trait. Quand l'ordre change, il peut **glisser le long du trait** avec sa
-  ligne (abscisse fixe) : c'est le seul déplacement admis, et il est vertical (voir la question ouverte Q1) ;
+  ligne (abscisse fixe) : c'est le seul déplacement admis, et il est vertical (décision D1) ;
 - les bouts du trait suivent le premier et le dernier marqueur : le trait s'allonge ou se raccourcit par un bout, il
-  ne se déplace pas (à confirmer, Q6) ;
+  ne se déplace pas (décision D6) ;
 - la partie parcourue continue de « couler » le long du trait quand l'article suivant change : c'est une couleur qui
   avance, pas un mouvement du trait.
 
@@ -279,18 +279,22 @@ perle, iOS passe en A (tri sans glissement) ; Android garde B. L'écart entre pl
 
 Chaque lot fait l'objet d'une PR séparée, avec captures avant / après et `SYNC.md` à jour.
 
-## 8. Questions ouvertes
+## 8. Décisions (validées le 2026-11-17)
 
-1. **Q1, tri.** Pendant un tri, les perles et les nœuds glissent le long du trait avec leur ligne (recommandé, B), ou
-   restent figés et changent de place d'un coup (A) ?
-2. **Q2, glisser iOS.** Le couloir est rogné au bord droit de la gouttière : la case disparaît sous ce bord en
-   glissant vers la gauche. Cela convient-il, ou préférez-vous que le contenu s'efface en fondu à l'approche du fil ?
-3. **Q3, surlignage.** L'article tout juste ajouté n'est plus surligné que dans son couloir, pour que la gouttière
-   reste papier. D'accord ?
-4. **Q4, menu contextuel iOS.** Le voile du menu couvre tout l'écran, fil compris (immobile, mais voilé). Si le fil
-   doit rester net, il faut remplacer le menu contextuel par un menu à nous : à décider.
-5. **Q5, glisser maison iOS.** Le fil immobile impose de remplacer `.swipeActions` par un glisser à nous sur l'écran
-   Liste et le mode courses (le système décale toute la cellule). On perd le comportement natif exact (sensation,
-   évolutions d'iOS), et c'est le plus gros du lot iOS. D'accord pour ce prix ?
-6. **Q6, bouts du trait.** Le trait s'allonge ou se raccourcit par ses bouts quand le premier ou le dernier marqueur
-   change (article parti au panier, rayon remonté). Est-ce compatible avec « le trait ne doit jamais bouger » ?
+Option **B** retenue, avec la recommandation sur les six questions posées.
+
+1. **D1, tri.** Pendant un tri, les perles et les nœuds **glissent le long du trait** avec leur ligne, à abscisse
+   fixe.
+2. **D2, glisser iOS.** Le couloir est **rogné** au bord droit de la gouttière : la case passe sous ce bord en
+   glissant vers la gauche (pas de fondu).
+3. **D3, surlignage.** L'article tout juste ajouté n'est surligné **que dans son couloir** ; la gouttière reste
+   papier.
+4. **D4, menu contextuel iOS.** On garde le menu contextuel d'Apple. Son voile couvre tout l'écran, fil compris ; le
+   fil reste immobile sous le voile. Pas de menu maison.
+5. **D5, glisser maison iOS.** Un glisser maison remplace `.swipeActions` sur l'écran Liste et le mode courses (§6.2),
+   en **conservant les actions d'accessibilité** (« Supprimer », « Pas trouvé ») et les tests qui s'appuient sur le
+   bouton révélé.
+6. **D6, bouts du trait.** Le trait peut **s'allonger et se raccourcir par ses bouts** quand le premier ou le dernier
+   marqueur change ; il ne se déplace jamais.
+
+Suite : lot 0 (prototypes) sur la branche `proto/115-lot0`, avec le critère de repli du §7 (7 pt) pour iOS.
