@@ -128,6 +128,32 @@ Ignorées sans ces variables (CI comprise) :
 - Parcours et captures : `testShoppingJourney` et les tests d'en-tête de `ParcoursesUITests`, images dans le `.xcresult` (`xcrun xcresulttool export attachments`).
 - Serveur : `scripts/integration-test.sh` publie l'instantané d'un magasin de test, joue une visite, vérifie les lignes reçues en base (`SIMULATOR_UDID` pour réutiliser un simulateur), puis nettoie.
 
+### Tests UI sur le simulateur iOS 27 (#121)
+
+Le 15/11/2026, sur un simulateur iOS 27.0 depuis supprimé (constat de #107), chaque étape qui suivait une saisie dans `quickEntry` attendait 60 s. Le message « App animations complete notification not received » vient de l'attente d'inactivité de XCUITest. XCUITest n'a pas reçu la notification de fin d'animation et a abandonné l'attente au bout de 60 s, à chaque étape. La cause probable est une animation de l'app ou du système qui ne se termine pas, mais elle n'a pas été confirmée.
+
+Mesures du 17/11/2026, avec Xcode 27.2 (27B52), les runtimes 27.0 (24A434) et 26.5 (23F77), sur le code de #121 :
+
+| Simulateur | Durée de `testShoppingJourney` |
+| --- | --- |
+| iOS 26.5 (`Parcourses CI`) | 82 s |
+| iOS 27.0 (`Parcourses CI`) | 96 s |
+| iOS 27.0 jamais démarré (`iPhone 15 iOS27 repro`) | 134 s, dont 38 s de premier démarrage |
+| iOS 27.0 avec la passerelle Supabase locale (`SUPABASE_URL` en ligne de commande) | 78 s |
+
+Le constat n'a pas été reproduit. Aucune étape n'attend 60 s et le message n'apparaît dans aucun journal. Xcode 27.2 était installé depuis le 23/10, donc déjà avant le constat. Le build du runtime utilisé le 15/11 n'a pas été noté. Ces facteurs ne déclenchent pas le problème dans la configuration actuelle :
+- l'état neuf du simulateur, dont l'introduction du clavier « Glisser pour taper » ;
+- la passerelle Supabase locale active ;
+- le clavier matériel du simulateur, déconnecté sur tous les simulateurs (`ConnectHardwareKeyboard = 0`).
+
+La cause la plus probable reste un état propre au simulateur supprimé : c'est une hypothèse, pas une cause démontrée. Sur la durée mesurée de `testShoppingJourney`, rien n'empêche la CI de passer à iOS 27, que `scripts/simulator.sh latest` prendra dès que le runner le proposera. La suite UI complète n'a pas été mesurée sur iOS 27. Un autre obstacle reste, sans lien avec la durée : sur iOS 27, l'audit de contraste signale le bouton système « OK » des feuilles À propos et Compte (constaté pendant #108). Il faudra le traiter quand le runner passera à iOS 27.
+
+Si le constat revient :
+1. **Confirmer.** Dans le journal de `xcodebuild`, les lignes `t = …s` montrent des écarts d'environ 60 s après `Wait for app.parcourses to idle`, avec le message ci-dessus.
+2. **Chercher l'animation.** Lancer l'app à la main sur ce simulateur, à l'écran concerné : indicateur d'activité, `repeatForever`, clavier ou bandeau système qui ne s'arrête pas. Si l'animation vient de l'app, c'est un défaut de l'app.
+3. **Écarter l'état du simulateur.** Vérifier que « I/O > Keyboard > Connect Hardware Keyboard » est décoché, puis `xcrun simctl erase <udid>` sur ce simulateur seulement.
+4. **Contourner.** Lancer les tests UI sur `scripts/simulator.sh 26`. C'est l'équivalent de la configuration actuelle de la CI `app (iOS latest)`, dont le runner `macos-26` n'a pas encore iOS 27. Ne pas allonger les délais des tests : l'attente est imposée par XCUITest, pas par eux.
+
 ## Accessibilité et confidentialité
 
 - Audit : `ParcoursesAccessibilityUITests` lance `performAccessibilityAudit(for: .all)` sur chaque écran principal, à la taille par défaut, en AX5 et en mode sombre (`PARCOURSES_TEST_COLOR_SCHEME=dark`), en CI avec le reste des tests UI. Les exceptions sont dans `isKnownIssue`, chacune bornée à une situation et justifiée.
