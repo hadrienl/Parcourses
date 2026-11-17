@@ -101,7 +101,7 @@ fun AboutScreen(
             ) {
                 if (sessionReset.visible) {
                     InfoSection(stringResource(R.string.about_session_title)) {
-                        SessionResetContent(sessionReset, sessionResetActions)
+                        SessionResetContent(sessionReset, sessionResetActions, isEmailAccount)
                     }
                 }
                 InfoSection(stringResource(R.string.about_data_title)) {

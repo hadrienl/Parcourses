@@ -474,6 +474,7 @@ class AppContainer(
                 host = DeletionHost(),
                 isOnline = { networkMonitor.isOnline },
                 accountKind = { accountKind.kind.value },
+                isSessionStorageStuck = { sessionMaintenance?.isSessionStorageStuck?.value == true },
             ),
             maintenanceScope,
         )

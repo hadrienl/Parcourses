@@ -107,18 +107,30 @@ class SessionResetViewModel(
     }
 }
 
-/** Contenu de la section « Session », sous son titre : explication, bouton, résultat, confirmation. */
+/**
+ * Contenu de la section « Session », sous son titre : explication, bouton, résultat, confirmation. [isEmailAccount] :
+ * aucun compte anonyme n'est créé (vecteur `009`), la personne devra se reconnecter (#51).
+ */
 @Composable
 internal fun SessionResetContent(
     state: SessionResetUiState,
     actions: SessionResetActions,
+    isEmailAccount: Boolean = false,
 ) {
     Column {
         val message =
             when (state.phase) {
-                SessionResetPhase.Done -> R.string.about_session_done
-                SessionResetPhase.Failed -> R.string.about_session_failed
-                else -> R.string.about_session_body
+                SessionResetPhase.Done -> {
+                    if (isEmailAccount) R.string.about_session_done_email else R.string.about_session_done
+                }
+
+                SessionResetPhase.Failed -> {
+                    R.string.about_session_failed
+                }
+
+                else -> {
+                    R.string.about_session_body
+                }
             }
         Text(
             stringResource(message),
@@ -146,7 +158,14 @@ internal fun SessionResetContent(
         AlertDialog(
             onDismissRequest = actions.onDismiss,
             title = { Text(stringResource(R.string.about_session_confirm_title)) },
-            text = { Text(stringResource(R.string.about_session_confirm_body)) },
+            text = {
+                val body =
+                    when {
+                        isEmailAccount -> R.string.about_session_confirm_body_email
+                        else -> R.string.about_session_confirm_body
+                    }
+                Text(stringResource(body))
+            },
             confirmButton = {
                 TextButton(
                     onClick = actions.onConfirm,

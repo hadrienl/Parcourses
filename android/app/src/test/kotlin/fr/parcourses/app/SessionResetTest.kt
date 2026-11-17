@@ -119,6 +119,31 @@ class SessionResetTest {
         rule.onNodeWithTag(TAG_SESSION_RESET).assertDoesNotExist()
     }
 
+    /** Compte e-mail : aucun compte anonyme n'est créé (vecteur `009`), la synchronisation attend la reconnexion. */
+    @Test
+    fun anEmailAccountIsToldToSignInAgain() {
+        stuck.value = true
+        val model = model()
+        rule.setContent {
+            ParcoursesTheme {
+                val state = model.state.collectAsState().value
+                AboutScreen(
+                    "1.0 (1)",
+                    {},
+                    sessionReset = state,
+                    sessionResetActions = model.actions,
+                    isEmailAccount = true,
+                )
+            }
+        }
+        rule.onNodeWithTag(TAG_SESSION_RESET).performClick()
+        rule.onNodeWithText("Vous devrez vous reconnecter avec votre adresse e-mail", substring = true).assertExists()
+        rule.onNodeWithText("identifiant anonyme", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_SESSION_RESET_CONFIRM).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Reconnectez-vous avec votre adresse e-mail", substring = true).assertExists()
+    }
+
     @Test
     fun theButtonIsDisabledWhileResetting() {
         stuck.value = true
