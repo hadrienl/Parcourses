@@ -29,16 +29,15 @@
         </provider>
 
         <!--
-          `singleTask` (#120) : un lien (Live Update, invitation par le schéma ou l'alias https) arrive toujours dans
-          l'activité ouverte (onNewIntent), dans la tâche de Parcourses, sans la doubler. Avec `singleTop`, une app qui
-          ouvre le lien sans FLAG_ACTIVITY_NEW_TASK (navigateur intégré) créait une seconde instance dans sa propre
-          tâche, et celle retrouvée depuis les apps récentes ne montrait pas la carte. Contrepartie : une activité
-          posée au-dessus dans la tâche (sélecteur de partage, réglages système) se ferme à l'arrivée d'un lien.
+          `singleTop` : un lien de la Live Update arrive dans l'activité ouverte (onNewIntent), sans la doubler. Un lien
+          ouvert par une autre app sans FLAG_ACTIVITY_NEW_TASK crée l'activité dans la tâche de cette app : elle le
+          relaie aussitôt vers la tâche de Parcourses et se ferme (MainActivity.relayToOwnTask, #120). Pas de
+          `singleTask` : toucher l'icône fermerait le sélecteur de partage et les dialogues d'autorisation.
         -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

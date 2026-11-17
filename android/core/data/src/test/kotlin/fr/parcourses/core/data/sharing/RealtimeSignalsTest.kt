@@ -334,5 +334,17 @@ class RealtimeSignalsTest {
             runCurrent()
             advanceTimeBy(60_000)
             assertEquals(2, pulls)
+
+            // Ou quand le canal est rouvert pour un autre compte : seule la jonction du nouveau canal en programme une.
+            kind.value = AccountKind.Email
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(400)
+            assertEquals(3, pulls)
+            account = Uuid.random()
+            signals.sessionChanged()
+            runCurrent()
+            advanceTimeBy(60_000)
+            assertEquals(3, pulls)
         }
 }

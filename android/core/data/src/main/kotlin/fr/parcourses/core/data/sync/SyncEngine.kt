@@ -503,8 +503,9 @@ class SyncEngine(
             OutboxKind.DeleteItem -> {
                 val deletion = decode(ItemDeletionPayload.serializer(), payload)
                 val itemId = readPayload { parse(work.entityId) }
+                val listId = readPayload { parse(deletion.listId) }.toString()
                 // Jamais arrivé au serveur : aucune ligne à supprimer, rien d'ambigu.
-                if (!gateway.deleteItem(itemId) && deletion.isOnServer) resolveZeroRow(itemId, deletion.listId)
+                if (!gateway.deleteItem(itemId) && deletion.isOnServer) resolveZeroRow(itemId, listId)
             }
 
             OutboxKind.CreateVisit -> {
@@ -596,7 +597,9 @@ class SyncEngine(
         row: ListItemUpsert,
         columns: List<String>,
     ) {
-        if (!gateway.updateItem(row.id, ListItemFields(row, columns))) resolveZeroRow(row.id, row.listId.toString())
+        // Champs inconnus (`changedFields` corrompu) : `Rejected("payload")` avant l'appel, pas un rejeu sans fin.
+        val fields = readPayload { ListItemFields(row, columns) }
+        if (!gateway.updateItem(row.id, fields)) resolveZeroRow(row.id, row.listId.toString())
     }
 
     /**
@@ -666,23 +669,32 @@ class SyncEngine(
         reloaded: Boolean = false,
         serverItems: List<ListItemRow>? = null,
     ) {
+        var dropped = alreadyDropped
+        try {
+            if (change.to == ListRole.Viewer && change.from != ListRole.Viewer && !reloaded) {
+                val rows = serverItems ?: gateway.fetchItems(parse(change.listId))
+                store.replaceItems(change.listId, rows, classify) {
+                    dropped += it
+                }
+            }
+        } finally {
+            // Le rôle est déjà écrit : le message part même si le rechargement échoue (#120), sans quoi la descente
+            // suivante, qui voit le même rôle, ne l'afficherait jamais. Les entrées restantes de la liste seront jetées
+            // à leur envoi (`refreshAccess`), qui met le nombre à jour.
+            announce(change, ownerName, dropped)
+        }
+    }
+
+    /** Message d'un changement de mon rôle, sans rien recharger : [dropped] modifications jetées. */
+    private fun announce(
+        change: RoleChange,
+        ownerName: String?,
+        dropped: Int = 0,
+    ) {
         when {
             change.to == ListRole.Viewer -> {
-                var dropped = alreadyDropped
-                try {
-                    if (!reloaded && change.from != ListRole.Viewer) {
-                        val rows = serverItems ?: gateway.fetchItems(parse(change.listId))
-                        store.replaceItems(change.listId, rows, classify) {
-                            dropped += it
-                        }
-                    }
-                } finally {
-                    // Le rôle « lecteur » est déjà écrit : la bannière s'affiche même si le rechargement échoue (#120),
-                    // sans quoi la descente suivante, qui voit le même rôle, ne l'afficherait jamais. Les entrées
-                    // restantes de la liste seront jetées à leur envoi (`refreshAccess`), qui met le nombre à jour.
-                    if (change.from != ListRole.Viewer || dropped > 0) {
-                        notify(AccessChange.Downgraded(change.listId, ownerName, dropped))
-                    }
+                if (change.from != ListRole.Viewer || dropped > 0) {
+                    notify(AccessChange.Downgraded(change.listId, ownerName, dropped))
                 }
             }
 
@@ -1092,7 +1104,7 @@ class SyncEngine(
      * Personnes des listes partagées et mon rôle (#87, lot 87.6) : compte e-mail seulement (un anonyme ne partage ni
      * ne rejoint). Un rôle changé sur une liste déjà partagée est signalé.
      */
-    @Suppress("TooGenericExceptionCaught") // toute panne est relancée après la boucle ; l'annulation tout de suite
+    @Suppress("TooGenericExceptionCaught") // toute panne, annulation comprise, est relancée après la boucle
     private suspend fun pullParticipants(me: String?) {
         if (dependencies.accountKind() != AccountKind.Email) {
             store.replaceParticipants(emptyList(), emptyList(), me)
@@ -1105,16 +1117,21 @@ class SyncEngine(
         val profiles = gateway.fetchProfiles(people.map(::parse))
         val names = profiles.associate { it.userId.toString() to it.displayName }
         val owners = store.lists().associate { it.id to it.ownerId }
-        // Tous les rôles sont déjà écrits : une panne sur une liste n'empêche pas d'annoncer les autres. La première
-        // panne est relancée ensuite, la descente sera reprise.
+        // Tous les rôles sont déjà écrits : une panne sur une liste, ou une annulation (WorkManager arrête la passe à la
+        // coupure du réseau), n'empêche pas d'annoncer les autres, sans plus rien recharger. La première est relancée
+        // ensuite : la descente sera reprise.
         var failure: Exception? = null
         for (change in store.replaceParticipants(members, profiles, me)) {
+            val ownerName = owners[change.listId]?.let(names::get)
+            if (failure != null) {
+                announce(change, ownerName)
+                continue
+            }
             try {
-                roleChanged(change, owners[change.listId]?.let(names::get))
-            } catch (e: CancellationException) {
-                throw e
+                roleChanged(change, ownerName)
             } catch (e: Exception) {
-                failure = failure ?: e
+                // L'annulation aussi : la suite de la boucle ne suspend plus, elle est relancée juste après.
+                failure = e
             }
         }
         failure?.let { throw it }

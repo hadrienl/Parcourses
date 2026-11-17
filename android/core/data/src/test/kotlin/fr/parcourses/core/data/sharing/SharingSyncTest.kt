@@ -16,6 +16,7 @@ import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListMemberRow
 import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.ProfileRow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -101,6 +102,21 @@ class SharingSyncTest : DataTest() {
             assertEquals(AccessChange.Upgraded(listId, "Hadrien"), changes.last())
         }
 
+    /** Deux listes de [owner] où je suis éditrice, descendues du serveur. */
+    private suspend fun twoSharedLists(): List<String> {
+        val ids = listOf(Uuid.random(), Uuid.random())
+        gateway.remoteLists = ids.map { ListRow(it, owner, "Liste $it", now, now) }
+        gateway.remoteItems = ids.map { ListItemRow(Uuid.random(), it, null, "lait", "1", null, now, now, owner) }
+        gateway.listMembers = ids.map { ListMemberRow(it, me, ListRole.Editor, owner, now, now) }
+        gateway.profiles = listOf(ProfileRow(owner, "Hadrien", now, now), ProfileRow(me, "Léa", now, now))
+        ids.forEach { gateway.roles[it] = ListRole.Editor }
+        gateway.serverDate = now - 1.minutes
+        engine.drain(pull = true)
+        gateway.calls.clear()
+        gateway.listMembers = gateway.listMembers.map { it.copy(role = ListRole.Viewer) }
+        return ids.map { it.toString() }
+    }
+
     @Test
     fun aDowngradeReceivedByThePullIsNoticedEvenIfTheNetworkCutsRightAfter() =
         runBlocking {
@@ -114,9 +130,47 @@ class SharingSyncTest : DataTest() {
             assertEquals(ListRole.Viewer, db.lists().get(listId)?.role)
             assertEquals(listOf(AccessChange.Downgraded(listId, "Hadrien", 0)), changes)
 
-            // La descente suivante voit le même rôle : pas de seconde bannière.
+            // La descente suivante, après le délai de reprise, voit le même rôle : pas de seconde bannière.
+            advance(2.minutes)
+            gateway.calls.clear()
             engine.drain(pull = true)
+            assertTrue(gateway.callsOf("fetchListMembers").isNotEmpty())
             assertEquals(1, changes.size)
+        }
+
+    @Test
+    fun aFailedReloadDoesNotHideTheDowngradeOfAnotherList() =
+        runBlocking {
+            val ids = twoSharedLists()
+            gateway.failNext("fetchItemsOfList", IOException("coupure"))
+
+            engine.drain(pull = true)
+
+            // La première relecture échoue : la seconde liste est annoncée sans relecture, la descente sera reprise.
+            assertEquals(ids.toSet(), changes.map { it.listId }.toSet())
+            assertTrue(changes.all { it == AccessChange.Downgraded(it.listId, "Hadrien", 0) })
+            assertEquals(1, gateway.callsOf("fetchItemsOfList").size)
+        }
+
+    @Test
+    fun aCancelledPullStillAnnouncesEveryDowngradeAlreadyWritten() =
+        runBlocking {
+            val ids = twoSharedLists()
+            // Coupure du réseau : WorkManager arrête la passe pendant la relecture de la première liste.
+            gateway.beforeCall = { if (it == "fetchItemsOfList") throw CancellationException("réseau perdu") }
+
+            try {
+                engine.drain(pull = true)
+                fail("passe annulée attendue")
+            } catch (_: CancellationException) {
+                // Attendu : l'annulation est relancée.
+            }
+
+            // Les deux rôles sont écrits : les deux bannières partent, la seconde sans relecture.
+            ids.forEach { assertEquals(ListRole.Viewer, db.lists().get(it)?.role) }
+            assertEquals(ids.toSet(), changes.map { it.listId }.toSet())
+            assertTrue(changes.all { it == AccessChange.Downgraded(it.listId, "Hadrien", 0) })
+            assertEquals(1, gateway.callsOf("fetchItemsOfList").size)
         }
 
     @Test

@@ -263,8 +263,16 @@ class SyncStore(
         entry: OutboxEntryEntity,
         shift: Duration,
     ) {
-        val payload =
-            when (entry.kind()) {
+        // Charge illisible : laissée telle quelle, elle finira en `FAILED` à son propre envoi (#120).
+        val payload = readable { shifted(entry, shift) }
+        if (payload != null) outbox.setPayload(entry.id, payload)
+    }
+
+    private fun shifted(
+        entry: OutboxEntryEntity,
+        shift: Duration,
+    ): ByteArray? =
+        when (entry.kind()) {
                 OutboxKind.CreateVisit -> {
                     val row = OutboxCoding.decode(VisitInsert.serializer(), entry.payload)
                     OutboxCoding.encode(VisitInsert.serializer(), row.copy(startedAt = row.startedAt - shift))
@@ -284,15 +292,24 @@ class SyncStore(
                     null
                 }
             }
-        if (payload != null) outbox.setPayload(entry.id, payload)
-    }
 
+    /** Date envoyée de l'entrée ; `null` si sa charge est illisible : elle ne compte pas dans le décalage. */
     private fun sentDate(entry: OutboxEntryEntity): Instant? =
-        when (entry.kind()) {
-            OutboxKind.CreateVisit -> OutboxCoding.decode(VisitInsert.serializer(), entry.payload).startedAt
-            OutboxKind.InsertChecks -> OutboxCoding.decode(CheckPayload.serializer(), entry.payload).checkedAt
-            OutboxKind.CloseVisit -> OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload).endedAt
-            else -> null
+        readable {
+            when (entry.kind()) {
+                OutboxKind.CreateVisit -> OutboxCoding.decode(VisitInsert.serializer(), entry.payload).startedAt
+                OutboxKind.InsertChecks -> OutboxCoding.decode(CheckPayload.serializer(), entry.payload).checkedAt
+                OutboxKind.CloseVisit -> OutboxCoding.decode(VisitClosePayload.serializer(), entry.payload).endedAt
+                else -> null
+            }
+        }
+
+    /** Charge illisible (JSON, UUID, date ; `SerializationException` hérite d'`IllegalArgumentException`) : `null`. */
+    private inline fun <T> readable(read: () -> T?): T? =
+        try {
+            read()
+        } catch (_: IllegalArgumentException) {
+            null
         }
 
     /**

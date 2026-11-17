@@ -114,6 +114,12 @@ class RealtimeSignals(
 
     @Suppress("TooGenericExceptionCaught") // un canal qui tombe est rouvert après un délai ; l'annulation est relancée
     private suspend fun listen() {
+        // Canal rouvert (autre compte) : la seconde descente de l'ancienne jonction n'a plus lieu d'être, comme à la
+        // fermeture ; la jonction du nouveau canal en programme une.
+        lock.withLock {
+            followUpPullJob?.cancel()
+            followUpPullJob = null
+        }
         while (true) {
             val id =
                 try {
@@ -164,6 +170,11 @@ class RealtimeSignals(
                     followUpPullJob =
                         scope.launch {
                             delay(followUpDelay)
+                            // Comme `pullNow()` sur iOS : la descente de fin de fenêtre d'écho n'a plus lieu d'être.
+                            lock.withLock {
+                                echoPullJob?.cancel()
+                                echoPullJob = null
+                            }
                             requestPull()
                         }
                 }
