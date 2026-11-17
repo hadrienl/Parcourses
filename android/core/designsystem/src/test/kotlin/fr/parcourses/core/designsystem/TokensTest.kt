@@ -83,20 +83,6 @@ class TokensTest {
     }
 
     @Test
-    fun theThreadIsWalkedUpToTheNextBead() {
-        val p = ThreadSegment.Passed
-        val a = ThreadSegment.Ahead
-        val n = ThreadSegment.None
-        // Rayon, article coché, article suivant, article à venir.
-        assertEquals(listOf(n to p, p to p, p to a, a to n), threadSegments(count = 4, next = 2))
-        // Tout est pris : le fil est parcouru jusqu'au bout.
-        assertEquals(listOf(n to p, p to n), threadSegments(count = 2, next = 2))
-        // Liste en préparation : rien n'est parcouru.
-        assertEquals(listOf(n to a, a to n), threadSegments(count = 2, next = 0))
-        assertEquals(listOf(n to n), threadSegments(count = 1, next = 0))
-    }
-
-    @Test
     fun reducedMotionDeclaresNoMovement() {
         assertNull(TicketMotion.reorder(reduced = true))
         assertNull(TicketMotion.fade<Float>(reduced = true))

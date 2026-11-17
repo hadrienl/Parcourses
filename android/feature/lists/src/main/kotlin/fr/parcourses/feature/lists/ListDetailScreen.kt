@@ -1,6 +1,7 @@
 package fr.parcourses.feature.lists
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -43,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -84,8 +87,12 @@ import fr.parcourses.core.designsystem.Bead
 import fr.parcourses.core.designsystem.DockPill
 import fr.parcourses.core.designsystem.ItemEditSheet
 import fr.parcourses.core.designsystem.ItemLine
+import fr.parcourses.core.designsystem.LocalThreadTrack
+import fr.parcourses.core.designsystem.RowLane
+import fr.parcourses.core.designsystem.ThreadBead
+import fr.parcourses.core.designsystem.ThreadGutter
 import fr.parcourses.core.designsystem.ThreadLayout
-import fr.parcourses.core.designsystem.ThreadPiece
+import fr.parcourses.core.designsystem.ThreadPath
 import fr.parcourses.core.designsystem.ThreadStyle
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketCheckBox
@@ -97,8 +104,8 @@ import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
 import fr.parcourses.core.designsystem.pressScale
-import fr.parcourses.core.designsystem.thread
-import fr.parcourses.core.designsystem.threadSegments
+import fr.parcourses.core.designsystem.rememberThreadTrackState
+import fr.parcourses.core.designsystem.threadTrack
 import kotlinx.coroutines.launch
 import fr.parcourses.core.designsystem.R as DesignR
 
@@ -327,44 +334,51 @@ private fun Sections(
 ) {
     val total = sections.sumOf { it.items.size }
     val count = pluralStringResource(R.plurals.detail_item_count, total, total)
-    val stops = sections.sumOf { it.items.size + 1 }
-    val segments = threadSegments(stops, next = 0)
-    LazyColumn(
-        Modifier.fillMaxSize().testTag(TAG_ITEMS),
-        contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
-    ) {
-        item(key = "header", contentType = "header") {
-            TicketHeader(
-                title = null,
-                meta = emptyList(),
-                totalLabel = stringResource(R.string.detail_total_label),
-                total = total,
-                modifier = Modifier.clearAndSetSemantics { contentDescription = count },
-            )
-        }
-        if (lastChange != null) {
-            item(key = "last-change", contentType = "meta") { LastChangeLine(lastChange) }
-        }
-        var index = 0
-        sections.forEach { section ->
-            val (top, bottom) = segments[index++]
-            item(key = "header-${section.categoryId}", contentType = "aisle") {
-                SectionHeader(section, ThreadPiece(top, bottom))
+    val listState = rememberLazyListState()
+    val track = rememberThreadTrackState()
+    // Les arrêts du fil suivent l'en-tête du ticket et, s'il y en a une, la ligne du dernier changement.
+    val path =
+        ThreadPath(
+            keys = sections.flatMap { section -> listOf(section.threadKey) + section.items.map(ItemRow::id) },
+            startIndex = if (lastChange != null) 2 else 1,
+            next = 0,
+            style = ThreadStyle.Solid,
+        )
+    // Le trait est dessiné une fois, derrière les lignes ; chaque ligne ne porte que sa perle (#115).
+    CompositionLocalProvider(LocalThreadTrack provides track) {
+        LazyColumn(
+            Modifier.fillMaxSize().threadTrack(track, listState, path).testTag(TAG_ITEMS),
+            state = listState,
+            contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
+        ) {
+            item(key = "header", contentType = "header") {
+                TicketHeader(
+                    title = null,
+                    meta = emptyList(),
+                    totalLabel = stringResource(R.string.detail_total_label),
+                    total = total,
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = count },
+                )
             }
-            section.items.forEach { row ->
-                val (rowTop, rowBottom) = segments[index++]
-                item(key = row.id, contentType = "item") {
-                    val piece = ThreadPiece(rowTop, rowBottom, if (row.isChecked) Bead.Checked else Bead.Idle)
-                    if (actions.readOnly) {
-                        ReadOnlyItemRow(row, piece, onTap = actions.onReadOnlyTap)
-                    } else {
-                        ItemRowView(
-                            row,
-                            piece,
-                            onToggle = { actions.onToggle(row) },
-                            onDelete = { actions.onDelete(row) },
-                            onEdit = { actions.onEdit(row) },
-                        )
+            if (lastChange != null) {
+                item(key = "last-change", contentType = "meta") { LastChangeLine(lastChange) }
+            }
+            sections.forEach { section ->
+                item(key = section.threadKey, contentType = "aisle") { SectionHeader(section) }
+                section.items.forEach { row ->
+                    item(key = row.id, contentType = "item") {
+                        val bead = if (row.isChecked) Bead.Checked else Bead.Idle
+                        if (actions.readOnly) {
+                            ReadOnlyItemRow(row, bead, onTap = actions.onReadOnlyTap)
+                        } else {
+                            ItemRowView(
+                                row,
+                                bead,
+                                onToggle = { actions.onToggle(row) },
+                                onDelete = { actions.onDelete(row) },
+                                onEdit = { actions.onEdit(row) },
+                            )
+                        }
                     }
                 }
             }
@@ -372,17 +386,16 @@ private fun Sections(
     }
 }
 
+/** Clé `LazyColumn` du titre d'un rayon, arrêt du fil. */
+private val ItemSection.threadKey: String get() = "header-$categoryId"
+
 @Composable
-private fun SectionHeader(
-    section: ItemSection,
-    piece: ThreadPiece,
-) {
+private fun SectionHeader(section: ItemSection) {
     val announcement = stringResource(R.string.detail_section_count, section.title, section.items.size)
     AisleLine(
         categoryId = section.categoryId,
         title = section.title,
-        piece = piece,
-        style = ThreadStyle.Solid,
+        threadKey = section.threadKey,
         modifier =
             Modifier.clearAndSetSemantics {
                 heading()
@@ -395,14 +408,15 @@ private fun SectionHeader(
 /**
  * Une ligne : tout le rang est la zone de coche (cible d'au moins 48 dp), l'état se lit sans la couleur (case et
  * texte barré). La suppression passe par un bouton et par l'action d'accessibilité « Supprimer ». Un appui long ouvre
- * le panneau de l'article (#110) : la case et le texte s'enfoncent pendant l'appui (pas le fil), une vibration marque
- * le déclenchement ; TalkBack l'offre aussi en action « Modifier la quantité ».
+ * le panneau de l'article (#110) : la case et le texte s'enfoncent pendant l'appui, une vibration marque le
+ * déclenchement ; TalkBack l'offre aussi en action « Modifier la quantité ». La gouttière (perle) ne bouge jamais :
+ * l'ondulation et l'enfoncement restent dans le couloir (#115).
  */
 @Suppress("LongMethod") // Une ligne : gestes, sémantique TalkBack et contenu se lisent ensemble.
 @Composable
 private fun ItemRowView(
     row: ItemRow,
-    piece: ThreadPiece,
+    bead: Bead,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
@@ -419,11 +433,9 @@ private fun ItemRowView(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .thread(piece, ThreadStyle.Solid)
-                .heightIn(min = TicketDimens.rowMin)
                 .combinedClickable(
                     interactionSource = interaction,
-                    indication = ripple(),
+                    indication = null,
                     role = Role.Checkbox,
                     onLongClickLabel = editLabel,
                     onLongClick = onEdit,
@@ -435,38 +447,51 @@ private fun ItemRowView(
                     stateDescription = if (row.isChecked) checkedText else uncheckedText
                     // « Modifier la quantité » est l'appui long libellé ci-dessus : pas d'action en double.
                     customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete().let { true } })
-                }.padding(start = ThreadLayout.contentStart),
+                }.padding(start = ThreadLayout.start),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Seuls la case et le texte s'enfoncent pendant l'appui (#110), depuis leur bord gauche : le fil, dessiné par
-        // `.thread` sur la ligne, reste immobile et continu, comme la marque d'auteur et la corbeille.
-        Row(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .graphicsLayer {
-                        scaleX = scale.value
-                        scaleY = scale.value
-                        transformOrigin = PRESS_ORIGIN
-                    }.testTag(TAG_ITEM_CONTENT),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TicketCheckBox(row.isChecked)
-            ItemLine(
-                name = row.label,
-                quantity = row.quantity,
-                style = TicketType.item,
-                color = if (row.isChecked) colors.checked else colors.ink,
-                decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+        ThreadGutter(row.id) { ThreadBead(bead) }
+        RowLane {
+            Row(
                 modifier =
                     Modifier
-                        .weight(1f)
-                        .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
-            )
-        }
-        AuthorMark(row.authorMark)
-        IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
-            Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
+                        .fillMaxWidth()
+                        .indication(interaction, ripple())
+                        .heightIn(min = TicketDimens.rowMin)
+                        .padding(start = TicketDimens.spaceXs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Seuls la case et le texte s'enfoncent pendant l'appui (#110), depuis leur bord de début, comme la
+                // marque d'auteur et la corbeille restent en place.
+                Row(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .graphicsLayer {
+                                scaleX = scale.value
+                                scaleY = scale.value
+                                transformOrigin = PRESS_ORIGIN
+                            }.testTag(TAG_ITEM_CONTENT),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TicketCheckBox(row.isChecked)
+                    ItemLine(
+                        name = row.label,
+                        quantity = row.quantity,
+                        style = TicketType.item,
+                        color = if (row.isChecked) colors.checked else colors.ink,
+                        decoration = if (row.isChecked) TextDecoration.LineThrough else null,
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .padding(start = TicketDimens.spaceS, top = 6.dp, bottom = 6.dp),
+                    )
+                }
+                AuthorMark(row.authorMark)
+                IconButton(onClick = onDelete, modifier = Modifier.clearAndSetSemantics { }) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = colors.inkMuted)
+                }
+            }
         }
     }
 }
