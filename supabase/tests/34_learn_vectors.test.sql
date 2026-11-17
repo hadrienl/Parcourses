@@ -2,6 +2,7 @@
 -- Généré par supabase/tests/vectors/gen_learn_tests.ts depuis shared/test-vectors/learn/ : ne pas modifier.
 begin;
 \ir 00_helpers.psql
+\ir graph_helpers.psql
 \ir learn_vectors_helpers.psql
 select plan(78);
 
