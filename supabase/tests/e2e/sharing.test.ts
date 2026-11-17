@@ -10,6 +10,7 @@
 //
 //   deno test --allow-run --allow-read --allow-env --allow-net=127.0.0.1 supabase/tests/e2e/
 
+import { joinUserChannel } from "./realtime.ts";
 import { assert, client, emailAccount, forget, localStack, mailSentTo, type Stack } from "./stack.ts";
 
 const FUNCTION_PORT = 54987;
@@ -40,64 +41,6 @@ async function startSendInvitation(stack: Stack): Promise<{ url: string; stop: (
   }
   child.kill();
   throw new Error("send-invitation ne répond pas");
-}
-
-type Signal = { list_id: string | null; kind: string };
-
-// Canal privé Realtime (protocole Phoenix, JSON v1), sans bibliothèque.
-async function joinUserChannel(stack: Stack, token: string, userId: string) {
-  const ws = new WebSocket(
-    `${stack.url.replace(/^http/, "ws")}/realtime/v1/websocket?apikey=${encodeURIComponent(stack.anonKey)}&vsn=1.0.0`,
-  );
-  const signals: Signal[] = [];
-  const replies = new Map<string, (payload: { status: string; response?: unknown }) => void>();
-  ws.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    if (message.event === "phx_reply" && replies.has(message.ref)) {
-      replies.get(message.ref)!(message.payload);
-    } else if (message.event === "broadcast" && message.payload?.event === "changed") {
-      signals.push(message.payload.payload as Signal);
-    }
-  };
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("WebSocket Realtime injoignable"));
-  });
-  let ref = 0;
-  const join = (topicUserId: string) =>
-    new Promise<string>((resolve) => {
-      ref += 1;
-      const id = String(ref);
-      replies.set(id, (payload) => resolve(payload.status));
-      ws.send(JSON.stringify({
-        topic: `realtime:user:${topicUserId}`,
-        event: "phx_join",
-        payload: {
-          config: { broadcast: { ack: false, self: false }, presence: { key: "", enabled: false }, private: true },
-          access_token: token,
-        },
-        ref: id,
-        join_ref: id,
-      }));
-      // Realtime met environ 5 s à refuser un canal non autorisé.
-      setTimeout(() => resolve("timeout"), 20000);
-    });
-  const status = await join(userId);
-  assert(status === "ok", `abonnement au canal user:${userId} : ${status}`);
-  return {
-    signals,
-    join,
-    async waitFor(predicate: (s: Signal) => boolean, what: string) {
-      for (let i = 0; i < 100; i++) {
-        if (signals.some(predicate)) return;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      throw new Error(`signal attendu non reçu : ${what} (reçus : ${JSON.stringify(signals)})`);
-    },
-    close() {
-      ws.close();
-    },
-  };
 }
 
 Deno.test("partager une liste : invitation par e-mail, acceptation, signaux temps réel, conflits, transfert", async () => {
@@ -228,7 +171,7 @@ Deno.test("partager une liste : invitation par e-mail, acceptation, signaux temp
     const owned = (await (await call(`/rest/v1/lists?select=owner_id&id=eq.${listId}`, { token: lea.access_token })).json()) as { owner_id: string }[];
     assert(owned[0]?.owner_id === lea.user.id, `propriétaire après la suppression d'Hadrien : ${JSON.stringify(owned)}`);
   } finally {
-    realtime.close();
+    await realtime.close();
     await fn.stop();
     await forget(call, hadrien.access_token);
     await forget(call, lea.access_token);
