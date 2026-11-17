@@ -519,6 +519,41 @@ class ViewModelsTest : ListsTest() {
             assertEquals(1, lists.items(id).count { it.label == "tomates" })
         }
 
+    /**
+     * Second appui arrivé quand la première écriture est déjà finie, mais avant que l'écran ne retire la proposition
+     * (#113) : l'ordre qui faisait échouer [aSuggestionTappedTwiceAddsOneRow] quand l'écriture Room finissait avant
+     * que le fil principal ne suspende, ici forcé.
+     */
+    @Test
+    fun aSuggestionTappedAgainAfterItsWriteAddsNothing() =
+        runBlocking {
+            val id = lists.createList("Courses", clock).id
+            val other = lists.createList("Autre", clock).id
+            lists.addItem(other, "tomates", "tomate", null, null, "produce", clock)
+            val model = detailModel(id)
+            model.type("tom")
+            val tomato =
+                model.uiState
+                    .await { it.suggestions.isNotEmpty() }
+                    .suggestions
+                    .single()
+
+            model.add(tomato)
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } == 1 }
+            // La proposition affichée avant l'écriture est touchée de nouveau, une quantité tapée entre-temps.
+            model.type("2 ")
+            // Pas d'assertion sur le champ vidé ici : le refus peut déjà être fini, saisie rendue, si Room n'a pas
+            // suspendu (le schéma même de #113).
+            model.add(tomato)
+            // Rien n'est écrit : la saisie revient. L'état de l'écran ne change pas, d'où l'attente sur le champ.
+            pumpMain({ "saisie rendue, vue : ${model.input.text}" }) { model.input.text.toString() == "2 " }
+            model.type("pain")
+            model.submit()
+            model.uiState.await { s -> s.sections.sumOf { it.items.size } >= 2 }
+            assertEquals(listOf("tomates", "pain"), lists.items(id).sortedBy { it.position }.map { it.label })
+            assertNull(lists.items(id).first().quantity)
+        }
+
     @Test
     fun suggestionsAreComputedOffTheMainThread() {
         val id = runBlocking { lists.createList("Courses", clock).id }
