@@ -363,4 +363,5 @@ glissement (perles et lignes changent de place d'un coup) ; la coche reste anim�
 - Défilement vertical et geste retour du bord d'écran : non gênés.
 - `contextMenu` sur le couloir : l'aperçu soulevé est le couloir seul, mais le système le **resserre et le place à
   16 pt du bord d'écran** ; la carte recouvre la gouttière de la ligne soulevée (perle cachée le temps du menu). Le fil
-  ne bouge pas ; une forme d'aperçu plus étroite n'y change rien. Proposé : l'accepter comme le voile (D4).
+  ne bouge pas ; une forme d'aperçu plus étroite n'y change rien. **Accepté** (coordinateur, 2026-11-17) comme le
+  voile : on reste sur D4, sans menu maison.
