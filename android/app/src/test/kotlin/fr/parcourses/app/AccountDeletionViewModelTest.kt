@@ -239,19 +239,19 @@ class AccountDeletionViewModelTest {
                     LocalDataPurge(db, InMemorySyncCursors(), accountKind = kindFlag),
                     Host(),
                     isOnline = { true },
+                    accountKind = { kindFlag.kind.value },
                 ),
                 scope,
-                accountKind = { kindFlag.kind.value },
             )
         assertTrue(controller.start())
         val done = withTimeout(5_000) { controller.state.first { it is AccountDeletionState.DoneLocally } }
-        // La purge a effacé le drapeau : le type du compte a été lu avant.
+        // La purge a effacé le drapeau : le type du compte a été noté avant, dans le drapeau de suppression (#122).
         assertEquals(AccountKind.Anonymous, kindFlag.kind.value)
         return done
     }
 
     @Test
-    fun anEmailAccountOutOfReachIsNotPromisedTheInactivityPurge() =
+    fun anEmailAccountOutOfReachIsToldToWriteToUs() =
         runBlocking {
             assertEquals(AccountDeletionState.DoneLocally(emailAccount = true), deletedFromDevice(AccountKind.Email))
         }
@@ -263,6 +263,42 @@ class AccountDeletionViewModelTest {
                 AccountDeletionState.DoneLocally(emailAccount = false),
                 deletedFromDevice(AccountKind.Anonymous),
             )
+        }
+
+    /**
+     * Reprise au lancement d'une suppression d'un compte e-mail dont la purge a déjà effacé `account.kind` (#122) : le
+     * message reste celui d'un compte e-mail, lu dans le drapeau de suppression.
+     */
+    @Test
+    fun aResumedDeletionOfAnEmailAccountKeepsItsMessage() =
+        runBlocking {
+            val flag = InMemoryAccountDeletionFlag()
+            flag.write(
+                AccountDeletionMarker(
+                    AccountDeletionPhase.Requested,
+                    "00000000-0000-0000-0000-000000000001",
+                    accountKind = AccountKind.Email,
+                ),
+            )
+            // `account.kind` déjà purgé : il dit « anonyme ».
+            val kindFlag = InMemoryAccountKindFlag()
+            val controller =
+                AccountDeletionController(
+                    AccountDeletion(
+                        gatewayWithoutSession(),
+                        flag,
+                        LocalDataPurge(db, InMemorySyncCursors(), accountKind = kindFlag),
+                        Host(),
+                        isOnline = { true },
+                        accountKind = { kindFlag.kind.value },
+                    ),
+                    scope,
+                )
+
+            assertTrue(controller.resumeAtLaunch())
+            val done = withTimeout(5_000) { controller.state.first { it is AccountDeletionState.DoneLocally } }
+            assertEquals(AccountDeletionState.DoneLocally(emailAccount = true), done)
+            assertFalse(flag.isPending)
         }
 
     // endregion

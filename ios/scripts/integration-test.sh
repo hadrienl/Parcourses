@@ -23,7 +23,7 @@ sql() { docker exec -i supabase_db_parcourses psql -U postgres -v ON_ERROR_STOP=
 store=9f000000-0000-4000-8000-000000000909
 cleanup() {
   sql <<SQL
--- Comptes e-mail des tests (#87) : un compte e-mail n'est jamais purgé pour inactivité.
+-- Comptes e-mail des tests (#87) : un compte e-mail n'est purgé qu'après 3 ans sans utilisation (#118), les tests l'effacent eux-mêmes.
 delete from auth.users where email like 'it-87-%@example.com';
 drop trigger if exists it_fail_list on public.lists;
 drop function if exists public.it_fail_list();

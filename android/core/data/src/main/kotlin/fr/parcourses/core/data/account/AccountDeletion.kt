@@ -1,6 +1,7 @@
 package fr.parcourses.core.data.account
 
 import android.util.Log
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.network.RemoteError
 import fr.parcourses.core.network.RemoteGateway
 import kotlinx.coroutines.CancellationException
@@ -34,9 +35,13 @@ sealed interface AccountDeletionOutcome {
     /**
      * Reprise sans session locale (ou avec la session d'un autre compte) : l'appareil est purgé, mais le serveur n'a
      * pas pu être atteint. Compte anonyme : ses données partiront avec la purge des comptes inactifs (365 jours).
-     * Compte e-mail : jamais purgé pour inactivité, il ne part que sur demande écrite (`/supprimer-mes-donnees/`).
+     * Compte e-mail ([emailAccount]) : purgé après 3 ans sans utilisation, prévenu par e-mail au moins 30 jours avant
+     * (#118), ou plus tôt sur demande écrite (`/supprimer-mes-donnees/`). [emailAccount] vient du drapeau (#122) : la
+     * purge a déjà effacé `account.kind`.
      */
-    data object DeletedLocally : AccountDeletionOutcome
+    data class DeletedLocally(
+        val emailAccount: Boolean,
+    ) : AccountDeletionOutcome
 
     /** « Annuler » : le compte existe toujours, ou rien ne prouve le contraire ; la synchronisation a repris. */
     data object Cancelled : AccountDeletionOutcome
@@ -104,6 +109,8 @@ class AccountDeletion(
     private val host: AccountDeletionHost,
     private val isOnline: () -> Boolean,
     private val timing: AccountDeletionTiming = AccountDeletionTiming(),
+    /** Drapeau `account.kind` de l'appareil, noté dans le drapeau de suppression avant que la purge ne l'efface. */
+    private val accountKind: () -> AccountKind = { AccountKind.Anonymous },
 ) {
     /** Une seule suppression à la fois : un double appui, ou la reprise au lancement pendant une demande. */
     private val lock = Mutex()
@@ -119,9 +126,11 @@ class AccountDeletion(
                 if (gateway != null && !isOnline()) {
                     return@withLock AccountDeletionOutcome.Failed(AccountDeletionError.Offline)
                 }
-                // Le drapeau d'abord (C7) : aucun compte ne doit pouvoir naître pendant qu'on lit la session.
-                flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, null))
-                sessionAccount()?.let { id -> flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, id)) }
+                // Le drapeau d'abord (C7) : aucun compte ne doit pouvoir naître pendant qu'on lit la session. Le type
+                // de compte y est noté tout de suite : la purge efface `account.kind`, une reprise le lira ici (#122).
+                val marker = AccountDeletionMarker(AccountDeletionPhase.Requested, null, accountKind = accountKind())
+                flag.write(marker)
+                sessionAccount()?.let { id -> flag.write(marker.copy(accountId = id)) }
             }
             proceed()
         }
@@ -189,9 +198,11 @@ class AccountDeletion(
                     deleted()
                 }
 
-                // Pas de session pour atteindre le serveur : l'appareil seul (C3).
+                // Pas de session pour atteindre le serveur : l'appareil seul (C3). Le type de compte vient du drapeau ;
+                // écrit avant #122, il n'y est pas, et `account.kind` le donne encore s'il n'a pas été purgé.
                 ServerState.NoSession -> {
-                    finish(AccountDeletionOutcome.DeletedLocally)
+                    val kind = marker.accountKind ?: accountKind()
+                    finish(AccountDeletionOutcome.DeletedLocally(emailAccount = kind == AccountKind.Email))
                 }
 
                 ServerState.Refused -> {

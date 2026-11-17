@@ -473,9 +473,9 @@ class AppContainer(
                 purge = purge,
                 host = DeletionHost(),
                 isOnline = { networkMonitor.isOnline },
+                accountKind = { accountKind.kind.value },
             ),
             maintenanceScope,
-            accountKind = { accountKind.kind.value },
         )
     }
 

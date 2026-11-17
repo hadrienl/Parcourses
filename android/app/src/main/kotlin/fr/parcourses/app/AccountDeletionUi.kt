@@ -1,5 +1,8 @@
 package fr.parcourses.app
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
@@ -21,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -29,12 +33,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.parcourses.core.data.account.AccountDeletion
 import fr.parcourses.core.data.account.AccountDeletionError
 import fr.parcourses.core.data.account.AccountDeletionOutcome
-import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import kotlinx.coroutines.CancellationException
@@ -60,7 +64,8 @@ sealed interface AccountDeletionState {
 
     /**
      * Relance sans session locale (C3) : l'appareil est vide, le serveur hors d'atteinte. Compte anonyme : la purge des
-     * inactifs le supprimera. [emailAccount] : jamais purgé pour inactivité, la personne doit nous écrire.
+     * inactifs le supprimera après 365 jours. [emailAccount] : après 3 ans (#118), ou plus tôt si la personne nous
+     * écrit (« Écrire un e-mail », #122).
      */
     data class DoneLocally(
         val emailAccount: Boolean = false,
@@ -75,23 +80,15 @@ sealed interface AccountDeletionState {
 
 /**
  * Porte la suppression ([AccountDeletion]) dans [scope], celui de l'app : quitter À propos ne l'interrompt pas.
- * Une seule à la fois : un double appui ne lance rien de plus. [accountKind] : drapeau `account.kind`, lu avant chaque
- * passe, car la purge l'efface.
+ * Une seule à la fois : un double appui ne lance rien de plus. Le type du compte supprimé vient de l'issue, qui le
+ * tient du drapeau de suppression (#122) : la purge a déjà effacé `account.kind`.
  */
 class AccountDeletionController(
     private val deletion: AccountDeletion,
     private val scope: CoroutineScope,
-    private val accountKind: () -> AccountKind = { AccountKind.Anonymous },
 ) {
     private val current = MutableStateFlow<AccountDeletionState>(AccountDeletionState.Idle)
     val state: StateFlow<AccountDeletionState> = current.asStateFlow()
-
-    /**
-     * Le compte à supprimer était un compte e-mail. Retenu d'une passe à l'autre tant que la suppression n'est pas
-     * finie : « Réessayer » peut suivre une purge interrompue, qui a déjà effacé le drapeau.
-     */
-    @Volatile
-    private var targetsEmailAccount = false
 
     /** Après confirmation, ou « Réessayer ». `false` si une suppression tourne déjà. */
     fun start(): Boolean = launch { deletion.run() }
@@ -120,11 +117,7 @@ class AccountDeletionController(
         while (true) {
             val seen = current.value
             if (seen == AccountDeletionState.Running) return false
-            if (current.compareAndSet(seen, AccountDeletionState.Running)) {
-                val email = accountKind() == AccountKind.Email
-                targetsEmailAccount = email || (seen is AccountDeletionState.Failed && targetsEmailAccount)
-                break
-            }
+            if (current.compareAndSet(seen, AccountDeletionState.Running)) break
         }
         scope.launch {
             // Le voile ne doit jamais rester, même sur une erreur que rien ne rattrape.
@@ -143,7 +136,7 @@ class AccountDeletionController(
         try {
             when (val result = work()) {
                 AccountDeletionOutcome.Deleted -> AccountDeletionState.Done
-                AccountDeletionOutcome.DeletedLocally -> AccountDeletionState.DoneLocally(targetsEmailAccount)
+                is AccountDeletionOutcome.DeletedLocally -> AccountDeletionState.DoneLocally(result.emailAccount)
                 AccountDeletionOutcome.Cancelled -> AccountDeletionState.Idle
                 is AccountDeletionOutcome.Failed -> AccountDeletionState.Failed(result.error, result.retrySoon)
             }
@@ -319,6 +312,7 @@ internal fun AccountDeletionOverlay(
         }
 
         is AccountDeletionState.DoneLocally -> {
+            val context = LocalContext.current
             Message(
                 R.string.about_account_done_local_title,
                 if (state.emailAccount) {
@@ -327,6 +321,16 @@ internal fun AccountDeletionOverlay(
                     R.string.about_account_done_local_body
                 },
                 actions.onAcknowledge,
+                // Compte e-mail resté sur nos serveurs : la demande écrite, comme sur `/supprimer-mes-donnees/` (#122).
+                onWrite =
+                    if (state.emailAccount) {
+                        {
+                            writeDeletionRequest(context)
+                            actions.onAcknowledge()
+                        }
+                    } else {
+                        null
+                    },
             )
         }
 
@@ -368,11 +372,13 @@ private fun RunningVeil() {
     }
 }
 
+/** [onWrite] : bouton « Écrire un e-mail », à côté de « OK ». */
 @Composable
 private fun Message(
     @StringRes title: Int?,
     @StringRes text: Int,
     onAcknowledge: () -> Unit,
+    onWrite: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onAcknowledge,
@@ -389,7 +395,31 @@ private fun Message(
                 Text(stringResource(R.string.about_account_ok))
             }
         },
+        dismissButton =
+            onWrite?.let { write ->
+                {
+                    TextButton(
+                        onClick = write,
+                        modifier = Modifier.heightIn(min = 48.dp).testTag(TAG_ACCOUNT_WRITE),
+                    ) { Text(stringResource(R.string.about_account_write)) }
+                }
+            },
     )
+}
+
+/**
+ * Ouvre la messagerie sur la demande de suppression (#122), adresse et objet remplis. Sans app de messagerie, rien ne
+ * s'ouvre : l'adresse reste écrite dans le message, que l'appui referme comme « OK ».
+ */
+internal fun writeDeletionRequest(context: Context) {
+    val intent =
+        Intent(Intent.ACTION_SENDTO, DELETION_REQUEST_URI.toUri())
+            .putExtra(Intent.EXTRA_SUBJECT, DELETION_REQUEST_SUBJECT)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Log.i("AccountDeletion", "Aucune messagerie pour la demande de suppression")
+    }
 }
 
 /** Doute (C5, C6) : ni Retour ni appui à côté ; « Réessayer » ou « Annuler », rien d'autre. */
@@ -442,5 +472,6 @@ internal const val TAG_ACCOUNT_DELETE_CANCEL = "account-delete-cancel"
 internal const val TAG_ACCOUNT_RUNNING = "account-deletion-running"
 internal const val TAG_ACCOUNT_MESSAGE = "account-deletion-message"
 internal const val TAG_ACCOUNT_OK = "account-deletion-ok"
+internal const val TAG_ACCOUNT_WRITE = "account-deletion-write"
 internal const val TAG_ACCOUNT_RETRY = "account-deletion-retry"
 internal const val TAG_ACCOUNT_UNCONFIRMED_CANCEL = "account-deletion-unconfirmed-cancel"

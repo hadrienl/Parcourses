@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import fr.parcourses.core.data.account.AccountDeletionMarker
 import fr.parcourses.core.data.account.AccountDeletionPhase
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.SharedPreferencesSyncCursors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,7 +37,7 @@ class AccountDeletionFlagTest {
             context
                 .getSharedPreferences("account_deletion", Context.MODE_PRIVATE)
                 .getString("account.deletion", null)
-        assertEquals("serverDeleted:1763000000123:$account", raw)
+        assertEquals("serverDeleted:1763000000123:$account:", raw)
 
         relaunched.clear()
         assertFalse(SharedPreferencesAccountDeletionFlag(context).isPending)
@@ -57,6 +58,28 @@ class AccountDeletionFlagTest {
         // Tentative illisible : tenue pour faite, un refus ne sera pas cru sur parole.
         prefs.edit().putString("account.deletion", "requested:x:abc").commit()
         assertEquals(Instant.fromEpochMilliseconds(0), flag.read()?.lastAttemptAt)
+    }
+
+    /**
+     * #122 : le type de compte, quatrième champ, survit à une relance. Un drapeau écrit avant n'a que trois champs :
+     * pas de type. Une valeur inconnue (version future) compte comme un compte e-mail, comme `account.kind`.
+     */
+    @Test
+    fun theFlagKeepsTheAccountKind() {
+        val account = Uuid.random().toString()
+        val flag = SharedPreferencesAccountDeletionFlag(context)
+        val marker = AccountDeletionMarker(AccountDeletionPhase.Requested, account, accountKind = AccountKind.Email)
+        flag.write(marker)
+        val prefs = context.getSharedPreferences("account_deletion", Context.MODE_PRIVATE)
+        assertEquals("requested::$account:email", prefs.getString("account.deletion", null))
+        assertEquals(marker, SharedPreferencesAccountDeletionFlag(context).read())
+
+        prefs.edit().putString("account.deletion", "requested::$account").commit()
+        assertEquals(AccountDeletionMarker(AccountDeletionPhase.Requested, account), flag.read())
+
+        prefs.edit().putString("account.deletion", "requested::$account:guest").commit()
+        assertEquals(AccountKind.Email, flag.read()?.accountKind)
+        flag.clear()
     }
 
     @Test

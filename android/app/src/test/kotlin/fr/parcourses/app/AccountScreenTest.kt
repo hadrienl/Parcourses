@@ -10,6 +10,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
@@ -36,7 +37,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -47,7 +47,7 @@ import org.robolectric.annotation.Config
 /**
  * Écran Compte (#108) et À propos sans section Compte : adresse, prénom, déconnexion et suppression sont dans Compte ;
  * À propos ne garde « Vos données » que pour un compte anonyme. Libellés lus et cibles tactiles. Textes d'un compte
- * e-mail (#87, lot 87.8) : jamais purgé pour inactivité, donc aucune promesse de suppression à 365 jours.
+ * e-mail (#87, lot 87.8, #122) : purgé après 3 ans sans utilisation, jamais les 365 jours d'un compte anonyme.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(application = Application::class)
@@ -178,9 +178,14 @@ class AccountScreenTest {
         rule.onNodeWithText(text(R.string.about_privacy_data_email)).assertExists()
         rule.onNodeWithText(text(R.string.about_privacy_data)).assertDoesNotExist()
         rule.onNodeWithText(text(R.string.about_privacy_deletion)).assertDoesNotExist()
-        // Un compte e-mail n'est jamais purgé pour inactivité (#87, lot 87.8).
-        assertFalse(text(R.string.about_privacy_deletion_account).contains(INACTIVITY_PURGE))
-        rule.onNodeWithText(INACTIVITY_PURGE, substring = true).assertDoesNotExist()
+        // Un compte e-mail est purgé après 3 ans sans utilisation, pas 365 jours (#118, #122). Même texte qu'iOS.
+        assertEquals(
+            "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte. Sur nos serveurs, elles " +
+                "sont aussi supprimées après 3 ans sans utilisation de l'app ; un e-mail vous prévient au moins " +
+                "30 jours avant.",
+            text(R.string.about_privacy_deletion_account),
+        )
+        rule.onNodeWithText(ANONYMOUS_PURGE, substring = true).assertDoesNotExist()
         // La politique de confidentialité reste dans À propos, pour tous les comptes.
         rule
             .onNodeWithTag(TAG_PRIVACY_POLICY)
@@ -221,16 +226,17 @@ class AccountScreenTest {
         rule.onNodeWithText(text(R.string.about_account_body)).assertDoesNotExist()
         val confirmation = text(R.string.about_account_confirm_body_email)
         rule.onNodeWithText(confirmation).assertExists()
-        // Une liste partagée passe à un membre (#87, lot 87.8) ; rien sur une purge d'inactivité.
+        // Une liste partagée passe à un membre (#87, lot 87.8) ; rien sur la purge d'un compte anonyme.
         assertTrue(
             confirmation.contains("ainsi que votre compte (adresse e-mail et prénom). ${AboutScreenTest.SHARED_LISTS}"),
         )
-        rule.onNodeWithText(INACTIVITY_PURGE, substring = true).assertDoesNotExist()
+        rule.onNodeWithText(ANONYMOUS_PURGE, substring = true).assertDoesNotExist()
     }
 
     /**
      * Suppression lancée depuis l'écran Compte, serveur hors d'atteinte (C3) : la purge efface le drapeau
-     * `account.kind`, mais le message final reste celui d'un compte e-mail (écrire), sans les 365 jours.
+     * `account.kind`, mais le message final reste celui d'un compte e-mail (écrire), sans les 365 jours : le type de
+     * compte a été noté dans le drapeau de suppression (#122).
      */
     @Test
     fun aDeletionFromTheAccountScreenOutOfReachAsksToWriteToUs() {
@@ -246,9 +252,9 @@ class AccountScreenTest {
                         LocalDataPurge(db, InMemorySyncCursors(), accountKind = kindFlag),
                         IdleAccountDeletionHost(),
                         isOnline = { true },
+                        accountKind = { kindFlag.kind.value },
                     ),
                     scope,
-                    accountKind = { kindFlag.kind.value },
                 )
             val model = AccountDeletionViewModel(controller.state, { false }, controller::start, localOnly = false)
             rule.setContent {
@@ -273,12 +279,13 @@ class AccountScreenTest {
 
             rule.waitUntil(TIMEOUT_MS) { controller.state.value is AccountDeletionState.DoneLocally }
             assertEquals(AccountDeletionState.DoneLocally(emailAccount = true), controller.state.value)
-            // La purge a bien effacé le drapeau : le type du compte a été lu avant.
+            // La purge a bien effacé le drapeau : le type du compte a été noté avant, dans le drapeau de suppression.
             assertEquals(AccountKind.Anonymous, kindFlag.kind.value)
             rule
                 .onNodeWithTag(TAG_ACCOUNT_MESSAGE)
                 .assert(hasText(text(R.string.about_account_done_local_body_email)))
             rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertDoesNotExist()
+            rule.onNodeWithTag(TAG_ACCOUNT_WRITE).assertIsDisplayed()
         } finally {
             scope.cancel()
             db.close()
@@ -286,8 +293,8 @@ class AccountScreenTest {
     }
 
     private companion object {
-        /** Promesse réservée aux comptes anonymes (`about_privacy_deletion`, `about_account_done_local_body`). */
-        const val INACTIVITY_PURGE = "365 jours"
+        /** Purge réservée aux comptes anonymes (`about_privacy_deletion`, `about_account_done_local_body`). */
+        const val ANONYMOUS_PURGE = "365 jours"
         const val TIMEOUT_MS = 5_000L
     }
 }

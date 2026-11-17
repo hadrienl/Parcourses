@@ -27,12 +27,13 @@
     <string name="about_account_body_local">Vous pouvez effacer vos listes et vos visites de cet appareil.</string>
     <!-- Confidentialité, seulement avec un serveur. -->
     <string name="about_privacy_deletion">Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l\'app.</string>
-    <!-- Compte e-mail (#108) : « Vos données » est dans l'écran Compte, plus sous la confidentialité. Jamais purgé pour
-         inactivité (#87, lot 87.8) : pas de 365 jours. -->
-    <string name="about_privacy_deletion_account">Vous pouvez supprimer ces données à tout moment depuis l\'écran Compte.</string>
+    <!-- Compte e-mail (#108) : « Vos données » est dans l'écran Compte, plus sous la confidentialité. Purgé après 3 ans
+         sans utilisation, prévenu par e-mail au moins 30 jours avant (#118, #122) : pas de 365 jours. -->
+    <string name="about_privacy_deletion_account">Vous pouvez supprimer ces données à tout moment depuis l\'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 3 ans sans utilisation de l\'app ; un e-mail vous prévient au moins 30 jours avant.</string>
     <string name="about_account_action">Supprimer mes données…</string>
     <string name="about_account_confirm_title">Supprimer toutes vos données ?</string>
-    <string name="about_account_confirm_body">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Une liste que vous partagez avec d\'autres passe à l\'un de ses membres. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
+    <!-- Compte anonyme : il ne peut pas partager de liste, pas de phrase sur les listes partagées (#122). -->
+    <string name="about_account_confirm_body">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
     <string name="about_account_confirm_body_email">Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). Une liste que vous partagez avec d\'autres passe à l\'un de ses membres. Votre contribution anonyme au plan des rayons des magasins est conservée. C\'est définitif.</string>
     <string name="about_account_confirm_body_local">Vos listes et vos visites seront effacées de cet appareil.</string>
     <string name="about_account_confirm_visit">Vos courses en cours seront interrompues.</string>
@@ -40,11 +41,13 @@
     <string name="about_account_cancel">Annuler</string>
     <string name="about_account_running">Suppression…</string>
     <string name="about_account_done">Vos données ont été supprimées.</string>
-    <!-- Relance sans session locale : le serveur ne peut plus être atteint. Compte anonyme : la purge des inactifs s'en charge. -->
+    <!-- Relance sans session locale : le serveur ne peut plus être atteint. Compte anonyme : la purge à 365 jours s'en charge. -->
     <string name="about_account_done_local_title">Vos données ont été supprimées de cet appareil.</string>
     <string name="about_account_done_local_body">Celles de nos serveurs seront supprimées après 365 jours sans utilisation.</string>
-    <!-- Compte e-mail hors d'atteinte : rien ne le supprimera seul (ni nouvelle tentative, ni purge d'inactivité). -->
-    <string name="about_account_done_local_body_email">Écrivez-nous depuis l\'adresse de votre compte : parcourses.hadrien.eu/supprimer-mes-donnees</string>
+    <!-- Compte e-mail hors d'atteinte : supprimé sur demande écrite (même adresse et même objet que
+         /supprimer-mes-donnees/, bouton about_account_write), sinon par la purge à 3 ans (#118, #122). -->
+    <string name="about_account_done_local_body_email">Pour les supprimer aussi de nos serveurs, écrivez à parcourses@hadrien.eu depuis l\'adresse de votre compte, avec l\'objet « Supprimer mes données ». Sinon, elles le seront après 3 ans sans utilisation.</string>
+    <string name="about_account_write">Écrire un e-mail</string>
     <string name="about_account_offline">Connexion requise. Rien n\'a été effacé.</string>
     <string name="about_account_refused">La suppression n\'a pas abouti. Rien n\'a été effacé. Réessayez plus tard.</string>
     <!-- Doute (règles communes iOS et Android, C6) : ni Retour ni appui à côté, seulement « Réessayer » ou « Annuler ». -->
