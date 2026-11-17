@@ -14,10 +14,8 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     XCTAssertEqual(entry.placeholderValue, "Ajouter un article (ex.\u{00A0}: 2 lait)")
     XCTAssertFalse(app.staticTexts[tip].exists)
     if !entry.hasFocus { entry.tap() }
@@ -72,9 +70,8 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
       let name = app.alerts.textFields.firstMatch
       XCTAssertTrue(name.waitForExistence(timeout: 15))
       type("Semaine", into: name, app)
-      app.alerts.buttons["Créer"].tap()
       let entry = app.textFields["quickEntry"]
-      XCTAssertTrue(entry.waitForExistence(timeout: 15))
+      tap(app.alerts.buttons["Créer"], until: entry)
       for text in [
         "2 lait demi-écrémé bio de montagne en bouteille de verre", "6x33cl bière blonde",
         "1,5 kg fromage blanc fermier au lait cru", "yaourts", "beurre",

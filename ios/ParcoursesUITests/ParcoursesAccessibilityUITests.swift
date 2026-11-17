@@ -387,10 +387,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
-
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     // Alerte refermée avant l'audit : sinon il mesure ses textes, qui ne suivent pas Dynamic Type (constaté sur
     // iOS 18, run de 7636593 : saisie apparue après plus de 5 s, texte sans identifiant signalé).
     XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 15))
@@ -463,8 +461,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
     let tomatoes = row(app, "tomates", "non coché", in: "shoppingList")
     reveal(tomatoes, in: app, betweenBars: true)
-    tomatoes.tap()
-    XCTAssertTrue(app.buttons["undo"].waitForExistence(timeout: 15))
+    tap(tomatoes, until: app.buttons["undo"])
+    // Une coche, une seule : un second appui reçu (le premier arrivé en retard) aurait décoché les tomates et retiré
+    // la bannière. Elle reste à l'écran, contrairement au panier, sous le dock en AX5.
+    XCTAssertEqual(app.staticTexts.matching(identifier: "undoMessage").firstMatch.label, "tomates coché")
     audit(app, "mode-courses-annuler\(suffix)", modal: true)
 
     reveal(app.buttons["finish"], in: app)

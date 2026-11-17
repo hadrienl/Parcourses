@@ -45,6 +45,53 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     element.typeText(text)
   }
 
+  /// Appuie sur `element` une fois actif, et attend `effect`, au plus `timeout` secondes en tout (#116).
+  ///
+  /// Trois échecs de la CI iOS 18 montrent un appui sans effet, synthétisé au centre de l'élément, l'app au repos
+  /// avant et après : « Créer » de l'alerte « Nouvelle liste », encore à l'écran 15 s plus tard avec son nom saisi, et
+  /// la coche des tomates en mode courses, encore « non coché » 17 s plus tard, et le chariot « Faire mes courses ».
+  /// - « Créer » est désactivé tant que le nom est vide, et ne s'active qu'au rendu SwiftUI qui suit la saisie. XCUI
+  ///   appuie sans erreur sur un bouton désactivé : l'appui part donc une fois le bouton actif.
+  /// - Un appui encore sans effet est refait, seulement si `element` est toujours là, dans l'état qui l'a fait trouver
+  ///   (une ligne « non coché », une alerte ouverte) : un appui reçu, même tard, a changé cet état et n'est pas doublé.
+  @MainActor
+  @discardableResult
+  func tap(
+    _ element: XCUIElement, until effect: XCUIElement, timeout: TimeInterval = 15, file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> Bool {
+    let deadline = Date.now.addingTimeInterval(timeout)
+    // Un seul instantané par essai. Le prédicat `exists AND isEnabled` en demandait deux, et deux requêtes lentes
+    // (10 s puis 4 s, CI iOS latest, `testAuditShoppingAX5` sur 5335023) épuisaient les 15 s sur une ligne déjà
+    // trouvée et active.
+    // L'erreur du dernier essai part dans le message : introuvable, ambigu (plusieurs correspondances) ou inactif.
+    var reason = "inactif"
+    while true {
+      do {
+        if try element.snapshot().isEnabled { break }
+        reason = "inactif"
+      } catch {
+        reason = error.localizedDescription
+      }
+      guard deadline.timeIntervalSinceNow > 0 else {
+        XCTFail("élément pas prêt (\(reason)) : \(element)", file: file, line: line)
+        return false
+      }
+      Thread.sleep(forTimeInterval: 0.2)
+    }
+    element.tap()
+    // Chaque essai attend l'effet 5 s, dans la limite de `timeout`.
+    while !effect.waitForExistence(timeout: min(5, max(deadline.timeIntervalSinceNow, 0))) {
+      guard deadline.timeIntervalSinceNow > 0 else {
+        XCTFail("effet attendu après l'appui : \(effect)", file: file, line: line)
+        return false
+      }
+      // État changé ou élément recouvert (appui reçu, effet encore en route) : on attend l'effet sans rien rejouer.
+      if element.exists && element.isHittable { element.tap() }
+    }
+    return true
+  }
+
   @MainActor
   func row(_ app: XCUIApplication, _ label: String, _ state: String, in list: String? = nil) -> XCUIElement {
     let scope: XCUIElement = list.map { app.collectionViews[$0] } ?? app
@@ -148,14 +195,15 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 10))
     type("Samedi", into: name, app)
-    app.alerts.buttons["Créer"].tap()
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     for text in items {
       if !entry.hasFocus { entry.tap() }
       type(text + "\n", into: entry, app)
     }
-    app.buttons["startShopping"].tap()
+    // Appui perdu constaté ici aussi (#116, `testAuditShoppingDark` sur 39cfe22) : liste toujours affichée 15 s
+    // plus tard, chariot actif, donc jamais de demande de localisation.
+    tap(app.buttons["startShopping"], until: app.navigationBars["Choisir le magasin"])
 
     // La demande système n'apparaît qu'ici, au premier passage en mode courses.
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

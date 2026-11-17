@@ -14,9 +14,8 @@ nonisolated final class AccountDeletionUITests: ParcoursesUITestCase {
     let name = app.alerts.textFields.firstMatch
     XCTAssertTrue(name.waitForExistence(timeout: 15))
     type("Semaine", into: name, app)
-    app.alerts.buttons["Créer"].tap()
     let entry = app.textFields["quickEntry"]
-    XCTAssertTrue(entry.waitForExistence(timeout: 15))
+    tap(app.alerts.buttons["Créer"], until: entry)
     entry.tap()
     type("tomates\n", into: entry, app)
     XCTAssertTrue(row(app, "tomates", "non coché").waitForExistence(timeout: 15))
