@@ -82,8 +82,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     case known(String)
     /// Problème non localisé imputé à une ligne coupée par le dock : décompté sur le quota de l'écran.
     case cutLine
-    /// Texte voilé par la feuille du panneau de l'article (2 quater) ou par une alerte (2 quinquies) : un seul par
-    /// écran.
+    /// Texte voilé par la feuille du panneau de l'article (2 quater, un par écran) ou par l'alerte de la déconnexion
+    /// (2 quinquies, deux par écran).
     case veiledText
   }
 
@@ -121,8 +121,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    constat qu'en 2 quater, l'écran reste visible sous le voile de l'alerte, que la modalité rend inaccessible.
       //    Constaté sur iOS 26.5 à la taille par défaut seulement, où l'alerte laisse voir à moitié des lignes de
       //    l'écran Compte ; en AX5, l'alerte couvre l'écran et l'audit passe. Même borne : ce type, sans élément
-      //    localisé, **un** constat par écran, seulement sur les audits « deconnexion-aide », alerte affichée, à la
-      //    taille par défaut. L'alerte elle-même (titre, message, boutons) reste auditée.
+      //    localisé, seulement sur les audits « deconnexion-aide », alerte affichée, à la taille par défaut, et au plus
+      //    **deux** constats par écran (deux en CI sur iOS 18.6, un sur iOS 26.5) : un troisième reste bloquant.
+      //    L'alerte elle-même (titre, message, boutons) reste auditée.
       if screen.alertIsShown && !screen.launchedAtLargestSize && issue.auditType == .elementDetection {
         return .veiledText
       }
@@ -348,7 +349,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     var exceptions: [String] = []
     // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
-    var veiledTextQuota = state.itemSheetIsShown || state.alertIsShown ? 1 : 0
+    // 2 quater : un constat (iOS 18 et 26). 2 quinquies : deux sur iOS 18.6 (CI, deux blocs de l'écran Compte sous le
+    // voile de l'alerte), un sur iOS 26.5.
+    var veiledTextQuota = state.alertIsShown ? 2 : state.itemSheetIsShown ? 1 : 0
     for (pass, types) in Self.auditPasses {
       // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
       // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.
