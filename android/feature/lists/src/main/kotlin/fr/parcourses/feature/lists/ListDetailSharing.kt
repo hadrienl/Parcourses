@@ -3,7 +3,6 @@ package fr.parcourses.feature.lists
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,7 +57,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -119,6 +117,7 @@ import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
+import fr.parcourses.core.designsystem.laneIndication
 import fr.parcourses.core.model.ListRole
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
@@ -225,7 +224,7 @@ internal fun ReadOnlyItemRow(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .indication(interaction, ripple())
+                        .laneIndication(interaction)
                         .heightIn(min = TicketDimens.rowMin)
                         .padding(start = TicketDimens.spaceXs, end = TicketDimens.spaceM),
                 verticalAlignment = Alignment.CenterVertically,

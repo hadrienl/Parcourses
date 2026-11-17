@@ -1,7 +1,6 @@
 package fr.parcourses.feature.lists
 
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +42,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +58,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -79,6 +78,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.parcourses.core.data.sharing.AccessChange
@@ -103,6 +103,7 @@ import fr.parcourses.core.designsystem.TicketType
 import fr.parcourses.core.designsystem.dockFieldColors
 import fr.parcourses.core.designsystem.dockFieldTextStyle
 import fr.parcourses.core.designsystem.isLargeText
+import fr.parcourses.core.designsystem.laneIndication
 import fr.parcourses.core.designsystem.pressScale
 import fr.parcourses.core.designsystem.rememberThreadTrackState
 import fr.parcourses.core.designsystem.threadTrack
@@ -347,7 +348,8 @@ private fun Sections(
     // Le trait est dessiné une fois, derrière les lignes ; chaque ligne ne porte que sa perle (#115).
     CompositionLocalProvider(LocalThreadTrack provides track) {
         LazyColumn(
-            Modifier.fillMaxSize().threadTrack(track, listState, path).testTag(TAG_ITEMS),
+            // L'écran Liste n'anime pas ses lignes : le trait change dans la même image qu'elles.
+            Modifier.fillMaxSize().threadTrack(track, listState, path, animated = false).testTag(TAG_ITEMS),
             state = listState,
             contentPadding = PaddingValues(bottom = TicketDimens.spaceL),
         ) {
@@ -429,6 +431,7 @@ private fun ItemRowView(
     val label = spokenLabel(row)
     val interaction = remember { MutableInteractionSource() }
     val scale = pressScale(interaction)
+    val pressOrigin = if (LocalLayoutDirection.current == LayoutDirection.Ltr) PRESS_ORIGIN else PRESS_ORIGIN_RTL
     Row(
         modifier =
             Modifier
@@ -456,7 +459,7 @@ private fun ItemRowView(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .indication(interaction, ripple())
+                        .laneIndication(interaction)
                         .heightIn(min = TicketDimens.rowMin)
                         .padding(start = TicketDimens.spaceXs),
                 verticalAlignment = Alignment.CenterVertically,
@@ -470,7 +473,7 @@ private fun ItemRowView(
                             .graphicsLayer {
                                 scaleX = scale.value
                                 scaleY = scale.value
-                                transformOrigin = PRESS_ORIGIN
+                                transformOrigin = pressOrigin
                             }.testTag(TAG_ITEM_CONTENT),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -625,5 +628,6 @@ internal const val TAG_SHOP = "startShopping"
 internal const val TAG_QUANTITY_TIP = "quantityTip"
 internal const val TAG_QUANTITY_TIP_CLOSE = "quantityTipClose"
 
-/** Origine de l'enfoncement de la case et du texte : leur bord gauche, à mi-hauteur, côté fil. */
+/** Origine de l'enfoncement de la case et du texte : leur bord de début, à mi-hauteur, côté fil. */
 private val PRESS_ORIGIN = TransformOrigin(0f, 0.5f)
+private val PRESS_ORIGIN_RTL = TransformOrigin(1f, 0.5f)

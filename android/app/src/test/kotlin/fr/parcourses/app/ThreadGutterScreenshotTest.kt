@@ -32,7 +32,6 @@ import fr.parcourses.feature.shopping.ShoppingScreen
 import fr.parcourses.feature.shopping.ShoppingSection
 import fr.parcourses.feature.shopping.ShoppingUiState
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -96,19 +95,26 @@ class ThreadGutterScreenshotTest {
         show { ShoppingScreen(shopping, TextFieldState(), ShoppingActions(), announce = {}) }
         val rest = snapshot("thread-gutter-shopping-rest", SHOPPING_LIST)
         val row = rule.onNodeWithContentDescription("Lait entier, 2")
+        // Couloir de la ligne « Lait entier » (`TAG_ROW_LANE`), deuxième article : ses bornes prouvent que le geste a agi.
+        val lane = rule.onAllNodesWithTag(ROW_LANE, useUnmergedTree = true)[1]
+        val laneAtRest = lane.fetchSemanticsNode().boundsInRoot
         rule.mainClock.autoAdvance = false
         row.performTouchInput { down(Offset(width * 0.6f, centerY)) }
         rule.mainClock.advanceTimeBy(PRESS_MS)
         val pressed = snapshot("thread-gutter-shopping-pressed", SHOPPING_LIST)
+        val lanePressed = lane.fetchSemanticsNode().boundsInRoot
         row.performTouchInput { moveBy(Offset(SWIPE_DP * density, 0f)) }
         rule.mainClock.advanceTimeBy(PRESS_MS)
         val swiped = snapshot("thread-gutter-shopping-swiped", SHOPPING_LIST)
+        val laneSwiped = lane.fetchSemanticsNode().boundsInRoot
         row.performTouchInput { up() }
         rule.mainClock.autoAdvance = true
 
-        assertArrayEquals("enfoncée : gouttière et trait inchangés", rest.gutter, pressed.gutter)
-        assertArrayEquals("glissée : gouttière et trait inchangés", rest.gutter, swiped.gutter)
-        assertFalse("le couloir a bien glissé", rest.lane.contentEquals(swiped.lane))
+        assertTrue("le couloir s'est bien enfoncé", lanePressed.width < laneAtRest.width)
+        // Au moins la moitié du geste, la pente de toucher déduite.
+        assertTrue("le couloir a bien glissé", laneSwiped.left - laneAtRest.left > SWIPE_DP / 2 * rule.density.density)
+        assertArrayEquals("enfoncée : gouttière et trait inchangés", rest, pressed)
+        assertArrayEquals("glissée : gouttière et trait inchangés", rest, swiped)
     }
 
     @Test
@@ -127,8 +133,8 @@ class ThreadGutterScreenshotTest {
         row.performTouchInput { up() }
         rule.mainClock.autoAdvance = true
 
-        assertArrayEquals("enfoncée : gouttière et trait inchangés", rest.gutter, pressed.gutter)
         assertTrue("le couloir s'est bien enfoncé", contentPressed.width < contentAtRest.width)
+        assertArrayEquals("enfoncée : gouttière et trait inchangés", rest, pressed)
     }
 
     // region Outils
@@ -138,31 +144,22 @@ class ThreadGutterScreenshotTest {
         rule.mainClock.advanceTimeBy(SETTLE_MS)
     }
 
-    /** Pixels de la colonne gouttière + trait et du reste de la liste (le couloir), et capture Roborazzi. */
-    private class Pixels(
-        val gutter: IntArray,
-        val lane: IntArray,
-    )
-
     /**
-     * Pixels de la colonne gouttière + trait et du reste de la liste (le couloir). La capture Roborazzi ne garde que la
-     * colonne de la gouttière : l'ondulation du couloir (`RippleDrawable`) avance en temps réel et changerait d'un
-     * lancement à l'autre.
+     * Pixels de la colonne gouttière + trait, aussi capturée par Roborazzi. Le couloir n'est pas capturé : son ondulation
+     * (`RippleDrawable`) avance en temps réel et changerait d'un lancement à l'autre ; on vérifie son geste par ses
+     * bornes.
      */
     private fun snapshot(
         name: String,
         listTag: String,
-    ): Pixels {
+    ): IntArray {
         val image = rule.onRoot().captureToImage()
         val list = rule.onNodeWithTag(listTag).fetchSemanticsNode().boundsInRoot
         val density = rule.density.density
         val split = list.left + (ThreadLayout.start + TicketDimens.threadGutter).value * density
         val gutter = Rect(list.left, list.top, split, list.bottom)
         image.crop(gutter).captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = options)
-        return Pixels(
-            gutter = image.pixels(gutter),
-            lane = image.pixels(Rect(split, list.top, list.right, list.bottom)),
-        )
+        return image.pixels(gutter)
     }
 
     private fun ImageBitmap.crop(area: Rect): Bitmap {
@@ -187,6 +184,7 @@ class ThreadGutterScreenshotTest {
         const val SHOPPING_LIST = "shoppingItems"
         const val DETAIL_LIST = "items"
         const val ITEM_CONTENT = "itemContent"
+        const val ROW_LANE = "shopping-row-lane"
     }
 
     // endregion

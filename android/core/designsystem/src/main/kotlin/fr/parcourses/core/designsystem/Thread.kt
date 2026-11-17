@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
@@ -21,7 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onLayoutRectChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -103,29 +108,69 @@ fun ThreadBead(
 
 /**
  * Couloir d'une ligne (`RowLane`, #115) : case, libellé, points de conduite, quantité, marque d'auteur. Seule partie
- * qui glisse, s'enfonce ou montre l'ondulation ; rogné à son bord, il passe sous la gouttière sans la recouvrir.
+ * qui glisse, s'enfonce ou montre l'ondulation ; rogné à son bord, il passe sous la gouttière sans la recouvrir. Fond
+ * papier : pendant un tri ou un fondu, les textes de deux lignes qui se croisent ne se mêlent pas ; la gouttière, elle,
+ * reste transparente au trait.
  */
 @Composable
 fun RowScope.RowLane(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    Box(modifier.weight(1f).clipToBounds(), content = content)
+    Box(modifier.weight(1f).clipToBounds().background(Ticket.colors.paper), content = content)
 }
 
 /**
- * Retour d'appui du couloir : l'ondulation et l'enfoncement (0,97, depuis le bord de début) suivent [interaction],
- * celle de la ligne entière, qui reste la cible de toucher (48 dp au moins) ; la gouttière n'est jamais touchée.
+ * Retour d'appui du couloir : l'ondulation ([laneIndication]) et l'enfoncement (0,97, depuis le bord de début) suivent
+ * [interaction], celle de la ligne entière, qui reste la cible de toucher (48 dp au moins) ; la gouttière n'est jamais
+ * touchée.
  */
 @Composable
 fun Modifier.lanePress(interaction: InteractionSource): Modifier {
     val scale = pressScale(interaction)
     val origin = if (LocalLayoutDirection.current == LayoutDirection.Ltr) LANE_START_LTR else LANE_START_RTL
-    return indication(interaction, ripple()).graphicsLayer {
+    return laneIndication(interaction).graphicsLayer {
         scaleX = scale.value
         scaleY = scale.value
         transformOrigin = origin
     }
+}
+
+/**
+ * Ondulation du couloir pour l'interaction [interaction] de la ligne entière. L'appui est relevé dans le repère de la
+ * ligne : sa position est ramenée dans celui du couloir (décalé de la marge et de la gouttière en écriture de gauche à
+ * droite), pour que l'onde parte sous le doigt.
+ */
+@Composable
+fun Modifier.laneIndication(interaction: InteractionSource): Modifier {
+    val lane = remember { MutableInteractionSource() }
+    val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val shift = with(LocalDensity.current) { if (ltr) (ThreadLayout.start + TicketDimens.threadGutter).toPx() else 0f }
+    LaunchedEffect(interaction, shift) {
+        val presses = HashMap<PressInteraction.Press, PressInteraction.Press>()
+        interaction.interactions.collect { event ->
+            val mapped =
+                when (event) {
+                    is PressInteraction.Press -> {
+                        PressInteraction.Press(event.pressPosition - Offset(shift, 0f)).also { presses[event] = it }
+                    }
+
+                    is PressInteraction.Release -> {
+                        presses.remove(event.press)?.let { PressInteraction.Release(it) }
+                    }
+
+                    is PressInteraction.Cancel -> {
+                        presses.remove(event.press)?.let { PressInteraction.Cancel(it) }
+                    }
+
+                    else -> {
+                        event
+                    }
+                }
+            if (mapped != null) lane.emit(mapped)
+        }
+    }
+    return indication(lane, ripple())
 }
 
 private fun DrawScope.drawBead(
@@ -181,8 +226,8 @@ fun AisleNode(
 
 /**
  * Ligne de titre de rayon sur le fil : nœud dans la gouttière ([threadKey] : clé `LazyColumn` de la ligne, arrêt du
- * fil), nom en capitales. [trailing] : étiquette éventuelle (« ↑ appris »). Pas de fond : le trait de la liste passe
- * dessous. La sémantique (titre, nombre d'articles) est posée par l'appelant.
+ * fil), nom en capitales. [trailing] : étiquette éventuelle (« ↑ appris »). Seul le titre a un fond papier : la
+ * gouttière laisse voir le trait de la liste. La sémantique (titre, nombre d'articles) est posée par l'appelant.
  */
 @Composable
 fun AisleLine(
@@ -193,20 +238,27 @@ fun AisleLine(
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = TicketDimens.touchMin)
-            .padding(start = ThreadLayout.start, end = ThreadLayout.end),
+        modifier.fillMaxWidth().padding(start = ThreadLayout.start),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ThreadGutter(threadKey) { AisleNode(categoryId) }
-        CapsText(
-            title,
-            style = TicketType.aisle,
-            color = Ticket.colors.inkMuted,
-            modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceXs, top = 4.dp, bottom = 4.dp),
-        )
-        trailing()
+        // Titre sur fond papier, comme le couloir d'un article : il ne se mêle pas à une ligne qui le croise.
+        Row(
+            Modifier
+                .weight(1f)
+                .background(Ticket.colors.paper)
+                .heightIn(min = TicketDimens.touchMin)
+                .padding(end = ThreadLayout.end),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CapsText(
+                title,
+                style = TicketType.aisle,
+                color = Ticket.colors.inkMuted,
+                modifier = Modifier.weight(1f).padding(start = TicketDimens.spaceXs, top = 4.dp, bottom = 4.dp),
+            )
+            trailing()
+        }
     }
 }
 
