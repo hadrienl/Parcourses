@@ -128,17 +128,13 @@ enum TicketFont {
   }
 }
 
-/// Mouvement (#6) : ressorts du ticket, et fondu de 150 ms sans déplacement quand les animations sont réduites.
+/// Mouvement (#6) : ressorts du ticket, et fondu de 150 ms sans déplacement quand les animations sont réduites. Le
+/// jeton `motion.reorder` n'a pas d'équivalent iOS : les listes à fil changent d'ordre d'un coup (#115, option A′) ; il
+/// reste employé par Android (`TicketMotion.reorder`).
 enum Motion {
   /// Coche : la case et la perle se remplissent.
   static func check(reduced: Bool) -> Animation {
     reduced ? fade : .spring(response: 0.25, dampingFraction: 0.8)
-  }
-
-  /// Réordonnancement des lignes et des rayons (jeton `motion.reorder`). Mouvement réduit : aucun déplacement. Les
-  /// listes iOS à fil ne l'emploient plus (#115, option A′) : elles changent d'ordre d'un coup, sans glisser.
-  static func reorder(reduced: Bool) -> Animation? {
-    reduced ? nil : .spring(response: 0.4, dampingFraction: 1)
   }
 
   /// Apparitions et disparitions (bannière, étiquette « ↑ appris »).

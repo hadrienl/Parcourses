@@ -16,6 +16,7 @@ struct ShoppingView: View {
   @FocusState private var inputIsFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorSchemeContrast) private var contrast
   /// Ligne sous le focus VoiceOver : elle le garde quand la liste se réordonne.
@@ -63,7 +64,7 @@ struct ShoppingView: View {
       ids: lines.map(\.id), next: lines.firstIndex { $0.id == nextId?.uuidString } ?? lines.count)
     return List {
       Section {
-        ticketHeader.ticketRow()
+        ticketHeader.closesOpenLane(closeLane).ticketRow()
         ForEach(lines) { line in
           switch line {
           case .aisle(let section):
@@ -84,7 +85,7 @@ struct ShoppingView: View {
       }
       if !session.basket.isEmpty {
         Section {
-          DisclosureGroup(isExpanded: $basketIsExpanded) {
+          DisclosureGroup(isExpanded: basketExpansion) {
             ForEach(session.basket) { row in
               basketRow(row)
             }
@@ -109,8 +110,8 @@ struct ShoppingView: View {
     .environment(\.defaultMinListRowHeight, 0)
     // Repère des tests UI (audit d'accessibilité) : la liste du mode courses, distincte de celle de l'écran Liste.
     .accessibilityIdentifier("shoppingList")
-    .onChange(of: lines.map(\.id)) { _, ids in
-      // Ligne ouverte partie (panier, introuvable, retirée ailleurs) : plus rien n'est ouvert.
+    .onChange(of: Self.openableLanes(lines)) { _, ids in
+      // Ligne ouverte partie (panier, introuvable, retirée ailleurs) ou cochée : plus rien n'est ouvert.
       if let openLane, !ids.contains(openLane) { self.openLane = nil }
     }
     .onChange(of: session.toBuy.map(\.id)) { old, new in
@@ -361,14 +362,36 @@ struct ShoppingView: View {
     .threadLineRow()
   }
 
-  /// Toucher une ligne coche ou décoche ; quand une ligne est ouverte par le glisser, il la referme seulement.
+  /// Toucher une ligne coche ou décoche ; quand une ligne est ouverte par le glisser, il la referme seulement. Avec
+  /// VoiceOver, le double-toucher referme et agit : l'utilisateur ne voit pas forcément la ligne ouverte.
   private func tapped(_ row: ShoppingRow) {
-    guard openLane == nil else {
+    if openLane != nil {
       closeLane()
-      return
+      guard voiceOverEnabled else { return }
     }
     if row.isChecked { uncheckTrigger += 1 } else { checkTrigger += 1 }
     session.toggle(row)
+  }
+
+  /// Lignes qui peuvent être ouvertes par le glisser : les articles à prendre.
+  private static func openableLanes(_ lines: [TicketLine]) -> Set<String> {
+    Set(
+      lines.compactMap { line in
+        if case .item(let row) = line, !row.isChecked { return line.id }
+        return nil
+      })
+  }
+
+  /// Panier replié ou déplié sans animation (option A′, #115) : en bas de la liste, le replier ramène le contenu, et
+  /// les lignes du fil glisseraient sous un trait qui, lui, ne suit que leur place finale.
+  private var basketExpansion: Binding<Bool> {
+    Binding(
+      get: { basketIsExpanded },
+      set: { expanded in
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { basketIsExpanded = expanded }
+      })
   }
 
   private func closeLane() {
@@ -484,6 +507,7 @@ struct ShoppingView: View {
       }
       .floatingDock()
     }
+    .closesOpenLane(closeLane)
     .animation(Motion.fade, value: session.undo)
   }
 

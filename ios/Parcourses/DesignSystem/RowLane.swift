@@ -64,7 +64,11 @@ struct RowLane<Content: View>: View {
         }
       }
       .clipped()
-      .gesture(LanePan(isEnabled: action != nil && injectedOffset == nil, onChange: changed, onEnd: ended))
+      .gesture(
+        LanePan(
+          isEnabled: action != nil && injectedOffset == nil, isOpen: openId == id, onChange: changed, onEnd: ended,
+          onCancel: cancelled)
+      )
       .onGeometryChange(for: CGFloat.self) {
         $0.size.width
       } action: {
@@ -134,15 +138,19 @@ struct RowLane<Content: View>: View {
 
   /// Ouverture : distance projetée par la vitesse (`swipeLeft()` d'XCUITest est court et rapide). Glisser complet :
   /// distance réelle.
-  private func ended(_ translation: CGFloat, _ velocity: CGFloat) {
-    guard let action else { return }
+  private func ended(_ velocity: CGFloat) {
+    // Distance relevée avant de remettre le glisser à zéro, quoi qu'il arrive ensuite.
+    let offset = rawOffset
     pastFullSwipe = false
-    let distance = -rawOffset
-    if action.allowsFullSwipe, laneWidth > 0, distance > laneWidth * LaneMotion.fullSwipeShare {
+    guard let action else {
+      drag = 0
+      return
+    }
+    if action.allowsFullSwipe, laneWidth > 0, -offset > laneWidth * LaneMotion.fullSwipeShare {
       perform(action)
       return
     }
-    let projected = -(rawOffset + velocity * 0.15)
+    let projected = -(offset + velocity * 0.15)
     withAnimation(settle) {
       drag = 0
       if projected > actionWidth / 2 {
@@ -153,11 +161,25 @@ struct RowLane<Content: View>: View {
     }
   }
 
+  /// Geste interrompu (appel, défilement qui reprend la main) : le couloir revient à sa place, sans action.
+  private func cancelled() {
+    pastFullSwipe = false
+    withAnimation(settle) { drag = 0 }
+  }
+
   /// L'action change la liste sans animation (option A′) : la ligne part d'un coup, le trait reste exact.
   private func perform(_ action: LaneAction) {
     drag = 0
     if openId == id { openId = nil }
     action.perform()
+  }
+}
+
+extension View {
+  /// Toucher cette zone hors des lignes (en-tête du ticket, dock) referme la ligne ouverte, sans prendre le toucher aux
+  /// contrôles qu'elle contient.
+  func closesOpenLane(_ close: @escaping () -> Void) -> some View {
+    simultaneousGesture(TapGesture().onEnded(close))
   }
 }
 
@@ -175,22 +197,34 @@ struct LanePressStyle: ButtonStyle {
 }
 
 /// Pan horizontal du couloir : il ne démarre que si le geste part d'abord à l'horizontale, hors des 24 pt du bord
-/// d'écran, et cède au geste retour. Il ne gêne ni le défilement de la liste, ni le toucher, ni l'appui long.
+/// d'écran. Il ne gêne ni le défilement de la liste, ni le toucher, ni l'appui long. Ligne fermée, il refuse un
+/// mouvement vers la fin de ligne et cède au geste retour (bord d'écran, et plein écran sur iOS 26) ; ligne ouverte,
+/// c'est le geste retour qui l'attend : un glisser vers la fin de ligne referme la ligne sans quitter l'écran.
 private struct LanePan: UIGestureRecognizerRepresentable {
   let isEnabled: Bool
+  /// La ligne de ce couloir est ouverte.
+  let isOpen: Bool
   let onChange: (CGFloat) -> Void
-  let onEnd: (CGFloat, CGFloat) -> Void
+  /// Relâcher : vitesse logique.
+  let onEnd: (CGFloat) -> Void
+  let onCancel: () -> Void
   @Environment(\.layoutDirection) private var direction
 
   func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
     let pan = UIPanGestureRecognizer()
     pan.delegate = context.coordinator
-    pan.isEnabled = isEnabled
+    configure(pan, context.coordinator)
     return pan
   }
 
   func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+    configure(recognizer, context.coordinator)
+  }
+
+  private func configure(_ recognizer: UIPanGestureRecognizer, _ coordinator: Coordinator) {
     recognizer.isEnabled = isEnabled
+    coordinator.isOpen = isOpen
+    coordinator.sign = direction == .rightToLeft ? -1 : 1
   }
 
   func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
@@ -200,7 +234,8 @@ private struct LanePan: UIGestureRecognizerRepresentable {
     let velocity = recognizer.velocity(in: recognizer.view).x * sign
     switch recognizer.state {
     case .changed: onChange(translation)
-    case .ended, .cancelled, .failed: onEnd(translation, velocity)
+    case .ended: onEnd(velocity)
+    case .cancelled, .failed: onCancel()
     default: break
     }
   }
@@ -208,6 +243,10 @@ private struct LanePan: UIGestureRecognizerRepresentable {
   func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
 
   final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    var isOpen = false
+    /// -1 en écriture de droite à gauche : la fin de ligne est à gauche.
+    var sign: CGFloat = 1
+
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
       guard let pan = gesture as? UIPanGestureRecognizer, let view = pan.view else { return true }
       let velocity = pan.velocity(in: view)
@@ -215,13 +254,35 @@ private struct LanePan: UIGestureRecognizerRepresentable {
       let width = view.window?.bounds.width ?? 0
       // Bord d'écran : le geste retour garde la priorité.
       if location.x < 24 || location.x > width - 24 { return false }
+      // Ligne fermée : rien à faire vers la fin de ligne, ce mouvement revient au geste retour plein écran.
+      if !isOpen && velocity.x * sign > 0 { return false }
       return abs(velocity.x) > abs(velocity.y)
     }
 
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer
     ) -> Bool {
-      other is UIScreenEdgePanGestureRecognizer
+      if other is UIScreenEdgePanGestureRecognizer { return true }
+      return !isOpen && other === Self.contentPopGesture(near: gesture.view)
+    }
+
+    func gestureRecognizer(
+      _ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+      isOpen && other === Self.contentPopGesture(near: gesture.view)
+    }
+
+    /// Geste retour plein écran de la pile de navigation (iOS 26), s'il y en a une.
+    private static func contentPopGesture(near view: UIView?) -> UIGestureRecognizer? {
+      guard #available(iOS 26, *) else { return nil }
+      var responder: UIResponder? = view
+      while let current = responder {
+        if let navigation = (current as? UIViewController)?.navigationController {
+          return navigation.interactiveContentPopGestureRecognizer
+        }
+        responder = current.next
+      }
+      return nil
     }
   }
 }

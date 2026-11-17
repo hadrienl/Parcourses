@@ -61,7 +61,7 @@ struct ListDetailView: View {
     // Écran de préparation : le fil est tracé, rien n'est encore parcouru (la perle suivante est la première).
     let path = ThreadPath(ids: lines.map(\.id), next: 0)
     List {
-      if !model.isMissing { titleLine.ticketRow() }
+      if !model.isMissing { titleLine.closesOpenLane(closeLane).ticketRow() }
       if let change = accessChange { accessBanner(change).ticketRow() }
       if isOffline { offlineBanner.ticketRow() }
       if model.access.isReadOnly {
@@ -71,7 +71,7 @@ struct ListDetailView: View {
           .ticketRow()
       }
       if !model.isEmpty {
-        header.ticketRow()
+        header.closesOpenLane(closeLane).ticketRow()
         lastChangeLine.ticketRow()
         if model.access.capabilities.canEditItems {
           TipView(quantityTip, arrowEdge: nil)
@@ -100,8 +100,8 @@ struct ListDetailView: View {
     .onScrollPhaseChange { _, phase in
       if phase.isScrolling { closeLane() }
     }
-    .onChange(of: lines.map(\.id)) { _, ids in
-      // Ligne ouverte partie (supprimée ici ou ailleurs) : plus rien n'est ouvert.
+    .onChange(of: openableLanes(lines)) { _, ids in
+      // Ligne ouverte partie (supprimée ici ou ailleurs), ou liste passée en lecture seule : plus rien n'est ouvert.
       if let openLane, !ids.contains(openLane) { self.openLane = nil }
     }
     .overlay {
@@ -282,7 +282,11 @@ struct ListDetailView: View {
           .accessibilityValue(row.accessibilityState)
           .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
           .accessibilityAddTraits([.isButton, .isToggle])
-          .accessibilityAction { model.toggle(row) }
+          .accessibilityAction {
+            // Double-toucher VoiceOver : il coche, et referme la ligne ouverte s'il y en a une.
+            closeLane()
+            model.toggle(row)
+          }
           .accessibilityActions {
             if row.isChecked { Button("Décocher") { model.toggle(row) } }
             Button("Modifier la quantité") { edit(row) }
@@ -317,6 +321,16 @@ struct ListDetailView: View {
   private func delete(_ row: ItemRow) {
     openLane = nil
     model.delete(row)
+  }
+
+  /// Lignes qui peuvent être ouvertes par le glisser : les articles, tant que la liste se modifie ici.
+  private func openableLanes(_ lines: [ListLine]) -> Set<String> {
+    guard !model.access.isReadOnly else { return [] }
+    return Set(
+      lines.compactMap { line in
+        if case .item = line { return line.id }
+        return nil
+      })
   }
 
   private func closeLane() {
@@ -543,6 +557,7 @@ struct ListDetailView: View {
       }
     }
     .floatingDock()
+    .closesOpenLane(closeLane)
   }
 
   /// Le clavier reste ouvert : on enchaîne les articles.
