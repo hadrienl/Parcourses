@@ -117,7 +117,8 @@ select results_eq($$ select p.name, p.category_id from public.products as p wher
                   $$ select 'patisson', min(id) from public.categories where slug in ('produce', 'frozen', 'other') $$,
                   'égalité : forme normalisée, plus petit id de catégorie, l''ancienneté ne compte pas');
 
--- 5. Filtre : téléphone, adresse web, e-mail restent privés, même à 3 comptes.
+-- 5. Filtre : téléphone, adresse web, e-mail ne sont jamais publiés, même à 3 comptes. Depuis #47, ils ne sont même plus
+-- créés ni revendiqués (filtre appliqué à la revendication).
 select tests.authenticate_as(:'alice');
 select * from public.resolve_products('[{"name": "Rappeler 0612345678", "category_slug": "other"}, {"name": "www.exemple.fr", "category_slug": "other"}, {"name": "a@b.fr", "category_slug": "other"}]');
 select tests.authenticate_as(:'bob');
@@ -125,9 +126,9 @@ select * from public.resolve_products('[{"name": "rappeler 0612345678", "categor
 select tests.authenticate_as(:'dave');
 select * from public.resolve_products('[{"name": "Rappeler 0612345678", "category_slug": "other"}, {"name": "www.exemple.fr", "category_slug": "other"}, {"name": "a@b.fr", "category_slug": "other"}]');
 select tests.clear_authentication();
-select ok(not tests.published('rappeler 0612345678') and not tests.published('www.exemple.fr') and not tests.published('a@b.fr'),
-          'formes filtrées : jamais publiées');
-select is(tests.claims('rappeler 0612345678'), 3, 'revendications gardées jusqu''à la purge');
+select is((select count(*)::int from public.products where normalized_name in ('rappeler 0612345678', 'www.exemple.fr', 'a@b.fr')),
+          0, 'formes filtrées : jamais publiées, ni même créées');
+select is(tests.claims('rappeler 0612345678'), 0, 'formes filtrées : aucune revendication');
 select ok(catalog.is_publishable('biere 1664'), 'quatre chiffres acceptés (marque)');
 select ok(catalog.is_publishable('biere 1664 pack 20x25cl'), 'chiffres en groupes séparés par des mots acceptés');
 select ok(not catalog.is_publishable(' ') and not catalog.is_publishable('--'), 'forme sans lettre ni chiffre refusée');
