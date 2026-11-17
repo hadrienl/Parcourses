@@ -116,8 +116,9 @@ begin
 end;
 $$;
 
--- Publication nocturne (job catalog-claims-publish) : produits privés que 3 comptes établis ont revendiqués, dont
--- au moins un ne l'était pas encore à sa revendication. Renvoie le nombre de produits publiés.
+-- Publication nocturne (job catalog-claims-publish) : produits privés de forme publiable que 3 comptes établis ont
+-- revendiqués (en pratique, ceux dont un votant a mûri depuis sa revendication : sinon la revendication qui atteint
+-- le seuil a déjà publié). Renvoie le nombre de produits publiés.
 create or replace function catalog.publish_matured()
 returns integer
 language plpgsql
@@ -129,7 +130,7 @@ begin
     select c.product_id
     from catalog.product_claims as c
     inner join public.products as p on p.id = c.product_id and p.published_at is null
-    where catalog.is_established(c.user_id)
+    where catalog.is_publishable(p.normalized_name) and catalog.is_established(c.user_id)
     group by c.product_id
     having count(*) >= catalog.min_publish_accounts()
   ));

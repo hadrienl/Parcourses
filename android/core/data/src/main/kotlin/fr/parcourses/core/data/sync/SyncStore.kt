@@ -527,6 +527,9 @@ class SyncStore(
         upsertProducts(rows, removingOthers = true)
     }
 
+    /** Vrai si le cache contient un produit : vide (purge interrompue, #129), le catalogue est relu en entier. */
+    suspend fun hasProducts(): Boolean = db.products().any()
+
     /** Produits publiés depuis le curseur (#47) : ajoutés ou mis à jour, aucun autre retiré. */
     suspend fun mergeProducts(rows: List<RemoteProduct>) {
         if (rows.isNotEmpty()) upsertProducts(rows, removingOthers = false)

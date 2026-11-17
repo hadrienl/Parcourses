@@ -481,6 +481,11 @@ actor SyncStore {
     try upsertProducts(rows, removingOthers: !rows.isEmpty || catalogReadable)
   }
 
+  /// Vrai si le cache contient au moins un produit : vide (purge interrompue, #129), le catalogue est relu en entier.
+  func hasProducts() throws -> Bool {
+    try modelContext.fetchCount(FetchDescriptor<Product>()) > 0
+  }
+
   /// Produits publiés depuis le curseur (#47) : ajoutés ou mis à jour, aucun autre retiré.
   func mergeProducts(_ rows: [RemoteProduct]) throws -> Bool {
     try upsertProducts(rows, removingOthers: false)

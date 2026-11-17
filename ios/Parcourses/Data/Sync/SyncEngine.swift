@@ -934,7 +934,8 @@ actor SyncEngine {
         let categories = try await gateway.fetchCategories()
         try await store.applyCategories(categories)
         if let since = cursors.catalogPublished, let full = cursors.catalogFull, !categories.isEmpty,
-          now.timeIntervalSince(full) < SyncRetryPolicy.catalogFullInterval, now >= full
+          now.timeIntervalSince(full) < SyncRetryPolicy.catalogFullInterval, now >= full,
+          try await store.hasProducts()
         {
           // Produits publiés depuis la dernière descente (#47) : un produit publié ne change plus, rien n'est retiré.
           let rows = try await gateway.fetchProducts(publishedSince: since)

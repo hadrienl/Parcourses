@@ -1224,7 +1224,9 @@ class SyncEngine(
         val since = cursors.catalogPublished
         val full = cursors.catalogFull
         val recentFull = full != null && now >= full && now - full < SyncRetryPolicy.catalogFullInterval
-        if (since != null && catalogReadable && recentFull) {
+        // Cache vide (purge locale interrompue, #129) : rien à compléter, le catalogue est relu en entier.
+        val incremental = catalogReadable && recentFull && store.hasProducts()
+        if (since != null && incremental) {
             val rows = gateway.fetchProducts(publishedSince = since)
             store.mergeProducts(rows)
             cursors.catalogPublished = later(since, rows.mapNotNull { it.publishedAt }.maxOrNull())
