@@ -120,6 +120,46 @@ class SyncEngineTest : DataTest() {
         }
 
     @Test
+    fun anUnreadableDeletionListOrUnknownChangedFieldsAreRejected() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            val milk = repository.addItem(list.id, "lait", "lait", null, null, "dairy", now)
+            engine.drain()
+            assertTrue(entries().isEmpty())
+
+            // Suppression dont la liste ne se lit pas (#120).
+            db.outbox().enqueue(
+                "bad-deletion",
+                OutboxKind.DeleteItem,
+                Uuid.random().toString(),
+                """{"listId":"pas-un-uuid","isOnServer":true}""".encodeToByteArray(),
+                now,
+            )
+            // Coche d'un article déjà sur le serveur, avec une colonne inconnue parmi les champs modifiés.
+            repository.setChecked(milk.id, now, now)
+            val check = entries().single { it.entityId == milk.id }
+            db.outbox().replacePending(
+                "bad-fields",
+                OutboxKind.UpsertItem,
+                milk.id,
+                check.payload,
+                now,
+                changedFields = "colonne_inconnue",
+            )
+
+            assertNull(engine.drain())
+
+            val failed = entries()
+            assertEquals(setOf("bad-deletion", "bad-fields"), failed.map { it.id }.toSet())
+            failed.forEach {
+                assertEquals(SyncState.FAILED, it.syncState)
+                assertTrue(it.lastError.orEmpty(), it.lastError.orEmpty().contains("rejected payload"))
+            }
+            assertTrue(gateway.callsOf("deleteItem").isEmpty())
+            assertTrue(gateway.callsOf("updateItem").isEmpty())
+        }
+
+    @Test
     fun aNetworkErrorWaitsWithoutConsumingAnAttempt() =
         runBlocking {
             val list = repository.createList("Courses", now)
@@ -717,6 +757,45 @@ class SyncEngineTest : DataTest() {
                     .single()
                     .checkedAt <= now,
             )
+        }
+
+    @Test
+    fun anUnreadableSiblingDoesNotBlockTheClockCorrection() =
+        runBlocking {
+            val list = insertList(state = SyncState.SYNCED)
+            val item = insertItem(list.id)
+            val visit = visit(list.id)
+            val skew = 2.hours
+            val check = check(visit.id, item.id, at = now + skew)
+            db.visits().upsert(visit.copy(startedAt = now + skew))
+            db.checks().upsert(check)
+            val queue = OutboxQueue(db.outbox())
+            queue.enqueueCreation(visit.copy(startedAt = now + skew), list.id, now)
+            queue.enqueueInsertion(check, now)
+            // Clôture sœur dont la date ne se lit pas (#120) : la correction l'ignore, elle finira en `FAILED`.
+            db.outbox().enqueue(
+                "bad-close",
+                OutboxKind.CloseVisit,
+                visit.id,
+                """{"visitId":"${visit.id}","endedAt":"pas-une-date"}""".encodeToByteArray(),
+                now,
+            )
+            gateway.serverDate = now
+            gateway.failNext("createVisit", RemoteError.Constraint("23514"))
+
+            engine.drain()
+
+            // La création et la coche partent corrigées ; seule la clôture illisible reste, en `FAILED`.
+            assertEquals(2, gateway.callsOf("createVisit").size)
+            assertTrue(
+                gateway.savedChecks
+                    .single()
+                    .single()
+                    .checkedAt <= now,
+            )
+            val left = entries().single()
+            assertEquals("bad-close", left.id)
+            assertEquals(SyncState.FAILED, left.syncState)
         }
 
     // endregion

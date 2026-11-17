@@ -114,12 +114,9 @@ class RealtimeSignals(
 
     @Suppress("TooGenericExceptionCaught") // un canal qui tombe est rouvert après un délai ; l'annulation est relancée
     private suspend fun listen() {
-        // Canal rouvert (autre compte) : la seconde descente de l'ancienne jonction n'a plus lieu d'être, comme à la
-        // fermeture ; la jonction du nouveau canal en programme une.
-        lock.withLock {
-            followUpPullJob?.cancel()
-            followUpPullJob = null
-        }
+        // Canal rouvert (`sessionChanged`) : ce que l'ancien canal avait programmé (seconde descente, écho, signaux
+        // en attente) n'a plus lieu d'être, comme à la fermeture ; la jonction du nouveau canal redescend.
+        close()
         while (true) {
             val id =
                 try {

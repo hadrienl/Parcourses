@@ -347,4 +347,25 @@ class RealtimeSignalsTest {
             advanceTimeBy(60_000)
             assertEquals(3, pulls)
         }
+
+    @Test
+    fun theSecondPullReplacesThePendingEchoPull() =
+        runTest {
+            val signals = signals()
+            signals.foreground()
+            runCurrent()
+            source.events.emit(RealtimeEvent.Subscribed)
+            advanceTimeBy(1_000)
+            assertEquals(1, pulls)
+
+            // Écho de mes envois à 1 s : sa descente est due en fin de fenêtre (3 s), après la seconde (2,5 s).
+            echoes = setOf(list.toString())
+            source.events.emit(changed("items"))
+            advanceTimeBy(1_501)
+            runCurrent()
+            assertEquals(2, pulls)
+            // La seconde descente a tout relu : la descente de l'écho n'a plus lieu.
+            advanceTimeBy(60_000)
+            assertEquals(2, pulls)
+        }
 }

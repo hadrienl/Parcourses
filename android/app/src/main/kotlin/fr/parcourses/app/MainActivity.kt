@@ -59,7 +59,10 @@ class MainActivity : ComponentActivity() {
      * [onNewIntent], puis cette instance se ferme sans rien afficher ni suivre le lien. `true` si le lien est relayé.
      */
     private fun relayToOwnTask(intent: Intent?): Boolean {
-        val relayed = AppLinkIntents.relayed(intent, this)?.takeUnless { isTaskRoot || isInOwnTask() }
+        val relayed =
+            AppLinkIntents
+                .relayed(intent, this, container.invitationLinks.httpsHost)
+                ?.takeUnless { isTaskRoot || isInOwnTask() }
         relayed?.let {
             startActivity(it)
             finish()
@@ -70,7 +73,8 @@ class MainActivity : ComponentActivity() {
     /** Tâche de Parcourses : `appTasks` liste les tâches de l'app, pas celle d'une autre app qui nous héberge. */
     private fun isInOwnTask(): Boolean =
         getSystemService(ActivityManager::class.java).appTasks.any { task ->
-            val info = task.taskInfo ?: return@any false
+            // La tâche peut disparaître entre la liste et sa lecture : `getTaskInfo` lève alors une exception.
+            val info = runCatching { task.taskInfo }.getOrNull() ?: return@any false
             val id =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     info.taskId

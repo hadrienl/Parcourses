@@ -1,5 +1,6 @@
 package fr.parcourses.app
 
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Intent
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -15,6 +16,7 @@ import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.database.ParcoursesDatabaseFactory
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -24,6 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowAppTask
 
 /**
  * Lien d'invitation reçu par [MainActivity] (#87, lot 87.7), dans l'application de l'app (base en mémoire, sans
@@ -95,12 +98,13 @@ class InvitationLinkActivityTest {
 
     /**
      * #120 : une app ouvre le lien dans sa propre tâche, sans `FLAG_ACTIVITY_NEW_TASK`. L'instance née là (pas racine
-     * de sa tâche, absente des tâches de l'app) relance le lien vers la tâche de Parcourses et se ferme sans le suivre ;
+     * de sa tâche, absente des tâches de l'app) relance le lien vers la tâche de Parcourses et se ferme sans le
+     * suivre ;
      * le lien relancé ouvre la carte.
      */
     @Test
     fun aLinkOpenedInAnotherAppsTaskIsRelayedToTheParcoursesTask() {
-        val incoming = viewIntent(link(first))
+        val incoming = delivered(first)
         assertEquals(0, incoming.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
         val controller = Robolectric.buildActivity(MainActivity::class.java, incoming)
         // Tâche de l'appelant : l'activité n'en est pas la racine, et `appTasks` (vide ici) ne la connaît pas.
@@ -112,15 +116,52 @@ class InvitationLinkActivityTest {
         // L'instance relais ne suit pas le lien : l'instance de la tâche de Parcourses s'en charge.
         assertNull(container.pendingInvitation)
         val relayed = checkNotNull(shadowOf(relay).nextStartedActivity)
-        assertEquals(MainActivity::class.java.name, relayed.component?.className)
+        // Le composant reçu est gardé (alias des App Links ou MainActivity), avec seulement l'action et l'adresse.
+        assertEquals(relay.intent.component, relayed.component)
         assertEquals(Intent.ACTION_VIEW, relayed.action)
         assertEquals(link(first), relayed.dataString)
+        assertNull(relayed.extras)
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         assertEquals(flags, relayed.flags and flags)
         controller.destroy()
 
-        // Dans la tâche de Parcourses, le lien relancé ouvre la carte.
+        // Dans la tâche de Parcourses, le lien relayé ouvre la carte. Sa livraison à une instance déjà ouverte passe par
+        // `onNewIntent`, comme le second lien du premier test. (Un `ActivityScenario` lancé par l'alias perd son
+        // activité si elle reçoit une intention vers `MainActivity`, d'où ce lancement direct.)
         ActivityScenario.launch<MainActivity>(relayed).use { awaitInvitation(first) }
+    }
+
+    @Test
+    fun aLinkInTheParcoursesTaskIsNotRelayed() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java, delivered(first))
+        val activity = controller.get()
+        // Seconde instance posée dans la tâche de Parcourses : pas racine, mais la tâche est bien la nôtre.
+        shadowOf(activity).setIsTaskRoot(false)
+        val info =
+            ActivityManager.RecentTaskInfo().apply {
+                taskId = activity.taskId
+                @Suppress("DEPRECATION")
+                persistentId = activity.taskId
+            }
+        val task = ShadowAppTask.newInstance().also { shadowOf(it).setTaskInfo(info) }
+        shadowOf(app.getSystemService(ActivityManager::class.java)).setAppTasks(listOf(task))
+        controller.create()
+
+        assertFalse(activity.isFinishing)
+        assertNull(shadowOf(activity).nextStartedActivity)
+        assertEquals(first, container.pendingInvitation)
+        controller.destroy()
+    }
+
+    @Test
+    fun anAddressThatIsNotALinkIsNotRelayed() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java, viewIntent("https://autre.example/x"))
+        shadowOf(controller.get()).setIsTaskRoot(false)
+        controller.create()
+
+        assertFalse(controller.get().isFinishing)
+        assertNull(shadowOf(controller.get()).nextStartedActivity)
+        controller.destroy()
     }
 
     @Test

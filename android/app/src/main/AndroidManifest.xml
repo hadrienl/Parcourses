@@ -31,8 +31,9 @@
         <!--
           `singleTop` : un lien de la Live Update arrive dans l'activité ouverte (onNewIntent), sans la doubler. Un lien
           ouvert par une autre app sans FLAG_ACTIVITY_NEW_TASK crée l'activité dans la tâche de cette app : elle le
-          relaie aussitôt vers la tâche de Parcourses et se ferme (MainActivity.relayToOwnTask, #120). Pas de
-          `singleTask` : toucher l'icône fermerait le sélecteur de partage et les dialogues d'autorisation.
+          relaie aussitôt vers la tâche de Parcourses (créée au besoin) et se ferme (MainActivity.relayToOwnTask, #120).
+          Ce lien relayé ferme ce qui est posé sur l'instance ouverte (CLEAR_TOP). Pas de `singleTask` : toucher l'icône
+          fermerait aussi le sélecteur de partage et les dialogues d'autorisation.
         -->
         <activity
             android:name=".MainActivity"

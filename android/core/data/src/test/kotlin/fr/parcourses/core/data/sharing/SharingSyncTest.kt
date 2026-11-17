@@ -16,8 +16,11 @@ import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListMemberRow
 import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.ProfileRow
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -139,7 +142,7 @@ class SharingSyncTest : DataTest() {
         }
 
     @Test
-    fun aFailedReloadDoesNotHideTheDowngradeOfAnotherList() =
+    fun anotherDowngradeIsAnnouncedWithoutReloadAfterAFailedReload() =
         runBlocking {
             val ids = twoSharedLists()
             gateway.failNext("fetchItemsOfList", IOException("coupure"))
@@ -147,6 +150,7 @@ class SharingSyncTest : DataTest() {
             engine.drain(pull = true)
 
             // La première relecture échoue : la seconde liste est annoncée sans relecture, la descente sera reprise.
+            assertEquals(2, changes.size)
             assertEquals(ids.toSet(), changes.map { it.listId }.toSet())
             assertTrue(changes.all { it == AccessChange.Downgraded(it.listId, "Hadrien", 0) })
             assertEquals(1, gateway.callsOf("fetchItemsOfList").size)
@@ -156,18 +160,21 @@ class SharingSyncTest : DataTest() {
     fun aCancelledPullStillAnnouncesEveryDowngradeAlreadyWritten() =
         runBlocking {
             val ids = twoSharedLists()
-            // Coupure du réseau : WorkManager arrête la passe pendant la relecture de la première liste.
-            gateway.beforeCall = { if (it == "fetchItemsOfList") throw CancellationException("réseau perdu") }
-
-            try {
-                engine.drain(pull = true)
-                fail("passe annulée attendue")
-            } catch (_: CancellationException) {
-                // Attendu : l'annulation est relancée.
+            // Coupure du réseau : WorkManager annule la passe pendant la relecture de la première liste.
+            gateway.beforeCall = {
+                if (it == "fetchItemsOfList") {
+                    currentCoroutineContext().cancel()
+                    yield()
+                }
             }
+
+            val pass = launch { engine.drain(pull = true) }
+            pass.join()
+            assertTrue(pass.isCancelled)
 
             // Les deux rôles sont écrits : les deux bannières partent, la seconde sans relecture.
             ids.forEach { assertEquals(ListRole.Viewer, db.lists().get(it)?.role) }
+            assertEquals(2, changes.size)
             assertEquals(ids.toSet(), changes.map { it.listId }.toSet())
             assertTrue(changes.all { it == AccessChange.Downgraded(it.listId, "Hadrien", 0) })
             assertEquals(1, gateway.callsOf("fetchItemsOfList").size)
