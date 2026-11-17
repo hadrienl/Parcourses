@@ -2,7 +2,7 @@
 begin;
 \ir 00_helpers.psql
 \ir graph_helpers.psql
-select plan(13);
+select plan(14);
 
 select tests.store(1) as s1 \gset
 select tests.store(2) as s2 \gset
@@ -23,6 +23,9 @@ insert into public.store_stats (store_id, visits_count, graph_changed_at) values
 
 select graph.prune_edges(timestamptz '2026-11-01 04:23+00') as r \gset
 select is(:'r'::jsonb, '{"edges": 1, "entries": 1, "stores_touched": 1, "stores_busy": 0}'::jsonb, 'une arête et une entrée purgées');
+-- Verrou de magasin rendu après chaque magasin (clé à deux entiers : objsubid = 2), pas gardé jusqu'au COMMIT.
+select is((select count(*)::int from pg_locks where locktype = 'advisory' and pid = pg_backend_pid() and objsubid = 2), 0,
+  'aucun verrou de magasin gardé après la purge');
 select ok(not exists (select 1 from public.store_edges where store_id = :'s1' and product_a = tests.product(1) and product_b = tests.product(2)),
   'arête sous 0,01 purgée');
 select ok(exists (select 1 from public.store_edges where store_id = :'s1' and product_a = tests.product(1) and product_b = tests.product(3)),

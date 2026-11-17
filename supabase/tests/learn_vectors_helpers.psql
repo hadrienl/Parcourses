@@ -1,7 +1,8 @@
 -- Exécution d'un vecteur d'apprentissage partagé (shared/test-vectors/learn/, #11 §11.2), inclus par
 -- 34_learn_vectors.test.sql. Identifiants déjà convertis en UUID par le générateur, dans le même ordre.
--- Cinq assertions par vecteur : issue, v, coches ignorées, arêtes, entrées (poids à `tolerance` près ; dates et
--- obs_count exacts).
+-- Six assertions par vecteur : issue, v, coches ignorées, arêtes, entrées (poids à `tolerance` près ; dates et
+-- obs_count exacts), puis le même vecteur rejoué par graph.process_visit dans les tables d'un magasin de test : les
+-- upserts de production doivent donner le graphe de graph.apply_deltas_jsonb, à la date tronquée au jour (#70).
 
 -- Écarts entre deux listes d'arêtes ou d'entrées : null si identiques. p_key : 'edge' ou 'entry'.
 create or replace function tests.learn_graph_diff(p_actual jsonb, p_expected jsonb, p_key text, p_tolerance float8)
@@ -62,5 +63,87 @@ begin
   if v_diff is not null then
     return next diag(v_diff);
   end if;
+
+  return next tests.learn_vector_production(p_id, v_input, v_tolerance);
+end;
+$$;
+
+-- Rejoue le vecteur par graph.process_visit (code de production) : graph_before écrit dans store_edges et
+-- store_entries d'un magasin de test, visite et coches insérées, puis comparaison avec graph.apply_deltas_jsonb à
+-- minuit UTC du jour de la visite (fuseau des paramètres fixé à UTC). Tables du magasin vidées à chaque vecteur.
+create or replace function tests.learn_vector_production(p_id text, p_input jsonb, p_tolerance float8)
+returns text
+language plpgsql
+as $$
+declare
+  v_store uuid := tests.store(99);
+  v_user uuid := tests.create_user(null, true);
+  v_visit uuid := gen_random_uuid();
+  v_ended timestamptz := (p_input -> 'visit' ->> 'ended_at')::timestamptz;
+  v_params jsonb := (p_input -> 'params') || '{"RATE_LIMIT_TIME_ZONE": "UTC", "MAX_LEARNED_VISITS_PER_USER_STORE_DAY": 2}';
+  v_algo graph.algo_versions;
+  v_expected jsonb;
+  v_actual jsonb;
+  v_diff text;
+begin
+  delete from public.store_edges where store_id = v_store;
+  delete from public.store_entries where store_id = v_store;
+  delete from public.store_stats where store_id = v_store;
+
+  -- Produits du vecteur (clés étrangères du graphe et des coches).
+  insert into public.products (id, name, normalized_name, published_at)
+  select distinct x.id, 'vecteur ' || x.id, 'vecteur ' || x.id, now()
+  from (
+    select (e ->> 'a')::uuid as id from jsonb_array_elements(p_input -> 'graph_before' -> 'edges') as e
+    union select (e ->> 'b')::uuid from jsonb_array_elements(p_input -> 'graph_before' -> 'edges') as e
+    union select (n ->> 'product_id')::uuid from jsonb_array_elements(p_input -> 'graph_before' -> 'entries') as n
+    union select (c ->> 'product_id')::uuid from jsonb_array_elements(p_input -> 'visit' -> 'checks') as c
+  ) as x
+  where x.id is not null
+  on conflict (id) do nothing;
+
+  insert into public.store_edges (store_id, product_a, product_b, weight, last_seen_at, observations)
+  select v_store, (e ->> 'a')::uuid, (e ->> 'b')::uuid, (e ->> 'weight')::float8, (e ->> 'last_seen_at')::timestamptz,
+         (e ->> 'obs_count')::integer
+  from jsonb_array_elements(p_input -> 'graph_before' -> 'edges') as e;
+  insert into public.store_entries (store_id, product_id, weight, last_seen_at, observations)
+  select v_store, (n ->> 'product_id')::uuid, (n ->> 'weight')::float8, (n ->> 'last_seen_at')::timestamptz,
+         (n ->> 'obs_count')::integer
+  from jsonb_array_elements(p_input -> 'graph_before' -> 'entries') as n;
+
+  insert into public.visits (id, user_id, store_id, list_was_sorted, started_at, ended_at)
+  select v_visit, v_user, v_store, (p_input -> 'visit' ->> 'was_sorted')::boolean,
+         least(v_ended, coalesce(min((c ->> 'checked_at')::timestamptz), v_ended)), v_ended
+  from jsonb_array_elements(p_input -> 'visit' -> 'checks') as c;
+  insert into public.checks (id, visit_id, product_id, category_id, checked_at)
+  select (c ->> 'id')::uuid, v_visit, (c ->> 'product_id')::uuid,
+         case when c ->> 'product_id' is null then (select min(id) from public.categories) end,
+         (c ->> 'checked_at')::timestamptz
+  from jsonb_array_elements(p_input -> 'visit' -> 'checks') as c;
+
+  select a.* into v_algo from graph.active_version() as a;
+  v_algo.server_params := v_params;
+  perform graph.process_visit(v_visit, v_algo, now());
+
+  v_expected := graph.apply_deltas_jsonb(
+    p_input -> 'graph_before',
+    graph.learn_visit(v_params, (p_input -> 'visit' ->> 'was_sorted')::boolean, p_input -> 'visit' -> 'checks'),
+    date_trunc('day', v_ended, 'UTC'),
+    (v_params ->> 'HALF_LIFE_DAYS')::float8 * 86400);
+  v_actual := jsonb_build_object(
+    'edges', coalesce((select jsonb_agg(jsonb_build_object('a', e.product_a, 'b', e.product_b, 'weight', e.weight,
+                                                           'last_seen_at', e.last_seen_at, 'obs_count', e.observations))
+                       from public.store_edges as e where e.store_id = v_store), '[]'),
+    'entries', coalesce((select jsonb_agg(jsonb_build_object('product_id', n.product_id, 'weight', n.weight,
+                                                             'last_seen_at', n.last_seen_at, 'obs_count', n.observations))
+                         from public.store_entries as n where n.store_id = v_store), '[]'));
+  v_diff := concat_ws(E'\n',
+    tests.learn_graph_diff(v_actual -> 'edges', v_expected -> 'edges', 'edge', p_tolerance),
+    tests.learn_graph_diff(v_actual -> 'entries', v_expected -> 'entries', 'entry', p_tolerance));
+
+  -- Visite et coches retirées : les identifiants de coche se répètent d'un vecteur à l'autre.
+  delete from public.visits where id = v_visit;
+  return ok(v_diff = '', p_id || ' : process_visit écrit le graphe de apply_deltas_jsonb')
+         || case when v_diff = '' then '' else E'\n' || diag(v_diff) end;
 end;
 $$;

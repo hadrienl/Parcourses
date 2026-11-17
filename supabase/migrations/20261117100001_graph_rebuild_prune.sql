@@ -9,7 +9,11 @@
 -- 4. Purge : graph.prune_edges supprime chaque semaine les arêtes et entrées dont le poids décru est sous 0,01.
 -- 5. graph.apply_deltas_jsonb : application pure d'une visite apprise à un graphe en jsonb, pour les vecteurs learn/.
 
--- Même ordre de verrous que les migrations précédentes : aucun job du graphe pendant la migration.
+-- Même ordre de verrous que les migrations précédentes : aucun job du graphe pendant la migration. Les migrations
+-- suivantes qui touchent au graphe prennent aussi graph-rebuild et graph-prune, en premier (les jobs de recalcul et de
+-- purge attendent ensuite graph-process ou un verrou de magasin, jamais l'inverse).
+select pg_advisory_xact_lock(hashtext('graph-rebuild'));
+select pg_advisory_xact_lock(hashtext('graph-prune'));
 select pg_advisory_xact_lock(hashtext('graph-snapshot'));
 select pg_advisory_xact_lock(hashtext('graph-process'));
 
@@ -32,6 +36,9 @@ create table if not exists graph.rebuild_jobs (
   finished_at     timestamptz,
   primary key (store_id, target_version)
 );
+
+-- RLS sans politique, comme les autres tables internes : aucun accès client même si un droit revenait par erreur.
+alter table graph.rebuild_jobs enable row level security;
 
 create index if not exists rebuild_jobs_pending_idx on graph.rebuild_jobs (created_at, store_id)
 where status = 'pending';
@@ -640,10 +647,11 @@ begin
       v_done := v_done + 1;
       v_learned := v_learned + (v_result ->> 'learned')::integer;
     exception when others then
+      -- Interblocage ou verrou non obtenu (suppression de compte concurrente) : repris sans tentative consommée.
       update graph.rebuild_jobs
-      set attempts = attempts + 1,
+      set attempts = case when sqlstate in ('40P01', '55P03') then attempts else attempts + 1 end,
           error = left(sqlstate || ' ' || sqlerrm, 200),
-          status = case when attempts + 1 >= 3 then 'failed' else 'pending' end,
+          status = case when sqlstate not in ('40P01', '55P03') and attempts + 1 >= 3 then 'failed' else 'pending' end,
           started_at = v_job_started, finished_at = clock_timestamp()
       where store_id = v_job.store_id and target_version = v_job.target_version;
       v_failed := v_failed + 1;
@@ -675,7 +683,9 @@ $$;
 -- Purge hebdomadaire (§5) : arêtes et entrées dont le poids décru à p_now est sous p_min_weight (0,01 : environ
 -- 600 jours sans observation à la demi-vie de 90 jours ; weight_q 10, déjà négligeable dans le tri). Seuil de
 -- stockage et non règle d'apprentissage : il reste hors de server_params. Un magasin verrouillé (recalcul ou
--- apprentissage en cours) est sauté et purgé la semaine suivante. Le changement du graphe est signalé à la
+-- apprentissage en cours) est sauté et purgé la semaine suivante. Verrou de session rendu après chaque magasin, et
+-- non de transaction : la purge n'en garde jamais qu'un, quel que soit le nombre de magasins (table des verrous).
+-- Le flux courant qui apprend ensuite dans un magasin purgé attend, sur ses lignes, la fin de la purge. Le changement du graphe est signalé à la
 -- publication nocturne (graph_changed_at). Renvoie les compteurs ; chaque exécution reste dans cron.job_run_details.
 create or replace function graph.prune_edges(
   p_now timestamptz default now(),
@@ -711,17 +721,23 @@ begin
     union
     select n.store_id from public.store_entries as n
   loop
-    if not graph.try_lock_store(v_store) then
+    if not pg_try_advisory_lock(hashtext('graph-store'), hashtext(v_store::text)) then
       v_busy := v_busy + 1;
       continue;
     end if;
 
-    delete from public.store_edges as e
-    where e.store_id = v_store and graph.decayed(e.weight, e.last_seen_at, p_now, v_half_life_s) < p_min_weight;
-    get diagnostics v_edges = row_count;
-    delete from public.store_entries as n
-    where n.store_id = v_store and graph.decayed(n.weight, n.last_seen_at, p_now, v_half_life_s) < p_min_weight;
-    get diagnostics v_entries = row_count;
+    begin
+      delete from public.store_edges as e
+      where e.store_id = v_store and graph.decayed(e.weight, e.last_seen_at, p_now, v_half_life_s) < p_min_weight;
+      get diagnostics v_edges = row_count;
+      delete from public.store_entries as n
+      where n.store_id = v_store and graph.decayed(n.weight, n.last_seen_at, p_now, v_half_life_s) < p_min_weight;
+      get diagnostics v_entries = row_count;
+    exception when others then
+      perform pg_advisory_unlock(hashtext('graph-store'), hashtext(v_store::text));
+      raise;
+    end;
+    perform pg_advisory_unlock(hashtext('graph-store'), hashtext(v_store::text));
 
     if v_edges + v_entries > 0 then
       update public.store_stats set graph_changed_at = p_now where store_id = v_store;

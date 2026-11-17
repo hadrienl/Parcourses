@@ -10,7 +10,7 @@
 
 const VECTORS = new URL("../../../shared/test-vectors/learn/", import.meta.url);
 const OUTPUT = new URL("../34_learn_vectors.test.sql", import.meta.url);
-const ASSERTIONS_PER_VECTOR = 5;
+const ASSERTIONS_PER_VECTOR = 6;
 
 interface Edge {
   a: string;
