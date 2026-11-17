@@ -68,18 +68,18 @@ struct RowLane<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    let offset = currentOffset
     content
       .background(Palette.paper)
-      .offset(x: offset)
-      // Posé après le décalage, au bord du couloir, sur la seule place que le contenu a quittée : il ne recouvre rien.
-      // Au-dessus du contenu, il passe avant l'élément de la ligne au test de toucher de l'accessibilité (sous lui,
-      // XCUITest le jugeait « not hittable »).
-      .overlay(alignment: .trailing) {
-        if let action, offset < 0 {
-          actionButton(action, revealed: -offset)
+      // Une seule source animée : le décalage. Le contenu et le bouton en dérivent à chaque image (`LaneSlide`).
+      .modifier(
+        LaneSlide(
+          offset: currentOffset, action: action, actionWidth: actionWidth,
+          fullSwipeWidth: action?.allowsFullSwipe == true && laneWidth > 0
+            ? laneWidth * LaneMotion.fullSwipeShare : nil
+        ) {
+          if let action { perform(action) }
         }
-      }
+      )
       .clipped()
       .gesture(
         LanePan(
@@ -114,76 +114,6 @@ struct RowLane<Content: View>: View {
     }
     // Glisser partiel : au-delà du bouton, le couloir résiste.
     return -(actionWidth + (distance - actionWidth) * 0.3)
-  }
-
-  /// Bouton révélé, à la forme du `.swipeActions` natif de la version d'iOS : capsule sur iOS 26, rectangle plein
-  /// hauteur sur iOS 18. Il occupe exactement la place découverte et se rétracte avec elle.
-  private func actionButton(_ action: LaneAction, revealed: CGFloat) -> some View {
-    Button {
-      perform(action)
-    } label: {
-      Group {
-        if #available(iOS 26, *) {
-          capsuleLabel(action, revealed: revealed)
-        } else {
-          rectangleLabel(action, revealed: revealed)
-        }
-      }
-      .frame(width: revealed)
-      .frame(maxHeight: .infinity)
-      .clipped()
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.borderless)
-    .accessibilityLabel(action.title)
-  }
-
-  /// iOS 26 : capsule de 34 pt de haut, à 11 pt des bords de la place découverte, pictogramme seul dedans et libellé
-  /// dessous, en texte secondaire (relevé sur `ListsView`). Elle naît d'une pastille, s'allonge au glisser complet,
-  /// pictogramme contre le contenu, sans libellé.
-  private func capsuleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
-    let margin: CGFloat = 11
-    let width = max(0, revealed - margin * 2)
-    let height = min(34, width)
-    return VStack(spacing: 4) {
-      Capsule()
-        .fill(action.tint)
-        .frame(width: width, height: height)
-        .overlay(alignment: pastFullSwipe ? .leading : .center) {
-          Image(systemName: action.systemImage)
-            .font(.body.weight(.semibold))
-            .foregroundStyle(action.foreground)
-            .padding(.horizontal, 14)
-            .opacity(width >= 28 ? 1 : 0)
-        }
-      Text(action.title)
-        .font(.footnote)
-        .foregroundStyle(Palette.inkMuted)
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .fixedSize()
-        .opacity(width >= 48 && !pastFullSwipe ? 1 : 0)
-    }
-  }
-
-  /// iOS 18 : rectangle plein hauteur, pictogramme et libellé blancs. Le libellé reste centré tant que le bouton
-  /// s'ouvre, puis contre le contenu quand il s'étire.
-  private func rectangleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
-    VStack(spacing: 2) {
-      Image(systemName: action.systemImage).font(.body.weight(.semibold))
-      Text(action.title)
-        .font(.subheadline.weight(.semibold))
-        .lineLimit(2)
-        .minimumScaleFactor(0.6)
-    }
-    .multilineTextAlignment(.center)
-    .foregroundStyle(action.foreground)
-    .padding(.horizontal, Space.xs / 2)
-    .frame(width: actionWidth)
-    .frame(width: revealed, alignment: revealed > actionWidth ? .leading : .center)
-    .frame(maxHeight: .infinity)
-    .background(action.tint)
   }
 
   private var settle: Animation {
@@ -245,6 +175,128 @@ struct RowLane<Content: View>: View {
   }
 }
 
+/// Décalage du couloir et bouton révélé, dérivés d'une seule valeur animable : pendant une animation, SwiftUI rappelle
+/// `body` à chaque image avec le décalage interpolé, et la largeur, la hauteur et les opacités du bouton en découlent.
+/// Le bouton est toujours là (largeur nulle, sans toucher ni élément d'accessibilité quand la ligne est fermée) : ni
+/// insertion, ni retrait, ni transition. Avant, il était inséré par un `if` et sa géométrie passée en valeur ; au
+/// relâcher, sa disparition animée repartait d'un état périmé (capsule fantôme à la taille ouverte, sur iPhone).
+nonisolated private struct LaneSlide: ViewModifier, Animatable {
+  var offset: CGFloat
+  let action: LaneAction?
+  let actionWidth: CGFloat
+  /// Seuil du glisser complet, s'il est permis : au-delà, la capsule s'étire, pictogramme contre le contenu.
+  let fullSwipeWidth: CGFloat?
+  let perform: () -> Void
+
+  var animatableData: CGFloat {
+    get { offset }
+    set { offset = newValue }
+  }
+
+  func body(content: Content) -> some View {
+    let revealed = max(0, -offset)
+    content
+      .offset(x: offset)
+      // Posé après le décalage, au bord du couloir, sur la seule place que le contenu a quittée : il ne recouvre rien.
+      // Au-dessus du contenu, il passe avant l'élément de la ligne au test de toucher de l'accessibilité (sous lui,
+      // XCUITest le jugeait « not hittable »).
+      .overlay(alignment: .trailing) {
+        if let action {
+          button(action, revealed: revealed)
+        }
+      }
+  }
+
+  /// Part du glisser complet atteinte, de 0 (ouverture) à 1 (au seuil) : étirement de la capsule.
+  private func stretch(_ revealed: CGFloat) -> CGFloat {
+    guard let fullSwipeWidth, fullSwipeWidth > actionWidth else { return 0 }
+    let start = actionWidth + (fullSwipeWidth - actionWidth) * 0.6
+    return min(max((revealed - start) / (fullSwipeWidth - start), 0), 1)
+  }
+
+  /// Bouton à la forme du `.swipeActions` natif de la version d'iOS : capsule sur iOS 26, rectangle plein hauteur
+  /// sur iOS 18. Il occupe exactement la place découverte et se rétracte avec elle.
+  @MainActor
+  private func button(_ action: LaneAction, revealed: CGFloat) -> some View {
+    Button(action: perform) {
+      Group {
+        if #available(iOS 26, *) {
+          capsuleLabel(action, revealed: revealed)
+        } else {
+          rectangleLabel(action, revealed: revealed)
+        }
+      }
+      .frame(width: revealed)
+      .frame(maxHeight: .infinity)
+      .clipped()
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless)
+    .allowsHitTesting(revealed >= 1)
+    .accessibilityLabel(action.title)
+    // Ligne fermée : le bouton n'existe pas pour VoiceOver ni pour les tests (« n'existe que ligne ouverte »).
+    .accessibilityHidden(revealed < 1)
+  }
+
+  /// iOS 26 : capsule de 34 pt de haut, à 11 pt des bords de la place découverte, pictogramme seul dedans et libellé
+  /// dessous, en texte secondaire (relevé sur `ListsView`). Elle naît d'une pastille et s'allonge au glisser complet,
+  /// pictogramme contre le contenu, libellé effacé. Tout varie continûment avec la place découverte.
+  @MainActor
+  private func capsuleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
+    let margin: CGFloat = 11
+    let width = max(0, revealed - margin * 2)
+    let height = min(34, width)
+    let stretch = stretch(revealed)
+    let iconOpacity = min(max((width - 18) / 12, 0), 1)
+    let labelOpacity = min(max((width - 40) / 16, 0), 1) * (1 - stretch)
+    // Pictogramme : au centre, puis glissé contre le contenu à mesure que la capsule s'étire.
+    let iconInset = 14 + (max(14, width / 2 - 11) - 14) * (1 - stretch)
+    return VStack(spacing: 4) {
+      Capsule()
+        .fill(action.tint)
+        .frame(width: width, height: height)
+        .overlay(alignment: .leading) {
+          Image(systemName: action.systemImage)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(action.foreground)
+            .frame(width: 22)
+            .offset(x: iconInset)
+            .opacity(iconOpacity)
+        }
+      Text(action.title)
+        .font(.footnote)
+        .foregroundStyle(Palette.inkMuted)
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .fixedSize()
+        .opacity(labelOpacity)
+    }
+  }
+
+  /// iOS 18 : rectangle plein hauteur, pictogramme et libellé blancs. Le libellé reste centré tant que le bouton
+  /// s'ouvre, puis glisse contre le contenu quand il s'étire.
+  @MainActor
+  private func rectangleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
+    let lead = max(0, revealed - actionWidth) * stretch(revealed)
+    return VStack(spacing: 2) {
+      Image(systemName: action.systemImage).font(.body.weight(.semibold))
+      Text(action.title)
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(2)
+        .minimumScaleFactor(0.6)
+    }
+    .multilineTextAlignment(.center)
+    .foregroundStyle(action.foreground)
+    .padding(.horizontal, Space.xs / 2)
+    .frame(width: actionWidth)
+    .offset(x: -lead / 2)
+    .frame(width: revealed)
+    .frame(maxHeight: .infinity)
+    .background(action.tint)
+  }
+}
+
 extension View {
   /// Toucher cette zone hors des lignes (en-tête du ticket, dock) referme la ligne ouverte, sans prendre le toucher aux
   /// contrôles qu'elle contient.
@@ -272,9 +324,9 @@ final class LanePanState {
   var isOpen = false
 }
 
-/// Pan qui échoue s'il n'a pas démarré après `LaneMotion.stillPanTimeout` : un doigt posé sans glisser ne le garde pas
-/// en attente jusqu'au relâcher. Sans cela, ce qui attend son échec (appui long, menu contextuel, toucher) ne se
-/// décidait qu'au relâcher : le menu s'ouvrait alors, et l'article était coché du même coup.
+/// Pan qui échoue aussi s'il n'a pas démarré après `LaneMotion.stillPanTimeout` (sécurité). La parade principale à
+/// l'appui long qui cochait est ailleurs (`Coordinator.gestureRecognizer(_:shouldRecognizeSimultaneouslyWith:)`) : un
+/// échec posé hors des événements de toucher n'est pas toujours pris en compte avant le relâcher (CI lente, 63912a2).
 final class LanePanRecognizer: UIPanGestureRecognizer {
   private var touchGeneration = 0
 
@@ -331,6 +383,8 @@ private struct LanePan: UIGestureRecognizerRepresentable {
     let translation = recognizer.translation(in: recognizer.view).x * sign
     let velocity = recognizer.velocity(in: recognizer.view).x * sign
     switch recognizer.state {
+    // Le glisser démarre : le menu, l'appui long et le toucher de la ligne, reconnus en même temps que lui, s'effacent.
+    case .began: context.coordinator.cancelCompanions()
     case .changed: onChange(translation)
     case .ended: onEnd(velocity)
     case .cancelled, .failed: onCancel()
@@ -371,6 +425,31 @@ private struct LanePan: UIGestureRecognizerRepresentable {
       _ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
       isOpen && other === Self.contentPopGesture(near: gesture.view)
+    }
+
+    /// Gestes qui ne sont pas des pans (menu contextuel, appui long, toucher du bouton) : reconnus en même temps que le
+    /// couloir, pour qu'aucun n'attende son échec. Sinon, le pan d'un doigt immobile restait en attente jusqu'au
+    /// relâcher : le menu ne s'ouvrait pas (ou seulement au relâcher), et le relâcher cochait l'article (iPhone, et CI
+    /// « app (iOS latest) » de 63912a2). Les pans (défilement, gestes retour) gardent leurs règles d'exclusion.
+    func gestureRecognizer(
+      _ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+      guard !(other is UIPanGestureRecognizer) else { return false }
+      companions.add(other)
+      return true
+    }
+
+    /// Gestes reconnus en même temps que le couloir pendant ce toucher.
+    private let companions = NSHashTable<UIGestureRecognizer>.weakObjects()
+
+    /// Annule ces gestes quand le glisser démarre (désactivé puis réactivé, un geste en cours passe à « annulé ») :
+    /// un glisser n'ouvre pas le menu et ne coche pas la ligne au relâcher.
+    func cancelCompanions() {
+      for other in companions.allObjects where other.state != .failed && other.state != .cancelled {
+        other.isEnabled = false
+        other.isEnabled = true
+      }
+      companions.removeAllObjects()
     }
 
     /// Geste retour plein écran de la pile de navigation (iOS 26), s'il y en a une.
