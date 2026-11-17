@@ -1,0 +1,42 @@
+# Prototype isolé du lot 0 de #115 (fil immobile). Hors de l'app : `xcodegen generate` dans ce dossier.
+name: ThreadProto
+options:
+  bundleIdPrefix: app.parcourses.proto
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  ThreadProto:
+    type: application
+    platform: iOS
+    sources: [ThreadProto]
+    info:
+      path: ThreadProto/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: fr
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.parcourses.proto.thread
+        SWIFT_VERSION: "6.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        GENERATE_INFOPLIST_FILE: "NO"
+  ThreadProtoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ThreadProtoUITests]
+    dependencies:
+      - target: ThreadProto
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        GENERATE_INFOPLIST_FILE: "YES"
+schemes:
+  ThreadProto:
+    build:
+      targets:
+        ThreadProto: all
+        ThreadProtoUITests: [test]
+    test:
+      targets: [ThreadProtoUITests]
