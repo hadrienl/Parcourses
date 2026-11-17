@@ -45,6 +45,19 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     element.typeText(text)
   }
 
+  /// Donne le focus au champ de saisie, sauf s'il le retrouve seul. Après « Retour », le champ perd le focus, puis
+  /// l'app le lui rend (`ListDetailView.submit`) un instant plus tard. Un appui dans cet intervalle arrive sur un champ
+  /// redevenu actif et ouvre le menu d'édition (« Remplir ») ; la saisie suivante y perd des lettres : « s » au lieu
+  /// de « tomates » (CI iOS 18 sur 2cb9914, `testListJourneySurvivesRelaunch`, vidéo du run, #52).
+  @MainActor
+  func focus(_ field: XCUIElement) {
+    for _ in 0..<10 {
+      if field.hasFocus { return }
+      Thread.sleep(forTimeInterval: 0.2)
+    }
+    field.tap()
+  }
+
   /// Appuie sur `element` une fois actif, et attend `effect`, au plus `timeout` secondes en tout (#116).
   ///
   /// Trois échecs de la CI iOS 18 montrent un appui sans effet, synthétisé au centre de l'élément, l'app au repos
@@ -210,7 +223,7 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     let entry = app.textFields["quickEntry"]
     tap(app.alerts.buttons["Créer"], until: entry)
     for text in items {
-      if !entry.hasFocus { entry.tap() }
+      focus(entry)
       type(text + "\n", into: entry, app)
     }
     // Appui perdu constaté ici aussi (#116, `testAuditShoppingDark` sur 39cfe22) : liste toujours affichée 15 s

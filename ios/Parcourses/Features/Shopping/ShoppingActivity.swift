@@ -139,13 +139,20 @@ nonisolated struct ActivityKitBackend: ActivityBackend {
     } catch let error as ActivityAuthorizationError {
       // La visite se passe très bien sans : on trace, et on retentera.
       Self.log.info("Live Activity non démarrée : \(error.localizedDescription, privacy: .public)")
-      switch error {
-      case .denied, .visibility, .unentitled, .unsupported, .unsupportedTarget: return .unavailable
-      default: return .failed
-      }
+      return Self.result(for: error)
     } catch {
       Self.log.error("Live Activity non démarrée : \(error.localizedDescription, privacy: .public)")
       return .failed
+    }
+  }
+
+  /// Refus durable (activités désactivées, app non autorisée, attributs trop gros) : redemander à chaque coche ne
+  /// changerait rien, seul le retour au premier plan retente. Les autres (plafond d'activités, échec d'écriture)
+  /// sont passagers (#52).
+  static func result(for error: ActivityAuthorizationError) -> ActivityRequestResult {
+    switch error {
+    case .denied, .visibility, .unentitled, .unsupported, .unsupportedTarget, .attributesTooLarge: .unavailable
+    default: .failed
     }
   }
 
