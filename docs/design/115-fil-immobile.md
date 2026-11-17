@@ -298,3 +298,69 @@ Option **B** retenue, avec la recommandation sur les six questions posées.
    marqueur change ; il ne se déplace jamais.
 
 Suite : lot 0 (prototypes) sur la branche `proto/115-lot0`, avec le critère de repli du §7 (7 pt) pour iOS.
+Résultat au §9 : Android garde B ; iOS passe en A (trait unique, liste sans animation).
+
+## 9. Résultats du lot 0 (2026-11-17)
+
+Prototypes isolés dans `prototypes/115-lot0/` (`ios/README.md`, `android/README.md`). Mesures image par image.
+
+### 9.1 Android : B tenu (0 dp)
+
+Banc Robolectric : vrais parcours de dessin, Choreographer en pause, `PixelCopy` de l'image rendue ; 20 lignes, tri,
+départs, `scrollBy` et `animateScrollBy` rapides.
+
+| Source de position | Écart trait / perle max | Retard d'une image | Trou |
+| --- | --- | --- | --- |
+| `onLayoutRectChanged(0, 0)` | 0,00 dp | aucun | aucun |
+| `onGloballyPositioned` | 0,00 dp | aucun | aucun |
+| `onPlaced` | 0,00 dp, mais par effet de bord (lecture de `positionInRoot()` au placement) | aucun | aucun |
+| `onLayoutRectChanged` réglages par défaut (rebond 64 ms) | > 1 000 dp | — | oui |
+| Coordonnées lues au dessin, sans état | 576 dp au défilement (trait jamais redessiné) | — | — |
+
+Conséquences pour le lot 1 :
+- source `Modifier.onLayoutRectChanged(throttleMillis = 0, debounceMillis = 0)` sur la gouttière, vers des
+  `mutableStateOf` lus dans le `drawBehind` de la `LazyColumn` ;
+- visibilité décidée par `layoutInfo.visibleItemsInfo`, lu dans le dessin : une ligne sortie de l'écran garde des
+  coordonnées attachées mais figées ;
+- quand un rôle change de ligne sans mouvement, la position est republiée par l'affectation des rôles ;
+- le bout bas ne se raccourcit qu'après `TicketMotion.fade` quand la dernière perle part (une ligne qui part n'est
+  plus joignable pendant son fondu) ;
+- clés préfixées par section, vérifiées : la ligne sort et entre en fondu au lieu de glisser de 210 dp.
+
+### 9.2 iOS : B hors seuil, **A retenu**
+
+Banc : `List` de 12 lignes (tri, départ de la première et de la dernière, coche, insertion) et de 40 lignes (lancers
+pilotés image par image), simulateur iPhone 17 Pro sous iOS 26.5, enregistrement d'écran analysé aux pixels.
+
+| Situation | B (bouts animés vers la position finale) | B compensé | A (liste sans animation) |
+| --- | --- | --- | --- |
+| Repos | ≤ 0,5 pt | ≤ 0,5 pt | ≤ 0,3 pt |
+| Lancer rapide (défilement) | ≤ 0,5 pt, sans retard | — | ≤ 0,5 pt |
+| Départ de la première ligne (rôles stables) | jonction 10 à 17 pt derrière sa perle | 56 pt | une seule image, ≤ 0,3 pt |
+| Tri qui change la dernière ligne | trait qui dépasse la dernière perle de 111 pt pendant ~0,25 s ; jonction à 88–145 pt de la perle suivante | idem | une seule image, ≤ 0,3 pt |
+
+Causes, toutes deux hors de notre portée :
+1. `onGeometryChange` donne la position **finale** dès le début d'une mise à jour de la `List` ; les cellules, elles,
+   sont animées par UIKit (Core Animation). Quand un rôle (suivante, dernière) change de ligne, le bout se pose à
+   l'arrivée pendant que sa perle part encore de l'ancienne place. La compensation (« départ sur l'ancienne
+   position ») échoue : la géométrie est déjà à jour quand le changement de rôle est observé.
+2. UIKit n'applique pas `Motion.reorder` aux cellules de `List` : leur courbe mesurée correspond à un ressort critique
+   d'environ 0,3 s, contre 0,4 s ; avec l'image de retard du rendu SwiftUI, l'écart culmine à 10–17 pt.
+
+Le défilement, lui, est exact (`onGeometryChange` est synchrone avec le défilement) : le trait unique de B est donc
+gardé sur iOS, **sans animation de la liste**. Critère du §7 dépassé : **iOS passe en A** (décision du coordinateur,
+2026-11-17), Android garde B. Écart à noter dans `SYNC.md` : sur iOS, tri, départ et insertion se font sans
+glissement (perles et lignes changent de place d'un coup) ; la coche reste animée sur place.
+
+### 9.3 Gestes iOS (banc `LaneLab`, tests XCUITest verts)
+
+- Toucher : l'action du `Button` passe malgré le pan ; le style à nous n'enfonce que le couloir.
+- `swipeLeft()` ouvre la ligne ; « Supprimer » n'existe que ligne ouverte, une seule occurrence, hors de l'élément
+  regroupé. Correction trouvée : le **glisser complet** se décide sur la distance réelle (60 % du couloir), seule
+  l'ouverture tient compte de la vitesse ; sinon un geste vif supprime au lieu d'ouvrir.
+- Couloir rogné au bord de la gouttière, perle et trait intacts, en LTR comme en RTL (`.offset` et les formes
+  suivent le sens d'écriture ; le pan convertit la translation en sens logique).
+- Défilement vertical et geste retour du bord d'écran : non gênés.
+- `contextMenu` sur le couloir : l'aperçu soulevé est le couloir seul, mais le système le **resserre et le place à
+  16 pt du bord d'écran** ; la carte recouvre la gouttière de la ligne soulevée (perle cachée le temps du menu). Le fil
+  ne bouge pas ; une forme d'aperçu plus étroite n'y change rien. Proposé : l'accepter comme le voile (D4).
