@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fil immobile</title>
+<!-- Maquette de conception (issue #115) : le fil du ticket ne bouge jamais. Pas de code applicatif. -->
+<style>
+:root{
+  --bg:#EDEAE4;--fg:#1B1B1B;--muted:#5A5650;--card:#FFFFFF;--line:#D9D4CA;
+  --desk:#E3DCCF;--paper:#FBF7F0;--edge:#EAE2D3;--ink:#1A1C22;--ink-muted:#545866;--accent:#2340C8;--on-accent:#fff;
+  --thread:#2340C8;--idle:#D5CEC0;--checked:#545866;--notfound:#A85400;--destructive:#D70015;--hl:rgba(35,64,200,.10);
+  --a-fruits:#3F7A2E;--a-cremerie:#2C6FB0;--a-epicerie:#9A5B00;--a-boulangerie:#B0306A;
+  --reorder:420ms;--fade:220ms;--check:260ms;--swipe:260ms;--flow:320ms;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31;
+  --desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--ink-muted:#A6ABBA;--accent:#8FA6FF;--on-accent:#0B1550;
+  --thread:#8FA6FF;--idle:#353A48;--checked:#A6ABBA;--notfound:#E08A2E;--destructive:#FF6961;--hl:rgba(143,166,255,.14);
+  --a-fruits:#8FD175;--a-cremerie:#7DB7EE;--a-epicerie:#E2A64B;--a-boulangerie:#F08DBA;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F0F10;--fg:#EEE;--muted:#A9A49B;--card:#1A1A1C;--line:#2E2E31;
+  --desk:#08090C;--paper:#12141A;--edge:#232631;--ink:#ECEEF4;--ink-muted:#A6ABBA;--accent:#8FA6FF;--on-accent:#0B1550;
+  --thread:#8FA6FF;--idle:#353A48;--checked:#A6ABBA;--notfound:#E08A2E;--destructive:#FF6961;--hl:rgba(143,166,255,.14);
+  --a-fruits:#8FD175;--a-cremerie:#7DB7EE;--a-epicerie:#E2A64B;--a-boulangerie:#F08DBA;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:1120px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:clamp(26px,5vw,40px);margin:0 0 6px;letter-spacing:-.02em}
+h2{font-size:22px;margin:48px 0 8px}
+.lead{color:var(--muted);max-width:760px;margin:0 0 8px}
+.rule{max-width:760px;font-size:17px;border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:16px 0}
+
+/* Barre de commandes */
+.toolbar{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid var(--line)}
+.toolbar .group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.toolbar .sep{width:1px;height:28px;background:var(--line);margin:0 4px}
+button.cmd,.seg button{min-height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;cursor:pointer}
+button.cmd.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+button.cmd:disabled{opacity:.45;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:20px;overflow:hidden;background:var(--card)}
+.seg button{border:0;border-radius:0;background:transparent;min-height:38px;padding:0 12px}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+label.tog{display:inline-flex;gap:6px;align-items:center;font-size:14px;min-height:40px;cursor:pointer}
+#status{min-height:48px;margin:14px 0 4px;font-size:15px;max-width:900px}
+#status b{color:var(--accent)}
+
+/* Téléphones */
+.phones{display:flex;gap:28px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:10px}
+figcaption{max-width:330px;font-size:14px;color:var(--muted);text-align:left}
+figcaption strong{display:block;color:var(--fg);font-size:16px;margin-bottom:2px}
+.phone{width:340px;max-width:calc(100vw - 32px);height:700px;border-radius:46px;padding:10px;background:#0b0b0b;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.android .phone{border-radius:34px}
+.screen{width:100%;height:100%;border-radius:37px;overflow:hidden;position:relative;background:var(--paper);color:var(--ink);font-family:"SF Mono",ui-monospace,Menlo,"Roboto Mono",monospace;user-select:none;-webkit-user-select:none}
+.android .screen{border-radius:26px}
+.sbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font:600 13px -apple-system,system-ui,sans-serif}
+.island{width:96px;height:28px;background:#000;border-radius:16px}
+.android .island{width:12px;height:12px;border-radius:50%}
+.head{padding:4px 16px 10px;border-bottom:1px dashed var(--ink-muted);margin:0 0 6px;transition:opacity var(--fade)}
+.head .store{font-weight:800;font-size:18px;letter-spacing:.04em}
+.head .meta{font-size:11px;color:var(--ink-muted)}
+.head .total{display:flex;justify-content:space-between;align-items:baseline;margin-top:2px}
+.head .total span{font-size:11px;letter-spacing:.12em;color:var(--ink-muted)}
+.head .total b{font-size:34px;letter-spacing:-.04em;line-height:1}
+
+/* Liste et lignes */
+.list{position:relative;transition:height var(--reorder) cubic-bezier(.2,.8,.2,1)}
+.row{position:absolute;left:0;right:0;top:0;display:flex;align-items:stretch;padding:0 16px;
+  transition:transform var(--reorder) cubic-bezier(.2,.8,.2,1),height var(--reorder) cubic-bezier(.2,.8,.2,1),opacity var(--fade) ease;touch-action:pan-y;cursor:pointer}
+.row.aisle{cursor:default}
+.row.leaving{opacity:0;pointer-events:none}
+.row.entering{opacity:0}
+.gutter{position:relative;width:28px;flex:none}
+.lane{position:relative;flex:1;display:flex;align-items:center;gap:8px;padding-left:8px;min-width:0}
+.lane .box{width:22px;height:22px;flex:none;border:2px solid var(--ink);border-radius:4px;position:relative;transition:background var(--check)}
+.lane .box::after{content:"";position:absolute;left:6px;top:1px;width:6px;height:12px;border:solid var(--paper);border-width:0 3px 3px 0;transform:rotate(45deg) scale(.4);opacity:0;transition:transform var(--check) cubic-bezier(.3,1.6,.5,1),opacity var(--check)}
+.row.checked .box{background:var(--ink)}
+.row.checked .box::after{opacity:1;transform:rotate(45deg) scale(1)}
+.lane .label{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:font-size var(--reorder)}
+.row.next .label{font-size:17px;font-weight:700}
+.row.checked .label{text-decoration:line-through;color:var(--checked)}
+.lane .dots{flex:1;min-width:12px;border-bottom:2px dotted var(--ink-muted);opacity:.7;margin-top:6px}
+.lane .qty{font-size:12px;color:var(--ink-muted);flex:none}
+.aisle .lane{align-items:flex-end;padding-bottom:7px}
+.aisle .title{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted)}
+.aisle .tag{font-size:11px;color:var(--accent);margin-left:auto;opacity:0;transition:opacity var(--fade)}
+.aisle.learned .tag{opacity:1}
+
+/* Marqueurs */
+.bead,.node{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;background:var(--paper);z-index:2}
+.bead{width:14px;height:14px;border:3px solid var(--idle);transition:width var(--check),height var(--check),background var(--check),border-color var(--check)}
+.row.next .bead{width:18px;height:18px;border-color:var(--thread)}
+.row.checked .bead{background:var(--thread);border-color:var(--thread)}
+.aisle .gutter .node{width:26px;height:26px;border:1.5px solid var(--c);display:grid;place-items:center;font-size:11px;font-weight:800;color:var(--c);top:auto;bottom:1px;transform:translate(-50%,0)}
+
+/* « Aujourd'hui » : un morceau de fil par ligne, dans la partie qui glisse */
+.moving{position:relative;flex:1;display:flex;align-items:stretch;min-width:0;will-change:transform}
+.today .row{background:var(--paper)}
+.seg-t,.seg-b{position:absolute;left:50%;width:3px;margin-left:-1.5px;background:var(--idle);transition:background var(--flow)}
+.seg-t{top:0;height:50%}.seg-b{top:50%;bottom:0}
+.aisle .seg-t{height:calc(100% - 14px)}.aisle .seg-b{top:calc(100% - 14px)}
+.seg-t.passed,.seg-b.passed{background:var(--thread)}
+.seg-t.none,.seg-b.none{display:none}
+
+/* « Proposé » : trait unique sous les lignes */
+.track{position:absolute;left:28.5px;width:3px;background:var(--idle);top:0;height:0;z-index:0;
+  transition:top var(--reorder) cubic-bezier(.2,.8,.2,1),height var(--reorder) cubic-bezier(.2,.8,.2,1),opacity var(--fade)}
+/* La jonction accent / à parcourir suit la perle suivante avec la même courbe que les lignes. */
+.track .passed{position:absolute;left:0;right:0;top:0;height:0;background:var(--thread);transition:height var(--reorder) cubic-bezier(.2,.8,.2,1)}
+.proposed .row{z-index:1}
+.lanewrap{position:relative;flex:1;display:flex;overflow:hidden;min-width:0;background:var(--paper);border-radius:0;transition:transform var(--swipe),box-shadow var(--swipe),border-radius var(--swipe),opacity var(--fade)}
+.lanewrap .lane{background:var(--paper);will-change:transform}
+
+/* Action du glisser */
+.action{position:absolute;top:0;bottom:0;right:0;width:0;display:flex;align-items:center;justify-content:flex-end;overflow:hidden;color:#fff;font:600 13px -apple-system,system-ui,sans-serif;background:var(--notfound);z-index:0}
+.action span{padding:0 14px;white-space:nowrap}
+.action.anim,.lane.anim,.moving.anim{transition:transform var(--swipe) cubic-bezier(.2,.8,.2,1),width var(--swipe) cubic-bezier(.2,.8,.2,1)}
+.today .action{z-index:0}
+.today .moving{z-index:1}
+.lanewrap .lane{z-index:1}
+.android .action{display:none}
+
+/* Appui long iOS : aperçu soulevé */
+.today .row.lifted{z-index:8}
+.today .row.lifted .moving,.today .row.lifted{transition:transform var(--swipe),box-shadow var(--swipe)}
+.today .row.lifted{box-shadow:0 12px 30px rgba(0,0,0,.25);border-radius:12px}
+.proposed .row.lifted .lanewrap{transform:scale(1.035);box-shadow:0 12px 30px rgba(0,0,0,.25);border-radius:12px;z-index:3}
+/* Voile du menu : chaque élément voilable porte déjà une transition d'opacité (pas de règle de transition ici, qui
+   écraserait celle des lignes). */
+.screen.menu-open .dim{opacity:.28}
+.gutter{transition:opacity var(--fade)}
+/* Ondulation Android */
+.ripple{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 30% 50%,color-mix(in srgb,var(--ink) 16%,transparent) 0,color-mix(in srgb,var(--ink) 10%,transparent) 60%,transparent 61%);background-size:0 0;background-repeat:no-repeat;background-position:center;opacity:0;z-index:4}
+.ripple.on{opacity:1;background-size:300% 300%;transition:background-size 600ms ease-out,opacity 200ms}
+
+.menu{position:absolute;left:60px;z-index:12;min-width:170px;background:var(--paper);border:1px solid var(--edge);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);font:14px -apple-system,system-ui,sans-serif;opacity:0;transform:scale(.92);transform-origin:top left;transition:opacity var(--fade),transform var(--fade);pointer-events:none}
+.menu.open{opacity:1;transform:none;pointer-events:auto}
+.menu div{padding:11px 14px;border-top:1px solid var(--edge);cursor:pointer}
+.menu div:first-child{border-top:0}
+.android .menu{border-radius:6px}
+
+.foot{padding:10px 16px;font-size:12px;color:var(--ink-muted);border-top:1px dashed var(--ink-muted);margin-top:10px;transition:opacity var(--fade)}
+.foot div{min-height:22px}
+
+/* Anatomie */
+.anat{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.card h3{margin:0 0 4px;font-size:15px}
+.card code{font-size:13px}
+.card p{margin:0;font-size:14px;color:var(--muted)}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+ul.watch{max-width:820px;font-size:15px}
+ul.watch li{margin:6px 0}
+@media (max-width:760px){.toolbar .sep{display:none}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Le fil du ticket ne bouge jamais</h1>
+  <p class="lead">Issue #115, option B recommandée. À gauche, le comportement actuel : le fil est dessiné dans chaque ligne et part avec elle. À droite, la proposition : un trait unique sous la liste, les perles dans une gouttière fixe, et seul le couloir de la ligne (case, libellé, quantité) bouge.</p>
+  <p class="rule">« Le trait ne doit jamais bouger, sinon ça casse la ligne. »</p>
+
+  <div class="toolbar" role="toolbar" aria-label="Commandes de la maquette">
+    <div class="group">
+      <button class="cmd primary" id="play">Tout rejouer</button>
+      <button class="cmd" data-act="swipe">Glisser</button>
+      <button class="cmd" data-act="full">Glisser jusqu'au bout</button>
+      <button class="cmd" data-act="check">Cocher</button>
+      <button class="cmd" data-act="sort">Trier</button>
+      <button class="cmd" data-act="press">Appui long</button>
+      <button class="cmd" id="reset">Réinitialiser</button>
+    </div>
+    <span class="sep"></span>
+    <div class="group">
+      <div class="seg" role="group" aria-label="Plateforme">
+        <button data-plat="ios" aria-pressed="true">iOS</button>
+        <button data-plat="android" aria-pressed="false">Android</button>
+      </div>
+      <div class="seg" role="group" aria-label="Thème">
+        <button data-theme-btn="auto" aria-pressed="true">Auto</button>
+        <button data-theme-btn="light" aria-pressed="false">Clair</button>
+        <button data-theme-btn="dark" aria-pressed="false">Sombre</button>
+      </div>
+      <label class="tog"><input type="checkbox" id="slow"> Ralenti ×3</label>
+      <label class="tog"><input type="checkbox" id="reduced"> Réduire les animations</label>
+    </div>
+  </div>
+
+  <p id="status" aria-live="polite">Touchez un article pour le cocher, faites-le glisser, ou maintenez-le. Les boutons rejouent chaque situation sur les deux téléphones en même temps.</p>
+
+  <div class="phones">
+    <figure id="f-today">
+      <div class="phone"><div class="screen today"></div></div>
+      <figcaption><strong>Aujourd'hui</strong>Un morceau de fil par ligne : il glisse, se soulève, se croise et s'efface avec elle.</figcaption>
+    </figure>
+    <figure id="f-proposed">
+      <div class="phone"><div class="screen proposed"></div></div>
+      <figcaption><strong>Proposé (option B)</strong>Le trait est dessiné une fois ; les perles restent dans la gouttière et ne font que glisser le long du trait quand l'ordre change. Seul le couloir bouge.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Trois couches</h2>
+  <div class="anat">
+    <div class="card"><h3><span class="swatch" style="background:var(--thread)"></span><code>ThreadTrack</code></h3><p>Le trait, une seule fois par liste, à abscisse fixe. Du premier au dernier marqueur, en accent jusqu'à la perle suivante. Ses bouts suivent le premier et le dernier marqueur.</p></div>
+    <div class="card"><h3><span class="swatch" style="background:var(--idle)"></span><code>ThreadGutter</code></h3><p>Colonne fixe de chaque ligne : la perle ou le nœud du rayon, sur fond papier. Ni glissée, ni enfoncée, ni soulevée. Hauteur : centre de la case (guide d'alignement <code>.threadMarker</code> sur iOS).</p></div>
+    <div class="card"><h3><span class="swatch" style="background:var(--notfound)"></span><code>RowLane</code></h3><p>Le couloir : case, libellé, points de conduite, quantité. Seule partie qui glisse (rognée au bord de la gouttière), s'enfonce, se soulève. L'action du glisser apparaît dans le couloir.</p></div>
+  </div>
+
+  <h2>Ce qu'il faut regarder</h2>
+  <ul class="watch">
+    <li><b>Glisser</b> : à gauche, le tronçon et la perle partent avec la ligne ; en glisser complet iOS, l'action orange recouvre la gouttière. À droite, le couloir glisse sous le bord de la gouttière, le trait ne bouge pas.</li>
+    <li><b>Cocher</b> : la ligne part au panier, la suivante grandit. À gauche, un trou se forme le temps du fondu. À droite, la perle s'efface sur un trait qui reste plein, et l'accent coule jusqu'à la nouvelle perle suivante.</li>
+    <li><b>Trier</b> : le rayon Boulangerie remonte. À gauche, les morceaux de fil se croisent et les bouts sautent. À droite, nœuds et perles glissent le long d'un trait immobile.</li>
+    <li><b>Appui long</b> : iOS, à gauche la ligne entière se soulève avec son tronçon ; à droite seul le couloir se soulève. Android, l'ondulation reste dans le couloir.</li>
+    <li><b>Ralenti ×3</b> rend les raccords visibles ; <b>Réduire les animations</b> montre que le trait est identique avant et après.</li>
+  </ul>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  // ---- Données ----
+  const AISLES = {
+    fruits: { title: "Fruits et légumes", letter: "F", items: [{ id: "pommes", label: "Pommes", qty: "x6" }] },
+    cremerie: { title: "Crèmerie", letter: "C", items: [{ id: "lait", label: "Lait demi-écrémé", qty: "x3" }, { id: "beurre", label: "Beurre doux", qty: "" }] },
+    epicerie: { title: "Épicerie", letter: "É", items: [{ id: "pates", label: "Pâtes", qty: "1 kg" }, { id: "cafe", label: "Café moulu", qty: "" }] },
+    boulangerie: { title: "Boulangerie", letter: "B", items: [{ id: "baguette", label: "Baguette", qty: "x2" }] },
+  };
+  const ITEMS = {};
+  for (const a of Object.values(AISLES)) for (const it of a.items) ITEMS[it.id] = it;
+  const H = { aisle: 42, item: 48, next: 58 };
+  const GUTTER_X = 30; // 16 de marge + 28 / 2
+
+  const S = {
+    order: [], status: {}, learned: new Set(), plat: "ios", slow: false, reduced: false, busy: false,
+  };
+  function initState() {
+    S.order = ["fruits", "cremerie", "epicerie", "boulangerie"];
+    S.status = {};
+    for (const id in ITEMS) S.status[id] = "todo";
+    S.learned = new Set();
+  }
+
+  // ---- Temps ----
+  const factor = () => (S.reduced ? 0 : S.slow ? 3 : 1);
+  const hold = (ms) => ms * (S.slow ? 3 : 1);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function applyTimings() {
+    const k = factor();
+    const set = (n, v) => document.documentElement.style.setProperty(n, v * k + "ms");
+    set("--reorder", 420); set("--fade", 220); set("--check", 260); set("--swipe", 260); set("--flow", 320);
+  }
+
+  // ---- Modèle affiché ----
+  function lines() {
+    const out = [];
+    for (const aid of S.order) {
+      const a = AISLES[aid];
+      const items = a.items.filter((it) => S.status[it.id] === "todo" || S.status[it.id] === "checking");
+      if (!items.length) continue;
+      out.push({ id: "a-" + aid, kind: "aisle", aid });
+      for (const it of items) out.push({ id: it.id, kind: "item", it });
+    }
+    const nextIdx = out.findIndex((l) => l.kind === "item" && S.status[l.id] === "todo");
+    let y = 0;
+    out.forEach((l, i) => {
+      l.isNext = i === nextIdx;
+      l.h = l.kind === "aisle" ? H.aisle : l.isNext ? H.next : H.item;
+      l.y = y; y += l.h;
+      l.my = l.kind === "aisle" ? l.y + l.h - 14 : l.y + l.h / 2; // hauteur du marqueur
+      const reach = nextIdx < 0 ? out.length : nextIdx;
+      l.top = i === 0 ? "none" : i <= reach ? "passed" : "idle";
+      l.bot = i === out.length - 1 ? "none" : i < reach ? "passed" : "idle";
+    });
+    return { lines: out, total: y, nextIdx };
+  }
+
+  // ---- Téléphone ----
+  class Phone {
+    constructor(screen, mode) {
+      this.screen = screen; this.mode = mode; this.els = new Map();
+      screen.innerHTML = `
+        <div class="sbar"><span>9:41</span><span class="island"></span><span>●●●</span></div>
+        <div class="head dim"><div class="store">MAGASIN DU CENTRE</div><div class="meta">Trajet connu à 82 %</div>
+          <div class="total"><span>RESTE</span><b class="count">06</b></div></div>
+        <div class="list">${mode === "proposed" ? '<div class="track dim"><div class="passed"></div></div>' : ""}</div>
+        <div class="foot dim"><div class="nf"></div><div class="bk"></div></div>
+        <div class="menu"><div data-m="nf">Pas trouvé</div><div data-m="qty">Quantité</div></div>`;
+      this.list = screen.querySelector(".list");
+      this.track = screen.querySelector(".track");
+      this.menu = screen.querySelector(".menu");
+      this.menu.addEventListener("click", (e) => {
+        const m = e.target.dataset.m; const id = this.menuFor;
+        closeMenus();
+        if (m === "nf" && id) notFound(id);
+      });
+    }
+
+    build(l) {
+      const el = document.createElement("div");
+      el.className = "row " + l.kind;
+      el.dataset.id = l.id;
+      const marker = l.kind === "aisle"
+        ? `<span class="node" style="--c:var(--a-${l.aid})">${AISLES[l.aid].letter}</span>`
+        : `<b class="bead"></b>`;
+      const lane = l.kind === "aisle"
+        ? `<div class="lane"><span class="title">${AISLES[l.aid].title}</span><span class="tag">↑ appris</span></div>`
+        : `<div class="lane"><span class="box"></span><span class="label">${l.it.label}</span><span class="dots"></span><span class="qty">${l.it.qty || ""}</span></div>`;
+      const action = `<div class="action"><span>Pas trouvé</span></div>`;
+      if (this.mode === "today") {
+        el.innerHTML = (l.kind === "item" ? action : "") +
+          `<div class="moving"><div class="gutter"><i class="seg-t"></i><i class="seg-b"></i>${marker}</div>${lane}</div><i class="ripple"></i>`;
+        el.classList.add("dim");
+      } else {
+        el.innerHTML = `<div class="gutter dim">${marker}</div><div class="lanewrap dim">${l.kind === "item" ? action : ""}${lane}<i class="ripple"></i></div>`;
+      }
+      if (l.kind === "item") attachGestures(this, el, l.id);
+      return el;
+    }
+
+    render(model, { instant = false } = {}) {
+      const seen = new Set();
+      for (const l of model.lines) {
+        seen.add(l.id);
+        let el = this.els.get(l.id);
+        const fresh = !el;
+        if (fresh) {
+          el = this.build(l); this.els.set(l.id, el);
+          if (!instant) el.classList.add("entering");
+          el.style.transition = "none";
+          el.style.transform = `translateY(${l.y}px)`; el.style.height = l.h + "px";
+          this.list.appendChild(el);
+          void el.offsetWidth; el.style.transition = "";
+          if (!instant) requestAnimationFrame(() => el.classList.remove("entering"));
+        }
+        el.classList.remove("leaving");
+        el.style.transform = `translateY(${l.y}px)`;
+        el.style.height = l.h + "px";
+        el.classList.toggle("next", !!l.isNext);
+        if (l.kind === "item") el.classList.toggle("checked", S.status[l.id] === "checking");
+        if (l.kind === "aisle") el.classList.toggle("learned", S.learned.has(l.aid));
+        if (this.mode === "today") {
+          const t = el.querySelector(".seg-t"), b = el.querySelector(".seg-b");
+          t.className = "seg-t " + l.top; b.className = "seg-b " + l.bot;
+        }
+      }
+      for (const [id, el] of this.els) {
+        if (seen.has(id) || el.classList.contains("leaving")) continue;
+        el.classList.add("leaving");
+        setTimeout(() => { if (el.classList.contains("leaving")) { el.remove(); this.els.delete(id); } }, 240 * factor() + 30);
+      }
+      this.list.style.height = model.total + "px";
+      if (this.track) {
+        const ls = model.lines;
+        const passed = this.track.firstElementChild;
+        // Au chargement et à la réinitialisation, le trait est posé sans transition : il ne doit jamais « pousser ».
+        if (instant) { this.track.style.transition = passed.style.transition = "none"; }
+        // Si la dernière perle s'en va, le trait ne se raccourcit qu'après son fondu.
+        const lastLeaving = this.lastId && !seen.has(this.lastId);
+        this.track.style.transitionDelay = lastLeaving ? "0ms, var(--fade), 0ms" : "";
+        this.lastId = ls.length ? ls[ls.length - 1].id : null;
+        if (ls.length) {
+          const first = ls[0].my, last = ls[ls.length - 1].my;
+          const next = model.nextIdx < 0 ? last : ls[model.nextIdx].my;
+          this.track.style.opacity = 1;
+          this.track.style.top = first + "px";
+          this.track.style.height = Math.max(0, last - first) + "px";
+          this.track.firstElementChild.style.height = Math.max(0, next - first) + "px";
+        } else this.track.style.opacity = 0;
+        if (instant) { void this.track.offsetWidth; this.track.style.transition = passed.style.transition = ""; }
+      }
+      const left = Object.values(S.status).filter((s) => s === "todo").length;
+      this.screen.querySelector(".count").textContent = String(left).padStart(2, "0");
+      const nf = Object.keys(S.status).filter((k) => S.status[k] === "notfound");
+      const bk = Object.keys(S.status).filter((k) => S.status[k] === "basket");
+      this.screen.querySelector(".nf").textContent = nf.length ? `INTROUVABLE : ${nf.map((k) => ITEMS[k].label).join(", ")}` : "";
+      this.screen.querySelector(".bk").textContent = bk.length ? `▸ Dans le panier (${bk.length})` : "";
+    }
+
+    // Partie qui glisse : la ligne entière aujourd'hui, le couloir seul dans la proposition.
+    parts(id) {
+      const el = this.els.get(id); if (!el) return null;
+      return {
+        el,
+        mover: el.querySelector(this.mode === "today" ? ".moving" : ".lane"),
+        action: el.querySelector(".action"),
+        ripple: el.querySelector(".ripple"),
+        width: (this.mode === "today" ? el : el.querySelector(".lanewrap")).clientWidth,
+      };
+    }
+
+    setSwipe(id, dx, { animate = true, full = false } = {}) {
+      const p = this.parts(id); if (!p) return;
+      for (const n of [p.mover, p.action]) if (n) n.classList.toggle("anim", animate);
+      p.mover.style.transform = dx ? `translateX(${dx}px)` : "";
+      if (p.action) {
+        // iOS : l'action occupe la place libérée. Aujourd'hui, en glisser complet, elle couvre toute la cellule,
+        // gouttière comprise ; dans la proposition, seulement le couloir.
+        p.action.style.width = full ? "100%" : Math.max(0, -dx) + "px";
+      }
+    }
+
+    lift(id, on) {
+      const p = this.parts(id); if (!p) return;
+      this.screen.classList.toggle("menu-open", on);
+      for (const el of this.els.values()) el.classList.remove("lifted");
+      if (on) {
+        p.el.classList.add("lifted");
+        if (this.mode === "today") {
+          // L'aperçu du menu contextuel : toute la ligne, fil compris, grossit et passe au-dessus du voile.
+          p.el.classList.remove("dim");
+          p.el.style.transform += " scale(1.035)";
+        } else {
+          p.el.querySelector(".lanewrap").classList.remove("dim");
+        }
+      } else {
+        if (this.mode === "today") { p.el.classList.add("dim"); p.el.style.transform = p.el.style.transform.replace(/ scale\([^)]*\)/, ""); }
+        else p.el.querySelector(".lanewrap").classList.add("dim");
+      }
+    }
+
+    ripple(id) {
+      const p = this.parts(id); if (!p) return;
+      p.ripple.classList.remove("on"); void p.ripple.offsetWidth; p.ripple.classList.add("on");
+      setTimeout(() => p.ripple.classList.remove("on"), 700 * Math.max(factor(), 1));
+    }
+
+    openMenu(id) {
+      const p = this.parts(id); if (!p) return;
+      const sr = this.screen.getBoundingClientRect(), r = p.el.getBoundingClientRect();
+      this.menu.style.top = (r.bottom - sr.top + 6) + "px";
+      this.menuFor = id;
+      this.menu.classList.add("open");
+    }
+    closeMenu() { this.menu.classList.remove("open"); this.menuFor = null; }
+  }
+
+  // ---- Instances ----
+  const today = new Phone(document.querySelector(".screen.today"), "today");
+  const proposed = new Phone(document.querySelector(".screen.proposed"), "proposed");
+  const phones = [today, proposed];
+  const status = document.getElementById("status");
+  const say = (html) => { status.innerHTML = html; };
+
+  function renderAll(opts) { const m = lines(); phones.forEach((p) => p.render(m, opts)); }
+  function nextId() { const m = lines(); return m.nextIdx < 0 ? null : m.lines[m.nextIdx].id; }
+
+  // ---- Actions ----
+  function check(id) {
+    if (S.status[id] !== "todo") return;
+    S.status[id] = "checking"; renderAll();
+    setTimeout(() => { if (S.status[id] === "checking") { S.status[id] = "basket"; renderAll(); } }, hold(650));
+  }
+  function notFound(id) { if (S.status[id] !== "todo") return; S.status[id] = "notfound"; renderAll(); }
+  function learn() {
+    const i = S.order.indexOf("boulangerie");
+    if (i <= 1) return false;
+    S.order.splice(i, 1); S.order.splice(1, 0, "boulangerie");
+    S.learned.add("boulangerie"); renderAll();
+    setTimeout(() => { S.learned.delete("boulangerie"); renderAll(); }, hold(2600));
+    return true;
+  }
+  function closeMenus() { phones.forEach((p) => { p.closeMenu(); if (p.lifted) { p.lift(p.lifted, false); p.lifted = null; } }); }
+
+  // ---- Gestes à la main ----
+  let openRow = null; // { phone, id } d'une action iOS laissée ouverte
+  function closeOpen() { if (openRow) { openRow.phone.setSwipe(openRow.id, 0); openRow = null; } }
+
+  function attachGestures(phone, el, id) {
+    let x0 = 0, y0 = 0, dx = 0, mode = null, timer = null, pressed = false;
+    el.addEventListener("pointerdown", (e) => {
+      if (S.busy || e.button > 0) return;
+      if (e.target.closest(".action")) { closeOpen(); notFound(id); return; }
+      if (phone.menu.classList.contains("open")) { closeMenus(); return; }
+      x0 = e.clientX; y0 = e.clientY; dx = 0; mode = "pending"; pressed = false;
+      el.setPointerCapture(e.pointerId);
+      timer = setTimeout(() => { if (mode === "pending") { mode = "press"; pressed = true; longPress(phone, id, false); } }, 500);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!mode || mode === "press") return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (mode === "pending") {
+        if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { mode = "drag"; clearTimeout(timer); if (!(openRow && openRow.id === id && openRow.phone === phone)) closeOpen(); }
+        else if (Math.abs(my) > 8) { mode = null; clearTimeout(timer); return; }
+        else return;
+      }
+      const base = openRow && openRow.id === id && openRow.phone === phone ? -96 : 0;
+      dx = base + mx;
+      if (S.plat === "ios" && dx > 0) dx = dx * 0.15;
+      phone.setSwipe(id, dx, { animate: false });
+    });
+    const end = () => {
+      clearTimeout(timer);
+      if (mode === "drag") {
+        const w = phone.parts(id)?.width || 280;
+        if (S.plat === "ios") {
+          if (dx < -w * 0.6) { phone.setSwipe(id, -w, { full: true }); openRow = null; setTimeout(() => notFound(id), 180 * Math.max(factor(), 0.2)); }
+          else if (dx < -40) { phone.setSwipe(id, -96); openRow = { phone, id }; }
+          else { phone.setSwipe(id, 0); if (openRow && openRow.id === id) openRow = null; }
+        } else {
+          phone.setSwipe(id, 0);
+          if (dx > 110) check(id); else if (dx < -110) notFound(id);
+        }
+      } else if (mode === "pending") {
+        if (openRow) closeOpen(); else check(id);
+      }
+      mode = null;
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", () => { clearTimeout(timer); if (mode === "drag") phone.setSwipe(id, 0); mode = null; });
+  }
+
+  function longPress(phone, id, auto) {
+    const targets = auto ? phones : [phone];
+    for (const p of targets) {
+      if (S.plat === "ios") { p.lift(id, true); p.lifted = id; }
+      else p.ripple(id);
+      p.openMenu(id);
+    }
+  }
+
+  // ---- Démonstrations ----
+  async function demoSwipe() {
+    const id = nextId(); if (!id) return;
+    closeOpen();
+    if (S.plat === "ios") {
+      say("<b>Glisser</b> : l'action « Pas trouvé » s'ouvre. À gauche, le tronçon et la perle partent avec la ligne ; à droite, seul le couloir glisse.");
+      phones.forEach((p) => p.setSwipe(id, -96));
+      await sleep(hold(1400));
+      phones.forEach((p) => p.setSwipe(id, 0));
+    } else {
+      say("<b>Glisser</b> (Android, sans aller au bout) : à gauche, le fil suit la ligne ; à droite, le couloir glisse sous le bord de la gouttière.");
+      phones.forEach((p) => p.setSwipe(id, 120));
+      await sleep(hold(900));
+      phones.forEach((p) => p.setSwipe(id, -120));
+      await sleep(hold(900));
+      phones.forEach((p) => p.setSwipe(id, 0));
+    }
+    await sleep(hold(400));
+  }
+  async function demoFull() {
+    const id = nextId(); if (!id) return;
+    closeOpen();
+    say("<b>Glisser jusqu'au bout</b> : « Pas trouvé ». " + (S.plat === "ios"
+      ? "À gauche, l'action orange couvre toute la cellule, fil compris. À droite, elle ne remplit que le couloir."
+      : "À gauche, le fil glisse avec la ligne, puis revient avec elle. À droite, il reste en place."));
+    if (S.plat === "ios") {
+      phones.forEach((p) => p.setSwipe(id, -96));
+      await sleep(hold(500));
+    }
+    if (S.plat === "ios") {
+      phones.forEach((p) => { const w = p.parts(id)?.width || 280; p.setSwipe(id, -w, { full: true }); });
+      await sleep(hold(600));
+    } else {
+      // Android : passé le seuil, la ligne revient toujours en place (`confirmValueChange` renvoie false), puis la
+      // liste change.
+      phones.forEach((p) => p.setSwipe(id, -170));
+      await sleep(hold(500));
+      phones.forEach((p) => p.setSwipe(id, 0));
+      await sleep(hold(300));
+    }
+    notFound(id);
+    await sleep(hold(900));
+  }
+  async function demoCheck() {
+    const id = nextId(); if (!id) return;
+    say("<b>Cocher</b> : la ligne part au panier, la suivante grandit. À gauche, trou dans le fil pendant le fondu ; à droite, la perle s'efface sur un trait plein et l'accent coule jusqu'à la perle suivante.");
+    phones.forEach((p) => S.plat === "android" && p.ripple(id));
+    check(id);
+    await sleep(hold(1700));
+  }
+  async function demoSort() {
+    say("<b>Trier</b> : le rayon Boulangerie remonte (trajet appris). À gauche, les morceaux se croisent et les bouts sautent ; à droite, nœuds et perles glissent le long d'un trait immobile.");
+    if (!learn()) { say("Le rayon Boulangerie est déjà remonté : <b>Réinitialiser</b> pour rejouer le tri."); }
+    await sleep(hold(1800));
+  }
+  async function demoPress() {
+    const id = nextId(); if (!id) return;
+    closeOpen();
+    say(S.plat === "ios"
+      ? "<b>Appui long</b> (menu contextuel du mode courses) : à gauche, la ligne entière se soulève avec son tronçon ; à droite, seul le couloir se soulève, le fil reste sous le voile, immobile."
+      : "<b>Appui long</b> : l'ondulation couvre toute la ligne à gauche (voile sur le fil) ; à droite, elle reste dans le couloir.");
+    longPress(null, id, true);
+    await sleep(hold(1800));
+    closeMenus();
+    await sleep(hold(400));
+  }
+
+  const DEMOS = { swipe: demoSwipe, full: demoFull, check: demoCheck, sort: demoSort, press: demoPress };
+  async function run(fn) {
+    if (S.busy) return;
+    S.busy = true; setBusy(true);
+    try { await fn(); } finally { S.busy = false; setBusy(false); }
+  }
+  function setBusy(b) { document.querySelectorAll("button.cmd").forEach((x) => { if (x.id !== "reset") x.disabled = b; }); }
+
+  async function playAll() {
+    reset();
+    await sleep(hold(500));
+    await demoSwipe();
+    await demoCheck();
+    await demoSort();
+    await demoPress();
+    await demoFull();
+    say("Fin de la démonstration. Rejouez une situation, passez en <b>Ralenti ×3</b>, ou essayez à la main.");
+  }
+
+  function reset() {
+    closeMenus(); openRow = null;
+    phones.forEach((p) => { for (const el of p.els.values()) el.remove(); p.els.clear(); });
+    initState(); renderAll({ instant: true });
+    say("Touchez un article pour le cocher, faites-le glisser, ou maintenez-le. Les boutons rejouent chaque situation sur les deux téléphones en même temps.");
+  }
+
+  // ---- Commandes ----
+  document.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => run(DEMOS[b.dataset.act])));
+  document.getElementById("play").addEventListener("click", () => run(playAll));
+  document.getElementById("reset").addEventListener("click", () => { if (!S.busy) reset(); });
+  document.querySelectorAll("[data-plat]").forEach((b) => b.addEventListener("click", () => {
+    if (S.busy) return;
+    S.plat = b.dataset.plat;
+    document.querySelectorAll("[data-plat]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.querySelectorAll("figure").forEach((f) => f.classList.toggle("android", S.plat === "android"));
+    reset();
+  }));
+  document.querySelectorAll("[data-theme-btn]").forEach((b) => b.addEventListener("click", () => {
+    const t = b.dataset.themeBtn;
+    if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+    document.querySelectorAll("[data-theme-btn]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+  document.getElementById("slow").addEventListener("change", (e) => { S.slow = e.target.checked; applyTimings(); });
+  const reducedBox = document.getElementById("reduced");
+  try { if (matchMedia("(prefers-reduced-motion: reduce)").matches) { reducedBox.checked = true; S.reduced = true; } } catch (_) {}
+  reducedBox.addEventListener("change", (e) => { S.reduced = e.target.checked; applyTimings(); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".row") && !e.target.closest(".menu")) { closeOpen(); if (!S.busy) closeMenus(); } });
+
+  applyTimings();
+  initState();
+  renderAll({ instant: true });
+})();
+</script>
+</body>
+</html>

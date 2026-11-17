@@ -70,10 +70,12 @@ final class SyncRuntime {
 
   /// À appeler dès qu'une session valide est disponible. Sans effet pendant une suppression de compte : la
   /// connexion lancée avant elle ne doit pas relancer le moteur.
-  func sessionDidChange() {
-    guard !isStopped, !isHeldForPurge else { return }
+  /// Rend la reprise lancée, `nil` si aucune : les tests l'attendent au lieu de laisser passer du temps.
+  @discardableResult
+  func sessionDidChange() -> Task<Void, Never>? {
+    guard !isStopped, !isHeldForPurge else { return nil }
     let engine = engine
-    Task { await engine.resume() }
+    return Task { await engine.resume() }
   }
 
   /// Suppression du compte : plus aucune passe, celle en cours comprise, ni tâche d'arrière-plan planifiée.
@@ -84,11 +86,14 @@ final class SyncRuntime {
 
   /// Suppression abandonnée ou refusée : la synchronisation reprend où elle en était. Sans effet tant qu'un drapeau de
   /// purge est posé : il est effacé avant toute reprise légitime.
-  func resume() {
-    guard !isStopped, !isHeldForPurge else { return }
+  /// Rend la reprise lancée, `nil` si aucune (comme `sessionDidChange`).
+  @discardableResult
+  func resume() -> Task<Void, Never>? {
+    guard !isStopped, !isHeldForPurge else { return nil }
     let engine = engine
-    Task { await engine.resume() }
+    let resuming = Task { await engine.resume() }
     Self.scheduleBackgroundRefresh()
+    return resuming
   }
 
   /// Avant la purge du compte supprimé : arrêt définitif. Le moteur ne repart plus, même sur un
