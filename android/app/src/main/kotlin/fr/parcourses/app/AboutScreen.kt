@@ -43,6 +43,15 @@ import fr.parcourses.core.designsystem.TicketType
 const val PRIVACY_POLICY_URL = "https://parcourses.hadrien.eu/confidentialite/"
 
 /**
+ * Demande écrite de suppression d'un compte e-mail (#122) : même adresse et même objet que `/supprimer-mes-donnees/`
+ * (iOS : `PrivacyLinks.deletionRequest`).
+ */
+const val DELETION_REQUEST_URI = "mailto:parcourses@hadrien.eu?subject=Supprimer%20mes%20donn%C3%A9es"
+
+/** Objet de la demande, aussi passé à part : toutes les messageries ne lisent pas celui de l'adresse `mailto:`. */
+const val DELETION_REQUEST_SUBJECT = "Supprimer mes données"
+
+/**
  * « À propos » (iOS : `AboutView`, lot 9.12) : d'où viennent les magasins (OpenStreetMap, ODbL), ce que l'app
  * enregistre et pourquoi, la police embarquée et la version. Mêmes textes qu'iOS.
  *
@@ -51,8 +60,8 @@ const val PRIVACY_POLICY_URL = "https://parcourses.hadrien.eu/confidentialite/"
  * compte anonyme, qui n'a pas d'écran Compte ; [isEmailAccount] la retire.
  *
  * Les textes sur les données suivent le type de compte (#87, lot 87.8, iOS : `isEmailAccount`) : identifiant anonyme,
- * ou compte e-mail (adresse et prénom), qui n'est jamais purgé pour inactivité. Le lien vers la politique de
- * confidentialité est là pour tous, avec ou sans serveur.
+ * ou compte e-mail (adresse et prénom), purgé après 3 ans sans utilisation, pas 365 jours. Le lien vers la politique
+ * de confidentialité est là pour tous, avec ou sans serveur.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,7 +140,7 @@ private fun PrivacySection(
         InfoParagraph(stringResource(R.string.about_privacy_catalog))
         InfoParagraph(stringResource(R.string.about_privacy_location))
         // Seulement avec un serveur : sans lui, rien n'en part. Compte e-mail : la suppression est dans l'écran Compte,
-        // pas « ci-dessous », et jamais de purge pour inactivité (pas de 365 jours).
+        // pas « ci-dessous », et la purge d'inactivité est à 3 ans, pas à 365 jours (#118, #122).
         if (!localOnly) {
             val deletion =
                 if (isEmailAccount) {

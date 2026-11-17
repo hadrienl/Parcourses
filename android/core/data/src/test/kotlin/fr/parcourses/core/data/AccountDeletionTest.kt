@@ -16,10 +16,12 @@ import fr.parcourses.core.data.account.AccountDeletionPhase
 import fr.parcourses.core.data.account.AccountDeletionTiming
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.InMemoryAccountDeletionFlag
+import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.repository.CheckSubject
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.repository.RoomVisitRepository
+import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.InMemorySyncCursors
 import fr.parcourses.core.data.sync.ListSyncWorker
 import fr.parcourses.core.data.sync.SyncDependencies
@@ -92,15 +94,19 @@ class AccountDeletionTest : DataTest() {
         engine = newEngine()
     }
 
+    /** Drapeau `account.kind` de l'appareil, effacé par la purge comme dans l'app. */
+    private val kind = InMemoryAccountKindFlag()
+
     /** Un lancement de l'app : moteur neuf, rien en mémoire ; base, drapeau, session et serveur restent. */
     private fun deletion(withServer: Boolean = true) =
         AccountDeletion(
             gateway = if (withServer) guarded else null,
             flag = flag,
-            purge = LocalDataPurge(db, cursors),
+            purge = LocalDataPurge(db, cursors, accountKind = kind),
             host = host,
             isOnline = { online },
             timing = AccountDeletionTiming(timeout = 200.milliseconds, now = { now }),
+            accountKind = { kind.kind.value },
         )
 
     private inner class Host : AccountDeletionHost {
@@ -718,10 +724,53 @@ class AccountDeletionTest : DataTest() {
             gateway.hasSession = false
             flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, old.toString()))
 
-            assertEquals(AccountDeletionOutcome.DeletedLocally, deletion().resumePending())
+            assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = false), deletion().resumePending())
 
             assertTrue(gateway.callsOf("deleteAccount").isEmpty())
             assertDeletedAndStartedAfresh(old)
+        }
+
+    /**
+     * #122 : compte e-mail sans session, processus tué après la purge, qui a effacé `account.kind`. La reprise lit le
+     * type de compte dans le drapeau et annonce encore un compte e-mail, pas les 365 jours d'un compte anonyme.
+     */
+    @Test
+    fun aResumedPurgeOfAnEmailAccountKeepsItsMessage() =
+        runBlocking {
+            everythingOnTheDevice()
+            kind.write(AccountKind.Email)
+            gateway.hasSession = false
+            host.killAt = "clearLocalState"
+
+            expectKilled { deletion().run() }
+            engine = newEngine()
+            assertEquals(AccountKind.Anonymous, kind.kind.value)
+            assertEquals(AccountKind.Email, flag.read()?.accountKind)
+
+            assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = true), deletion().resumePending())
+            assertNull(flag.read())
+            for (table in personalTables) assertEquals(table, 0L, count(table))
+        }
+
+    /**
+     * Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne. Il est noté dans le
+     * drapeau avant la purge : une reprise interrompue à son tour garde le message d'un compte e-mail.
+     */
+    @Test
+    fun aFlagWithoutTheAccountKindFallsBackToTheDeviceKind() =
+        runBlocking {
+            everythingOnTheDevice()
+            kind.write(AccountKind.Email)
+            flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, Uuid.random().toString()))
+            host.killAt = "clearLocalState"
+
+            expectKilled { deletion().resumePending() }
+            engine = newEngine()
+            assertEquals(AccountKind.Anonymous, kind.kind.value)
+            assertEquals(AccountKind.Email, flag.read()?.accountKind)
+
+            assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = true), deletion().resumePending())
+            assertNull(flag.read())
         }
 
     /** C7 : la session locale est celle d'un autre compte que le drapeau : traitée comme une session absente. */
@@ -732,7 +781,7 @@ class AccountDeletionTest : DataTest() {
             val other = gateway.account
             flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, Uuid.random().toString()))
 
-            assertEquals(AccountDeletionOutcome.DeletedLocally, deletion().resumePending())
+            assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = false), deletion().resumePending())
 
             assertTrue(gateway.callsOf("deleteAccount").isEmpty())
             assertTrue(gateway.deletedAccounts.isEmpty())
@@ -755,6 +804,8 @@ class AccountDeletionTest : DataTest() {
             assertEquals(true, pendingWhileReading)
             assertEquals(account.toString(), flag.read()?.accountId)
             assertEquals(now, flag.read()?.lastAttemptAt)
+            // Noté avec le premier drapeau, gardé quand le compte s'y ajoute (#122).
+            assertEquals(AccountKind.Anonymous, flag.read()?.accountKind)
         }
 
     @Test

@@ -1,6 +1,7 @@
 package fr.parcourses.app
 
 import android.app.Application
+import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /** Messages de la suppression (#68) : doute (C5, C6), « Réessayez dans un instant. » (C2), appareil seul (C3). */
@@ -97,21 +99,46 @@ class AccountDeletionOverlayTest {
 
         rule.onNodeWithText(text(R.string.about_account_done_local_title)).assertIsDisplayed()
         rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertIsDisplayed()
+        // Compte anonyme : rien à demander par écrit (#122).
+        rule.onNodeWithTag(TAG_ACCOUNT_WRITE).assertDoesNotExist()
         rule.onNodeWithTag(TAG_ACCOUNT_OK).performClick()
 
         assertEquals(listOf("acknowledge"), calls)
     }
 
+    /**
+     * Compte e-mail (#122) : l'adresse de contact et l'objet, comme `/supprimer-mes-donnees/`, puis la purge à 3 ans ;
+     * jamais les 365 jours d'un compte anonyme. Même texte qu'iOS (`AccountDeletionTexts.deletedFromDeviceMessage`).
+     */
     @Test
     fun anEmailAccountDeletedOnTheDeviceAloneIsToldToWriteToUs() {
         show(AccountDeletionState.DoneLocally(emailAccount = true))
 
         rule.onNodeWithText(text(R.string.about_account_done_local_title)).assertIsDisplayed()
-        // Un compte e-mail n'est jamais purgé pour inactivité : aucune promesse de suppression à 365 jours.
+        assertEquals(
+            "Pour les supprimer aussi de nos serveurs, écrivez à parcourses@hadrien.eu depuis l'adresse de votre " +
+                "compte, avec l'objet « Supprimer mes données ». Sinon, elles le seront après 3 ans sans utilisation.",
+            text(R.string.about_account_done_local_body_email),
+        )
         rule
             .onNodeWithTag(TAG_ACCOUNT_MESSAGE)
             .assert(hasText(text(R.string.about_account_done_local_body_email)))
         rule.onNodeWithText(text(R.string.about_account_done_local_body)).assertDoesNotExist()
+        rule.onNodeWithTag(TAG_ACCOUNT_OK).assertIsDisplayed()
+    }
+
+    /** « Écrire un e-mail » ouvre la messagerie sur la demande de suppression, puis ferme le message comme « OK ». */
+    @Test
+    fun writeToUsOpensTheDeletionRequest() {
+        show(AccountDeletionState.DoneLocally(emailAccount = true))
+
+        rule.onNodeWithTag(TAG_ACCOUNT_WRITE).assert(hasText(text(R.string.about_account_write))).performClick()
+
+        val intent = shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity
+        assertEquals(Intent.ACTION_SENDTO, intent.action)
+        assertEquals("mailto:parcourses@hadrien.eu?subject=Supprimer%20mes%20donn%C3%A9es", intent.dataString)
+        assertEquals("Supprimer mes données", intent.getStringExtra(Intent.EXTRA_SUBJECT))
+        assertEquals(listOf("acknowledge"), calls)
     }
 
     @Test

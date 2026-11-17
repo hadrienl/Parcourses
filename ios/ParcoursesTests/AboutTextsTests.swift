@@ -4,11 +4,20 @@ import Testing
 @testable import Parcourses
 
 /// Textes qui suivent le compte (#87, lot 87.8), dans À propos et dans la suppression des données, que celle-ci parte
-/// d'À propos (compte anonyme) ou de l'écran Compte (compte e-mail, #108). Un compte e-mail n'est jamais purgé pour
-/// inactivité.
+/// d'À propos (compte anonyme) ou de l'écran Compte (compte e-mail, #108). Sans utilisation, un compte anonyme est
+/// supprimé de nos serveurs après 365 jours, un compte e-mail après 3 ans (#118, #122).
 struct AboutTextsTests {
   @Test func policyLinkPointsToThePublicPage() {
     #expect(PrivacyLinks.policy?.absoluteString == "https://parcourses.hadrien.eu/confidentialite/")
+  }
+
+  /// Même adresse et même objet que la page `/supprimer-mes-donnees/` (#122).
+  @Test func deletionRequestWritesToTheContactAddress() throws {
+    let url = try #require(PrivacyLinks.deletionRequest)
+    #expect(url.absoluteString == "mailto:parcourses@hadrien.eu?subject=Supprimer%20mes%20donn%C3%A9es")
+    let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+    #expect(components.path == "parcourses@hadrien.eu")
+    #expect(components.queryItems == [URLQueryItem(name: "subject", value: "Supprimer mes données")])
   }
 
   @Test(arguments: [
@@ -16,9 +25,12 @@ struct AboutTextsTests {
       false,
       "Vous pouvez supprimer ces données à tout moment ci-dessous. Sur nos serveurs, elles sont aussi supprimées après 365 jours sans utilisation de l'app."
     ),
-    (true, "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte."),
+    (
+      true,
+      "Vous pouvez supprimer ces données à tout moment depuis l'écran Compte. Sur nos serveurs, elles sont aussi supprimées après 3 ans sans utilisation de l'app ; un e-mail vous prévient au moins 30 jours avant."
+    ),
   ])
-  func retentionMentionsThePurgeOnlyForAnAnonymousAccount(isEmailAccount: Bool, expected: String) {
+  func retentionMentionsThePurgeOfEachAccount(isEmailAccount: Bool, expected: String) {
     #expect(AboutTexts.retention(isEmailAccount: isEmailAccount) == expected)
   }
 
@@ -39,18 +51,19 @@ struct AboutTextsTests {
       AccountDeletionTexts.yourData(deletesServerData: deletesServerData, isEmailAccount: isEmailAccount) == expected)
   }
 
-  /// La phrase sur les listes partagées suit celle sur les données effacées, pour les deux comptes.
+  /// La phrase sur les listes partagées suit celle sur les données effacées, pour un compte e-mail seulement : un compte
+  /// anonyme ne peut pas partager de liste (#122).
   @Test(arguments: [
     (
       false,
-      "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Une liste que vous partagez avec d'autres passe à l'un de ses membres. Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
+      "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre identifiant anonyme. Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
     ),
     (
       true,
       "Vos listes, vos visites et vos articles cochés seront effacés de cet appareil et de nos serveurs, ainsi que votre compte (adresse e-mail et prénom). Une liste que vous partagez avec d'autres passe à l'un de ses membres. Votre contribution anonyme au plan des rayons des magasins est conservée. C'est définitif."
     ),
   ])
-  func serverConfirmationHandsSharedListsOver(isEmailAccount: Bool, expected: String) {
+  func serverConfirmationHandsSharedListsOverOnlyForAnEmailAccount(isEmailAccount: Bool, expected: String) {
     let message = AccountDeletionTexts.confirmation(
       deletesServerData: true, isEmailAccount: isEmailAccount, interruptsShopping: false)
     #expect(message == expected)
@@ -72,18 +85,22 @@ struct AboutTextsTests {
         == "Vos listes et vos visites seront effacées de cet appareil. Vos courses en cours seront interrompues.")
   }
 
-  @Test func deviceOnlyDeletionMentionsThePurgeOnlyForAnAnonymousAccount() {
+  /// Compte e-mail : l'adresse de contact et l'objet de la demande, comme `/supprimer-mes-donnees/`, puis la purge à
+  /// 3 ans (#122). Compte anonyme : la purge à 365 jours.
+  @Test func deviceOnlyDeletionMentionsThePurgeOfEachAccount() {
     #expect(
       AccountDeletionTexts.deletedFromDeviceMessage(isEmailAccount: false)
         == "Celles de nos serveurs seront supprimées après 365 jours sans utilisation.")
     #expect(
       AccountDeletionTexts.deletedFromDeviceMessage(isEmailAccount: true)
-        == "Écrivez-nous depuis l'adresse de votre compte : parcourses.hadrien.eu/supprimer-mes-donnees")
+        == "Pour les supprimer aussi de nos serveurs, écrivez à parcourses@hadrien.eu depuis l'adresse de votre compte, avec l'objet « Supprimer mes données ». Sinon, elles le seront après 3 ans sans utilisation."
+    )
   }
 
-  /// Aucun texte montré à un compte e-mail, à À propos comme à l'écran Compte, ne promet la purge d'inactivité.
+  /// Un texte montré à un compte e-mail, à À propos comme à l'écran Compte, ne parle jamais des 365 jours d'un compte
+  /// anonyme : sa purge est à 3 ans (#118).
   @Test(arguments: [false, true])
-  func noEmailAccountTextPromisesTheInactivityPurge(deletesServerData: Bool) {
+  func emailAccountTextsNeverMentionTheAnonymousPurge(deletesServerData: Bool) {
     let texts = [
       AboutTexts.retention(isEmailAccount: true),
       AccountDeletionTexts.yourData(deletesServerData: deletesServerData, isEmailAccount: true),
@@ -93,7 +110,6 @@ struct AboutTextsTests {
     ]
     for text in texts {
       #expect(!text.contains("365"), "\(text)")
-      #expect(!text.contains("sans utilisation"), "\(text)")
     }
   }
 }

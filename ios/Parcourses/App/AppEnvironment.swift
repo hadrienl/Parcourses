@@ -90,6 +90,7 @@ final class AppEnvironment {
     let visits = visits
     return AccountDeletion(
       gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: LocalDataPurge(container: container),
+      accountKind: { UserDefaultsAccountKindStore().kind },
       isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil },
       beginBackgroundWork: {
         let activity = BackgroundActivity(name: "account-deletion")
