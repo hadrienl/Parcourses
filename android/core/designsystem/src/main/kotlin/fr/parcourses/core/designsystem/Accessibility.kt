@@ -54,7 +54,8 @@ object TicketMotion {
     /** Changement d'état de la perle et du fil à la coche. */
     fun <T> check(reduced: Boolean): FiniteAnimationSpec<T> = tween(if (reduced) 0 else CHECK_MS)
 
-    private const val FADE_MS = 150
+    /** Durée du fondu d'une ligne qui entre ou sort (`motion.fade`). */
+    const val FADE_MS = 150
 }
 
 /** Suit l'échelle de durée des animations du système (« Supprimer les animations »). */
