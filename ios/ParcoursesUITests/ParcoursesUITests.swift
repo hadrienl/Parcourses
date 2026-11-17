@@ -33,6 +33,10 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let xyzzy = row(app, "xyzzy", "non coché")
     reveal(xyzzy, in: app, betweenBars: true)
     xyzzy.swipeLeft()
+    // Glisser maison (#115) : un seul bouton, celui de la ligne ouverte, hors de l'élément de la ligne.
+    XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+    XCTAssertEqual(app.buttons.matching(identifier: "Supprimer").count, 1)
+    capture(app, "2b-ligne-ouverte")
     app.buttons["Supprimer"].firstMatch.tap()
     XCTAssertTrue(row(app, "xyzzy", "non coché").waitForNonExistence(timeout: 15))
 
@@ -114,6 +118,39 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     app.buttons["closeSummary"].tap()
     XCTAssertTrue(row(app, "tomates", "coché").waitForExistence(timeout: 15))
     XCTAssertTrue(row(app, "pommes", "non coché").exists)
+  }
+
+  /// Glisser maison du mode courses (#115) : un glisser tenu ouvre la ligne sans bouger le fil, un toucher la referme,
+  /// et le glisser complet passe l'article dans « Introuvable » sans toucher le bouton.
+  @MainActor
+  func testFullSwipeMarksNotFound() {
+    let app = enterShopping(confidenceQ: nil, items: ["lait", "tomates", "xyzzy"])
+    let milk = row(app, "lait", "non coché", in: "shoppingList")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["Pas trouvé"].exists, "le bouton n'existe que ligne ouverte")
+
+    // Glisser lent, tenu : capture pendant le geste, puis la ligne reste ouverte au relâcher.
+    milk.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).press(
+      forDuration: 0.05, thenDragTo: milk.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    let notFound = app.buttons["Pas trouvé"]
+    XCTAssertTrue(notFound.waitForExistence(timeout: 15), "le glisser ouvre la ligne")
+    XCTAssertEqual(app.buttons.matching(identifier: "Pas trouvé").count, 1)
+    capture(app, "glisser-ouvert")
+
+    // Toucher la ligne ouverte la referme, sans la cocher.
+    row(app, "lait", "non coché", in: "shoppingList").tap()
+    XCTAssertTrue(notFound.waitForNonExistence(timeout: 15), "le toucher referme la ligne")
+    XCTAssertTrue(row(app, "lait", "non coché", in: "shoppingList").exists)
+
+    // Glisser complet : au-delà de 60 % du couloir, l'action part au relâcher.
+    let start = milk.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+    start.press(
+      forDuration: 0.05, thenDragTo: milk.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)),
+      withVelocity: .slow, thenHoldForDuration: 0.2)
+    XCTAssertTrue(row(app, "lait", "introuvable", in: "shoppingList").waitForExistence(timeout: 15))
+    XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").exists)
+    capture(app, "glisser-complet")
   }
 
   /// En-têtes selon ce que l'instantané en cache sait du magasin.
