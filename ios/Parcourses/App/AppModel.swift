@@ -27,9 +27,11 @@ final class AppModel {
     flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
     signOutFlags: any AccountSignOutFlagStore = UserDefaultsAccountSignOutFlagStore()
   ) {
-    let gateway = AuthBootstrap.makeGateway()
+    // Une seule instance du Keychain pour la passerelle et les purges : un seul suivi de son état (#133).
+    let keychain = GuardedSecureStore.live()
+    let gateway = AuthBootstrap.makeGateway(keychain: keychain)
     self.gateway = gateway
-    environment = Result { try AppEnvironment.live(gateway: gateway) }
+    environment = Result { try AppEnvironment.live(gateway: gateway, keychain: keychain) }
     isResumingDeletion = flags.isDeletionPending
     let current = try? environment.get()
     deletion = current?.makeAccountDeletion()

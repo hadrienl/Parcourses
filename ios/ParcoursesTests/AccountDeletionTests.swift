@@ -10,21 +10,44 @@ import Testing
 nonisolated final class MemorySecureStore: SecureStore, @unchecked Sendable {
   private let lock = NSLock()
   private var values: [String: Data] = [:]
+  private var failing = false
+  private var refusing = false
+  private var log: [String] = []
 
-  func data(forKey key: String) throws -> Data? { lock.withLock { values[key] } }
-  func set(_ data: Data, forKey key: String) throws { lock.withLock { values[key] = data } }
-  func removeValue(forKey key: String) throws { _ = lock.withLock { values.removeValue(forKey: key) } }
+  func data(forKey key: String) throws -> Data? {
+    try access("data:\(key)") { values[key] }
+  }
+  func set(_ data: Data, forKey key: String) throws {
+    try access("set:\(key)") { values[key] = data }
+  }
+  func removeValue(forKey key: String) throws {
+    try access("remove:\(key)") { _ = values.removeValue(forKey: key) }
+  }
   func removeAll() throws {
-    if failsRemoveAll { throw KeychainError(status: errSecInteractionNotAllowed) }
-    lock.withLock { values.removeAll() }
+    try access("removeAll", failing: failsRemoveAll) { values.removeAll() }
   }
   /// Purge du Keychain en échec, pour une issue inconnue sans serveur.
   var failsRemoveAll: Bool {
     get { lock.withLock { failing } }
     set { lock.withLock { failing = newValue } }
   }
-  private var failing = false
+  /// Keychain qui refuse tout (#133), comme un `errSecInteractionNotAllowed` durable : chaque opération lève.
+  var failsEverything: Bool {
+    get { lock.withLock { refusing } }
+    set { lock.withLock { refusing = newValue } }
+  }
   var keys: Set<String> { lock.withLock { Set(values.keys) } }
+  /// Opérations reçues, dans l'ordre, réussies ou non : `data:<clé>`, `set:<clé>`, `remove:<clé>`, `removeAll`.
+  var operations: [String] { lock.withLock { log } }
+  func forgetOperations() { lock.withLock { log.removeAll() } }
+
+  private func access<T>(_ operation: String, failing: Bool = false, _ work: () -> T) throws -> T {
+    try lock.withLock {
+      log.append(operation)
+      if failing || refusing { throw KeychainError(status: errSecInteractionNotAllowed) }
+      return work()
+    }
+  }
 }
 
 /// Serveur simulé : comptes, session dans le Keychain partagé, et chaque écriture reçue avec son compte.
@@ -306,18 +329,22 @@ final class DeletionHarness: AccountDeletionHost {
 
   var cursors: UserDefaultsSyncCursors { UserDefaultsSyncCursors(defaults: defaults) }
 
+  /// `keychain` : Keychain de l'app (#133), dont la purge se sert et dont l'état bloqué est lu ; `secure` sinon.
   func makeDeletion(
-    gateway: (any RemoteGateway)? = nil, checkpoint: @escaping (AccountDeletion.Step) throws -> Void = { _ in }
+    gateway: (any RemoteGateway)? = nil, keychain: GuardedSecureStore? = nil,
+    checkpoint: @escaping (AccountDeletion.Step) throws -> Void = { _ in }
   )
     -> AccountDeletion
   {
     let defaults = defaults
     let deletion = AccountDeletion(
       gateway: gateway ?? self.gateway, flags: flags,
-      purge: LocalDataPurge(container: container, keychain: secure, defaults: defaults, urlCache: urlCache),
+      purge: LocalDataPurge(
+        container: container, keychain: keychain ?? secure, defaults: defaults, urlCache: urlCache),
       // Comme l'app : le drapeau `account.kind` des préférences, que la purge efface.
       accountKind: { UserDefaultsAccountKindStore(defaults: defaults).kind },
-      isOnline: { [unowned self] in online }, timeout: .seconds(2), now: { [unowned self] in clock },
+      isOnline: { [unowned self] in online }, isSessionStorageStuck: { keychain?.monitor.isStuck ?? false },
+      timeout: .seconds(2), now: { [unowned self] in clock },
       checkpoint: checkpoint)
     deletion.host = self
     return deletion
@@ -356,6 +383,14 @@ final class DeletionHarness: AccountDeletionHost {
   }
 
   func endShopping() { hostCalls.append("endShopping") }
+
+  /// Keychain de l'app sur `secure`, comme après une installation (`auth.installed` posé), avec son horloge (#133).
+  func makeAppKeychain() -> (keychain: GuardedSecureStore, clock: TestMonotonicClock) {
+    defaults.set(true, forKey: AuthBootstrap.installedFlag)
+    let clock = TestMonotonicClock()
+    let keychain = GuardedSecureStore(base: secure, defaults: defaults, monitor: KeyAccessMonitor(now: { clock.now }))
+    return (keychain, clock)
+  }
 
   /// Plus de `cancelDelay` depuis le dernier envoi.
   func letCancelDelayPass() { clock.addTimeInterval(AccountDeletion.cancelDelay + 1) }
@@ -907,6 +942,86 @@ struct AccountDeletionTests {
 
     #expect(relaunched.status == .failed(.unknown))
     #expect(app.flags.isDeletionPending)
+    #expect(await app.gateway.calls.isEmpty)
+    try app.expectIntact()
+  }
+
+  /// Keychain bloqué (#133) : la session ne se relira pas, elle compte comme absente. L'appareil seulement est purgé,
+  /// le vidage du Keychain, refusé, est reporté au prochain accès (`auth.installed` retiré).
+  @Test func aStuckKeychainPurgesOnlyTheDevice() async throws {
+    let app = try DeletionHarness()
+    try app.seedEverything()
+    let old = try await app.signInAndSync()
+    let (keychain, clock) = app.makeAppKeychain()
+    await app.gateway.setLocalSessionFailure(.keychainLocked)
+    app.secure.failsRemoveAll = true
+    // Le faux serveur ne passe pas par le moniteur : les échecs de lecture que la passerelle y noterait dans l'app sont notés ici à la main.
+    keychain.monitor.recordFailuresUntilStuck(clock: clock)
+    await app.gateway.clearCalls()
+
+    let deletion = app.makeDeletion(keychain: keychain)
+    await deletion.delete()
+
+    #expect(deletion.status == .deletedFromDevice(isEmailAccount: false))
+    #expect(await app.gateway.calls.contains("deleteAccount") == false)
+    #expect(await app.gateway.accounts.contains(old))
+    try app.expectPurged()
+    #expect(app.defaults.object(forKey: AuthBootstrap.installedFlag) == nil)
+    #expect(keychain.isWipePending)
+  }
+
+  /// Keychain illisible mais pas encore bloqué : doute, rien n'est effacé. Une fois bloqué, « Réessayer » purge
+  /// l'appareil seulement.
+  @Test func aRetryOnceTheKeychainIsStuckPurgesOnlyTheDevice() async throws {
+    let app = try DeletionHarness()
+    try app.seedEverything()
+    try await app.signInAndSync()
+    let (keychain, clock) = app.makeAppKeychain()
+    await app.gateway.setLocalSessionFailure(.keychainLocked)
+    app.secure.failsRemoveAll = true
+
+    let deletion = app.makeDeletion(keychain: keychain)
+    await deletion.delete()
+    #expect(deletion.status == .failed(.unknown))
+    #expect(app.flags.isDeletionPending)
+    try app.expectIntact()
+    await deletion.retry()
+    #expect(deletion.status == .failed(.unknown))
+    try app.expectIntact()
+
+    keychain.monitor.recordFailuresUntilStuck(clock: clock)
+    await deletion.retry()
+
+    #expect(deletion.status == .deletedFromDevice(isEmailAccount: false))
+    try app.expectPurged()
+    #expect(app.defaults.object(forKey: AuthBootstrap.installedFlag) == nil)
+  }
+
+  /// « Annuler » avec un Keychain illisible : « Réessayez dans un instant » tant qu'il n'est pas bloqué ; ensuite, comme
+  /// sans session, la personne garde ses données.
+  @Test func cancellingWithAStuckKeychainKeepsTheData() async throws {
+    let app = try DeletionHarness()
+    try app.seedEverything()
+    try await app.signInAndSync()
+    let (keychain, clock) = app.makeAppKeychain()
+    await app.gateway.setLocalSessionFailure(.keychainLocked)
+
+    let deletion = app.makeDeletion(keychain: keychain)
+    await deletion.delete()
+    #expect(deletion.status == .failed(.unknown))
+    await deletion.cancel()
+    #expect(deletion.status == .failed(.unknown))
+    #expect(deletion.isCancelDeferred)
+    #expect(app.flags.isDeletionPending)
+    #expect(!app.hostCalls.contains("resumeSync"))
+
+    keychain.monitor.recordFailuresUntilStuck(clock: clock)
+    await app.gateway.clearCalls()
+    await deletion.cancel()
+
+    #expect(deletion.status == .idle)
+    #expect(app.flags.load() == nil)
+    #expect(app.hostCalls.last == "resumeSync")
     #expect(await app.gateway.calls.isEmpty)
     try app.expectIntact()
   }

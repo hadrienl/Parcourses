@@ -845,6 +845,58 @@ private final class SignOutHost: AccountDeletionHost {
     #expect(host.steps.last == "restart")
     #expect(await gateway.calls.last == "ensureSession")
   }
+
+  /// Keychain qui refuse tout (#133) : la purge échoue tant qu'il n'est pas bloqué (doute : il se rouvrira peut-être).
+  /// Une fois bloqué, « Réessayer » aboutit : la session illisible ne se relira pas, le vidage est reporté au prochain
+  /// accès (`auth.installed` retiré).
+  @Test func aSignOutWithAnUnreadableKeychainEndsOnceItIsStuck() async throws {
+    let defaults = try #require(UserDefaults(suiteName: "tests.account.\(UUID().uuidString)"))
+    defaults.set(true, forKey: AuthBootstrap.installedFlag)
+    let kinds = UserDefaultsAccountKindStore(defaults: defaults)
+    kinds.save(.email)
+    let container = try PersistenceStack.makeContainer(storage: .inMemory)
+    _ = try SwiftDataListRepository(context: container.mainContext).createList(name: "Courses", at: .now)
+    let gateway = AccountGateway()
+    await gateway.setEmail("lea@exemple.fr")
+    let base = MemorySecureStore()
+    base.failsEverything = true
+    let clock = TestMonotonicClock()
+    let keychain = GuardedSecureStore(base: base, defaults: defaults, monitor: KeyAccessMonitor(now: { clock.now }))
+    let purge = LocalDataPurge(
+      container: container, keychain: keychain, defaults: defaults,
+      urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0))
+    let flags = UserDefaultsAccountSignOutFlagStore(defaults: defaults)
+    let session = AccountSession(
+      gateway: gateway, kinds: kinds, purge: purge, signOutFlags: flags,
+      switchFlags: UserDefaultsAccountSwitchFlagStore(defaults: defaults))
+    await session.refresh()
+    let host = SignOutHost()
+    session.host = host
+
+    await session.signOut()
+    #expect(session.signOutFailed)
+    #expect(session.lastPurgeFailure == PurgeFailure(operation: .signOut, step: .session))
+    clock.advance(by: .seconds(15))
+    await session.retrySignOut()
+    #expect(session.signOutFailed)
+    #expect(flags.isPending)
+    #expect(defaults.bool(forKey: AuthBootstrap.installedFlag))
+    #expect(!host.steps.contains("restart"))
+
+    clock.advance(by: .seconds(15))
+    await session.retrySignOut()
+    withExtendedLifetime(host) {}
+    #expect(keychain.monitor.isStuck)
+    #expect(!session.signOutFailed)
+    #expect(!flags.isPending)
+    #expect(!session.isSignOutPending)
+    #expect(session.purgeFailureCount == 0)
+    #expect(defaults.object(forKey: AuthBootstrap.installedFlag) == nil)
+    #expect(keychain.isWipePending)
+    #expect(try ModelContext(container).fetchCount(FetchDescriptor<ShoppingList>()) == 0)
+    #expect(session.kind == .anonymous)
+    #expect(host.steps.last == "restart")
+  }
 }
 
 /// Tant qu'un drapeau de purge est posé (déconnexion, changement de compte, suppression), aucune reprise ne relance le

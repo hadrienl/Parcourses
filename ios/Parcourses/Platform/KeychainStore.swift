@@ -12,9 +12,17 @@ nonisolated protocol SecureStore: Sendable {
   func set(_ data: Data, forKey key: String) throws
   func removeValue(forKey key: String) throws
   func removeAll() throws
+  /// Vide sans lire, pour la purge de l'appareil (même nom qu'Android, `SecureStateStore.clear`). Le Keychain de l'app
+  /// (`GuardedSecureStore`) reporte le vidage s'il est bloqué (#133).
+  func clear() throws
 }
 
 nonisolated extension SecureStore {
+  /// Par défaut : `removeAll`, dont l'échec lève.
+  func clear() throws {
+    try removeAll()
+  }
+
   /// Écrit puis relit une sentinelle de même accessibilité que la session : une simple lecture ne suffit
   /// pas à prouver qu'une session pourra être persistée.
   func verifyAvailable() throws {

@@ -50,6 +50,9 @@ protocol AccountDeletionHost: AnyObject {
 /// Seules trois réponses de GoTrue prouvent la suppression (`accountGone`). Après un doute, rien n'efface le
 /// drapeau sans que le serveur ait confirmé que le compte existe toujours : sinon la synchronisation reprise
 /// renverrait toutes les données vers un nouveau compte.
+///
+/// Un Keychain bloqué (`isSessionStorageStuck`, #133) compte comme une session absente : l'appareil seulement. Même
+/// règle qu'Android (#51).
 @Observable
 final class AccountDeletion {
   nonisolated enum Status: Equatable, Sendable {
@@ -59,10 +62,10 @@ final class AccountDeletion {
     case failed(AccountDeletionError)
     /// Compte supprimé sur le serveur (ou build sans serveur) et appareil purgé. `acknowledge()` reconstruit l'app.
     case deleted
-    /// Pas de session sur l'appareil, ou celle d'un autre compte que celui à supprimer : le compte serveur est hors
-    /// d'atteinte. L'appareil est purgé. Un compte anonyme sera supprimé du serveur après 365 jours sans utilisation ;
-    /// un compte e-mail après 3 ans, prévenu par e-mail au moins 30 jours avant (#118), ou plus tôt sur demande écrite.
-    /// `isEmailAccount` vient du drapeau (#122) : la purge a déjà effacé `account.kind`.
+    /// Pas de session sur l'appareil (ou Keychain bloqué, #133), ou celle d'un autre compte que celui à supprimer : le
+    /// compte serveur est hors d'atteinte. L'appareil est purgé. Un compte anonyme sera supprimé du serveur après 365
+    /// jours sans utilisation ; un compte e-mail après 3 ans, prévenu par e-mail au moins 30 jours avant (#118), ou plus
+    /// tôt sur demande écrite. `isEmailAccount` vient du drapeau (#122) : la purge a déjà effacé `account.kind`.
     case deletedFromDevice(isEmailAccount: Bool)
   }
 
@@ -100,6 +103,9 @@ final class AccountDeletion {
   private let accountKind: () -> AccountKind
   private let isOnline: () -> Bool
   private let hasOpenVisit: () -> Bool
+  /// Keychain « bloqué » : il refuse tout depuis plusieurs essais (`KeyAccessMonitor`, #133). La session ne se relira
+  /// pas : elle compte comme absente, sans quoi le doute ne se lèverait jamais.
+  private let isSessionStorageStuck: () -> Bool
   private let timeout: Duration
   private let now: () -> Date
   /// Demande du temps d'exécution au système ; renvoie de quoi le rendre.
@@ -113,6 +119,7 @@ final class AccountDeletion {
     gateway: (any RemoteGateway)?, flags: any AccountDeletionFlagStore, purge: LocalDataPurge,
     accountKind: @escaping () -> AccountKind = { .anonymous },
     isOnline: @escaping () -> Bool, hasOpenVisit: @escaping () -> Bool = { false },
+    isSessionStorageStuck: @escaping () -> Bool = { false },
     timeout: Duration = AccountDeletion.timeout, now: @escaping () -> Date = { .now },
     beginBackgroundWork: @escaping () -> (() -> Void) = { {} },
     checkpoint: @escaping (Step) throws -> Void = { _ in }
@@ -123,6 +130,7 @@ final class AccountDeletion {
     self.accountKind = accountKind
     self.isOnline = isOnline
     self.hasOpenVisit = hasOpenVisit
+    self.isSessionStorageStuck = isSessionStorageStuck
     self.timeout = timeout
     self.now = now
     self.beginBackgroundWork = beginBackgroundWork
@@ -177,7 +185,8 @@ final class AccountDeletion {
 
   /// Après une issue inconnue : abandon, seulement si la RPC est partie depuis au moins `cancelDelay` et que le
   /// serveur confirme, maintenant, que le compte existe. Preuve de suppression : la purge se fait. Sans session sur
-  /// l'appareil, aucune preuve n'est possible : la personne garde ses données. Sinon : « Réessayez dans un instant ».
+  /// l'appareil, ou Keychain bloqué (#133), aucune preuve n'est possible : la personne garde ses données. Sinon :
+  /// « Réessayez dans un instant ».
   func cancel() async {
     guard status == .failed(.unknown) else { return }
     guard let gateway else {
@@ -195,8 +204,12 @@ final class AccountDeletion {
       do {
         local = try await gateway.localSessionAccountId()
       } catch {
-        self.publish(.failed(.unknown), cancelDeferred: true)
-        return
+        // Keychain bloqué : la session ne se relira pas, comme une session absente. Sinon, il se rouvrira peut-être.
+        guard self.isSessionStorageStuck() else {
+          self.publish(.failed(.unknown), cancelDeferred: true)
+          return
+        }
+        local = nil
       }
       guard local != nil else {
         self.keepData()
@@ -277,13 +290,17 @@ final class AccountDeletion {
       try await purgeAndSignIn(outcome: .deleted)
       return
     }
-    // Keychain illisible : doute, jamais refus.
+    // Keychain illisible : doute, jamais refus. Bloqué (#133) : la session ne se relira pas, elle compte comme absente
+    // et seul l'appareil est purgé.
     let local: UUID?
     do {
       local = try await gateway.localSessionAccountId()
     } catch {
-      publish(.failed(.unknown))
-      return
+      guard isSessionStorageStuck() else {
+        publish(.failed(.unknown))
+        return
+      }
+      local = nil
     }
     // Compte pas encore noté (arrêt juste après le drapeau) : aucun compte n'a pu être créé depuis, la session est
     // la sienne.
@@ -291,9 +308,10 @@ final class AccountDeletion {
       flag.accountId = local
       flags.save(flag)
     }
-    // Sans session, ou avec celle d'un autre compte, le compte serveur est hors d'atteinte : appareil seulement. Le
-    // type de compte vient du drapeau ; écrit avant #122, il n'y est pas, et `account.kind` le donne encore s'il n'a
-    // pas été purgé. Il est alors noté avant la purge, qui efface `account.kind`, pour une nouvelle interruption.
+    // Sans session (ou Keychain bloqué), ou avec celle d'un autre compte, le compte serveur est hors d'atteinte :
+    // appareil seulement. Le type de compte vient du drapeau ; écrit avant #122, il n'y est pas, et `account.kind` le
+    // donne encore s'il n'a pas été purgé. Il est alors noté avant la purge, qui efface `account.kind`, pour une
+    // nouvelle interruption.
     guard let local, local == flag.accountId else {
       let kind = flag.accountKind ?? accountKind()
       if flag.accountKind == nil {
