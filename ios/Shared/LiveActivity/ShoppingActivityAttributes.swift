@@ -58,6 +58,17 @@ nonisolated struct ShoppingActivityAttributes: ActivityAttributes, Equatable {
     var progress: Double {
       total > 0 ? Double(total - remaining) / Double(total) : 0
     }
+
+    /// Phrase lue par VoiceOver à la place du compteur. `isStale` : 45 min sans coche, la visite se terminera à la
+    /// réouverture de l'app. L'îlot compact et l'îlot minimal n'ont pas d'autre texte pour le dire (#52).
+    func summary(isStale: Bool = false) -> String {
+      if isFinished { return "Courses terminées" }
+      let count =
+        remaining <= 1
+        ? "\(remaining) article restant sur \(total)"
+        : "\(remaining) articles restants sur \(total)"
+      return isStale ? "Visite inactive, \(count)" : count
+    }
   }
 
   /// Visite suivie ; `nil` sans magasin choisi. Une activité n'est reprise qu'à la même visite.

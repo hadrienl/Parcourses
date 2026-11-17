@@ -394,7 +394,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 15))
     audit(app, "liste-vide\(suffix)")
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
-      if !entry.hasFocus { entry.tap() }
+      focus(entry)
       type(text + "\n", into: entry, app)
     }
     XCTAssertTrue(row(app, "laits demi-écrémé, 2", "non coché").waitForExistence(timeout: 15))
