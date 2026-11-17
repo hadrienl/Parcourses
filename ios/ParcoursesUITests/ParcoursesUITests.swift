@@ -121,10 +121,16 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
   }
 
   /// Glisser maison du mode courses (#115) : un glisser tenu ouvre la ligne sans bouger le fil, un toucher la referme,
-  /// et le glisser complet passe l'article dans « Introuvable » sans toucher le bouton.
+  /// et le glisser complet passe l'article dans « Introuvable » sans toucher le bouton. Puis captures du trait dans
+  /// les situations où ses mesures pourraient décrocher : feuille « Quantité », défilement rapide, panier en bas de
+  /// liste replié et déplié.
   @MainActor
   func testFullSwipeMarksNotFound() {
-    let app = enterShopping(confidenceQ: nil, items: ["lait", "tomates", "xyzzy"])
+    let app = enterShopping(
+      confidenceQ: nil,
+      items: [
+        "lait", "tomates", "xyzzy", "pain", "beurre", "yaourts", "jambon", "lessive", "café", "riz", "pâtes", "oeufs",
+      ])
     let milk = row(app, "lait", "non coché", in: "shoppingList")
     XCTAssertTrue(milk.waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Pas trouvé"].exists, "le bouton n'existe que ligne ouverte")
@@ -148,9 +154,122 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     start.press(
       forDuration: 0.05, thenDragTo: milk.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)),
       withVelocity: .slow, thenHoldForDuration: 0.2)
-    XCTAssertTrue(row(app, "lait", "introuvable", in: "shoppingList").waitForExistence(timeout: 15))
+    // « Introuvable » est sous la ligne de flottaison avec ces douze articles : la bannière dit ce qui s'est passé.
+    let message = app.staticTexts.matching(identifier: "undoMessage").firstMatch
+    XCTAssertTrue(message.waitForExistence(timeout: 15))
+    XCTAssertEqual(message.label, "lait introuvable")
     XCTAssertTrue(row(app, "tomates", "non coché", in: "shoppingList").exists)
     capture(app, "glisser-complet")
+    threadCaptures(app)
+  }
+
+  /// Captures du trait unique (#115, relecture de la PR #136) : à regarder, le trait doit passer par les perles, sans
+  /// trou ni dépassement.
+  @MainActor
+  private func threadCaptures(_ app: XCUIApplication) {
+    let list = app.collectionViews["shoppingList"]
+    // Un article au panier, pour avoir le panier en bas de liste (sous la ligne de flottaison : la bannière fait foi).
+    let checked = app.staticTexts.matching(
+      NSPredicate(format: "identifier == %@ AND label == %@", "undoMessage", "tomates coché")
+    ).firstMatch
+    tap(row(app, "tomates", "non coché", in: "shoppingList"), until: checked)
+
+    // Feuille « Quantité » ouverte, puis refermée.
+    let bread = row(app, "pain", "non coché", in: "shoppingList")
+    reveal(bread, in: app, betweenBars: true)
+    bread.press(forDuration: 1.2)
+    let quantity = app.buttons["Quantité"]
+    XCTAssertTrue(quantity.waitForExistence(timeout: 15))
+    quantity.tap()
+    let save = app.buttons["saveItem"]
+    XCTAssertTrue(save.waitForExistence(timeout: 15))
+    capture(app, "fil-feuille-quantite-ouverte")
+    save.tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 15))
+    capture(app, "fil-feuille-quantite-fermee")
+
+    // Défilement rapide : captures pendant l'élan.
+    list.swipeUp(velocity: .fast)
+    capture(app, "fil-defilement-rapide-1")
+    capture(app, "fil-defilement-rapide-2")
+    list.swipeDown(velocity: .fast)
+    capture(app, "fil-defilement-rapide-3")
+
+    // Tout en bas, panier déplié puis replié.
+    for _ in 0..<3 { list.swipeUp() }
+    let basket = app.descendants(matching: .any)["basket"].firstMatch
+    XCTAssertTrue(basket.waitForExistence(timeout: 15))
+    capture(app, "fil-bas-de-liste")
+    basket.tap()
+    capture(app, "fil-panier-deplie")
+    basket.tap()
+    capture(app, "fil-panier-replie")
+  }
+
+  /// Glisser vers la fin de ligne sur l'écran Liste (#115) : ligne ouverte, il la referme sans quitter l'écran ; ligne
+  /// fermée, il laisse passer le geste retour plein écran d'iOS 26 et ramène à « Mes listes ».
+  @MainActor
+  func testRightSwipeClosesAnOpenRowOrGoesBack() {
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "xyzzy"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+
+    // Ligne ouverte : le glisser vers la droite la referme, l'écran reste.
+    tomatoes.swipeLeft()
+    let delete = app.buttons["Supprimer"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 15))
+    row(app, "tomates", "non coché").swipeRight()
+    XCTAssertTrue(delete.waitForNonExistence(timeout: 15), "le glisser vers la droite referme la ligne")
+    XCTAssertTrue(app.descendants(matching: .any)["listTitle"].exists, "l'écran Liste reste affiché")
+    XCTAssertTrue(row(app, "tomates", "non coché").exists)
+
+    // Ligne fermée : le geste retour plein écran (iOS 26) l'emporte, depuis le milieu de la ligne.
+    row(app, "tomates", "non coché").swipeRight()
+    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+      XCTAssertTrue(app.navigationBars["Mes listes"].waitForExistence(timeout: 15), "retour à « Mes listes »")
+    } else {
+      // iOS 18 : pas de geste retour plein écran, rien ne se passe.
+      XCTAssertFalse(delete.exists)
+      XCTAssertTrue(app.descendants(matching: .any)["listTitle"].exists)
+    }
+  }
+
+  /// Capture locale en écriture de droite à gauche : gouttière et trait à droite, sur les perles.
+  /// `TEST_RUNNER_PARCOURSES_RTL_CAPTURE=1 xcodebuild test … -only-testing:…/testRightToLeftThreadCapture`.
+  @MainActor
+  func testRightToLeftThreadCapture() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_RTL_CAPTURE"] != nil, "vérification locale seulement")
+    let app = launch(
+      reset: true, launchArguments: ["-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES"])
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "2 laits", "xyzzy"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let milk = row(app, "laits, 2", "non coché")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    capture(app, "fil-rtl-repos")
+    milk.swipeRight()
+    XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15), "swipeRight ouvre la ligne en RTL")
+    capture(app, "fil-rtl-ouvert")
   }
 
   /// En-têtes selon ce que l'instantané en cache sait du magasin.
