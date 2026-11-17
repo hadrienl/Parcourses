@@ -42,15 +42,16 @@ nonisolated final class PurgeFailureUITests: ParcoursesUITestCase {
     openAccount(app)
     let signOut = app.buttons["signOut"]
     XCTAssertTrue(signOut.waitForExistence(timeout: 10))
-    signOut.tap()
-    XCTAssertTrue(app.alerts["Se déconnecter ?"].waitForExistence(timeout: 10))
     // iOS 27 expose deux fois le bouton de l'alerte (bouton et son contenu) : le premier suffit.
-    app.alerts.buttons.matching(identifier: "confirmSignOut").firstMatch.tap()
+    let confirm = app.alerts.buttons.matching(identifier: "confirmSignOut").firstMatch
+    tap(signOut, until: confirm)
+    XCTAssertTrue(app.alerts["Se déconnecter ?"].exists)
 
     let alert = signOutAlert(app)
     let retry = alert.buttons.matching(identifier: "retrySignOut").firstMatch
     let contact = alert.buttons.matching(identifier: "contactSupport").firstMatch
-    // 1ᵉʳ échec : alerte inchangée.
+    // 1ᵉʳ échec : alerte inchangée. Appui rejoué s'il se perd (#116, constaté sur la confirmation en CI).
+    tap(confirm, until: retry)
     XCTAssertTrue(alert.waitForExistence(timeout: 15))
     XCTAssertTrue(text(Self.signOutMessage, in: alert).waitForExistence(timeout: 5))
     XCTAssertFalse(contact.exists)
@@ -87,8 +88,7 @@ nonisolated final class PurgeFailureUITests: ParcoursesUITestCase {
     XCTAssertTrue(text(Self.helpMessage, in: alert).exists)
 
     // 4ᵉ essai réussi : l'alerte disparaît, l'app repart en compte anonyme.
-    retry.tap()
-    XCTAssertTrue(app.buttons["signIn"].waitForExistence(timeout: 30))
+    tap(retry, until: app.buttons["signIn"], timeout: 30)
     XCTAssertFalse(alert.exists)
   }
 

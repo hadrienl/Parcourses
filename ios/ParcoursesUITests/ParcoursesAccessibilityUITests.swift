@@ -605,12 +605,12 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
 
     let signOut = app.buttons["signOut"]
     reveal(signOut, in: app)
-    signOut.tap()
     let confirm = app.alerts.buttons.matching(identifier: "confirmSignOut").firstMatch
-    XCTAssertTrue(confirm.waitForExistence(timeout: 10))
-    confirm.tap()
+    tap(signOut, until: confirm)
+    // Appui perdu constaté sur « confirmSignOut » (CI iOS latest sur 40b1752 : alerte « Se déconnecter ? » encore
+    // affichée 15 s plus tard), comme en #116 : appui rejoué tant que la confirmation reste à l'écran.
     let contact = app.alerts.buttons.matching(identifier: "contactSupport").firstMatch
-    XCTAssertTrue(contact.waitForExistence(timeout: 15))
+    tap(confirm, until: contact)
     audit(app, "deconnexion-aide\(suffix)", modal: true)
   }
 
