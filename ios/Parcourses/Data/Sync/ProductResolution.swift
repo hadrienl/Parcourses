@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -9,6 +10,22 @@ nonisolated struct ProductCandidate: Sendable, Equatable {
   let categorySlug: String?
 
   var request: ProductResolutionRequest { ProductResolutionRequest(name: label, categorySlug: categorySlug) }
+
+  /// Empreinte de ce qui part au serveur (libellé et catégorie) : un essai n'est refait que si l'un des deux change.
+  var fingerprint: String { Self.fingerprint(label: label, categorySlug: categorySlug) }
+
+  static func fingerprint(label: String, categorySlug: String?) -> String {
+    let digest = SHA256.hash(data: Data("\(label)\u{1F}\(categorySlug ?? "")".utf8))
+    return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+/// Essai de résolution d'un article (#47), gardé sur l'appareil : sans produit en retour (plafond du jour, catégorie
+/// ou libellé refusés, la réponse ne dit pas lequel), l'article n'est pas renvoyé avant
+/// `SyncRetryPolicy.resolutionAttemptInterval`, même après un relancement. Ni libellé ni catégorie en clair.
+nonisolated struct ResolutionAttempt: Codable, Sendable, Equatable {
+  let fingerprint: String
+  let at: Date
 }
 
 /// Produit obtenu pour un candidat.
@@ -33,7 +50,8 @@ nonisolated struct ProductMatch: Sendable, Equatable {
 /// Apprentissage sans catalogue : un article saisi librement reçoit le produit partagé de son libellé, pour que
 /// ses coches nourrissent le graphe du magasin.
 nonisolated enum ProductResolution {
-  /// Articles sans produit, hors listes supprimées. `attempted` : libellé déjà soumis pour cet article.
+  /// Articles sans produit, hors listes supprimées. `attempted` : empreinte (`ProductCandidate.fingerprint`) déjà
+  /// soumise pour cet article.
   static func candidates(
     in context: ModelContext, excluding attempted: [UUID: String], limit: Int
   ) throws -> [ProductCandidate] {
@@ -47,11 +65,13 @@ nonisolated enum ProductResolution {
         predicate: #Predicate { $0.productId == nil }, sortBy: [SortDescriptor(\.updatedAt), SortDescriptor(\.id)]))
     var candidates: [ProductCandidate] = []
     for item in items where candidates.count < limit {
-      guard !deletedLists.contains(item.listId), attempted[item.id] != item.label,
+      guard !deletedLists.contains(item.listId),
         !item.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       else { continue }
-      candidates.append(
-        ProductCandidate(itemId: item.id, label: item.label, categorySlug: slugs[item.categoryId] ?? item.categoryId))
+      let candidate = ProductCandidate(
+        itemId: item.id, label: item.label, categorySlug: slugs[item.categoryId] ?? item.categoryId)
+      guard attempted[item.id] != candidate.fingerprint else { continue }
+      candidates.append(candidate)
     }
     return candidates
   }

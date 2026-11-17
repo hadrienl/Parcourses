@@ -62,6 +62,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
+| `…_catalog_hardening.sql` | Vote des seuls comptes établis et publication nocturne `catalog-claims-publish`, quota d'un compte récent, réserve du plafond global, filtre à la revendication, purge `catalog-counters-purge`, index `products_published_at_idx` (#47) |
 | `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 | `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
 | `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
@@ -139,11 +140,12 @@ catégorie choisie par le classifieur de l'appareil). Renvoie une ligne par entr
 depuis #46 : les versions installées des apps n'y voient aucune différence.
 
 - **Produit publié** de même forme : renvoyé avec son libellé et sa catégorie, sans rien consommer.
-- Sinon, une entrée **valide** (libellé de 200 caractères bruts au plus, non vide ; catégorie connue autre que
-  `bio`, le rayon bio dépend du magasin, #28) **revendique** la forme pour le compte : le produit est créé, privé,
+- Sinon, une entrée **valide** (libellé de 200 caractères bruts au plus, non vide, forme publiable selon
+  `catalog.is_publishable` ; catégorie connue autre que `bio`, le rayon bio dépend du magasin, #28) **revendique** la
+  forme pour le compte : le produit est créé, privé,
   s'il n'existe pas. Il est renvoyé avec **le libellé et la catégorie de l'appelant** (ceux de sa première
   revendication), jamais ceux d'un autre compte.
-- Un produit privé que l'appelant n'a pas revendiqué (entrée sans catégorie, plafond atteint) donne `id` nul,
+- Un produit privé que l'appelant n'a pas revendiqué (entrée sans catégorie, forme refusée, plafond atteint) donne `id` nul,
   **comme un produit absent** : la réponse ne dit jamais si un autre compte a saisi ce libellé.
 - Un libellé de plus de 200 caractères (longueur brute, espaces compris) est écarté avant toute normalisation :
   `normalized_name` et `id` sont nuls.
@@ -159,8 +161,15 @@ forme courante encore privée coûte une unité à chaque nouveau compte, tant q
 
 | Constante | Valeur | Compteur | Portée |
 | --- | --- | --- | --- |
-| `c_daily_quota` | 300 | `catalog.product_creations` | par compte |
-| `c_daily_global_quota` | 2 000 | `catalog.daily_product_creations` | tous comptes, anonymes compris |
+| `c_daily_quota_recent` | 100 | `catalog.product_creations` | par compte récent (anonyme de moins de 7 jours) |
+| `c_daily_quota` | 300 | `catalog.product_creations` | par compte établi (e-mail, ou anonyme d'au moins 7 jours) |
+| `c_daily_global_quota` | 2 000 | `catalog.daily_product_creations` | tous comptes : un compte récent s'arrête là |
+| `c_daily_global_reserve` | 3 000 | `catalog.daily_product_creations` | même compteur : réserve des seuls comptes établis |
+
+Comptes anonymes jetables (#47) : un compte se crée sans effort, et 7 comptes neufs à 300 suffisaient à épuiser les
+2 000 du jour pour tout le monde. Un compte récent n'a donc que 100 revendications (20 comptes pour atteindre 2 000),
+et les comptes établis gardent une réserve jusqu'à 3 000. La vraie preuve d'appareil (App Attest, Play Integrity ou
+CAPTCHA) relève de #137. Un article refusé ce jour-là est renvoyé par les apps le lendemain (essais persistés, #47).
 
 Un plafond atteint n'empêche que les revendications : les produits publiés et ceux déjà revendiqués restent
 renvoyés, et les premières entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés
@@ -179,18 +188,26 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
 - `catalog.product_claims (product_id, user_id, label, category_id, claimed_at)` : une revendication par compte et
   par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
   suppression d'un compte (#68) emporte ses revendications.
-- **Publication** (`catalog.publish_claimed`, constante `c_min_accounts` = **3**) : à 3 comptes distincts, dans la
-  transaction de la revendication qui atteint le seuil, après verrouillage des revendications du produit (une
-  suppression de compte en cours est attendue et ne compte pas). Libellé : le plus fréquent parmi les
+- **Comptes établis** (#47, `catalog.is_established`) : un compte e-mail, ou un compte anonyme d'au moins **7 jours**
+  (`auth.users.created_at`). Un compte récent revendique, mais **ne vote pas** : seuil, libellé et catégorie ne
+  comptent que les revendications des comptes établis. Le job `catalog-claims-publish` (04:12 UTC,
+  `catalog.publish_matured`) publie chaque nuit les produits dont les votants ont mûri. Faire publier le libellé d'un
+  tiers (§5.4 de `docs/play-data-safety.md`) demande ainsi 2 comptes préparés une semaine à l'avance ou 2 comptes
+  e-mail.
+- **Publication** (`catalog.publish_claimed`, seuil `catalog.min_publish_accounts()` = **3**) : à 3 comptes établis
+  distincts, dans la transaction de la revendication qui atteint le seuil ou par le job nocturne, après
+  verrouillage des revendications du produit (une suppression de compte en cours est attendue et ne compte pas). Libellé : le plus fréquent parmi les
   revendications (même forme normalisée : seules la casse, les accents et les espaces diffèrent), débarrassé des
   caractères de contrôle et des espaces répétés ; à égalité en tête, la forme normalisée. Catégorie : la plus
   votée ; à égalité, le plus petit id (#47 : elle n'est plus fixée par le premier créateur). Aucun départage par
   l'ancienneté : deux comptes qui saisissent deux graphies ne font pas publier celle du premier créateur. Les
   revendications sont alors supprimées.
-- **Filtre** (`catalog.is_publishable`) : une forme sans lettre ni chiffre, ou contenant `://`, `www.`, un domaine
-  (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`, `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
+- **Filtre** (`catalog.is_publishable`), appliqué **dès la revendication** depuis #47 (une forme refusée n'est ni
+  créée ni revendiquée, et ne consomme rien ; le refus ne dépend que du libellé, sans oracle) : une forme de moins
+  de 2 lettres ou chiffres, ou contenant `://`, `www.`, un domaine (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`,
+  `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
   consécutifs, 8 chiffres séparés au plus par un espace, un point ou un tiret (téléphone) ou un caractère de
-  contrôle n'est jamais publiée ; elle reste privée.
+  contrôle n'est jamais publiée. Les injures ne sont pas filtrées (#138).
 - **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
   `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
@@ -213,6 +230,15 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
     renvoie l'article avec ce `productId`, déjà purgé : `23503`, l'article est mis de côté après 8 essais. Piste : à
     la reprise de compte, retirer le `productId` des articles dont le produit n'est pas dans le cache publié, pour
     qu'ils soient résolus à nouveau.
+- **Compteurs du jour** (#47, `catalog.purge_counters`, job `catalog-counters-purge`, 04:22 UTC) : les compteurs par
+  compte (`catalog.product_creations`) d'avant la veille (Europe/Paris) sont supprimés, la veille restant pour un
+  appel qui attendait le verrou à minuit. Le compteur global, sans donnée personnelle, est gardé 90 jours pour
+  surveiller le plafond.
+- **Téléchargement par les apps** (#47) : un produit publié ne change plus (`publish_starter` ne touche que les
+  produits privés, la purge ne supprime que des produits privés). Les apps lisent donc chaque jour les seuls produits
+  publiés depuis leur curseur (`published_at >= curseur - 1 h`, index partiel `products_published_at_idx`), et le
+  catalogue complet une fois par semaine. Une migration qui modifierait un produit publié doit en tenir compte : elle
+  n'atteint les appareils qu'au catalogue complet suivant, sauf à republier le produit (nouveau `published_at`).
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première

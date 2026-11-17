@@ -1,6 +1,6 @@
 begin;
 \ir 00_helpers.psql
-select plan(38);
+select plan(40);
 
 -- Droits.
 select ok(has_function_privilege('authenticated', 'public.resolve_products(jsonb)', 'EXECUTE'), 'authenticated peut appeler resolve_products');
@@ -163,7 +163,8 @@ select tests.authenticate_as(:'alice');
 select isnt((select id from public.resolve_products('[{"name": "Quota quatre", "category_slug": "other"}]')), null,
             'nouveau jour : création possible');
 
--- Plafond global du jour (2 000), tous comptes confondus, anonymes compris.
+-- Plafond global du jour, tous comptes confondus : 2 000 pour un compte récent (anonyme de moins de 7 jours), puis
+-- une réserve jusqu'à 3 000 pour les seuls comptes établis (#47).
 select tests.clear_authentication();
 create function tests.global_creations() returns integer
 language sql security definer set search_path = '' as $$
@@ -175,26 +176,35 @@ insert into catalog.daily_product_creations (day, created)
 values ((now() at time zone 'Europe/Paris')::date, 1998)
 on conflict (day) do update set created = excluded.created;
 
-select tests.authenticate_as(:'alice');
-select isnt((select id from public.resolve_products('[{"name": "Global un", "category_slug": "other"}]')), null,
-            'sous le plafond global : création possible');
-select tests.authenticate_as(:'bob');
+select tests.authenticate_as(:'carol');
 select results_eq($$
   select normalized_name, id is not null
-  from public.resolve_products('[{"name": "Global deux", "category_slug": "other"}, {"name": "Global trois", "category_slug": "other"}]')
-$$, $$ values ('global deux', true), ('global trois', false) $$, 'plafond global atteint en cours d''appel, par un autre compte');
-select tests.authenticate_as(:'carol');
+  from public.resolve_products('[{"name": "Global un", "category_slug": "other"}, {"name": "Global deux", "category_slug": "other"}, {"name": "Global trois", "category_slug": "other"}]')
+$$, $$ values ('global un', true), ('global deux', true), ('global trois', false) $$,
+   'compte récent : plafond global de 2 000 atteint en cours d''appel');
+select is(tests.global_creations(), 2000, 'compteur global au plafond');
 select results_eq($$
   select normalized_name, id is not null
   from public.resolve_products($j$[
     {"name": "Global quatre", "category_slug": "other"},
     {"name": "Baguette", "category_slug": "bakery"},
-    {"name": "Global un", "category_slug": "other"}
+    {"name": "Pâte de spéculoos", "category_slug": "other"}
   ]$j$)
-$$, $$ values ('global quatre', false), ('baguette', true), ('global un', false) $$,
-   'plafond global atteint : rien de créé, les produits publiés restent renvoyés, un produit privé d''autrui non (compte anonyme)');
-select is(tests.global_creations(), 2000, 'compteur global au plafond');
-select is(coalesce(tests.creations(:'carol'), 0), 0, 'rien compté pour le compte anonyme');
+$$, $$ values ('global quatre', false), ('baguette', true), ('pate de speculoos', false) $$,
+   'plafond global atteint : rien de créé, les produits publiés restent renvoyés, un produit privé d''autrui non');
+select tests.authenticate_as(:'alice');
+select results_eq($$
+  select normalized_name, id is not null from public.resolve_products('[{"name": "Global quatre", "category_slug": "other"}]')
+$$, $$ values ('global quatre', true) $$, 'compte établi : la réserve reste ouverte au-delà de 2 000');
+select tests.clear_authentication();
+update catalog.daily_product_creations set created = 2999 where day = (now() at time zone 'Europe/Paris')::date;
+select tests.authenticate_as(:'bob');
+select results_eq($$
+  select normalized_name, id is not null
+  from public.resolve_products('[{"name": "Global cinq", "category_slug": "other"}, {"name": "Global six", "category_slug": "other"}]')
+$$, $$ values ('global cinq', true), ('global six', false) $$, 'réserve de 3 000 atteinte en cours d''appel, par un autre compte');
+select is(tests.global_creations(), 3000, 'compteur global à la réserve');
+select is(tests.creations(:'carol'), 2, 'compte récent : ses deux revendications comptées');
 
 select tests.authenticate_as_anon();
 select throws_ok($$ select * from public.resolve_products('[]') $$, '42501', null, 'anon refusé');

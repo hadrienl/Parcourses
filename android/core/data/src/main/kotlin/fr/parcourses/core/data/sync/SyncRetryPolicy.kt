@@ -3,6 +3,7 @@ package fr.parcourses.core.data.sync
 import fr.parcourses.core.network.RemoteError
 import kotlin.math.pow
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -26,8 +27,11 @@ object SyncRetryPolicy {
     /** Article refusé (`42501`) car sa liste n'est pas encore reçue : il l'attend, sans consommer d'essai. */
     val listWaitDelay: Duration = 30.seconds
 
-    /** Catalogue : une fois par jour (#9 §5.4). */
+    /** Catalogue : une fois par jour (#9 §5.4), seulement les produits publiés depuis la dernière fois (#47). */
     val catalogInterval: Duration = 24.hours
+
+    /** Catalogue complet une fois par semaine (#47) : rattrape ce qu'une migration aurait changé sans republier. */
+    val catalogFullInterval: Duration = 7.days
 
     /** Descente après un envoi : l'envoi d'une coche ne doit pas relire les listes à chaque fois. */
     val pullAfterSendInterval: Duration = 60.seconds
@@ -46,6 +50,12 @@ object SyncRetryPolicy {
 
     /** Autre refus définitif (requête refusée) : inutile d'insister à chaque passe. */
     val resolutionRejectedInterval: Duration = 1.hours
+
+    /**
+     * Article déjà soumis sans produit en retour (#47) : renvoyé au plus une fois par jour, redémarrages compris. Les
+     * plafonds de `resolve_products` sont quotidiens.
+     */
+    val resolutionAttemptInterval: Duration = 24.hours
 
     /** Délai de la résolution après une erreur. */
     fun resolutionDelay(error: Throwable): Duration =

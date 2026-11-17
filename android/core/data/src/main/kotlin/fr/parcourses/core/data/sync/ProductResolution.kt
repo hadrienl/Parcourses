@@ -11,6 +11,7 @@ import fr.parcourses.core.database.entity.ProductEntity
 import fr.parcourses.core.database.entity.SyncState
 import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.ResolvedProductRow
+import java.security.MessageDigest
 import kotlin.time.Instant
 
 /** Article saisi librement, sans produit : candidat à `resolve_products`. */
@@ -21,7 +22,35 @@ data class ProductCandidate(
     val categorySlug: String?,
 ) {
     val request: ProductResolutionRequest get() = ProductResolutionRequest(name = label, categorySlug = categorySlug)
+
+    /** Empreinte de ce qui part au serveur (libellé, catégorie) : un essai n'est refait que si l'un des deux change. */
+    val fingerprint: String get() = fingerprint(label, categorySlug)
+
+    companion object {
+        /** SHA-256 tronqué à 16 octets, en hexadécimal. Même calcul qu'iOS. */
+        fun fingerprint(
+            label: String,
+            categorySlug: String?,
+        ): String =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest("$label\u001F${categorySlug.orEmpty()}".toByteArray(Charsets.UTF_8))
+                .take(FINGERPRINT_BYTES)
+                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+        private const val FINGERPRINT_BYTES = 16
+    }
 }
+
+/**
+ * Essai de résolution d'un article (#47), gardé sur l'appareil : sans produit en retour (plafond du jour, catégorie
+ * ou libellé refusés, la réponse ne dit pas lequel), l'article n'est pas renvoyé avant
+ * [SyncRetryPolicy.resolutionAttemptInterval], même après un redémarrage. Ni libellé ni catégorie en clair.
+ */
+data class ResolutionAttempt(
+    val fingerprint: String,
+    val at: Instant,
+)
 
 /** Produit obtenu pour un candidat. */
 data class ProductMatch(
@@ -52,7 +81,8 @@ data class ProductMatch(
  */
 object ProductResolution {
     /**
-     * Articles sans produit, hors listes supprimées. [attempted] : libellé déjà soumis pour cet article.
+     * Articles sans produit, hors listes supprimées. [attempted] : empreinte ([ProductCandidate.fingerprint]) déjà
+     * soumise pour cet article.
      * Ordre total (date, puis id) : les mêmes articles partent d'abord.
      */
     suspend fun candidates(
@@ -66,9 +96,10 @@ object ProductResolution {
             .items()
             .withoutProduct()
             .asSequence()
-            .filter { it.listId !in deletedLists && attempted[it.id] != it.label && it.label.isNotBlank() }
-            .take(limit)
+            .filter { it.listId !in deletedLists && it.label.isNotBlank() }
             .map { ProductCandidate(it.id, it.label, slugs[it.categoryId] ?: it.categoryId) }
+            .filter { attempted[it.itemId] != it.fingerprint }
+            .take(limit)
             .toList()
     }
 

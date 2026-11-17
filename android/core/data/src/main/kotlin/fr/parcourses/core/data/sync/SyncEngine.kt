@@ -149,7 +149,6 @@ class SyncEngine(
     private var backoffUntil: Instant? = null
     private var pullBackoffUntil: Instant? = null
     private var lastPull: Instant? = null
-    private var resolutionAttempts = mutableMapOf<String, String>()
     private var resolutionBackoffUntil: Instant? = null
     private var fullReconcileNotBefore: Instant? = null
     private var reconciledThisPass = false
@@ -378,6 +377,8 @@ class SyncEngine(
             remapHistory.update { old -> old.mapValues { remap[it.value] } + remap.identifiers }
             cursors.lists = null
             cursors.items = null
+            // Nouveau compte, nouveaux plafonds du jour : les articles sans produit repartent.
+            cursors.resolutionAttempts = emptyMap()
             // Sans curseur : les suppressions sont réconciliées en entier pour le nouveau compte (vecteur `007`), sans
             // attendre l'échéance fixée pour l'ancien faute d'heure du serveur.
             cursors.tombstones = null
@@ -1026,13 +1027,24 @@ class SyncEngine(
     private suspend fun resolveProducts() {
         val now = dependencies.now()
         if (resolutionBackoffUntil?.let { it > now } == true) return
+        // Essais déjà faits (#47), gardés sur l'appareil : un article sans produit en retour (plafond du jour,
+        // catégorie ou libellé refusés) attend un jour, même après un redémarrage. Libellé ou catégorie modifiés : il
+        // repart.
+        val stored = cursors.resolutionAttempts
+        val attempts = stored.filterValues { now - it.at < SyncRetryPolicy.resolutionAttemptInterval }.toMutableMap()
+        if (attempts.size != stored.size) cursors.resolutionAttempts = attempts.toMap()
         try {
             while (currentCoroutineContext().isActive) {
-                val candidates = store.productCandidates(resolutionAttempts, SyncRetryPolicy.MAX_RESOLUTION_BATCH)
+                val candidates =
+                    store.productCandidates(
+                        attempts.mapValues { it.value.fingerprint },
+                        SyncRetryPolicy.MAX_RESOLUTION_BATCH,
+                    )
                 if (candidates.isEmpty()) break
                 val rows = gateway.resolveProducts(candidates.map { it.request })
                 if (rows.size != candidates.size) throw RemoteError.Unexpected()
-                candidates.forEach { resolutionAttempts[it.itemId] = it.label }
+                candidates.forEach { attempts[it.itemId] = ResolutionAttempt(it.fingerprint, now) }
+                cursors.resolutionAttempts = attempts.toMap()
                 val matches = candidates.zip(rows).mapNotNull { (candidate, row) -> ProductMatch.of(candidate, row) }
                 if (matches.isEmpty()) continue
                 if (ProductResolution.apply(db, matches, now)) Log.d(TAG, "Produits résolus : ${matches.size}")
@@ -1076,9 +1088,7 @@ class SyncEngine(
             if (cursors.catalog?.let { now - it >= SyncRetryPolicy.catalogInterval } != false) {
                 val categories = gateway.fetchCategories()
                 store.applyCategories(categories)
-                // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
-                // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
-                store.replaceProducts(gateway.fetchProducts(), catalogReadable = categories.isNotEmpty())
+                pullCatalog(now, catalogReadable = categories.isNotEmpty())
                 cursors.catalog = now
             }
             lastPull = now
@@ -1202,6 +1212,31 @@ class SyncEngine(
         first: Instant?,
         second: Instant?,
     ): Instant? = listOfNotNull(first, second).maxOrNull()
+
+    /**
+     * Produits publiés (#47) : depuis le curseur, sans rien retirer (un produit publié ne change plus), ou le catalogue
+     * entier une fois par semaine et tant qu'il n'y a pas de curseur.
+     */
+    private suspend fun pullCatalog(
+        now: Instant,
+        catalogReadable: Boolean,
+    ) {
+        val since = cursors.catalogPublished
+        val full = cursors.catalogFull
+        val recentFull = full != null && now >= full && now - full < SyncRetryPolicy.catalogFullInterval
+        if (since != null && catalogReadable && recentFull) {
+            val rows = gateway.fetchProducts(publishedSince = since)
+            store.mergeProducts(rows)
+            cursors.catalogPublished = later(since, rows.mapNotNull { it.publishedAt }.maxOrNull())
+        } else {
+            // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
+            // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+            val rows = gateway.fetchProducts()
+            store.replaceProducts(rows, catalogReadable)
+            cursors.catalogPublished = rows.mapNotNull { it.publishedAt }.maxOrNull()
+            cursors.catalogFull = now
+        }
+    }
 
     // endregion
 

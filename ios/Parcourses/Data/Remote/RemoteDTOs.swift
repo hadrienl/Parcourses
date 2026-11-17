@@ -183,6 +183,8 @@ nonisolated struct ProductRow: TableDTO, Equatable {
   let categoryId: Int16?
   let offCode: String?
   let createdAt: Date
+  /// Toujours renseignée : un client ne lit que les produits publiés (#69). Sert de curseur au catalogue (#47).
+  let publishedAt: Date?
 
   enum CodingKeys: String, CodingKey, CaseIterable {
     case id, name
@@ -190,6 +192,7 @@ nonisolated struct ProductRow: TableDTO, Equatable {
     case categoryId = "category_id"
     case offCode = "off_code"
     case createdAt = "created_at"
+    case publishedAt = "published_at"
   }
 }
 
@@ -315,6 +318,8 @@ nonisolated struct RemoteProduct: Sendable, Equatable {
   let categorySlug: String?
   let offCode: String?
   let createdAt: Date
+  /// Curseur du téléchargement incrémental du catalogue (#47).
+  var publishedAt: Date? = nil
 }
 
 // MARK: - Écriture (limitée aux colonnes accordées à `authenticated`)

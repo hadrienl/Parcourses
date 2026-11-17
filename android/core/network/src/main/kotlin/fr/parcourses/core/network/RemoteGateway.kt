@@ -252,6 +252,10 @@ interface RemoteGateway {
 
     suspend fun fetchProducts(): List<RemoteProduct>
 
+    /** Produits publiés depuis [publishedSince] (#47, avec recouvrement), tous si `null`. Par défaut : filtrés ici. */
+    suspend fun fetchProducts(publishedSince: Instant?): List<RemoteProduct> =
+        fetchProducts().filter { publishedSince == null || (it.publishedAt ?: Instant.DISTANT_PAST) >= publishedSince }
+
     /**
      * Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.
      * Une ligne par entrée, dans l'ordre.

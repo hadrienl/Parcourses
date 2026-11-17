@@ -478,6 +478,15 @@ actor SyncStore {
   /// Renvoie vrai si le cache a changé : les suggestions de l'écran Liste ouvert sont alors reconstruites.
   @discardableResult
   func replaceProducts(_ rows: [RemoteProduct], catalogReadable: Bool) throws -> Bool {
+    try upsertProducts(rows, removingOthers: !rows.isEmpty || catalogReadable)
+  }
+
+  /// Produits publiés depuis le curseur (#47) : ajoutés ou mis à jour, aucun autre retiré.
+  func mergeProducts(_ rows: [RemoteProduct]) throws -> Bool {
+    try upsertProducts(rows, removingOthers: false)
+  }
+
+  private func upsertProducts(_ rows: [RemoteProduct], removingOthers: Bool) throws -> Bool {
     var changed = false
     let known = Set(try modelContext.fetch(FetchDescriptor<Category>()).map(\.id))
     var existing = Dictionary(
@@ -500,7 +509,7 @@ actor SyncStore {
         changed = true
       }
     }
-    if !rows.isEmpty || catalogReadable {
+    if removingOthers {
       changed = changed || !existing.isEmpty
       existing.values.forEach(modelContext.delete)
     }

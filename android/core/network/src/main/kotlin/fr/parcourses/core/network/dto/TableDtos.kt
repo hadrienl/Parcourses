@@ -137,6 +137,8 @@ data class ProductRow(
     @SerialName("category_id") val categoryId: Short?,
     @SerialName("off_code") val offCode: String?,
     @SerialName("created_at") val createdAt: Instant,
+    /** Toujours renseignée : un client ne lit que les produits publiés (#69). Curseur du catalogue (#47). */
+    @SerialName("published_at") val publishedAt: Instant? = null,
 ) {
     companion object {
         internal val spec = TableSpec("products", serializer())
@@ -151,6 +153,8 @@ data class RemoteProduct(
     val categorySlug: String?,
     val offCode: String?,
     val createdAt: Instant,
+    /** Curseur du téléchargement incrémental du catalogue (#47). */
+    val publishedAt: Instant? = null,
 )
 
 // endregion

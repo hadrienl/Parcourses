@@ -21,6 +21,8 @@ select tests.create_user('bob@test.local') as bob \gset
 select tests.create_user(null, true) as carol \gset
 select tests.create_user(null, true) as dave \gset
 select tests.create_user(null, true) as erin \gset
+-- Comptes anonymes établis (#47) : seuls les comptes e-mail ou anonymes d'au moins 7 jours votent.
+update auth.users set created_at = now() - interval '8 days' where id in (:'carol', :'dave', :'erin');
 
 -- Lectures comme postgres : le schéma catalog et les produits privés sont fermés aux clients.
 create function tests.claims(p_norm text) returns integer

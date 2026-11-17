@@ -380,11 +380,15 @@ class OutboxTest : DataTest() {
             insertItem(gone.id, label = "thé")
             db.lists().markDeleted(gone.id, now)
 
-            val candidates = ProductResolution.candidates(db, mapOf(tried.id to "pain"), limit = 10)
+            val submitted = mapOf(tried.id to ProductCandidate.fingerprint("pain", "dairy"))
+            val candidates = ProductResolution.candidates(db, submitted, limit = 10)
             assertEquals(listOf(fresh.id), candidates.map { it.itemId })
             assertEquals("dairy", candidates.single().categorySlug)
-            // Un libellé modifié repart.
-            assertEquals(2, ProductResolution.candidates(db, mapOf(tried.id to "autre"), limit = 10).size)
+            // Un libellé ou une catégorie modifiés repartent (#47 : empreinte des deux).
+            val renamed = mapOf(tried.id to ProductCandidate.fingerprint("autre", "dairy"))
+            assertEquals(2, ProductResolution.candidates(db, renamed, limit = 10).size)
+            val recategorized = mapOf(tried.id to ProductCandidate.fingerprint("pain", "frozen"))
+            assertEquals(2, ProductResolution.candidates(db, recategorized, limit = 10).size)
             assertEquals(1, ProductResolution.candidates(db, emptyMap(), limit = 1).size)
         }
 

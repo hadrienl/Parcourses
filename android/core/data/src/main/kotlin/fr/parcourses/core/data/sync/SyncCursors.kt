@@ -4,13 +4,25 @@ import android.content.Context
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-/** Curseurs de descente. Rien de personnel : de simples dates. */
+/** Curseurs de descente. Rien de personnel : de simples dates, et des empreintes d'essais de résolution. */
 interface SyncCursors {
     /** Compte auquel se rapportent `lists` et `items`. Le catalogue est commun. */
     var accountId: Uuid?
     var lists: Instant?
     var items: Instant?
     var catalog: Instant?
+
+    /**
+     * Plus récente date de publication reçue (#47, heure du serveur) : la descente suivante ne lit que les produits
+     * publiés depuis. `null` : catalogue complet.
+     */
+    var catalogPublished: Instant?
+
+    /** Dernier téléchargement complet du catalogue (#47) : il est refait chaque semaine. */
+    var catalogFull: Instant?
+
+    /** Essais de `resolve_products` par article (#47) : une empreinte et une date, rien de lisible. */
+    var resolutionAttempts: Map<String, ResolutionAttempt>
 
     /**
      * Dernière pierre tombale lue (#87, heure du serveur). `null` : réconciliation complète des articles (premier
@@ -46,6 +58,9 @@ class InMemorySyncCursors : SyncCursors {
     override var lists: Instant? = null
     override var items: Instant? = null
     override var catalog: Instant? = null
+    override var catalogPublished: Instant? = null
+    override var catalogFull: Instant? = null
+    override var resolutionAttempts: Map<String, ResolutionAttempt> = emptyMap()
     override var tombstones: Instant? = null
     override var accountKind: AccountKind? = null
 
@@ -54,6 +69,9 @@ class InMemorySyncCursors : SyncCursors {
         lists = null
         items = null
         catalog = null
+        catalogPublished = null
+        catalogFull = null
+        resolutionAttempts = emptyMap()
         tombstones = null
         accountKind = null
     }
@@ -80,6 +98,37 @@ class SharedPreferencesSyncCursors(
     override var catalog: Instant?
         get() = read(CATALOG)
         set(value) = write(CATALOG, value)
+
+    override var catalogPublished: Instant?
+        get() = read(CATALOG_PUBLISHED)
+        set(value) = write(CATALOG_PUBLISHED, value)
+
+    override var catalogFull: Instant?
+        get() = read(CATALOG_FULL)
+        set(value) = write(CATALOG_FULL, value)
+
+    /** Une ligne par article : `id fingerprint date` (ISO 8601). Ligne illisible : ignorée, l'article repart. */
+    override var resolutionAttempts: Map<String, ResolutionAttempt>
+        get() =
+            prefs
+                .getString(RESOLUTION_ATTEMPTS, null)
+                .orEmpty()
+                .lineSequence()
+                .mapNotNull { line ->
+                    val parts = line.split(' ')
+                    if (parts.size != ATTEMPT_FIELDS) return@mapNotNull null
+                    val at = runCatching { Instant.parse(parts[2]) }.getOrNull() ?: return@mapNotNull null
+                    parts[0] to ResolutionAttempt(parts[1], at)
+                }.toMap()
+        set(value) =
+            prefs
+                .edit()
+                .putString(
+                    RESOLUTION_ATTEMPTS,
+                    value.entries
+                        .joinToString("\n") { (id, attempt) -> "$id ${attempt.fingerprint} ${attempt.at}" }
+                        .ifEmpty { null },
+                ).apply()
 
     override var tombstones: Instant?
         get() = read(TOMBSTONES)
@@ -126,6 +175,10 @@ class SharedPreferencesSyncCursors(
         const val ITEMS = "sync.cursor.items"
         const val CATALOG = "sync.cursor.catalog"
         const val TOMBSTONES = "sync.cursor.tombstones"
+        const val CATALOG_PUBLISHED = "sync.cursor.catalogPublished"
+        const val CATALOG_FULL = "sync.cursor.catalogFull"
+        const val RESOLUTION_ATTEMPTS = "sync.resolutionAttempts"
+        const val ATTEMPT_FIELDS = 3
         const val ACCOUNT_KIND = "sync.cursor.accountKind"
     }
 }
