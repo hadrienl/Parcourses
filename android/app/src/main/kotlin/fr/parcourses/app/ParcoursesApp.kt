@@ -43,10 +43,12 @@ open class ParcoursesApp :
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
                     container.realtime?.foreground()
+                    container.onProcessForeground()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {
                     container.realtime?.background()
+                    container.onBackground()
                 }
             },
         )

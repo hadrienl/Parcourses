@@ -87,7 +87,16 @@
     <string name="account_sign_out_running">Déconnexion…</string>
     <string name="account_sign_out_offline">Il faut du réseau pour se déconnecter. Rien n\'a été retiré.</string>
     <string name="account_sign_out_unsent">Les modifications pas encore envoyées seront perdues.</string>
-    <string name="account_sign_out_failed">La déconnexion n\'a pas abouti. Réessayez.</string>
+    <!-- Purge de la déconnexion en échec (#129), mêmes textes qu'iOS : titre et message avant le seuil. -->
+    <string name="account_sign_out_failed_title">La déconnexion n\'a pas abouti.</string>
+    <string name="account_sign_out_failed_body">Vos listes sont peut-être encore sur cet appareil. Réessayez pour terminer la déconnexion.</string>
+    <!-- À partir du 3e échec (purgeFailureThreshold), avec « Nous écrire ». -->
+    <string name="account_sign_out_failed_blocked_body">Votre appareil manque peut-être d\'espace. Libérez-en, puis réessayez. Si le problème continue, supprimez l\'app puis réinstallez-la : vos listes restent dans votre compte.</string>
+    <!-- Changement de compte bloqué (#129) : bandeau de l'écran Compte, à partir du 3e rejeu en échec. -->
+    <string name="account_switch_blocked_title">Changement de compte inachevé</string>
+    <string name="account_switch_blocked_body">La synchronisation est arrêtée. Votre appareil manque peut-être d\'espace. Libérez-en, puis réessayez. Si le problème continue, supprimez l\'app puis réinstallez-la : vos listes restent dans votre compte.</string>
+    <!-- Ouvre la messagerie (objet seul : « Parcourses : purge impossible (<code>) »). Sans messagerie, l'adresse s'affiche. -->
+    <string name="purge_contact">Nous écrire</string>
     <string name="account_retry">Réessayer</string>
     <string name="account_cancel">Annuler</string>
     <string name="account_ok">OK</string>

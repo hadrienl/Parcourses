@@ -7,6 +7,7 @@ import fr.parcourses.core.network.RemoteGateway
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -29,13 +30,35 @@ data class AccountState(
 /**
  * État du compte pour les écrans (#87 §2.4), mêmes noms qu'iOS : type de compte (drapeau `account.kind`), adresse,
  * prénom, et session perdue d'un compte e-mail. [waitsForSession] : `SyncEngine.waitsForSession` du moteur courant.
+ *
+ * Purges en échec (#129), mêmes noms qu'iOS : [purgeFailureCount], [lastPurgeFailure], [purgeFailureThreshold]. Le
+ * compteur ([PurgeFailureCounter]) est en mémoire seulement : il repart de 0 à chaque lancement.
  */
 class AccountSession(
     private val gateway: RemoteGateway?,
     private val kind: AccountKindFlag,
     waitsForSession: Flow<Boolean> = flowOf(false),
-) {
+    private val purgeFailures: PurgeFailureCounter = PurgeFailureCounter(),
+) : PurgeFailureRecorder by purgeFailures {
     private val profile = MutableStateFlow(Profile())
+
+    /** Purges en échec depuis la dernière réussie. Jamais écrit sur le disque. */
+    val purgeFailureCount: StateFlow<Int> get() = purgeFailures.count
+
+    /** Dernière purge en échec : son code va dans l'objet du message de « Nous écrire ». */
+    val lastPurgeFailure: StateFlow<PurgeFailure?> get() = purgeFailures.last
+
+    /** Seuil franchi : la dernière purge en échec, sinon `null`. Alerte de la déconnexion. */
+    val blockedPurge: Flow<PurgeFailure?> get() = purgeFailures.blocked
+
+    /** Changement de compte bloqué (`account.switch` laissé, seuil franchi), sinon `null`. Bandeau du Compte. */
+    val blockedSwitch: Flow<PurgeFailure?> get() = purgeFailures.blockedSwitch
+
+    /** [PURGE_FAILURE_THRESHOLD], sous le nom commun à iOS. */
+    val purgeFailureThreshold: Int get() = PURGE_FAILURE_THRESHOLD
+
+    /** `account.switch` effacé par un chemin quelconque : voir [PurgeFailureCounter.switchFlagCleared]. */
+    fun switchFlagCleared() = purgeFailures.switchFlagCleared()
 
     private data class Profile(
         val email: String? = null,
@@ -88,8 +111,11 @@ class AccountSession(
         profile.value = Profile()
     }
 
-    private companion object {
-        const val TAG = "AccountSession"
+    companion object {
+        private const val TAG = "AccountSession"
+
+        /** Purges en échec à partir desquelles les écrans proposent de libérer de l'espace et « Nous écrire ». */
+        const val PURGE_FAILURE_THRESHOLD = 3
     }
 }
 
@@ -131,6 +157,8 @@ class AccountSignOut(
     /** Entrées de file restantes, `PENDING` et `FAILED`. */
     private val unsent: suspend () -> Int,
     private val timeout: Duration = 15.seconds,
+    /** Compteur des purges en échec (`AccountSession`, #129). */
+    private val failures: PurgeFailureRecorder? = null,
 ) {
     private val lock = Mutex()
 
@@ -182,11 +210,13 @@ class AccountSignOut(
             try {
                 host.suspendSync()
                 host.endShopping()
-                flag.write()
+                purgeStep(PurgeStep.Preferences) { flag.write() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Déconnexion interrompue : ${e.javaClass.simpleName}")
+                Log.w(TAG, "Déconnexion interrompue : ${e.purgeCauseName}")
+                // Même alerte que la purge (« Réessayer » seulement) : un stockage plein y bloque aussi (#129).
+                failures?.purgeFailed(PurgeFailure(PurgeOperation.SignOut, e.failedPurgeStep))
                 host.resumeSync()
                 return@withLock AccountSignOutOutcome.Failed(AccountSignOutError.Unknown)
             }
@@ -196,19 +226,28 @@ class AccountSignOut(
     /** Au lancement : reprend une déconnexion interrompue. `null` s'il n'y en a pas. */
     suspend fun resumePending(): AccountSignOutOutcome? = lock.withLock { if (flag.isPending) finish() else null }
 
-    /** Rejouable : une session absente et une base vide le restent. Un échec garde le drapeau. */
+    /**
+     * Rejouable : une session absente et une base vide le restent. Un échec garde le drapeau et monte le compteur des
+     * purges en échec, avec sa première étape en échec (#129) ; une réussite le remet à 0.
+     */
     @Suppress("TooGenericExceptionCaught") // Toute panne locale garde le drapeau : « Réessayer ».
     private suspend fun finish(): AccountSignOutOutcome =
         try {
             host.suspendSync()
-            gateway.signOut()
+            purgeStep(PurgeStep.Session) { gateway.signOut() }
+            // Étapes attribuées dans la purge elle-même (base, catégories, préférences).
             purge.run()
-            host.clearLocalState()
-            flag.clear()
-            try {
-                withTimeoutOrNull(timeout) { gateway.ensureSession() }
-            } catch (e: RemoteError) {
-                Log.i(TAG, "Nouveau compte reporté : ${e.message}")
+            purgeStep(PurgeStep.Preferences) {
+                host.clearLocalState()
+                flag.clear()
+            }
+            failures?.purgeSucceeded()
+            purgeStep(PurgeStep.Session) {
+                try {
+                    withTimeoutOrNull(timeout) { gateway.ensureSession() }
+                } catch (e: RemoteError) {
+                    Log.i(TAG, "Nouveau compte reporté : ${e.message}")
+                }
             }
             host.rebuild()
             Log.i(TAG, "Déconnecté")
@@ -216,7 +255,8 @@ class AccountSignOut(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Purge de la déconnexion interrompue : ${e.javaClass.simpleName}")
+            Log.w(TAG, "Purge de la déconnexion interrompue : ${e.purgeCauseName}")
+            failures?.purgeFailed(PurgeFailure(PurgeOperation.SignOut, e.failedPurgeStep))
             AccountSignOutOutcome.Failed(AccountSignOutError.Unknown)
         }
 
