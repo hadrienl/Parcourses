@@ -387,3 +387,32 @@ lignes et perles changent de place d'un coup ; la coche reste animée sur place.
   16 pt du bord d'écran** ; la carte recouvre la gouttière de la ligne soulevée (perle cachée le temps du menu). Le fil
   ne bouge pas ; une forme d'aperçu plus étroite n'y change rien. **Accepté** (coordinateur, 2026-11-17) comme le
   voile : on reste sur D4, sans menu maison.
+
+### 9.4 Glisser et appui long sur iPhone (lot 2, PR #136)
+
+Retours de l'utilisateur sur iPhone, corrigés avant la fusion ; le détail est dans `SYNC.md` (ligne iOS du #115).
+
+- **Forme du bouton** : celle du `.swipeActions` natif de la version d'iOS. Sur iOS 26, capsule de 34 pt à 11 pt des
+  bords, pictogramme seul et libellé dessous ; elle naît d'une pastille et s'allonge au glisser complet. Sur iOS 18,
+  rectangle plein hauteur. `ListsView` garde le `.swipeActions` natif, qui sert de référence
+  (`115-fil-immobile/ios-glisser-natif-maison.png`, clair et sombre).
+- **Fermeture au doigt** : le couloir suit le doigt sans animation ; au relâcher, un relâcher vif (plus de 300 pt/s)
+  décide du sens, sinon la distance projetée sur 0,15 s ; le ressort (`interpolatingSpring`, 0,35 s, sans rebond)
+  repart de la position affichée, à la vitesse du doigt. Le contenu et le bouton dérivent d'une seule valeur animée,
+  le décalage (`LaneSlide`) : le bouton se rétracte avec la place découverte, sans capsule fantôme au relâcher.
+- **Planche** `115-fil-immobile/ios-fermeture-glisser.png` (simulateur iOS 26.5, sombre, `testSwipeCloseFilm`,
+  images réelles de l'enregistrement, qui n'en produit qu'à chaque changement d'écran) : ouverture puis fermeture
+  lente, article (maison) contre « Mes listes » (natif). À la fermeture, la capsule se rétracte à chaque image
+  (bord gauche de 642 à 770 px en 14 images, 0,22 s), pastille puis point, sans retour en arrière ni fantôme. La
+  fermeture vive se fait en une image (maison) ou trois (natif) : le doigt couvre toute la place découverte.
+- **Écart restant, à l'ouverture** : relâchée au-delà du bouton (zone de résistance), la ligne maison rebondit. Le
+  bouton revient d'un coup sous sa largeur de repos (aire de la capsule à 63 % de celle du repos, 0,1 s après le
+  relâcher), puis se pose en 0,35 s (images 3 à 6 de la première rangée). Le natif dépasse à peine (+3,5 %) et ne
+  revient pas en dessous. À corriger dans le ressort du relâcher (`LaneMotion.release`, vitesse initiale).
+- **Appui long** : le pan du couloir est reconnu en même temps que l'interaction du menu contextuel d'UIKit. Le menu
+  s'ouvre pendant l'appui, avec l'aperçu natif, et le relâcher ne coche rien
+  (`testLongPressOpensTheMenuWithoutChecking`, vert sur iOS 18 et iOS 26).
+- **Délai de l'appui long**, article contre ligne de « Mes listes » : pas de chiffre fiable au simulateur (les
+  horloges d'XCUITest et de l'enregistrement dérivent). L'attente de 200 ms ajoutée en cours de route est retirée ; le
+  reste est le délai du menu contextuel d'iOS (réglable par Accessibilité > Toucher > Durée du toucher prolongé). Une
+  mesure sur iPhone, touchers affichés, reste à faire quand une vidéo sera fournie.
