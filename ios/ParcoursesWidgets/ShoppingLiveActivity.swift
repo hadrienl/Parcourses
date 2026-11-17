@@ -42,38 +42,35 @@ struct ShoppingLiveActivity: Widget {
             .islandInk()
         }
       } compactLeading: {
-        CompactAisleIcon(state: state)
+        CompactAisleIcon(state: state, isStale: isStale)
           .islandInk()
       } compactTrailing: {
+        // Visite inactive : le compteur s'estompe, faute de place pour le dire en toutes lettres (#52).
         Text(state.isFinished ? "OK" : TicketCounter.text(state.remaining))
           .font(.system(.callout, design: .monospaced).weight(.heavy))
           .monospacedDigit()
           .minimumScaleFactor(0.6)
           .lineLimit(1)
-          .foregroundStyle(Palette.accent)
-          .accessibilityLabel(summary(state))
+          .foregroundStyle(isStale && !state.isFinished ? Palette.inkMuted : Palette.accent)
+          .accessibilityLabel(state.summary(isStale: isStale))
           .islandInk()
       } minimal: {
-        ProgressRing(state: state)
+        ProgressRing(state: state, isStale: isStale)
           .accessibilityElement(children: .ignore)
-          .accessibilityLabel(summary(state))
+          .accessibilityLabel(state.summary(isStale: isStale))
           .islandInk()
       }
-      .keylineTint(islandAccent)
+      // Le contour s'estompe avec le contenu quand la visite est inactive.
+      .keylineTint(isStale && !state.isFinished ? islandMuted : islandAccent)
     }
   }
-}
-
-private func summary(_ state: ShoppingActivityAttributes.ContentState) -> String {
-  if state.isFinished { return "Courses terminées" }
-  return state.remaining <= 1
-    ? "\(state.remaining) article restant sur \(state.total)"
-    : "\(state.remaining) articles restants sur \(state.total)"
 }
 
 /// Accent du ticket en sombre, pour la teinte du contour de l'îlot (résolue hors de l'environnement des vues).
 private let islandAccent = Color(
   uiColor: UIColor(Palette.accent).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
+private let islandMuted = Color(
+  uiColor: UIColor(Palette.inkMuted).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)))
 
 extension View {
   /// La Dynamic Island est toujours noire : les jetons du ticket y prennent leur valeur sombre.
@@ -116,7 +113,7 @@ private struct LockScreenView: View {
         if !large { CheckNextButton(attributes: attributes, state: state, isStale: isStale, fullWidth: false) }
       }
       if large {
-        Text(summary(state)).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
+        Text(state.summary()).font(TicketFont.meta).foregroundStyle(Palette.inkMuted)
         CheckNextButton(attributes: attributes, state: state, isStale: isStale, fullWidth: true)
       }
     }
@@ -151,7 +148,7 @@ private struct RemainingCounter: View {
       }
     }
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(summary(state))
+    .accessibilityLabel(state.summary())
   }
 }
 
@@ -199,9 +196,11 @@ private struct NextAisleNode: View {
   }
 }
 
-/// Îlot compact : l'icône du rayon suivant, à sa couleur ; une coche à la fin.
+/// Îlot compact : l'icône du rayon suivant, à sa couleur ; une coche à la fin. Estompée quand la visite est
+/// inactive, comme le compteur voisin.
 private struct CompactAisleIcon: View {
   let state: ShoppingActivityAttributes.ContentState
+  let isStale: Bool
   @Environment(\.redactionReasons) private var redactionReasons
 
   var body: some View {
@@ -214,9 +213,9 @@ private struct CompactAisleIcon: View {
           .renderingMode(.template)
           .scaledToFit()
           .frame(width: TicketMetrics.aisleIcon, height: TicketMetrics.aisleIcon)
-          .foregroundStyle(AisleStyle.color(aisleId))
+          .foregroundStyle(isStale ? Palette.inkMuted : AisleStyle.color(aisleId))
       } else {
-        Image(systemName: "cart").foregroundStyle(Palette.accent)
+        Image(systemName: "cart").foregroundStyle(isStale ? Palette.inkMuted : Palette.accent)
       }
     }
     .accessibilityHidden(true)
@@ -303,9 +302,11 @@ private struct NextItemView: View {
   }
 }
 
-/// Îlot minimal : anneau du fil, parcouru à l'accent, avec le nombre d'articles restants.
+/// Îlot minimal : anneau du fil, parcouru à l'accent, avec le nombre d'articles restants. Visite inactive : le
+/// parcours et le nombre s'estompent.
 private struct ProgressRing: View {
   let state: ShoppingActivityAttributes.ContentState
+  let isStale: Bool
 
   var body: some View {
     ZStack {
@@ -313,7 +314,10 @@ private struct ProgressRing: View {
       Circle().stroke(Palette.inkMuted.opacity(0.6), lineWidth: TicketMetrics.threadWidth)
       Circle()
         .trim(from: 0, to: state.isFinished ? 1 : state.progress)
-        .stroke(Palette.thread, style: StrokeStyle(lineWidth: TicketMetrics.threadWidth, lineCap: .round))
+        .stroke(
+          isStale && !state.isFinished ? Palette.inkMuted : Palette.thread,
+          style: StrokeStyle(lineWidth: TicketMetrics.threadWidth, lineCap: .round)
+        )
         .rotationEffect(.degrees(-90))
       if state.isFinished {
         Image(systemName: "checkmark").font(.caption2.weight(.heavy)).foregroundStyle(Palette.accent)
@@ -321,7 +325,7 @@ private struct ProgressRing: View {
         Text("\(state.remaining)")
           .font(.system(.caption2, design: .monospaced).weight(.heavy))
           .monospacedDigit()
-          .foregroundStyle(Palette.ink)
+          .foregroundStyle(isStale ? Palette.inkMuted : Palette.ink)
           .minimumScaleFactor(0.5)
           .lineLimit(1)
           .padding(4)

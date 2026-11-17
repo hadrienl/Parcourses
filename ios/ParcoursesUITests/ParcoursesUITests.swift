@@ -16,7 +16,7 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     let entry = app.textFields["quickEntry"]
     tap(app.alerts.buttons["Créer"], until: entry)
     for text in ["2 laits demi-écrémé", "tomates", "xyzzy"] {
-      if !entry.hasFocus { entry.tap() }
+      focus(entry)
       type(text + "\n", into: entry, app)
     }
 
@@ -343,7 +343,7 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     // Le cadre de l'élément est celui de la case : le texte commence après sa marge de 12 pt.
     let entry = app.textFields["quickEntry"]
     tap(app.alerts.buttons["Créer"], until: entry)
-    if !entry.hasFocus { entry.tap() }
+    focus(entry)
     // Mots justes en français comme en anglais : un appui sur un mot souligné par le correcteur (clavier anglais
     // du simulateur de CI) le sélectionne au lieu d'y placer le curseur.
     type("orange melon", into: entry, app)

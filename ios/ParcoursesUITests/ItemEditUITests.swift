@@ -18,7 +18,7 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     tap(app.alerts.buttons["Créer"], until: entry)
     XCTAssertEqual(entry.placeholderValue, "Ajouter un article (ex.\u{00A0}: 2 lait)")
     XCTAssertFalse(app.staticTexts[tip].exists)
-    if !entry.hasFocus { entry.tap() }
+    focus(entry)
     type("lait\n", into: entry, app)
 
     // Premier article : l'astuce apparaît.
@@ -76,7 +76,7 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
         "2 lait demi-écrémé bio de montagne en bouteille de verre", "6x33cl bière blonde",
         "1,5 kg fromage blanc fermier au lait cru", "yaourts", "beurre",
       ] {
-        if !entry.hasFocus { entry.tap() }
+        focus(entry)
         type(text + "\n", into: entry, app)
       }
       // Quantité trop longue pour la colonne de droite (saisie libre du panneau) : elle passe sous le libellé. En
