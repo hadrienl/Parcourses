@@ -37,6 +37,7 @@ struct ParcoursesApp: App {
           await app.sharing?.foreground()
         }
       case .background:
+        app.enteredBackground()
         let sharing = app.sharing
         // Drapeau posé tout de suite : une ouverture qui attend encore le compte ne rouvre pas le canal.
         sharing?.scenePhaseChanged(isActive: false)

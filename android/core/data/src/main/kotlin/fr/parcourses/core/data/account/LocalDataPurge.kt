@@ -25,15 +25,20 @@ class LocalDataPurge(
     private val accountKind: AccountKindFlag? = null,
     private val switchFlag: AccountSwitchFlag? = null,
 ) {
+    /** Une panne lève une [PurgeStepException] qui porte son étape : base, catégories, puis préférences (#129). */
     suspend fun run() {
-        // Hors de toute transaction : dans une transaction, Room 3 saute le `VACUUM`.
-        db.clearAllTables()
-        db.useWriterConnection { connection -> connection.usePrepared(WAL_TRUNCATE) { it.step() } }
-        db.categories().seedIfNeeded(seed())
-        cursors.clear()
-        accountKind?.clear()
-        // Plus rien à reprendre : un changement de compte en attente n'a plus d'objet.
-        switchFlag?.clear()
+        purgeStep(PurgeStep.Store) {
+            // Hors de toute transaction : dans une transaction, Room 3 saute le `VACUUM`.
+            db.clearAllTables()
+            db.useWriterConnection { connection -> connection.usePrepared(WAL_TRUNCATE) { it.step() } }
+        }
+        purgeStep(PurgeStep.Categories) { db.categories().seedIfNeeded(seed()) }
+        purgeStep(PurgeStep.Preferences) {
+            cursors.clear()
+            accountKind?.clear()
+            // Plus rien à reprendre : un changement de compte en attente n'a plus d'objet.
+            switchFlag?.clear()
+        }
     }
 
     private companion object {

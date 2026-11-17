@@ -23,6 +23,8 @@ import kotlinx.coroutines.sync.withLock
  *
  * La session est lue sur l'appareil, sans rafraîchissement ni réseau. Stockage illisible : le drapeau reste, nouvel
  * essai au retour au premier plan.
+ *
+ * Chaque échec est signalé à [failures] avec sa première étape en échec, chaque drapeau effacé aussi (#129).
  */
 class AccountSwitchReplay(
     private val gateway: RemoteGateway,
@@ -30,6 +32,8 @@ class AccountSwitchReplay(
     private val cursors: SyncCursors,
     private val kind: AccountKindFlag,
     private val lock: Mutex,
+    /** Compteur des purges en échec (`AccountSession`). */
+    private val failures: PurgeFailureRecorder? = null,
     /** Mode courses fermé, purge de l'appareil ([LocalDataPurge]) et préférences de la Live Update effacées. */
     private val purgeDevice: suspend () -> Unit,
 ) {
@@ -40,21 +44,26 @@ class AccountSwitchReplay(
             if (!flag.isPending) return@withLock true
             try {
                 // Lue dans le stockage, jamais importée : un rafraîchissement en cours ne la cache pas.
-                val stored = gateway.storedSessionAccount()
+                val stored = purgeStep(PurgeStep.Session) { gateway.storedSessionAccount() }
                 if (stored?.email != null && stored.accountId != cursors.accountId) {
                     val session = stored.accountId
+                    // Étapes attribuées dans la purge elle-même ; une panne non attribuée reste `unknown`.
                     purgeDevice()
-                    kind.write(AccountKind.Email)
-                    cursors.adopt(session, AccountKind.Email)
-                    gateway.acknowledgeAccount(session)
+                    purgeStep(PurgeStep.Preferences) {
+                        kind.write(AccountKind.Email)
+                        cursors.adopt(session, AccountKind.Email)
+                    }
+                    purgeStep(PurgeStep.Session) { gateway.acknowledgeAccount(session) }
                     Log.i(TAG, "Changement de compte e-mail repris")
                 }
-                flag.clear()
+                purgeStep(PurgeStep.Preferences) { flag.clear() }
+                failures?.purgeSucceeded()
                 true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Changement de compte non repris : ${e.javaClass.simpleName}")
+                Log.w(TAG, "Changement de compte non repris : ${e.purgeCauseName}")
+                failures?.purgeFailed(PurgeFailure(PurgeOperation.Switch, e.failedPurgeStep))
                 false
             }
         }

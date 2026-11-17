@@ -43,9 +43,10 @@ import fr.parcourses.core.designsystem.TicketSheet
 
 /**
  * Écran Compte d'un compte e-mail (#108, maquette `design/sharing-v1.html` §9.4), ouvert par la pastille de l'écran
- * Listes ; iOS : `AccountView`. Dans l'ordre : « Reconnectez-vous » si la session a disparu, adresse, prénom
- * modifiable, note de confidentialité, « Se déconnecter » ([AccountViewModel]), puis « Vos données » (#68,
- * [AccountDeletionViewModel]). Un compte anonyme n'a pas d'écran Compte : la navigation le ferme.
+ * Listes ; iOS : `AccountView`. Dans l'ordre : « Changement de compte inachevé » si un rejeu reste en échec (#129),
+ * « Reconnectez-vous » si la session a disparu, adresse, prénom modifiable, note de confidentialité, « Se
+ * déconnecter » ([AccountViewModel]), puis « Vos données » (#68, [AccountDeletionViewModel]). Un compte anonyme n'a
+ * pas d'écran Compte : la navigation le ferme.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +82,8 @@ fun AccountScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = TicketDimens.spaceM),
                 verticalArrangement = Arrangement.spacedBy(TicketDimens.spaceS),
             ) {
+                // Changement de compte bloqué (#129) : la synchronisation est arrêtée, le plus important d'abord.
+                account.switchBlocked?.let { SwitchBlockedBanner(it, accountActions.onRetrySwitch) }
                 if (account.account.needsSignIn) ReconnectBanner(accountActions.onSignIn)
                 AccountDetails(account, accountActions)
                 InfoSection(stringResource(R.string.about_account_title)) {

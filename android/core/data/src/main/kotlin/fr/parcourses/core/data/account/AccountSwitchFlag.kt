@@ -39,6 +39,20 @@ class SharedPreferencesAccountSwitchFlag(
     }
 }
 
+/**
+ * Drapeau dont chaque effacement est signalé à [onCleared], quel que soit le chemin (purge, connexion achevée, rejeu) :
+ * le compteur des purges en échec d'un rejeu revient alors à 0 (#129, `AccountSession.switchFlagCleared`).
+ */
+class ObservedAccountSwitchFlag(
+    private val inner: AccountSwitchFlag,
+    private val onCleared: () -> Unit,
+) : AccountSwitchFlag by inner {
+    override fun clear() {
+        inner.clear()
+        onCleared()
+    }
+}
+
 /** Drapeau en mémoire, pour les tests. */
 class InMemoryAccountSwitchFlag : AccountSwitchFlag {
     @Volatile

@@ -18,10 +18,14 @@ import fr.parcourses.core.data.account.AccountSwitchReplay
 import fr.parcourses.core.data.account.ContinueWithoutAccount
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
+import fr.parcourses.core.data.account.ObservedAccountSwitchFlag
+import fr.parcourses.core.data.account.PurgeFailureCounter
+import fr.parcourses.core.data.account.PurgeStep
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSignOutFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSwitchFlag
+import fr.parcourses.core.data.account.purgeStep
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
@@ -140,8 +144,13 @@ class AppContainer(
     /** Drapeau durable de « Se déconnecter » (#87) : la purge est rejouée au lancement tant qu'il existe. */
     val signOutFlag: AccountSignOutFlag by lazy { SharedPreferencesAccountSignOutFlag(context) }
 
-    /** Drapeau durable `account.switch` (#87) : changement de compte e-mail en cours, rejoué au lancement. */
-    val switchFlag: AccountSwitchFlag by lazy { SharedPreferencesAccountSwitchFlag(context) }
+    /**
+     * Drapeau durable `account.switch` (#87) : changement de compte e-mail en cours, rejoué au lancement. Effacé par
+     * n'importe quel chemin, il remet à 0 le compteur des rejeux en échec (#129).
+     */
+    val switchFlag: AccountSwitchFlag by lazy {
+        ObservedAccountSwitchFlag(SharedPreferencesAccountSwitchFlag(context)) { accountSession.switchFlagCleared() }
+    }
 
     /** Drapeau durable `account.kind` (#87) : un compte e-mail sans session attend la reconnexion. */
     val accountKind: AccountKindFlag by lazy { SharedPreferencesAccountKindFlag(context) }
@@ -272,7 +281,10 @@ class AppContainer(
         sessionGeneration.flatMapLatest { session.engine?.waitsForSession ?: flowOf(false) }
 
     /** Compte de l'appareil pour les écrans (#87) : type, adresse, prénom, session perdue. */
-    val accountSession: AccountSession by lazy { AccountSession(gateway, accountKind, waitsForSession) }
+    val accountSession: AccountSession by lazy {
+        // Le compteur lit le vrai drapeau `account.switch` à chaque échec (#129).
+        AccountSession(gateway, accountKind, waitsForSession, PurgeFailureCounter { switchFlag.isPending })
+    }
 
     /** Une liaison par écran de connexion ; `null` sans Supabase. */
     fun newAccountLink(): AccountLink? =
@@ -498,6 +510,7 @@ class AppContainer(
                     flush = { engine?.drain() },
                     // `PENDING` et `FAILED` : toute entrée encore là sera perdue.
                     unsent = { database.outbox().all().size },
+                    failures = accountSession,
                 ),
                 maintenanceScope,
             )
@@ -529,16 +542,34 @@ class AppContainer(
     /** Reprise d'un changement de compte e-mail interrompu (`account.switch`) : voir [AccountSwitchReplay]. */
     private val switchReplay: AccountSwitchReplay? by lazy {
         gateway?.let { remote ->
-            AccountSwitchReplay(remote, switchFlag, cursors, accountKind, accountLock) {
+            AccountSwitchReplay(remote, switchFlag, cursors, accountKind, accountLock, failures = accountSession) {
                 withTimeoutOrNull(LIVE_UPDATE_BUDGET) { liveUpdates.endAll().await() }
                 purge.run()
-                livePreferences.clear()
+                purgeStep(PurgeStep.Preferences) { livePreferences.clear() }
             }
         }
     }
 
     /** Vrai si plus rien n'est à reprendre. Lit et écrit le disque : jamais sur le fil principal. */
     internal suspend fun replayAccountSwitch(): Boolean = withContext(IO) { switchReplay?.run() ?: true }
+
+    /**
+     * « Réessayer » du bandeau « Changement de compte inachevé » (#129) : le rejeu, puis la synchronisation s'il
+     * aboutit. Le bandeau disparaît avec le compteur, remis à 0 par la réussite. Un second appui pendant le rejeu est
+     * ignoré : un seul geste ne compte qu'un échec.
+     */
+    fun retryAccountSwitch() {
+        if (gateway == null || !retryingSwitch.compareAndSet(false, true)) return
+        maintenanceScope.launch {
+            try {
+                if (replayAccountSwitch()) notifySessionChange()
+            } finally {
+                retryingSwitch.set(false)
+            }
+        }
+    }
+
+    private val retryingSwitch = AtomicBoolean(false)
 
     /** Build sans Supabase : la suppression ne purge que l'appareil (§5.7). */
     val isLocalOnly: Boolean get() = config == null
@@ -689,17 +720,32 @@ class AppContainer(
 
     // endregion
 
-    /** Premier plan : une passe avec descente. */
+    /** Premier plan de l'activité (lancement, retour, rotation) : une passe avec descente. */
     fun onForeground() {
-        // Changement de compte e-mail pas encore repris (session illisible au lancement) : nouvel essai.
-        if (gateway != null) {
-            maintenanceScope.launch {
-                // Drapeau lu hors du fil principal ; la reprise attend une vérification de code en cours (verrou).
-                val pending = withContext(IO) { switchFlag.isPending }
-                if (pending && replayAccountSwitch()) notifySessionChange()
-            }
-        }
         coordinator?.requestSync(pull = true)
+    }
+
+    /** Vrai après un premier passage du processus en arrière-plan, comme `AppModel.hasEnteredBackground` sur iOS. */
+    @Volatile
+    private var hasEnteredBackground = false
+
+    /** Le processus passe en arrière-plan : la prochaine mise au premier plan est un vrai retour. */
+    fun onBackground() {
+        hasEnteredBackground = true
+    }
+
+    /**
+     * Retour du processus au premier plan : un changement de compte e-mail pas encore repris (session illisible ou
+     * purge en échec) est rejoué. Jamais au lancement, que [start] rejoue déjà, ni à une rotation : chaque rejeu en
+     * échec compte dans `purgeFailureCount` (#129), un seul par retour.
+     */
+    fun onProcessForeground() {
+        if (gateway == null || !hasEnteredBackground) return
+        maintenanceScope.launch {
+            // Drapeau lu hors du fil principal ; la reprise attend une vérification de code en cours (verrou).
+            val pending = withContext(IO) { switchFlag.isPending }
+            if (pending && replayAccountSwitch()) notifySessionChange()
+        }
     }
 
     private fun pulledItemClassifier(): (String) -> PulledItemClassification {
