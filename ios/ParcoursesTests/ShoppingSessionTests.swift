@@ -1140,6 +1140,24 @@ private func rows(_ labels: [String], checked: Set<String> = [], aisle: String =
     let decoded = try JSONDecoder().decode(ActivityState.self, from: JSONEncoder().encode(state))
     #expect(decoded == state)
   }
+
+  @Test func theSummaryCountsWhatIsLeft() {
+    #expect(ActivityState(remaining: 3, total: 8).summary() == "3 articles restants sur 8")
+    #expect(ActivityState(remaining: 1, total: 8).summary() == "1 article restant sur 8")
+    #expect(ActivityState(remaining: 0, total: 8).summary() == "0 article restant sur 8")
+  }
+
+  /// L'îlot compact et l'îlot minimal n'affichent pas « Visite inactive » : VoiceOver le dit (#52).
+  @Test func anInactiveVisitSaysSoBeforeTheCount() {
+    #expect(
+      ActivityState(remaining: 3, total: 8).summary(isStale: true) == "Visite inactive, 3 articles restants sur 8")
+  }
+
+  @Test func aFinishedVisitIsFinishedEvenWhenStale() {
+    let state = ActivityState(remaining: 2, total: 8, isFinished: true)
+    #expect(state.summary() == "Courses terminées")
+    #expect(state.summary(isStale: true) == "Courses terminées")
+  }
 }
 
 @Suite(.serialized) @MainActor struct ShoppingActivityTriggerTests {
