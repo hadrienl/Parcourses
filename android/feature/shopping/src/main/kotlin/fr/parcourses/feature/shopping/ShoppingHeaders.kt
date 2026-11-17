@@ -25,8 +25,6 @@ import fr.parcourses.core.designsystem.AisleLine
 import fr.parcourses.core.designsystem.CapsText
 import fr.parcourses.core.designsystem.LearnedTag
 import fr.parcourses.core.designsystem.ThreadLayout
-import fr.parcourses.core.designsystem.ThreadPiece
-import fr.parcourses.core.designsystem.ThreadStyle
 import fr.parcourses.core.designsystem.Ticket
 import fr.parcourses.core.designsystem.TicketDimens
 import fr.parcourses.core.designsystem.TicketHeader
@@ -67,8 +65,7 @@ internal fun Header(state: ShoppingUiState) {
 @Composable
 internal fun AisleHeader(
     section: ShoppingSection,
-    piece: ThreadPiece,
-    style: ThreadStyle,
+    threadKey: Any,
     risen: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -76,8 +73,7 @@ internal fun AisleHeader(
     AisleLine(
         categoryId = section.aisleId,
         title = section.title,
-        piece = piece,
-        style = style,
+        threadKey = threadKey,
         modifier =
             modifier.clearAndSetSemantics {
                 heading()
