@@ -34,6 +34,9 @@ actor AccountGateway: RemoteGateway {
   func setSessionReadFailure(_ error: (any Error)?) { sessionReadFailure = error }
   func setSignOutFailure(_ error: (any Error)?) { signOutFailure = error }
   func setEmailFailsWithoutSession(_ value: Bool) { emailFailsWithoutSession = value }
+  /// `acknowledgeAccount` lève : le changement de compte échoue à l'étape `session` (#129).
+  var acknowledgeFailure: (any Error)?
+  func setAcknowledgeFailure(_ error: (any Error)?) { acknowledgeFailure = error }
 
   func linkEmail(_ email: String) async throws {
     calls.append("linkEmail:\(email)")
@@ -87,7 +90,9 @@ actor AccountGateway: RemoteGateway {
   }
   func verifySession() async throws {}
   func sessionAccountId() async throws -> UUID { try await currentAccountId() }
-  func acknowledgeAccount(_ id: UUID) async throws {}
+  func acknowledgeAccount(_ id: UUID) async throws {
+    if let acknowledgeFailure { throw acknowledgeFailure }
+  }
   func serverDate() async throws -> Date? { nil }
   func deleteAccount() async throws { throw RemoteError.unauthorized }
   func signOutLocally() async throws { localSession = nil }

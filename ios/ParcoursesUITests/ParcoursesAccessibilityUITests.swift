@@ -40,6 +40,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let sheetIsShown: Bool
     /// Audit du panneau de l'article (#110, écrans « article » et « article-… ») avec sa feuille modale à l'écran.
     let itemSheetIsShown: Bool
+    /// Alerte à l'écran (#129, alerte de la déconnexion au-delà du seuil) : l'écran reste visible sous son voile.
+    let alertIsShown: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
     let pickerFooterTop: CGFloat?
@@ -49,6 +51,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     @MainActor
     init(_ app: XCUIApplication, name: String, modal: Bool) {
       self.modal = modal
+      alertIsShown = modal && app.alerts.firstMatch.exists
       itemSheetIsShown =
         modal && (name == "article" || name.hasPrefix("article-")) && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
@@ -78,7 +81,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     case known(String)
     /// Problème non localisé imputé à une ligne coupée par le dock : décompté sur le quota de l'écran.
     case cutLine
-    /// Texte de la liste voilé par la feuille du panneau de l'article (2 quater) : un seul par écran.
+    /// Texte voilé par la feuille du panneau de l'article (2 quater) ou par une alerte (2 quinquies) : un seul par
+    /// écran.
     case veiledText
   }
 
@@ -112,6 +116,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    écran (le compte constaté en CI, iOS 18 et 26) : un second texte non localisé, dans le panneau ou
       //    ailleurs, reste bloquant. La liste seule est auditée sans feuille (« liste-remplie »).
       if screen.itemSheetIsShown && issue.auditType == .elementDetection { return .veiledText }
+      // 2 quinquies. Alerte au-dessus d'un écran (#129, « La déconnexion n'a pas abouti. » sur l'écran Compte) : même
+      //    constat qu'en 2 quater, l'écran reste visible sous le voile de l'alerte, que la modalité rend inaccessible.
+      //    Constaté sur iOS 26.5 à la taille par défaut seulement, où l'alerte laisse voir à moitié des lignes de
+      //    l'écran Compte ; en AX5, l'alerte couvre l'écran et l'audit passe. Même borne : ce type, sans élément
+      //    localisé, **un** constat par écran, et seulement quand une alerte est affichée. L'alerte elle-même (titre,
+      //    message, boutons) reste auditée.
+      if screen.alertIsShown && issue.auditType == .elementDetection { return .veiledText }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }
@@ -301,7 +312,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         return true
       case .veiledText where veiled > 0:
         veiled -= 1
-        exceptions.append("2 quater texte voilé derrière le panneau de l'article — \(summary)")
+        let veil =
+          screen.alertIsShown
+          ? "2 quinquies texte voilé derrière une alerte" : "2 quater texte voilé derrière le panneau de l'article"
+        exceptions.append("\(veil) — \(summary)")
         return true
       case .cutLine, .veiledText, nil:
         // Pas de `label` : le lire résoudrait l'élément pendant l'audit, ce qui le bloque.
@@ -331,7 +345,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     var exceptions: [String] = []
     // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
-    var veiledTextQuota = state.itemSheetIsShown ? 1 : 0
+    var veiledTextQuota = state.itemSheetIsShown || state.alertIsShown ? 1 : 0
     for (pass, types) in Self.auditPasses {
       // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
       // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.
@@ -561,6 +575,46 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
   @MainActor
   func testAuditAccountDark() {
     auditAccount(arguments: [], suffix: "-sombre", dark: true)
+  }
+
+  /// Purge qui échoue toujours (#129) : bandeau « Changement de compte inachevé » de l'écran Compte, puis alerte de la
+  /// déconnexion au-delà du seuil, avec son message d'aide et « Nous écrire ». Toutes les purges échouent.
+  @MainActor
+  private func auditPurgeHelp(arguments: [String], suffix: String) {
+    let app = launch(
+      reset: true, launchArguments: arguments,
+      settings: [
+        "PARCOURSES_TEST_SHARING": "owner", "PARCOURSES_TEST_PENDING_SWITCH": "1",
+        "PARCOURSES_TEST_PURGE_FAILURES": "10",
+      ])
+    let account = app.buttons["account"]
+    XCTAssertTrue(account.waitForExistence(timeout: 15))
+    // Rejeu du changement de compte en échec au lancement, puis à deux retours au premier plan : seuil atteint.
+    Thread.sleep(forTimeInterval: 2)
+    for _ in 0..<2 { returnToForeground(app) }
+    tap(account, until: app.navigationBars["Compte"])
+    XCTAssertTrue(app.descendants(matching: .any)["switchBlocked"].waitForExistence(timeout: 15))
+    audit(app, "compte-changement-bloque\(suffix)", modal: true)
+
+    let signOut = app.buttons["signOut"]
+    reveal(signOut, in: app)
+    signOut.tap()
+    let confirm = app.alerts.buttons.matching(identifier: "confirmSignOut").firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+    confirm.tap()
+    let contact = app.alerts.buttons.matching(identifier: "contactSupport").firstMatch
+    XCTAssertTrue(contact.waitForExistence(timeout: 15))
+    audit(app, "deconnexion-aide\(suffix)", modal: true)
+  }
+
+  @MainActor
+  func testAuditPurgeHelp() {
+    auditPurgeHelp(arguments: [], suffix: "")
+  }
+
+  @MainActor
+  func testAuditPurgeHelpAX5() {
+    auditPurgeHelp(arguments: Self.ax5, suffix: "-ax5")
   }
 
   /// Mode sombre : teinte, fonds opaques et textes secondaires sur fond sombre.

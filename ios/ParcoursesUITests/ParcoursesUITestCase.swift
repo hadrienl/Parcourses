@@ -148,6 +148,18 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     return 0
   }
 
+  /// Écran d'accueil puis retour dans l'app : un retour au premier plan (#129). La pause qui suit laisse la scène passer
+  /// à `.active` et l'app y réagir ; deux allers-retours enchaînés sans elle ne livraient pas toujours `.active`
+  /// (constaté sur iOS 26.5 : un seul rejeu pour deux retours).
+  @MainActor
+  func returnToForeground(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    XCUIDevice.shared.press(.home)
+    XCTAssertTrue(app.wait(for: .runningBackground, timeout: 15), file: file, line: line)
+    app.activate()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), file: file, line: line)
+    Thread.sleep(forTimeInterval: 2)
+  }
+
   /// Capture conservée dans le `.xcresult`, sert de preuve visuelle aux PR.
   @MainActor
   func capture(_ app: XCUIApplication, _ name: String) {

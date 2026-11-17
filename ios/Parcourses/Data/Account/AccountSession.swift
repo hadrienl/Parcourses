@@ -79,6 +79,15 @@ final class AccountSession {
   /// Drapeau `account.signOut` posé : seule la purge peut avancer. Ni « Se connecter » ni « Se reconnecter » : un
   /// compte ouvert maintenant serait effacé par la purge rejouée au lancement suivant.
   private(set) var isSignOutPending: Bool
+  /// Purges en échec d'affilée (#129) : déconnexion (essai, « Réessayer », reprise au lancement) et rejeu d'un
+  /// changement de compte. En mémoire seulement, jamais écrit sur le disque : un lancement repart de 0. Remis à 0 par
+  /// une purge réussie, et quand le drapeau en attente est effacé par un autre chemin.
+  private(set) var purgeFailureCount = 0
+  /// Dernière purge en échec : son code public part dans l'objet du mail « Nous écrire ».
+  private(set) var lastPurgeFailure: PurgeFailure?
+  /// À partir de ce nombre d'échecs, l'alerte de la déconnexion et le bandeau du changement de compte expliquent quoi
+  /// faire et proposent « Nous écrire ». Avant, rien ne change.
+  static let purgeFailureThreshold = 3
   /// Câblé par l'app après la construction, comme pour la suppression du compte.
   @ObservationIgnored weak var host: (any AccountDeletionHost)?
 
@@ -151,8 +160,14 @@ final class AccountSession {
     }
     link.pendingChanges = dependencies.pendingChanges
     let switchFlags = switchFlags
-    link.markSwitch = { isPending in
-      if isPending { switchFlags.save() } else { switchFlags.clear() }
+    link.markSwitch = { [weak self] isPending in
+      if isPending {
+        switchFlags.save()
+      } else {
+        // Drapeau effacé par la connexion : plus de rejeu dû, le compteur repart de 0.
+        switchFlags.clear()
+        self?.resetPurgeFailures()
+      }
     }
     link.isSwitchPending = { switchFlags.isPending }
     link.switchAccount = { [weak self] id in
@@ -175,7 +190,11 @@ final class AccountSession {
     }
     host?.endShopping()
     try purge?.run(keepingSession: true)
-    try await gateway.acknowledgeAccount(id)
+    do {
+      try await gateway.acknowledgeAccount(id)
+    } catch {
+      throw PurgeSessionFailure(underlying: error)
+    }
     // Le nouveau compte est celui des données dès maintenant, sans attendre une passe réussie : une connexion à un
     // troisième compte avant elle ne doit pas passer pour la reprise d'un compte anonyme (listes créées hors ligne).
     cursors.accountId = id
@@ -183,6 +202,7 @@ final class AccountSession {
     kinds.save(.email)
     // Purge faite : plus rien à rejouer, la synchro peut reprendre.
     switchFlags.clear()
+    resetPurgeFailures()
     // Live Activity et « Cocher le suivant » reviennent, fermés par `endShopping` ; la synchro reprend sur le nouveau
     // compte, sans rien à réidentifier.
     host?.resumeSync()
@@ -233,29 +253,68 @@ final class AccountSession {
     return await resumePendingSwitch()
   }
 
+  /// Seuil atteint (#129) : message d'aide et « Nous écrire ».
+  var needsPurgeHelp: Bool { purgeFailureCount >= Self.purgeFailureThreshold }
+
+  /// Bandeau « Changement de compte inachevé » de l'écran Compte (#129) : drapeau `account.switch` posé et seuil atteint.
+  /// Le drapeau effacé remet le compteur à 0 : le bandeau suit le compteur, observé.
+  var isSwitchBlocked: Bool { needsPurgeHelp && hasPendingSwitch }
+
+  /// « Réessayer » du bandeau : le changement de compte est rejoué, puis la synchro reprend s'il aboutit.
+  func retryPendingSwitch() async {
+    if await replayPendingSwitch() { host?.resumeSync() }
+  }
+
   private func finishPendingSwitch() async -> Bool {
     guard let gateway, switchFlags.isPending else { return true }
     do {
-      // Session enregistrée, lue sans la rafraîchir. Absente : aucun nouveau compte à protéger, la comparaison avec le
-      // compte des données se fera à la prochaine connexion (« Se reconnecter »).
-      guard let session = try await gateway.localSessionAccountId() else {
-        switchFlags.clear()
-        return true
-      }
-      // Session anonyme : aucun compte e-mail n'a été ouvert, rien à purger.
-      guard try await gateway.accountEmail() != nil else {
-        switchFlags.clear()
-        return true
-      }
-      if kinds.kind != .email { kinds.save(.email) }
-      if session != dependencies.link.previousAccountId() { try await adoptAccount(session) }
-      switchFlags.clear()
-      return true
+      try await replaySwitch(gateway)
     } catch {
-      Self.logger.error("Changement de compte inachevé : \(String(describing: error), privacy: .private)")
+      recordPurgeFailure(.switch, error)
       return false
     }
+    // Drapeau effacé : plus rien à purger.
+    resetPurgeFailures()
+    return true
   }
+
+  private func replaySwitch(_ gateway: any RemoteGateway) async throws {
+    let session: UUID?
+    var email: String?
+    do {
+      // Session enregistrée, lue sans la rafraîchir. Absente : aucun nouveau compte à protéger, la comparaison avec le
+      // compte des données se fera à la prochaine connexion (« Se reconnecter »). L'adresse n'est pas lue.
+      session = try await gateway.localSessionAccountId()
+      if session != nil { email = try await gateway.accountEmail() }
+    } catch {
+      throw PurgeSessionFailure(underlying: error)
+    }
+    // Session absente ou anonyme : aucun compte e-mail n'a été ouvert, rien à purger.
+    guard let session, email != nil else {
+      switchFlags.clear()
+      return
+    }
+    if kinds.kind != .email { kinds.save(.email) }
+    if session != dependencies.link.previousAccountId() { try await adoptAccount(session) }
+    switchFlags.clear()
+  }
+
+  /// +1, et code public journalisé en clair ; le détail de l'erreur reste privé.
+  private func recordPurgeFailure(_ operation: PurgeOperation, _ error: any Error) {
+    let failure = PurgeFailure(operation: operation, step: PurgeStep(of: error))
+    purgeFailureCount += 1
+    lastPurgeFailure = failure
+    let count = purgeFailureCount
+    Self.logger.error(
+      "Purge en échec : \(failure.publicCode, privacy: .public), \(count, privacy: .public) d'affilée \(String(describing: error), privacy: .private)"
+    )
+  }
+
+  private func resetPurgeFailures() {
+    purgeFailureCount = 0
+    lastPurgeFailure = nil
+  }
+
   /// Écrit le prénom. Faux s'il est refusé (forme) ou s'il n'a pas pu partir.
   func updateDisplayName(_ raw: String) async -> Bool {
     guard let gateway, let name = AccountLink.validDisplayName(raw), dependencies.isOnline() else { return false }
@@ -306,7 +365,7 @@ final class AccountSession {
     do {
       try purge?.run()
     } catch {
-      Self.logger.error("Purge après déconnexion incomplète : \(String(describing: error), privacy: .private)")
+      recordPurgeFailure(.signOut, error)
       signOutFailed = true
       return false
     }
@@ -332,7 +391,7 @@ final class AccountSession {
     do {
       try purge?.run()
     } catch {
-      Self.logger.error("Purge après déconnexion incomplète : \(String(describing: error), privacy: .private)")
+      recordPurgeFailure(.signOut, error)
       signOutFailed = true
       return
     }
@@ -374,5 +433,6 @@ final class AccountSession {
     switchFlags.clear()
     signOutFlags.clear()
     isSignOutPending = false
+    resetPurgeFailures()
   }
 }
