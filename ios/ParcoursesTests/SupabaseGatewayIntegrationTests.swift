@@ -935,6 +935,15 @@ struct AccountsIntegrationTests {
     }
   }
 
+  /// Curseurs lus chaque fois que la liaison relance la synchro (`resumeSync`). La synchro est suspendue pendant toute
+  /// la vérification du code : ce qui est lu là précède toute passe, et ne peut venir que de la purge.
+  @MainActor
+  private final class ResumeLog {
+    private(set) var cursors: [(accountId: UUID?, kind: AccountKind?)] = []
+
+    func record(_ read: any SyncCursors) { cursors.append((read.accountId, read.accountKind)) }
+  }
+
   private struct Device {
     let remote: SupabaseGateway
     let keychain: KeychainStore
@@ -947,6 +956,7 @@ struct AccountsIntegrationTests {
 
     /// Compte de l'appareil, retenu ici comme par `AppModel` : la liaison s'y adosse (changement de compte).
     let account: AccountSession
+    let resumes: ResumeLog
 
     var context: ModelContext { container.mainContext }
 
@@ -978,6 +988,7 @@ struct AccountsIntegrationTests {
       gateway: remote, container: container, cursors: cursors, classify: try PulledItemClassifier.make(),
       dependencies: SyncEngine.Dependencies(sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
     let pendingChanges: () -> Int = { (try? container.mainContext.fetchCount(FetchDescriptor<OutboxEntry>())) ?? 0 }
+    let resumes = ResumeLog()
     let link = AccountLink.Dependencies(
       resendableLists: { id in
         guard cursors.accountId != id else { return 0 }
@@ -986,7 +997,11 @@ struct AccountsIntegrationTests {
       synchronize: { await engine.drain(pull: true) },
       sessionDidChange: { Task { await engine.resume() } },
       previousAccountId: { cursors.accountId }, pendingChanges: pendingChanges,
-      suspendSync: { await engine.suspend() }, resumeSync: { await engine.resume() })
+      suspendSync: { await engine.suspend() },
+      resumeSync: {
+        resumes.record(cursors)
+        await engine.resume()
+      })
     let account = AccountSession(
       gateway: remote, kinds: kinds,
       purge: LocalDataPurge(
@@ -997,7 +1012,8 @@ struct AccountsIntegrationTests {
       dependencies: AccountSession.Dependencies(pendingChanges: pendingChanges, link: link))
     return Device(
       remote: remote, keychain: keychain, defaults: defaults, kinds: kinds, cursors: cursors, container: container,
-      engine: engine, lists: SwiftDataListRepository(context: container.mainContext), account: account)
+      engine: engine, lists: SwiftDataListRepository(context: container.mainContext), account: account,
+      resumes: resumes)
   }
 
   @discardableResult
@@ -1156,11 +1172,15 @@ struct AccountsIntegrationTests {
     try await Task.sleep(for: .seconds(2))
     await switching.requestCode()
     #expect(switching.phase == .enterCode, "\(String(describing: switching.error))")
+    let resumesBefore = a.resumes.cursors.count
     await switching.verify(code: try await Mailpit.code(to: second, seen: &seen))
     #expect(switching.outcome == .signedIn(displayName: nil, addedLists: 0))
     #expect(try await a.remote.currentAccountId() == accountB)
-    // B est le compte des données dès la purge, avant toute passe réussie.
-    #expect(a.cursors.accountId == accountB && a.cursors.accountKind == .email)
+    // B est le compte des données dès la purge, avant toute passe : lu à la reprise de la synchro, suspendue depuis le
+    // début de la vérification. Une écriture faite seulement par la passe qui suit donnerait encore A ici.
+    let atResume = try #require(a.resumes.cursors.last)
+    #expect(a.resumes.cursors.count == resumesBefore + 1)
+    #expect(atResume.accountId == accountB && atResume.kind == .email)
     #expect(try a.listNames() == ["IT-87 de B"])
     #expect(try await other.remote.fetchLists(updatedAfter: nil).map(\.name) == ["IT-87 de B"])
     #expect(try ModelContext(a.container).fetch(FetchDescriptor<OutboxEntry>()).isEmpty)

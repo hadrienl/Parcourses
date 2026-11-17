@@ -865,12 +865,14 @@ private final class SignOutHost: AccountDeletionHost {
       gateway: gateway, container: container, deletionFlags: UserDefaultsAccountDeletionFlagStore(defaults: defaults),
       signOutFlags: signOut, switchFlags: switching, cursors: MemorySyncCursors())
     #expect(runtime.isHeldForPurge)
-    runtime.resume()
-    runtime.sessionDidChange()
+    // Point de synchronisation explicite : chaque reprise lancée est attendue jusqu'au bout avant de lire l'état du
+    // moteur. Sans la garde de `SyncRuntime`, elles reprennent le moteur et l'assertion échoue à coup sûr.
+    await runtime.resume()?.value
+    #expect(await runtime.isEngineSuspended, "resume()")
+    await runtime.sessionDidChange()?.value
+    #expect(await runtime.isEngineSuspended, "sessionDidChange()")
     await runtime.resumeAndWait()
-    // Les reprises lancées en tâche ont eu le temps d'arriver au moteur : il reste suspendu.
-    for _ in 0..<5 { await Task.yield() }
-    #expect(await runtime.isEngineSuspended)
+    #expect(await runtime.isEngineSuspended, "resumeAndWait()")
     await runtime.synchronize()
     #expect(await gateway.calls.isEmpty)
     // Drapeau effacé par la purge : la reprise passe.
