@@ -36,7 +36,7 @@ data class ProductCandidate(
                 .getInstance("SHA-256")
                 .digest("$label\u001F${categorySlug.orEmpty()}".toByteArray(Charsets.UTF_8))
                 .take(FINGERPRINT_BYTES)
-                .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+                .joinToString("") { "%02x".format(it) }
 
         private const val FINGERPRINT_BYTES = 16
     }
