@@ -272,6 +272,99 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     capture(app, "fil-rtl-ouvert")
   }
 
+  /// Captures locales du bouton révélé par le glisser (#115) : `.swipeActions` natif de l'écran des listes contre
+  /// glisser maison d'un article, en clair et en sombre.
+  /// `TEST_RUNNER_PARCOURSES_SWIPE_CAPTURE=1 xcodebuild test … -only-testing:…/testSwipeActionShapesCapture`.
+  @MainActor
+  func testSwipeActionShapesCapture() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_SWIPE_CAPTURE"] != nil, "vérification locale seulement")
+    for (dark, suffix) in [(false, "clair"), (true, "sombre")] {
+      let app = launch(reset: true, dark: dark)
+      XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+      app.buttons["Nouvelle liste"].tap()
+      let name = app.alerts.textFields.firstMatch
+      XCTAssertTrue(name.waitForExistence(timeout: 15))
+      type("Semaine", into: name, app)
+      let entry = app.textFields["quickEntry"]
+      tap(app.alerts.buttons["Créer"], until: entry)
+      for text in ["tomates", "2 laits"] {
+        if !entry.hasFocus { entry.tap() }
+        type(text + "\n", into: entry, app)
+      }
+      // Clavier fermé : la ligne ouverte est entière à l'écran.
+      app.collectionViews["itemList"].swipeDown()
+      let tomatoes = row(app, "tomates", "non coché")
+      XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+      tomatoes.swipeLeft()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      capture(app, "glisser-maison-\(suffix)")
+      row(app, "tomates", "non coché").tap()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForNonExistence(timeout: 15))
+
+      app.navigationBars.buttons.firstMatch.tap()
+      let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+      XCTAssertTrue(list.waitForExistence(timeout: 15))
+      list.swipeLeft()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      capture(app, "glisser-natif-\(suffix)")
+      if ProcessInfo.processInfo.environment["PARCOURSES_SWIPE_FULL"] != nil {
+        // Glisser complet tenu, pour l'enregistrement d'écran (`simctl io recordVideo`).
+        list.tap()
+        list.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(
+          forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)),
+          withVelocity: .slow, thenHoldForDuration: 2)
+        _ = app.buttons["Supprimer la liste"].waitForExistence(timeout: 5)
+      }
+      app.terminate()
+    }
+  }
+
+  /// Film local de la fermeture d'une ligne ouverte, ramenée au doigt (#115, retour de la PR #136) : article de
+  /// l'écran Liste (glisser maison) puis liste de « Mes listes » (`.swipeActions` natif), glisser lent puis vif. Les
+  /// pauses de 2 s séparent les gestes dans l'enregistrement (`simctl io recordVideo`).
+  @MainActor
+  func testSwipeCloseFilm() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    for text in ["tomates", "2 laits"] {
+      if !entry.hasFocus { entry.tap() }
+      type(text + "\n", into: entry, app)
+    }
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+    closeFilm(app, element: { self.row(app, "tomates", "non coché") })
+    app.navigationBars.buttons.firstMatch.tap()
+    let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 15))
+    closeFilm(app, element: { list })
+  }
+
+  /// Ouvre la ligne, la referme au doigt lentement, la rouvre, la referme d'un geste vif.
+  @MainActor
+  private func closeFilm(_ app: XCUIApplication, element: () -> XCUIElement) {
+    for velocity in [XCUIGestureVelocity(250), XCUIGestureVelocity(2500)] {
+      element().swipeLeft()
+      XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
+      Thread.sleep(forTimeInterval: 2)
+      let row = element()
+      // Départ au milieu de la ligne : près du bord, c'est le geste retour qui prend le toucher.
+      row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+        forDuration: 0.05, thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)),
+        withVelocity: velocity, thenHoldForDuration: 0)
+      XCTAssertTrue(app.buttons["Supprimer"].waitForNonExistence(timeout: 15))
+      Thread.sleep(forTimeInterval: 2)
+    }
+  }
+
   /// En-têtes selon ce que l'instantané en cache sait du magasin.
   @MainActor
   func testLearnedStoreHeader() {

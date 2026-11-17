@@ -108,6 +108,59 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     }
   }
 
+  /// Appui long en mode courses (#115, retour de la PR #136) : le menu s'ouvre pendant l'appui, et ni le relâcher ni la
+  /// fermeture du menu ne cochent l'article. La bannière « Annuler » trahirait une coche.
+  @MainActor
+  func testLongPressOpensTheMenuWithoutChecking() {
+    let app = enterShopping(confidenceQ: nil, items: ["lait", "tomates"])
+    let milk = row(app, "lait", "non coché", in: "shoppingList")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    let checkedBanner = app.staticTexts.matching(identifier: "undoMessage").firstMatch
+    milk.press(forDuration: 1.5)
+    XCTAssertTrue(app.buttons["Quantité"].waitForExistence(timeout: 15), "menu contextuel ouvert")
+    XCTAssertTrue(app.buttons["Pas trouvé"].exists)
+    capture(app, "appui-long-menu")
+    // Fermeture du menu par un toucher hors de la carte.
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+    XCTAssertTrue(app.buttons["Quantité"].waitForNonExistence(timeout: 15), "menu refermé")
+    // Une coche aurait affiché la bannière, puis envoyé la ligne au panier après 600 ms.
+    XCTAssertFalse(checkedBanner.waitForExistence(timeout: 2), "l'appui long a coché l'article")
+    XCTAssertTrue(row(app, "lait", "non coché", in: "shoppingList").exists)
+    // Un toucher bref coche toujours.
+    tap(row(app, "lait", "non coché", in: "shoppingList"), until: checkedBanner)
+    XCTAssertEqual(checkedBanner.label, "lait coché")
+  }
+
+  /// Film local d'un appui long qui tremble un peu, comme un vrai doigt (#115, retour de la PR #136) : quelques points
+  /// de mouvement horizontal pendant l'appui.
+  @MainActor
+  func testShakyLongPressFilm() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
+    let app = enterShopping(confidenceQ: nil, items: ["lait", "tomates"])
+    let milk = row(app, "lait", "non coché", in: "shoppingList")
+    XCTAssertTrue(milk.waitForExistence(timeout: 15))
+    Thread.sleep(forTimeInterval: 2)
+    for shift in [CGFloat(-3), CGFloat(-6), CGFloat(3)] {
+      let start = row(app, "lait", "non coché", in: "shoppingList").coordinate(
+        withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      start.press(
+        forDuration: 0.15, thenDragTo: start.withOffset(CGVector(dx: shift, dy: 0)),
+        withVelocity: XCUIGestureVelocity(30), thenHoldForDuration: 1.5)
+      let menu = app.buttons["Quantité"].waitForExistence(timeout: 3)
+      capture(app, "appui-tremble-\(Int(shift))")
+      if menu { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap() }
+      Thread.sleep(forTimeInterval: 2)
+      let banner = app.staticTexts.matching(identifier: "undoMessage").firstMatch
+      XCTAssertFalse(banner.exists, "décalage \(shift) : l'appui long a coché")
+      XCTAssertTrue(menu, "décalage \(shift) : pas de menu")
+      if banner.exists {
+        app.buttons["undo"].tap()
+        Thread.sleep(forTimeInterval: 2)
+      }
+    }
+  }
+
   @MainActor
   func testShoppingMenuOpensTheQuantitySheet() {
     let app = enterShopping(confidenceQ: nil, items: ["lait", "tomates"])
