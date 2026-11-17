@@ -27,6 +27,9 @@ enum Palette {
   /// Fond du balayage « Pas trouvé », sous un libellé blanc imposé par le système : l'ocre de l'épicerie claire
   /// (5,6:1) dans les deux apparences. L'ocre sombre (`Aisle.grocery`) n'y tient que 1,9:1.
   static let notFoundSwipe = dynamic(light: 0xA3520A, dark: 0xA3520A)
+  /// Fond du glisser « Supprimer » de l'écran Liste (#115, glisser maison) : le rouge destructif clair (5,4:1 sous un
+  /// libellé blanc) dans les deux apparences. Le rouge sombre (`Sharing.destructive`) n'y tient que 2,8:1.
+  static let deleteSwipe = dynamic(light: 0xD70015, dark: 0xD70015)
 
   /// Familles de couleur des rayons. La couleur ne touche que le trait de l'icône et l'anneau du nœud : le libellé
   /// du rayon est toujours affiché.
@@ -132,8 +135,8 @@ enum Motion {
     reduced ? fade : .spring(response: 0.25, dampingFraction: 0.8)
   }
 
-  /// Réordonnancement des lignes et des rayons. Mouvement réduit : aucun déplacement, les lignes changent de place
-  /// d'un coup (une liste ne sait pas fondre son ordre sans perdre le défilement et le focus VoiceOver).
+  /// Réordonnancement des lignes et des rayons (jeton `motion.reorder`). Mouvement réduit : aucun déplacement. Les
+  /// listes iOS à fil ne l'emploient plus (#115, option A′) : elles changent d'ordre d'un coup, sans glisser.
   static func reorder(reduced: Bool) -> Animation? {
     reduced ? nil : .spring(response: 0.4, dampingFraction: 1)
   }

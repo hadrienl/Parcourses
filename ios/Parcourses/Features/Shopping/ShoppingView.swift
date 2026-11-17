@@ -22,6 +22,10 @@ struct ShoppingView: View {
   @AccessibilityFocusState private var focusedRow: UUID?
   /// Panneau de l'article, ouvert par « Quantité » (#110).
   @State private var editing: ItemEditTarget?
+  /// Positions des perles, lues par le trait unique du fil (#115).
+  @State private var thread = ThreadTrackModel()
+  /// Ligne ouverte par le glisser (« Pas trouvé ») : une seule à la fois.
+  @State private var openLane: String?
 
   var body: some View {
     NavigationStack {
@@ -54,17 +58,18 @@ struct ShoppingView: View {
       if case .item(let row) = line, !row.isChecked { return row.id }
       return nil
     }.first
-    let places = ThreadPlace.places(
-      count: lines.count, reached: lines.firstIndex { $0.id == nextId?.uuidString }, progress: true)
+    // Le fil est parcouru jusqu'à l'article suivant ; tout l'est quand il n'y en a plus.
+    let path = ThreadPath(
+      ids: lines.map(\.id), next: lines.firstIndex { $0.id == nextId?.uuidString } ?? lines.count)
     return List {
       Section {
         ticketHeader.ticketRow()
-        ForEach(Array(zip(lines, places)), id: \.0.id) { line, place in
+        ForEach(lines) { line in
           switch line {
           case .aisle(let section):
-            aisleRow(section, place: place).ticketRow()
+            aisleRow(section, threadId: line.id).threadLineRow()
           case .item(let row):
-            itemRow(row, place: place, next: nextId)
+            itemRow(row, threadId: line.id, next: nextId)
           }
         }
       }
@@ -96,12 +101,18 @@ struct ShoppingView: View {
       }
     }
     .listStyle(.plain)
+    // Option A′ (#115, §9.2) : ni tri, ni départ, ni ajout ne sont animés. Les lignes changent de place d'un coup ; les
+    // bouts du trait, mesurés après la mise en page, ne suivraient pas des cellules animées par UIKit. La coche reste
+    // animée sur place (case, perle).
+    .threadTrack(thread, path: path)
     .ticketBackground()
     .environment(\.defaultMinListRowHeight, 0)
     // Repère des tests UI (audit d'accessibilité) : la liste du mode courses, distincte de celle de l'écran Liste.
     .accessibilityIdentifier("shoppingList")
-    .animation(Motion.reorder(reduced: reduceMotion), value: lines.map(\.id))
-    .animation(Motion.reorder(reduced: reduceMotion), value: session.basket.map(\.id))
+    .onChange(of: lines.map(\.id)) { _, ids in
+      // Ligne ouverte partie (panier, introuvable, retirée ailleurs) : plus rien n'est ouvert.
+      if let openLane, !ids.contains(openLane) { self.openLane = nil }
+    }
     .onChange(of: session.toBuy.map(\.id)) { old, new in
       listDidChange(from: old, to: new)
       routeDidChange(from: old)
@@ -112,7 +123,10 @@ struct ShoppingView: View {
       if let undo, undo.kind == .notFound { ReorderAnnouncement.post(undo.message) }
     }
     .scrollDismissesKeyboard(.interactively)
-    .onScrollPhaseChange { _, phase in session.setScrolling(phase.isScrolling) }
+    .onScrollPhaseChange { _, phase in
+      session.setScrolling(phase.isScrolling)
+      if phase.isScrolling { closeLane() }
+    }
     .onChange(of: inputIsFocused) { _, focused in session.setEditing(focused) }
     .onChange(of: session.input) { session.setEditing(inputIsFocused) }
     .onReceive(NotificationCenter.default.publisher(for: .syncDidChangeData)) { _ in session.syncDidChange() }
@@ -167,11 +181,13 @@ struct ShoppingView: View {
     let raised = TicketLine.raisedSections(previous: old, current: session.routeSections)
     guard !raised.isEmpty else { return }
     // Chaque remontée relance les 3 s : une étiquette n'est retirée que par la dernière remontée de son rayon.
+    // Sans animation (option A′, #115) : l'étiquette peut changer la hauteur du rayon aux grandes tailles de texte, et
+    // des lignes animées quitteraient le trait.
     let token = UUID()
-    withAnimation(Motion.fade) { for id in raised { learnedTags[id] = token } }
+    for id in raised { learnedTags[id] = token }
     Task {
       try? await Task.sleep(for: Motion.learnedTag)
-      withAnimation(Motion.fade) { learnedTags = learnedTags.filter { $0.value != token } }
+      learnedTags = learnedTags.filter { $0.value != token }
     }
   }
 
@@ -266,10 +282,10 @@ struct ShoppingView: View {
   }
 
   /// Nœud d'un rayon sur le fil : lu comme un en-tête, avec le nombre d'articles à prendre.
-  private func aisleRow(_ section: ShoppingSection, place: ThreadPlace) -> some View {
+  private func aisleRow(_ section: ShoppingSection, threadId: String) -> some View {
     AisleLine(
       aisleId: section.aisleId, title: section.title, accessibilityLabel: section.accessibilityLabel,
-      identifier: "aisle-\(section.id)", place: place
+      identifier: "aisle-\(section.id)", threadId: threadId
     ) {
       if learnedTags[section.id] != nil {
         // Décoratif : le réordonnancement est déjà annoncé à VoiceOver.
@@ -277,57 +293,87 @@ struct ShoppingView: View {
           .font(TicketFont.meta)
           .foregroundStyle(Palette.accent)
           .accessibilityHidden(true)
-          .transition(.opacity)
       }
     }
   }
 
-  private func itemRow(_ row: ShoppingRow, place: ThreadPlace, next: UUID?) -> some View {
+  /// Article sur le fil : la perle reste dans la gouttière ; le couloir (case, libellé, quantité) seul s'enfonce au
+  /// toucher, glisse vers « Pas trouvé » et se soulève sous le menu (#115).
+  private func itemRow(_ row: ShoppingRow, threadId: String, next: UUID?) -> some View {
     let isNext = row.id == next
     let bead: BeadState = row.isChecked ? .done : (isNext ? .next : .idle)
-    return Button {
-      if row.isChecked { uncheckTrigger += 1 } else { checkTrigger += 1 }
-      session.toggle(row)
-    } label: {
-      ThreadRow(place: place) {
-        Bead(state: bead)
-      } content: {
-        // L'état se lit sans couleur : case pleine avec coche, et texte barré.
-        ItemLine(
-          label: row.label, quantity: row.quantity, isChecked: row.isChecked, isNext: isNext,
-          authorMark: row.authorMark)
+    // Glisser complet permis, comme le balayage système qu'il remplace. Lignes à prendre seulement.
+    let notFound =
+      row.isChecked
+      ? nil
+      : LaneAction(
+        title: "Pas trouvé", systemImage: "questionmark.circle", tint: Palette.notFoundSwipe, allowsFullSwipe: true
+      ) { session.markNotFound(row) }
+    return ThreadRow(id: threadId, onGutterTap: { tapped(row) }) {
+      Bead(state: bead)
+    } lane: {
+      RowLane(id: threadId, openId: $openLane, action: notFound) {
+        Button {
+          tapped(row)
+        } label: {
+          // L'état se lit sans couleur : case pleine avec coche, et texte barré.
+          ItemLine(
+            label: row.label, quantity: row.quantity, isChecked: row.isChecked, isNext: isNext,
+            authorMark: row.authorMark
+          )
+          // Fond dans le bouton : l'aperçu soulevé du menu le garde. Surlignage de l'article ajouté dans le couloir
+          // seul (D3), la gouttière reste papier.
+          .background {
+            ZStack {
+              Palette.paper
+              if session.highlightedItemId == row.id { highlight }
+            }
+          }
+        }
+        .buttonStyle(LanePressStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(row.accessibilityLabel)
+        .accessibilityValue(row.isChecked ? "coché" : "non coché")
+        .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityFocused($focusedRow, equals: row.id)
+        // Chaque action n'est proposée que là où elle a un sens.
+        .accessibilityActions {
+          if row.isChecked {
+            Button("Décocher") { session.toggle(row) }
+          } else {
+            Button("Pas trouvé") { session.markNotFound(row) }
+            Button("Modifier la quantité") { edit(row) }
+          }
+        }
+        // Aperçu soulevé : le couloir seul (D4). Le système le place à 16 pt du bord d'écran et la carte cache la perle
+        // de sa ligne le temps du menu ; le fil, lui, ne bouge pas sous le voile.
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: TicketMetrics.radius, style: .continuous))
+        .contextMenu {
+          // Lignes à prendre seulement, comme Android.
+          if !row.isChecked {
+            Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
+            Button("Quantité", systemImage: "number") { edit(row) }
+          }
+        }
       }
     }
-    .buttonStyle(.plain)
-    .ticketRow(background: session.highlightedItemId == row.id ? highlight : Palette.paper)
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(row.accessibilityLabel)
-    .accessibilityValue(row.isChecked ? "coché" : "non coché")
-    .accessibilityHint(row.isChecked ? "Décoche l'article" : "Coche l'article")
-    .accessibilityAddTraits(.isToggle)
-    .accessibilityFocused($focusedRow, equals: row.id)
-    // Chaque action n'est proposée que là où elle a un sens.
-    .accessibilityActions {
-      if row.isChecked {
-        Button("Décocher") { session.toggle(row) }
-      } else {
-        Button("Pas trouvé") { session.markNotFound(row) }
-        Button("Modifier la quantité") { edit(row) }
-      }
+    .threadLineRow()
+  }
+
+  /// Toucher une ligne coche ou décoche ; quand une ligne est ouverte par le glisser, il la referme seulement.
+  private func tapped(_ row: ShoppingRow) {
+    guard openLane == nil else {
+      closeLane()
+      return
     }
-    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-      if !row.isChecked {
-        Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
-          .tint(Palette.notFoundSwipe)
-      }
-    }
-    .contextMenu {
-      // Lignes à prendre seulement, comme Android.
-      if !row.isChecked {
-        Button("Pas trouvé", systemImage: "questionmark.circle") { session.markNotFound(row) }
-        Button("Quantité", systemImage: "number") { edit(row) }
-      }
-    }
+    if row.isChecked { uncheckTrigger += 1 } else { checkTrigger += 1 }
+    session.toggle(row)
+  }
+
+  private func closeLane() {
+    guard openLane != nil else { return }
+    withAnimation(LaneMotion.settle(reduced: reduceMotion)) { openLane = nil }
   }
 
   /// Articles que le panneau peut modifier : ceux à prendre, tant que les courses continuent.

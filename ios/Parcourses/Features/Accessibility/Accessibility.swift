@@ -149,8 +149,18 @@ extension View {
     .overlay { shape.strokeBorder(Palette.paperEdge, lineWidth: 1) }
   }
 
-  /// Ligne d'une liste habillée en ticket : pas de séparateur, fond de papier, gouttière du fil à gauche.
-  func ticketRow(background: Color = Palette.paper) -> some View {
+  /// Ligne d'une liste habillée en ticket : pas de séparateur, fond de papier.
+  func ticketRow() -> some View {
+    ticketRow(background: Palette.paper)
+  }
+
+  /// Ligne sur le fil (`ThreadRow`) : fond transparent, pour laisser voir le trait unique dessiné sous la liste
+  /// (`threadTrack`) dans la gouttière. Le couloir (`RowLane`) porte son propre papier.
+  func threadLineRow() -> some View {
+    ticketRow(background: .clear)
+  }
+
+  private func ticketRow(background: Color) -> some View {
     listRowInsets(EdgeInsets(top: 0, leading: Space.m, bottom: 0, trailing: Space.m))
       .listRowSeparator(.hidden)
       .listRowBackground(background)
@@ -204,7 +214,7 @@ struct EmptyState: View {
 /// points de conduite et quantité. L'état coché se lit sans la couleur : case pleine avec coche (forme) et texte
 /// barré. Un libellé trop long se replie seul, la quantité restant alignée à droite sur sa dernière ligne, reliée par
 /// les points de conduite ; quand elle prendrait trop de place (quantité très longue, très grand texte), elle passe
-/// sous le libellé. La case porte l'accroche du fil (`threadAnchor()`).
+/// sous le libellé. La case porte le guide du marqueur du fil (`threadMarker()`).
 struct ItemLine: View {
   let label: String
   let quantity: String?
@@ -218,6 +228,8 @@ struct ItemLine: View {
   /// Appui long en cours (#110) : seuls la case et le texte s'enfoncent, depuis leur bord gauche ; la marque d'auteur,
   /// comme le fil, reste immobile (même règle qu'Android).
   var pressed = false
+  /// Appui transmis par le style du couloir (`LanePressStyle`, mode courses) : même enfoncement.
+  @Environment(\.lanePressed) private var lanePressed
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   /// Largeur de la dernière ligne du libellé (`Text.LayoutKey`) : les points de conduite d'un libellé replié partent
   /// de la fin de son texte (#110).
@@ -240,14 +252,18 @@ struct ItemLine: View {
           quantityText
         }
       }
-      .scaleEffect(pressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
-      .opacity(pressed ? 0.85 : 1)
-      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: pressed)
+      .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
+      .opacity(isPressed ? 0.85 : 1)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isPressed)
       if let authorMark { AuthorMark(initial: authorMark) }
     }
     .padding(.vertical, Space.xs)
     .frame(minHeight: TicketMetrics.rowMin)
     .contentShape(Rectangle())
+  }
+
+  private var isPressed: Bool {
+    pressed || lanePressed
   }
 
   @ViewBuilder private var checkBox: some View {
@@ -259,11 +275,11 @@ struct ItemLine: View {
         .opacity(isChecked ? 1 : 0)
         .frame(width: min(box, 44), height: min(box, 44))
         .accessibilityHidden(true)
-        .threadAnchor()
+        .threadMarker()
         .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
     } else {
       CheckBox(isChecked: isChecked, size: min(box, 44))
-        .threadAnchor()
+        .threadMarker()
         .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + offset }
     }
   }
