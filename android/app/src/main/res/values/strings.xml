@@ -66,9 +66,12 @@
     <string name="about_session_action">Réinitialiser la session</string>
     <string name="about_session_confirm_title">Réinitialiser la session ?</string>
     <string name="about_session_confirm_body">Parcourses crée un nouvel identifiant anonyme et y rattache les listes de cet appareil. Rien n\'est effacé sur cet appareil.</string>
+    <!-- Compte e-mail (#51) : aucun compte anonyme n'est créé, la synchronisation attend la reconnexion (vecteur 009). -->
+    <string name="about_session_confirm_body_email">Vous devrez vous reconnecter avec votre adresse e-mail pour synchroniser vos listes. Rien n\'est effacé sur cet appareil.</string>
     <string name="about_session_confirm_action">Réinitialiser</string>
     <string name="about_session_cancel">Annuler</string>
     <string name="about_session_done">Session réinitialisée. Vos listes se synchronisent de nouveau dès que le réseau le permet.</string>
+    <string name="about_session_done_email">Session réinitialisée. Reconnectez-vous avec votre adresse e-mail pour synchroniser vos listes.</string>
     <string name="about_session_failed">La réinitialisation n\'a pas abouti. Réessayez plus tard.</string>
 
     <!-- Écran Compte (#87, lot 87.5 ; #108) : textes des maquettes (design/sharing-v1.html, §9.4). -->

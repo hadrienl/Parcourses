@@ -93,6 +93,8 @@ data class AccountDeletionTiming(
  * 5. drapeau effacé **en dernier**, puis `ensureSession` : marqueurs vides, le nouveau compte est adopté sans
  *    reprise de compte, donc sans renvoi des données effacées.
  *
+ * Un stockage de session bloqué ([isSessionStorageStuck], #51) compte comme une session absente : l'appareil seul.
+ *
  * Seuls les codes GoTrue de [DELETION_PROOFS] prouvent que le compte n'existe plus. Un refus ou une requête jamais
  * partie n'effacent le drapeau qu'à la **première** tentative ; ensuite, il faut que la vérification trouve le
  * compte. Tout le reste est un doute : le drapeau reste.
@@ -111,6 +113,11 @@ class AccountDeletion(
     private val timing: AccountDeletionTiming = AccountDeletionTiming(),
     /** Drapeau `account.kind` de l'appareil, noté dans le drapeau de suppression avant que la purge ne l'efface. */
     private val accountKind: () -> AccountKind = { AccountKind.Anonymous },
+    /**
+     * Stockage de la session « bloqué » : la clé ne s'ouvre plus depuis plusieurs essais (`SessionMaintenance`, #51).
+     * La session ne se relira pas : elle compte comme absente (C3), sans quoi le doute ne se lèverait jamais.
+     */
+    private val isSessionStorageStuck: () -> Boolean = { false },
 ) {
     /** Une seule suppression à la fois : un double appui, ou la reprise au lancement pendant une demande. */
     private val lock = Mutex()
@@ -326,6 +333,9 @@ class AccountDeletion(
                     e.noLocalSession -> LocalSession.None
                     else -> LocalSession.Unknown
                 }
+            } catch (_: RemoteError.SecureStorageLocked) {
+                // Clé durablement illisible (#51) : la session ne se relira pas, elle compte comme absente.
+                return if (isSessionStorageStuck()) LocalSession.None else LocalSession.Unknown
             } catch (_: RemoteError) {
                 return LocalSession.Unknown
             }
