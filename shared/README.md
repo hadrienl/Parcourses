@@ -12,6 +12,7 @@ Ce dossier contient tout ce que les trois implémentations doivent partager **à
 | `test-vectors/categorize/`                        | Vecteurs de normalisation et de classification                        | #7 §6      |
 | `test-vectors/effective-category/`                | Vecteurs de résolution du rayon effectif                              | #28        |
 | `reference/quantity.ts`, `test-vectors/quantity/` | Quantité d'un article : − / +, unités, saisie sur un article existant | #110       |
+| `reference/learn.ts`, `test-vectors/learn/`       | Apprentissage d'une visite, rejoué par le serveur (pgTAP)             | #11 §11.2  |
 | `generator/`                                      | Cas de test et générateur des vecteurs                                |            |
 
 La référence est écrite en TypeScript pour Deno, comme les Edge Functions. Elle n'est pas embarquée
@@ -272,3 +273,79 @@ tous ont le même format et chaque plateforme vérifie les cinq champs.
 
 `label` est facultatif. S'il est présent, la plateforme vérifie aussi que le classifieur en déduit
 `category_id` et `organic`.
+
+## Format d'un vecteur d'apprentissage (`test-vectors/learn/*.json`)
+
+Exécutés par le serveur seulement : `supabase/tests/vectors/gen_learn_tests.ts` en tire le test
+pgTAP `34_learn_vectors`, qui rejoue `graph.learn_visit` puis `graph.apply_deltas_jsonb`. Les apps
+ne les lisent pas.
+
+```json
+{
+  "id": "101-burst-ignored",
+  "description": "…",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "BURST_GAP_S": 4,
+      "BURST_MIN_SIZE": 3,
+      "MIN_VALID_CHECKS": 3,
+      "MAX_CHECKS": 500,
+      "SKIP2_FACTOR": 0.5,
+      "SORTED_VISIT_WEIGHT": 0.3,
+      "HALF_LIFE_DAYS": 90
+    },
+    "graph_before": {
+      "edges": [
+        {
+          "a": "p-a",
+          "b": "p-b",
+          "weight": 2,
+          "last_seen_at": "2026-07-03T10:30:00Z",
+          "obs_count": 3
+        }
+      ],
+      "entries": [
+        { "product_id": "p-a", "weight": 4, "last_seen_at": "2026-07-03T10:30:00Z", "obs_count": 3 }
+      ]
+    },
+    "visit": {
+      "was_sorted": false,
+      "ended_at": "2026-10-01T10:30:00Z",
+      "checks": [{ "id": "k01", "product_id": "p-a", "checked_at": "2026-10-01T10:00:00Z" }]
+    }
+  },
+  "expected": {
+    "outcome": "learned",
+    "v": 1,
+    "ignored_check_ids": ["k02", "k03", "k04"],
+    "edges": [
+      {
+        "a": "p-a",
+        "b": "p-e",
+        "weight": 1,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 1
+      }
+    ],
+    "entries": [
+      { "product_id": "p-a", "weight": 1, "last_seen_at": "2026-10-01T10:30:00Z", "obs_count": 1 }
+    ],
+    "tolerance": 1e-9
+  }
+}
+```
+
+- `outcome` : `learned`, `too_few_checks` ou `too_many_checks`. Le plafond anti-spam
+  (`rate_limited`) dépend des autres visites du compte : il reste testé en pgTAP seul
+  (`22_process_batch`), décision 10 de #11.
+- `edges` et `entries` d'`expected` décrivent **tout** le graphe après la visite, graphe de départ
+  compris, triés (arêtes par `(a, b)` avec `a < b`, entrées par produit). Poids à `tolerance` près ;
+  dates et `obs_count` exacts.
+- `product_id` d'une coche vaut `null` pour une saisie libre (coche de catégorie). `was_sorted`
+  correspond à `visits.list_was_sorted` en base.
+- La date appliquée au graphe est `ended_at` telle quelle : le traitement par lots la ramène au jour
+  (#70) avant d'appeler les mêmes fonctions.
+- Les identifiants suivent la règle `[0-9a-z-]+` du tri. Le serveur les remplace par des UUID de
+  même ordre.
+- Les règles normatives sont en tête de `reference/learn.ts` (#11 §6).

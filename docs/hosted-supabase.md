@@ -183,3 +183,39 @@ Fonctionnement, pour le suivi :
   `select finished_at, claimed, skipped, failed, detail from graph.runs where detail ->> 'scope' = 'email' order by id desc limit 7;`.
 - **État courant.** `select count(*) filter (where notified_at is null) as en_attente, count(*) filter (where
   notified_at is not null) as prevenus from accounts.inactivity_notices;`.
+
+## Recalcul complet du graphe et purge (#29)
+
+Rien à configurer : `supabase db push` crée la file `graph.rebuild_jobs` et les deux jobs pg_cron, `graph-rebuild`
+(chaque minute, sans effet sans travail) et `graph-prune` (dimanche, 04:23 UTC). Aucun secret.
+
+Vérifier après le déploiement :
+`select jobname, schedule, active from cron.job where jobname like 'graph-%' order by jobname;` doit lister six jobs,
+dont `graph-rebuild` (`* * * * *`) et `graph-prune` (`23 4 * * 0`).
+
+**Recalculer le graphe** quand l'algorithme ou ses paramètres d'apprentissage changent :
+
+1. Créer la nouvelle version, sans l'activer, après revue des vecteurs `shared/test-vectors/learn/` :
+   ```sql
+   insert into graph.algo_versions (version, server_params, device_params, note)
+   select 3, server_params || '{"SKIP2_FACTOR": 0.4}', device_params, 'Pourquoi ce changement'
+   from graph.active_version();
+   ```
+2. Lancer le recalcul : `select graph.start_rebuild(3);` (nombre de magasins mis en file). La version active continue
+   de servir l'apprentissage pendant ce temps.
+3. Suivre : `select status, count(*), max(attempts) from graph.rebuild_jobs group by status;`. Le job traite un
+   magasin par minute. Le dernier travail active la version 3 (`select * from graph.active_version();`) et relance
+   les magasins appris entre-temps avec l'ancienne version : ils repassent en `pending` puis en `done`.
+4. Un travail `failed` (3 échecs, message dans `error`) bloque la bascule. Après correction :
+   `update graph.rebuild_jobs set status = 'pending', attempts = 0 where status = 'failed';`.
+5. Abandonner un recalcul :
+   `delete from graph.rebuild_jobs where status <> 'done'; select graph.start_rebuild(<version active>);`. Les
+   magasins déjà recalculés reviennent ainsi aux paramètres de la version active.
+
+Le recalcul repart des visites présentes : les contributions des comptes supprimés quittent le graphe. Pendant le
+rejeu d'un magasin, ses visites sont verrouillées. Une suppression de compte qui les touche échoue alors en `55P03`
+au bout de 5 s, et l'app réessaie.
+
+**Purge.** Chaque semaine, les arêtes et entrées dont le poids décru est sous 0,01 disparaissent. Le journal :
+`select finished_at, claimed, skipped, detail from graph.runs where kind = 'prune' order by id desc limit 4;`
+(`skipped` : magasins verrouillés, purgés la semaine suivante).

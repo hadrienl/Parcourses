@@ -1,12 +1,14 @@
 // Génère les vecteurs de test partagés à partir des cas et de l'implémentation de référence.
-//   deno task generate   → écrit test-vectors/{sort,categorize,effective-category}/*.json
+//   deno task generate   → écrit test-vectors/{sort,categorize,effective-category,learn}/*.json
 //   deno task check      → régénère en mémoire et échoue si un fichier diffère ou manque
 
 import { sortItems } from "../reference/sort.ts";
 import { Classifier } from "../reference/classify.ts";
 import { effectiveCategory } from "../reference/effective_category.ts";
+import { learnVisit } from "../reference/learn.ts";
 import { sortCases } from "./sort_cases.ts";
 import { categorizeGroups, effectiveCategoryGroups } from "./categorize_cases.ts";
+import { learnCases } from "./learn_cases.ts";
 
 const ROOT = new URL("../test-vectors/", import.meta.url);
 export const FORMAT_VERSION = 1;
@@ -86,6 +88,36 @@ export function buildVectors(): Map<string, string> {
     );
   }
 
+  // Apprentissage (#5 §4, #11 §11.2) : rejoué par le serveur, tolérance de 1e-9 sur les poids.
+  for (const c of learnCases()) {
+    const out = learnVisit(c.input);
+    if (out.outcome !== c.expectOutcome) {
+      errors.push(`${c.id} : issue ${out.outcome}, attendu ${c.expectOutcome}`);
+    }
+    if (
+      c.expectIgnored &&
+      JSON.stringify(out.ignored_check_ids) !== JSON.stringify(c.expectIgnored)
+    ) {
+      errors.push(`${c.id} : ignorées ${out.ignored_check_ids.join(",")}`);
+    }
+    for (const [key, weight] of Object.entries(c.expectEdges ?? {})) {
+      const edge = out.edges.find((e) => `${e.a} ${e.b}` === key);
+      if (!edge || Math.abs(edge.weight - weight) > 1e-12) {
+        errors.push(`${c.id} : arête ${key} de poids ${edge?.weight}, attendu ${weight}`);
+      }
+    }
+    files.set(
+      `learn/${c.id}.json`,
+      json({
+        id: c.id,
+        description: c.description,
+        format_version: FORMAT_VERSION,
+        input: c.input,
+        expected: { ...out, tolerance: 1e-9 },
+      }),
+    );
+  }
+
   if (errors.length > 0) throw new Error("Intentions non respectées :\n" + errors.join("\n"));
   return files;
 }
@@ -109,6 +141,7 @@ async function main() {
     ...await listJson("sort/"),
     ...await listJson("categorize/"),
     ...await listJson("effective-category/"),
+    ...await listJson("learn/"),
   ];
   const problems: string[] = [];
 

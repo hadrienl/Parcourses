@@ -1,14 +1,19 @@
 -- Droits et RLS du calcul du graphe (#11 §8).
 begin;
 \ir 00_helpers.psql
-select plan(16);
+select plan(29);
 
 select ok(not has_schema_privilege('authenticated', 'graph', 'USAGE'), 'schéma graph fermé à authenticated');
 select ok(not has_schema_privilege('anon', 'graph', 'USAGE'), 'schéma graph fermé à anon');
 
 select ok(not has_function_privilege('authenticated', p.oid, 'EXECUTE'), 'authenticated ne peut pas exécuter graph.' || p.proname)
 from pg_proc as p join pg_namespace as n on n.oid = p.pronamespace
-where n.nspname = 'graph' and p.proname in ('process_pending_visits', 'close_stale_visits', 'publish_snapshots', 'learn_visit')
+where n.nspname = 'graph' and p.proname in (
+  'process_pending_visits', 'close_stale_visits', 'publish_snapshots', 'learn_visit',
+  -- Recalcul et purge (#29).
+  'try_lock_store', 'lock_store', 'process_visit', 'record_visit_error', 'publish_store_snapshot', 'rebuild_store',
+  'finish_rebuild', 'start_rebuild', 'run_rebuild_jobs', 'prune_edges', 'apply_deltas_jsonb'
+)
 order by p.proname;
 
 select is_empty($$
@@ -27,8 +32,10 @@ select ok(not has_table_privilege('authenticated', 'public.store_graph_snapshots
 select ok(not has_column_privilege('authenticated', 'public.visits', c, 'INSERT,UPDATE'), 'visits.' || c || ' réservé au serveur')
 from unnest(array['learn_outcome', 'process_attempts', 'next_attempt_at']) as c;
 
--- Publication nocturne seule depuis #70 : graph-snapshot-decay a disparu.
-select is((select count(*)::int from cron.job where jobname like 'graph-%'), 4, 'quatre jobs pg_cron du graphe');
+-- Publication nocturne seule depuis #70 : graph-snapshot-decay a disparu. Recalcul et purge depuis #29.
+select is((select count(*)::int from cron.job where jobname like 'graph-%'), 6, 'six jobs pg_cron du graphe');
+select is((select schedule from cron.job where jobname = 'graph-rebuild'), '* * * * *', 'recalcul : chaque minute');
+select is((select schedule from cron.job where jobname = 'graph-prune'), '23 4 * * 0', 'purge : chaque semaine');
 
 select is((select schedule from cron.job where jobname = 'graph-snapshot'), '32 3 * * *', 'instantanés publiés une fois par nuit');
 
