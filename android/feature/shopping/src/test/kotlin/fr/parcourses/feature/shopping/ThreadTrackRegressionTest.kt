@@ -64,7 +64,7 @@ import kotlin.math.ceil
  * contre la position réelle des perles première, suivante et dernière, pendant un tri, des départs et un défilement
  * rapide. Vrais parcours de dessin de Robolectric (rendu matériel, listes d'affichage) et Choreographer en pause : une
  * image = la trame Compose (animations), puis une vsync (mise en page, rappels de position, dessin), comme sur un
- * appareil. Tolérance : 1 dp ; aucun trou entre le trait et une perle de bout, même pendant un fondu.
+ * appareil. Tolérance : 1 dp ; aucune perle du fil hors du trait, même celle qui s'efface après l'avoir quitté.
  */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -85,6 +85,10 @@ class ThreadTrackRegressionTest {
     private val failures = ArrayList<String>()
     private var samples = 0
     private var worst = 0f
+
+    /** Perles qui viennent de quitter le fil : leur dernière place, vérifiée le temps de leur fondu. */
+    private val fading = HashMap<String, Float>()
+    private var fadingFrames = 0
 
     @Test
     fun theTrackFollowsItsBeadsFrameByFrame() {
@@ -118,10 +122,34 @@ class ThreadTrackRegressionTest {
         }
         repeat(2 * SCROLL_FRAMES + 4) { frame("défilement", exact = true) }
 
-        println("ThreadTrackRegressionTest : $samples marqueurs vérifiés, écart max $worst dp hors fondus")
+        println("ThreadTrackRegressionTest : $samples bouts et jonctions vérifiés, écart max $worst dp hors fondus")
         assertTrue(failures.take(12).joinToString("\n"), failures.isEmpty())
         // Garde-fou : un trait jamais dessiné ne doit pas passer pour un trait exact.
         assertTrue("trop peu de marqueurs vérifiés : $samples", samples >= MIN_SAMPLES)
+    }
+
+    /**
+     * Liste qui n'anime pas ses lignes (écran Liste) : ni bout tenu ni jonction qui coule, le trait suit les perles dès
+     * l'image du changement.
+     */
+    @Test
+    fun withoutAnimationTheTrackChangesInTheSameFrame() {
+        compose.mainClock.autoAdvance = false
+        quietTrace()
+        compose.setContent { Ticket(animated = false) }
+        ShadowChoreographer.setPaused(true)
+        ShadowChoreographer.setFrameDelay(Duration.ofMillis(FRAME_MS))
+        repeat(10) { frame("repos", exact = true) }
+        // Suppression de la dernière ligne, puis de la première : la perle suivante (index 3) change aussi.
+        rows.value = rows.value.dropLast(1)
+        Snapshot.sendApplyNotifications()
+        repeat(4) { frame("dernière supprimée", exact = true) }
+        rows.value = rows.value.drop(1)
+        Snapshot.sendApplyNotifications()
+        repeat(4) { frame("première supprimée", exact = true) }
+
+        assertTrue(failures.take(12).joinToString("\n"), failures.isEmpty())
+        assertTrue("trop peu de mesures : $samples", samples >= 30)
     }
 
     /** Un changement de la liste, puis les images qui suivent : écarts tolérés seulement le temps des fondus. */
@@ -129,9 +157,14 @@ class ThreadTrackRegressionTest {
         name: String,
         action: () -> Unit,
     ) {
+        val before = rows.value.associateWith { actualCenter(it) }
         action()
         Snapshot.sendApplyNotifications()
-        // Bouts tenus (fondu) et jonction qui coule (coche) : on ne vérifie que l'absence de trou pendant ce temps.
+        fading.clear()
+        before.forEach { (key, y) -> if (y != null && key !in rows.value) fading[key] = y }
+        // Une perle qui part s'efface sur place en `TicketMotion.FADE_MS` : on la suit tant qu'elle est sûrement visible.
+        fadingFrames = TicketMotion.FADE_MS / FRAME_MS.toInt() - 1
+        // Bouts tenus (fondu) et jonction qui coule (coche) : seules les perles sont vérifiées pendant ce temps.
         val settling = ceil(maxOf(TicketMotion.FADE_MS, TicketMotion.CHECK_MS).toFloat() / FRAME_MS).toInt() + 2
         repeat(SETTLE_FRAMES) { frame(name, exact = it >= settling) }
     }
@@ -158,49 +191,55 @@ class ThreadTrackRegressionTest {
             failures += "$name : aucun trait dessiné"
             return
         }
+        val density = compose.density.density
+        val tolerance = TOLERANCE_DP * density
         val keys = rows.value
-        // Bout haut : pas de trou au-dessus de la première perle (le trait peut la dépasser le temps d'un fondu).
-        measure(name, "bout haut", keys.firstOrNull(), drawn.top, exact) { shown, bead -> shown - bead }
-        // Bout bas : pas de trou sous la dernière perle.
-        measure(name, "bout bas", keys.lastOrNull(), drawn.bottom, exact) { shown, bead -> bead - shown }
-        // Jonction : sur la perle suivante une fois la coulée finie ; aucun trou possible.
-        measure(name, "jonction", keys.getOrNull(next), drawn.junction, exact) { _, _ -> 0f }
+        val beads = keys.mapNotNull { key -> actualCenter(key)?.let { key to it } }.toMap()
+        // Aucune perle du fil hors du trait, ni celles qui s'effacent après avoir quitté le fil.
+        val onScreen = if (fadingFrames-- > 0) beads + fading else beads
+        onScreen.forEach { (key, y) ->
+            if (y < drawn.top - tolerance || y > drawn.bottom + tolerance) {
+                failures += "$name : perle $key hors du trait (${y / density} dp, trait ${drawn.top / density} à " +
+                    "${drawn.bottom / density} dp)"
+            }
+        }
+        // Bouts : enveloppe des perles visibles du fil quand le premier ou le dernier marqueur est à l'écran.
+        if (keys.firstOrNull() in beads) measure(name, "bout haut", drawn.top, beads.values.min(), exact)
+        if (keys.lastOrNull() in beads) measure(name, "bout bas", drawn.bottom, beads.values.max(), exact)
+        // Jonction : sur la perle suivante une fois la coulée finie.
+        keys.getOrNull(next)?.let { beads[it] }?.let { measure(name, "jonction", drawn.junction, it, exact) }
     }
 
-    /**
-     * Compare une hauteur du trait [shown] au centre réel de la perle [key], si elle est visible. [gap] : de combien le
-     * trait s'arrête avant la perle (positif = trou).
-     */
+    /** Compare une hauteur du trait [shown] à celle attendue [expected], hors fondus et coulées ([exact]). */
     private fun measure(
         name: String,
         what: String,
-        key: String?,
         shown: Float,
+        expected: Float,
         exact: Boolean,
-        gap: (Float, Float) -> Float,
     ) {
-        val bead = actualCenter(key) ?: return
         val density = compose.density.density
-        val tolerance = TOLERANCE_DP * density
-        val error = abs(shown - bead)
+        val error = abs(shown - expected)
         samples++
         if (exact) worst = maxOf(worst, error / density)
-        if (gap(shown, bead) > tolerance) failures += "$name : trou, $what à ${error / density} dp"
-        if (exact && error > tolerance) failures += "$name : $what à ${error / density} dp"
+        if (exact && error > TOLERANCE_DP * density) failures += "$name : $what à ${error / density} dp"
     }
 
     /** Centre réel de la perle d'une ligne visible, transformations de calque comprises (px, repère de la liste). */
     private fun actualCenter(key: String?): Float? {
         val visible = listState.layoutInfo.visibleItemsInfo.any { it.key == key }
+        // Une ligne qui sort de l'écran garde des coordonnées figées : seules les lignes visibles comptent.
         val gutter = coords[key]?.takeIf { visible && it.isAttached } ?: return null
         val origin = list?.positionInRoot()?.y ?: 0f
-        return gutter.positionInRoot().y + gutter.size.height / 2f - origin
+        val height = list?.size?.height?.toFloat() ?: 0f
+        // Perle coupée par un bord : le trait s'arrête au bord, on ne la compte pas.
+        return (gutter.positionInRoot().y + gutter.size.height / 2f - origin).takeIf { it in 0f..height }
     }
 
     // endregion
 
     @Composable
-    private fun Ticket() {
+    private fun Ticket(animated: Boolean = true) {
         listState = rememberLazyListState()
         scope = rememberCoroutineScope()
         track = rememberThreadTrackState()
@@ -209,16 +248,22 @@ class ThreadTrackRegressionTest {
         ParcoursesTheme(darkTheme = false, accessibility = AccessibilityPreferences()) {
             CompositionLocalProvider(LocalThreadTrack provides track) {
                 LazyColumn(
-                    Modifier.fillMaxSize().onPlaced { list = it }.threadTrack(track, listState, path),
+                    Modifier.fillMaxSize().onPlaced { list = it }.threadTrack(track, listState, path, animated),
                     state = listState,
                 ) {
                     items(keys, key = { it }) { key ->
                         Row(
                             Modifier
-                                .animateItem(
-                                    fadeInSpec = TicketMotion.fade(false),
-                                    placementSpec = TicketMotion.reorder(false),
-                                    fadeOutSpec = TicketMotion.fade(false),
+                                .then(
+                                    if (animated) {
+                                        Modifier.animateItem(
+                                            fadeInSpec = TicketMotion.fade(false),
+                                            placementSpec = TicketMotion.reorder(false),
+                                            fadeOutSpec = TicketMotion.fade(false),
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
                                 ).fillMaxWidth()
                                 .height(56.dp)
                                 .padding(start = ThreadLayout.start),

@@ -1,6 +1,7 @@
 package fr.parcourses.core.designsystem
 
 import androidx.compose.animation.core.animate
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.onLayoutRectChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 // region Tronçons du trait (fonction pure, mêmes cas sur iOS)
 
@@ -103,6 +105,9 @@ data class ThreadPath(
     val style: ThreadStyle,
 ) {
     internal val nextKey: Any? get() = keys.getOrNull(next)
+
+    /** Clés des arrêts, pour reconnaître une ligne du fil parmi celles de la liste. */
+    internal val keySet: Set<Any> by lazy { keys.toHashSet() }
 }
 
 /**
@@ -123,6 +128,13 @@ class ThreadTrackState internal constructor() {
     /** Bouts tenus le temps du fondu d'une perle de bout qui part. */
     internal var heldTop by mutableStateOf<Float?>(null)
     internal var heldBottom by mutableStateOf<Float?>(null)
+
+    /**
+     * Repère du motif pointillé : un arrêt visible du fil ([dashKey]) et l'écart entre son centre et le début d'un
+     * tiret ([dashDelta]). Reporté d'une image à l'autre pour que le motif défile sans sauter. Non observé.
+     */
+    internal var dashKey: Any? = null
+    internal var dashDelta = 0f
 
     /** Dernier trait dessiné : point de départ d'un bout tenu ou d'une jonction qui coule. Non observé. */
     internal var drawn: ThreadTrackSegments? = null
@@ -159,16 +171,21 @@ private class MarkerMemo {
  *
  * - Un bout hors écran s'arrête au bord ; la visibilité se lit dans `layoutInfo.visibleItemsInfo` (une ligne sortie de
  *   l'écran garde des coordonnées figées).
- * - Perle suivante qui change : la partie parcourue coule jusqu'à elle (`TicketMotion.check`).
- * - Perle de bout qui part : le trait garde sa longueur le temps du fondu (`TicketMotion.fade`), puis se raccourcit,
- *   pour que la perle ne flotte jamais hors du trait.
- * - Pointillés (ordre générique ou en apprentissage) : motif calé sur le premier marqueur, il défile avec le ticket.
+ * - Le trait couvre toujours toutes les perles visibles du fil : pendant un tri, une perle qui glisse au-delà du
+ *   premier ou du dernier marqueur l'allonge d'autant.
+ * - [animated] (liste qui glisse et fond ses lignes) : perle suivante qui change, la partie parcourue coule jusqu'à
+ *   elle (`TicketMotion.check`) ; perle de bout qui part, le trait garde sa longueur le temps de son fondu
+ *   (`TicketMotion.fade`). Sans animation (écran Liste) ou en mouvement réduit, le trait change dans la même image
+ *   que les lignes.
+ * - Pointillés (ordre générique ou en apprentissage) : motif calé sur le premier marqueur, puis reporté d'une image à
+ *   l'autre, il défile avec le ticket sans sauter.
  */
 @Composable
 fun Modifier.threadTrack(
     state: ThreadTrackState,
     listState: LazyListState,
     path: ThreadPath,
+    animated: Boolean = true,
 ): Modifier {
     val colors = Ticket.colors
     val highContrast = Ticket.accessibility.highContrast
@@ -179,7 +196,7 @@ fun Modifier.threadTrack(
             width = if (highContrast) TicketDimens.threadWidthHighContrast else TicketDimens.threadWidth,
             dashed = path.style == ThreadStyle.Dashed,
         )
-    MarkerMotion(state, path, Ticket.accessibility.reducedMotion)
+    MarkerMotion(state, path, still = !animated || Ticket.accessibility.reducedMotion)
     return onLayoutRectChanged(throttleMillis = 0, debounceMillis = 0) { bounds ->
         state.listTop = bounds.positionInRoot.y.toFloat()
         state.listHeight = bounds.height.toFloat()
@@ -203,7 +220,7 @@ private class TrackLook(
 private fun MarkerMotion(
     state: ThreadTrackState,
     path: ThreadPath,
-    reduced: Boolean,
+    still: Boolean,
 ) {
     val firstKey = path.keys.firstOrNull()
     val lastKey = path.keys.lastOrNull()
@@ -214,7 +231,11 @@ private fun MarkerMotion(
     val nextMoved = memo.known && memo.next != nextKey
     SideEffect {
         val drawn = state.drawn
-        if (!reduced && drawn != null) {
+        if (still) {
+            state.heldTop = null
+            state.heldBottom = null
+            state.flowProgress = 1f
+        } else if (drawn != null) {
             if (departedFirst) state.heldTop = drawn.top
             if (departedLast) state.heldBottom = drawn.bottom
             if (nextMoved) {
@@ -236,26 +257,34 @@ private fun MarkerMotion(
     }
     LaunchedEffect(nextKey) {
         if (state.flowProgress < 1f) {
-            animate(state.flowProgress, 1f, animationSpec = TicketMotion.check(reduced)) { value, _ ->
+            animate(state.flowProgress, 1f, animationSpec = TicketMotion.check(still)) { value, _ ->
                 state.flowProgress = value
             }
         }
     }
 }
 
-/**
- * Centre du marqueur de l'arrêt [position] dans le repère de la liste, s'il est visible. Les positions sont publiées
- * en px racine : la liste peut être mise à l'échelle par un parent (retour prédictif).
- */
+/** Centre du marqueur de l'arrêt [position] dans le repère de la liste, s'il est visible. */
 private fun DrawScope.markerCenter(
     state: ThreadTrackState,
     info: LazyListLayoutInfo,
     path: ThreadPath,
     position: Int,
 ): Float? {
-    val item = info.visibleItemsInfo.firstOrNull { it.index == path.startIndex + position } ?: return null
+    val key = path.keys.getOrNull(position)
+    return info.visibleItemsInfo.firstOrNull { key != null && it.key == key }?.let { itemCenter(state, it) }
+}
+
+/**
+ * Centre de la perle d'une ligne visible, dans le repère de la liste. Les positions sont publiées en px racine : la
+ * liste peut être mise à l'échelle par un parent (retour prédictif). Avant le premier rappel de la gouttière : centre
+ * de la ligne, où la perle est centrée.
+ */
+private fun DrawScope.itemCenter(
+    state: ThreadTrackState,
+    item: LazyListItemInfo,
+): Float {
     val scale = if (state.listHeight > 0f) size.height / state.listHeight else 1f
-    // Avant le premier rappel de la gouttière : centre de la ligne, où la perle est centrée.
     return state.centers[item.key]?.let { (it - state.listTop) * scale } ?: (item.offset + item.size / 2f)
 }
 
@@ -276,35 +305,56 @@ private fun DrawScope.markerPlace(
     }
 }
 
+/**
+ * Le trait à dessiner, dans le repère de la liste : du premier au dernier marqueur, étiré pour couvrir toute perle
+ * visible du fil (pendant un tri, celles qui glissent au-delà d'un bout) et les bouts tenus (perle de bout en fondu,
+ * même s'il ne reste qu'un arrêt) ; la jonction coule vers la perle suivante. `null` : rien à dessiner.
+ */
+private fun DrawScope.trackSegments(
+    state: ThreadTrackState,
+    info: LazyListLayoutInfo,
+    path: ThreadPath,
+): ThreadTrackSegments? {
+    fun place(position: Int) = markerPlace(state, info, path, position)
+    val next = place(path.next)
+    val base = threadTrackSegments(place(0), next, place(path.keys.lastIndex), size.height)
+    val beads =
+        info.visibleItemsInfo
+            .filter { it.key in path.keySet }
+            .map { itemCenter(state, it).coerceIn(0f, size.height) }
+    val top = listOfNotNull(base?.top, beads.minOrNull(), state.heldTop).minOrNull()
+    val bottom = listOfNotNull(base?.bottom, beads.maxOrNull(), state.heldBottom).maxOrNull()
+    if (top == null || bottom == null || bottom <= top) return null
+    val target =
+        base?.junction ?: when (next) {
+            is MarkerPlace.Visible -> next.y
+            MarkerPlace.Above -> top
+            MarkerPlace.Below, MarkerPlace.Absent -> bottom
+        }
+    val flowing = state.flowProgress < 1f && !state.flowFrom.isNaN()
+    val flowed = if (flowing) state.flowFrom + (target - state.flowFrom) * state.flowProgress else target
+    return ThreadTrackSegments(top, flowed.coerceIn(top, bottom), bottom)
+}
+
 private fun DrawScope.drawThreadTrack(
     state: ThreadTrackState,
     info: LazyListLayoutInfo,
     path: ThreadPath,
     look: TrackLook,
 ) {
-    fun place(position: Int) = markerPlace(state, info, path, position)
-    val segments = threadTrackSegments(place(0), place(path.next), place(path.keys.lastIndex), size.height)
-    if (segments == null) {
-        state.drawn = null
-        return
-    }
-    val top = state.heldTop?.let { minOf(it, segments.top) } ?: segments.top
-    val bottom = state.heldBottom?.let { maxOf(it, segments.bottom) } ?: segments.bottom
-    val progress = state.flowProgress
-    val flowing = progress < 1f && !state.flowFrom.isNaN()
-    val target = segments.junction
-    val flowed = if (flowing) state.flowFrom + (target - state.flowFrom) * progress else target
-    val junction = flowed.coerceIn(top, bottom)
-    state.drawn = ThreadTrackSegments(top, junction, bottom)
-
+    val segments = trackSegments(state, info, path)
+    state.drawn = segments
+    if (segments == null) return
+    val (top, junction, bottom) = segments
     val center = ThreadLayout.start.toPx() + TicketDimens.threadGutter.toPx() / 2
     val x = if (layoutDirection == LayoutDirection.Ltr) center else size.width - center
     val stroke = look.width.toPx()
     drawLine(look.passed, Offset(x, top), Offset(x, junction), stroke)
     val pattern =
         if (look.dashed) {
-            val anchor = dashAnchor(info, path) { markerCenter(state, info, path, it) } ?: top
-            PathEffect.dashPathEffect(floatArrayOf(stroke * 2, stroke * 2), (junction - anchor).mod(stroke * 4))
+            val period = stroke * 4
+            val origin = dashOrigin(state, info, path, period) ?: top
+            PathEffect.dashPathEffect(floatArrayOf(stroke * 2, stroke * 2), (junction - origin).mod(period))
         } else {
             null
         }
@@ -312,17 +362,35 @@ private fun DrawScope.drawThreadTrack(
 }
 
 /**
- * Repère du motif pointillé : le premier marqueur s'il est visible, sinon le premier arrêt visible du fil. Le motif
- * défile ainsi avec le ticket au lieu de rester fixe à l'écran.
+ * Début d'un tiret du motif pointillé, dans le repère de la liste. Au départ, le premier marqueur s'il est visible.
+ * Ensuite, le repère suit un arrêt visible du fil : quand il en change (celui du milieu de l'écran, pour ne jamais
+ * dépendre d'une ligne qui sort), la phase est reportée par la distance entre l'ancien et le nouveau repère, tous deux
+ * visibles à ce moment. Le motif défile ainsi avec le ticket, sans sauter au passage des lignes.
  */
-private fun dashAnchor(
+private fun DrawScope.dashOrigin(
+    state: ThreadTrackState,
     info: LazyListLayoutInfo,
     path: ThreadPath,
-    centerOf: (Int) -> Float?,
+    period: Float,
 ): Float? {
-    val firstVisible =
-        info.visibleItemsInfo.firstOrNull { it.index - path.startIndex in path.keys.indices } ?: return null
-    return centerOf(firstVisible.index - path.startIndex)
+    val stops = info.visibleItemsInfo.filter { it.key in path.keySet }
+    if (stops.isEmpty()) {
+        state.dashKey = null
+        return null
+    }
+    val previous = stops.firstOrNull { it.key == state.dashKey }
+    val origin =
+        if (previous != null) {
+            itemCenter(state, previous) + state.dashDelta
+        } else {
+            // Premier repère (ou ancien repère perdu d'un coup) : le premier marqueur, sinon le premier arrêt visible.
+            markerCenter(state, info, path, 0) ?: itemCenter(state, stops.first())
+        }
+    val middle = stops.minBy { abs(itemCenter(state, it) - size.height / 2) }
+    state.dashKey = middle.key
+    // Ramené à une période : seule la phase compte.
+    state.dashDelta = (origin - itemCenter(state, middle)).mod(period)
+    return origin
 }
 
 // endregion
