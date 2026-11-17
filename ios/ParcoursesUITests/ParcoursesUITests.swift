@@ -320,14 +320,14 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     }
   }
 
-  /// Film local de la fermeture d'une ligne ouverte, ramenée au doigt (#115, retour de la PR #136) : article de
-  /// l'écran Liste (glisser maison) puis liste de « Mes listes » (`.swipeActions` natif), glisser lent puis vif. Les
-  /// pauses de 2 s séparent les gestes dans l'enregistrement (`simctl io recordVideo`).
+  /// Film local de l'ouverture et de la fermeture d'une ligne au doigt (#115, retours de la PR #136), en sombre comme
+  /// sur l'iPhone : article de l'écran Liste (glisser maison) puis liste de « Mes listes » (`.swipeActions` natif),
+  /// relâcher lent puis vif. Les pauses de 2 s séparent les gestes dans l'enregistrement (`simctl io recordVideo`).
   @MainActor
   func testSwipeCloseFilm() throws {
     try XCTSkipUnless(
       ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
-    let app = launch(reset: true)
+    let app = launch(reset: true, dark: true)
     XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
     app.buttons["Nouvelle liste"].tap()
     let name = app.alerts.textFields.firstMatch
@@ -348,11 +348,14 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
     closeFilm(app, element: { list })
   }
 
-  /// Ouvre la ligne, la referme au doigt lentement, la rouvre, la referme d'un geste vif.
+  /// Ouvre la ligne au doigt et la referme au doigt, lentement puis d'un geste vif.
   @MainActor
   private func closeFilm(_ app: XCUIApplication, element: () -> XCUIElement) {
     for velocity in [XCUIGestureVelocity(250), XCUIGestureVelocity(2500)] {
-      element().swipeLeft()
+      let closed = element()
+      closed.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).press(
+        forDuration: 0.05, thenDragTo: closed.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)),
+        withVelocity: velocity, thenHoldForDuration: 0)
       XCTAssertTrue(app.buttons["Supprimer"].waitForExistence(timeout: 15))
       Thread.sleep(forTimeInterval: 2)
       let row = element()
@@ -362,6 +365,46 @@ nonisolated final class ParcoursesUITests: ParcoursesUITestCase {
         withVelocity: velocity, thenHoldForDuration: 0)
       XCTAssertTrue(app.buttons["Supprimer"].waitForNonExistence(timeout: 15))
       Thread.sleep(forTimeInterval: 2)
+    }
+  }
+
+  /// Film local du délai de l'appui long (#115, retour de la PR #136) : ligne de « Mes listes » (`.contextMenu`
+  /// natif), puis article de l'écran Liste (panneau de l'article). Trois appuis chacun ; l'heure de chaque appui est
+  /// écrite dans le journal (`APPUI`), à rapprocher de la première image du menu dans l'enregistrement.
+  @MainActor
+  func testLongPressDelayFilm() throws {
+    try XCTSkipUnless(
+      ProcessInfo.processInfo.environment["PARCOURSES_CLOSE_FILM"] != nil, "vérification locale seulement")
+    let app = launch(reset: true)
+    XCTAssertTrue(app.staticTexts["Aucune liste"].waitForExistence(timeout: 15))
+    app.buttons["Nouvelle liste"].tap()
+    let name = app.alerts.textFields.firstMatch
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    type("Semaine", into: name, app)
+    let entry = app.textFields["quickEntry"]
+    tap(app.alerts.buttons["Créer"], until: entry)
+    if !entry.hasFocus { entry.tap() }
+    type("tomates\n", into: entry, app)
+    let tomatoes = row(app, "tomates", "non coché")
+    XCTAssertTrue(tomatoes.waitForExistence(timeout: 15))
+    for _ in 0..<3 {
+      Thread.sleep(forTimeInterval: 2)
+      print("APPUI liste-article \(Date.now.timeIntervalSince1970)")
+      row(app, "tomates", "non coché").press(forDuration: 1.5)
+      XCTAssertTrue(app.buttons["cancelItem"].waitForExistence(timeout: 15))
+      app.buttons["cancelItem"].tap()
+      XCTAssertTrue(app.buttons["cancelItem"].waitForNonExistence(timeout: 15))
+    }
+    app.navigationBars.buttons.firstMatch.tap()
+    let list = app.buttons.containing(.staticText, identifier: "Semaine").firstMatch
+    XCTAssertTrue(list.waitForExistence(timeout: 15))
+    for _ in 0..<3 {
+      Thread.sleep(forTimeInterval: 2)
+      print("APPUI mes-listes \(Date.now.timeIntervalSince1970)")
+      list.press(forDuration: 1.5)
+      XCTAssertTrue(app.buttons["Renommer"].waitForExistence(timeout: 15))
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+      XCTAssertTrue(app.buttons["Renommer"].waitForNonExistence(timeout: 15))
     }
   }
 

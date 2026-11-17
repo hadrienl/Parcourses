@@ -141,6 +141,15 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     let milk = row(app, "lait", "non coché", in: "shoppingList")
     XCTAssertTrue(milk.waitForExistence(timeout: 15))
     Thread.sleep(forTimeInterval: 2)
+    // Délai de l'appui long en mode courses (`APPUI` dans le journal), puis appuis qui tremblent.
+    for _ in 0..<3 {
+      print("APPUI courses-article \(Date.now.timeIntervalSince1970)")
+      row(app, "lait", "non coché", in: "shoppingList").press(forDuration: 1.5)
+      XCTAssertTrue(app.buttons["Quantité"].waitForExistence(timeout: 3))
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+      XCTAssertTrue(app.buttons["Quantité"].waitForNonExistence(timeout: 15))
+      Thread.sleep(forTimeInterval: 2)
+    }
     for shift in [CGFloat(-3), CGFloat(-6), CGFloat(3)] {
       let start = row(app, "lait", "non coché", in: "shoppingList").coordinate(
         withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
