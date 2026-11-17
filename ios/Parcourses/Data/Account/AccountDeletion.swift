@@ -293,9 +293,13 @@ final class AccountDeletion {
     }
     // Sans session, ou avec celle d'un autre compte, le compte serveur est hors d'atteinte : appareil seulement. Le
     // type de compte vient du drapeau ; écrit avant #122, il n'y est pas, et `account.kind` le donne encore s'il n'a
-    // pas été purgé.
+    // pas été purgé. Il est alors noté avant la purge, qui efface `account.kind`, pour une nouvelle interruption.
     guard let local, local == flag.accountId else {
       let kind = flag.accountKind ?? accountKind()
+      if flag.accountKind == nil {
+        flag.accountKind = kind
+        flags.save(flag)
+      }
       try await purgeAndSignIn(outcome: .deletedFromDevice(isEmailAccount: kind == .email))
       return
     }

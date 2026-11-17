@@ -419,6 +419,9 @@ internal fun writeDeletionRequest(context: Context) {
         context.startActivity(intent)
     } catch (_: ActivityNotFoundException) {
         Log.i("AccountDeletion", "Aucune messagerie pour la demande de suppression")
+    } catch (_: SecurityException) {
+        // Messagerie dont l'écran n'est pas ouvert aux autres apps : même repli.
+        Log.i("AccountDeletion", "Messagerie inaccessible pour la demande de suppression")
     }
 }
 

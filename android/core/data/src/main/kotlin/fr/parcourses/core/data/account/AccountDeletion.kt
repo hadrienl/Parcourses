@@ -199,9 +199,11 @@ class AccountDeletion(
                 }
 
                 // Pas de session pour atteindre le serveur : l'appareil seul (C3). Le type de compte vient du drapeau ;
-                // écrit avant #122, il n'y est pas, et `account.kind` le donne encore s'il n'a pas été purgé.
+                // écrit avant #122, il n'y est pas, et `account.kind` le donne encore s'il n'a pas été purgé. Il est
+                // alors noté avant la purge, qui efface `account.kind`, pour une nouvelle interruption.
                 ServerState.NoSession -> {
                     val kind = marker.accountKind ?: accountKind()
+                    flag.read()?.takeIf { it.accountKind == null }?.let { flag.write(it.copy(accountKind = kind)) }
                     finish(AccountDeletionOutcome.DeletedLocally(emailAccount = kind == AccountKind.Email))
                 }
 

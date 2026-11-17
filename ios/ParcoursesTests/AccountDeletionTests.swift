@@ -829,19 +829,28 @@ struct AccountDeletionTests {
     try app.expectPurged()
   }
 
-  /// Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne.
+  /// Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne. Il est noté dans le
+  /// drapeau avant la purge : une reprise interrompue à son tour garde le message d'un compte e-mail.
   @Test func aFlagWithoutTheAccountKindFallsBackToTheDeviceKind() async throws {
     let app = try DeletionHarness()
     try app.seedEverything()
     try await app.signInAndSync()
-    UserDefaultsAccountKindStore(defaults: app.defaults).save(.email)
+    let kinds = UserDefaultsAccountKindStore(defaults: app.defaults)
+    kinds.save(.email)
     app.flags.save(AccountDeletionFlag(accountId: UUID(), phase: .requested, rpcAttempted: true))
+
+    app.relaunch()
+    let interrupted = app.makeDeletion { if $0 == .purge(.preferencesPurged) { throw CancellationError() } }
+    await interrupted.resumeIfNeeded()
+    #expect(kinds.kind == .anonymous)
+    #expect(app.flags.load()?.accountKind == .email)
 
     app.relaunch()
     let relaunched = app.makeDeletion()
     await relaunched.resumeIfNeeded()
 
     #expect(relaunched.status == .deletedFromDevice(isEmailAccount: true))
+    #expect(app.flags.load() == nil)
   }
 
   /// Relance avec la session d'un autre compte que celui du drapeau : comme sans session.

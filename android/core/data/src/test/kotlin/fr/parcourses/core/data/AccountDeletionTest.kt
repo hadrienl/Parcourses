@@ -752,15 +752,25 @@ class AccountDeletionTest : DataTest() {
             for (table in personalTables) assertEquals(table, 0L, count(table))
         }
 
-    /** Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne. */
+    /**
+     * Drapeau écrit avant #122, sans type de compte : `account.kind`, pas encore purgé, le donne. Il est noté dans le
+     * drapeau avant la purge : une reprise interrompue à son tour garde le message d'un compte e-mail.
+     */
     @Test
     fun aFlagWithoutTheAccountKindFallsBackToTheDeviceKind() =
         runBlocking {
             everythingOnTheDevice()
             kind.write(AccountKind.Email)
             flag.write(AccountDeletionMarker(AccountDeletionPhase.Requested, Uuid.random().toString()))
+            host.killAt = "clearLocalState"
+
+            expectKilled { deletion().resumePending() }
+            engine = newEngine()
+            assertEquals(AccountKind.Anonymous, kind.kind.value)
+            assertEquals(AccountKind.Email, flag.read()?.accountKind)
 
             assertEquals(AccountDeletionOutcome.DeletedLocally(emailAccount = true), deletion().resumePending())
+            assertNull(flag.read())
         }
 
     /** C7 : la session locale est celle d'un autre compte que le drapeau : traitée comme une session absente. */
