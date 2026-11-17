@@ -21,6 +21,8 @@ final class AppEnvironment {
   private let stores: any StoreRepository
   private let graphs: any GraphRepository
   private let gateway: (any RemoteGateway)?
+  /// Keychain de la session, partagé avec la passerelle : la purge le vide, la suppression lit son état bloqué (#133).
+  private let keychain: GuardedSecureStore
   private let location: any LocationProvider
   /// Compte de l'appareil, tel que la synchro le connaît : « vous » et les marques d'auteur (#87).
   private let accountId: () -> UUID?
@@ -37,15 +39,19 @@ final class AppEnvironment {
     activity: shoppingActivity, session: { [weak self] in self?.currentSession })
 
   /// `shoppingActivity` : remplacé dans les tests, qui ne doivent pas ouvrir de vraie Live Activity. `cursors` : compte
-  /// des données, remplacé dans les tests de la réparation des rôles.
+  /// des données, remplacé dans les tests de la réparation des rôles. `keychain` : l'instance partagée de l'app
+  /// (`AppModel`) ; la valeur par défaut ne sert qu'aux tests sans passerelle.
   init(
     container: ModelContainer, gateway: (any RemoteGateway)? = nil,
+    keychain: GuardedSecureStore = GuardedSecureStore(
+      base: KeychainStore(), defaults: .standard, monitor: KeyAccessMonitor()),
     shoppingActivity: ActivityKitShoppingActivity = ActivityKitShoppingActivity(),
     cursors: any SyncCursors = UserDefaultsSyncCursors()
   ) throws {
     self.container = container
     self.shoppingActivity = shoppingActivity
     self.gateway = gateway
+    self.keychain = keychain
     location = SystemLocationProvider()
     let context = container.mainContext
     // Écho temps réel de mes propres envois d'articles, ignoré par les signaux (#87 §6.6).
@@ -81,17 +87,21 @@ final class AppEnvironment {
   /// instance ActivityKit est gardée (ses appels restent ordonnés) et publie à nouveau.
   func restarted() throws -> AppEnvironment {
     shoppingActivity.resumePublishing()
-    return try AppEnvironment(container: container, gateway: gateway, shoppingActivity: shoppingActivity)
+    return try AppEnvironment(
+      container: container, gateway: gateway, keychain: keychain, shoppingActivity: shoppingActivity)
   }
 
-  /// Suppression du compte et de ses données, sur ce store et ce serveur.
+  /// Suppression du compte et de ses données, sur ce store et ce serveur. Keychain bloqué (#133) : la session compte
+  /// comme absente.
   func makeAccountDeletion() -> AccountDeletion {
     let sync = sync
     let visits = visits
+    let monitor = keychain.monitor
     return AccountDeletion(
-      gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: Self.makePurge(container),
+      gateway: gateway, flags: UserDefaultsAccountDeletionFlagStore(), purge: Self.makePurge(container, keychain),
       accountKind: { UserDefaultsAccountKindStore().kind },
       isOnline: { sync?.isOnline ?? true }, hasOpenVisit: { (try? visits.openVisit()) != nil },
+      isSessionStorageStuck: { monitor.isStuck },
       beginBackgroundWork: {
         let activity = BackgroundActivity(name: "account-deletion")
         // À l'expiration, le drapeau reste : la suppression reprendra au lancement suivant.
@@ -100,12 +110,12 @@ final class AppEnvironment {
       })
   }
 
-  /// Purge de l'appareil. Tests UI : purges forcées en échec (#129).
-  private static func makePurge(_ container: ModelContainer) -> LocalDataPurge {
+  /// Purge de l'appareil, sur le Keychain partagé. Tests UI : purges forcées en échec (#129).
+  private static func makePurge(_ container: ModelContainer, _ keychain: GuardedSecureStore) -> LocalDataPurge {
     #if DEBUG
-      return LocalDataPurge(container: container, injectedFailure: UITestPurgeFailures.inject)
+      return LocalDataPurge(container: container, keychain: keychain, injectedFailure: UITestPurgeFailures.inject)
     #else
-      return LocalDataPurge(container: container)
+      return LocalDataPurge(container: container, keychain: keychain)
     #endif
   }
 
@@ -130,7 +140,7 @@ final class AppEnvironment {
       suspendSync: { await sync?.suspend() },
       resumeSync: { await sync?.resumeAndWait() })
     return AccountSession(
-      gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: Self.makePurge(container),
+      gateway: gateway, kinds: UserDefaultsAccountKindStore(), purge: Self.makePurge(container, keychain),
       cursors: cursors, operations: operations,
       dependencies: AccountSession.Dependencies(
         isOnline: { sync?.isOnline ?? true },
@@ -153,12 +163,12 @@ final class AppEnvironment {
     CheckNextItemRouter.handler = activityActions
   }
 
-  static func live(gateway: (any RemoteGateway)?) throws -> AppEnvironment {
+  static func live(gateway: (any RemoteGateway)?, keychain: GuardedSecureStore) throws -> AppEnvironment {
     let container = try PersistenceStack.makeContainer(storage: storage())
     #if DEBUG
       try seedForUITests(container)
     #endif
-    return try AppEnvironment(container: container, gateway: gateway)
+    return try AppEnvironment(container: container, gateway: gateway, keychain: keychain)
   }
 
   #if DEBUG

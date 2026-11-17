@@ -5,7 +5,8 @@ import SwiftData
 /// ce qui reste, et une purge interrompue recommence au lancement suivant tant que le drapeau existe.
 ///
 /// Ce qui reste : `auth.installed` (sinon le Keychain serait vidé une seconde fois, sans effet) et le référentiel
-/// des catégories, amorcé à nouveau depuis le fichier embarqué.
+/// des catégories, amorcé à nouveau depuis le fichier embarqué. Keychain bloqué (#133) : `GuardedSecureStore.clear()`
+/// retire lui-même `auth.installed`, et le vidage est fait avant le prochain accès.
 struct LocalDataPurge {
   /// Points de passage, dans l'ordre. Les tests y simulent un arrêt du processus.
   nonisolated enum Step: CaseIterable, Sendable {
@@ -78,8 +79,9 @@ struct LocalDataPurge {
     try checkpoint(.categoriesSeeded)
 
     // Session, dernier compte connu (`last-account-id`) et sentinelle : le nouveau compte est adopté sans reprise.
+    // `clear` : vidé sans lire ; un Keychain bloqué ne retient plus la purge (#133).
     try perform(.keychainPurged) {
-      if !keepingSession { try keychain.removeAll() }
+      if !keepingSession { try keychain.clear() }
     }
     try checkpoint(.keychainPurged)
 
