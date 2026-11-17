@@ -35,7 +35,6 @@ import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitClose
 import fr.parcourses.core.network.dto.VisitInsert
-import fr.parcourses.core.network.session.SecureState
 import fr.parcourses.core.network.session.SecureStateStore
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
@@ -182,10 +181,7 @@ class SupabaseGateway internal constructor(
         mapped {
             // Sous le verrou de connexion : aucun compte ne se crée pendant la déconnexion.
             signInLock.withLock {
-                // `clearSession` arrête le rafraîchissement automatique et vide la session enregistrée, sans réseau
-                // (au contraire de `signOut(SignOutScope.LOCAL)`, qui appelle `/logout`).
-                auth.clearSession()
-                store.update { SecureState() }
+                forgetSession()
             }
         }
     }
@@ -296,10 +292,22 @@ class SupabaseGateway internal constructor(
                 } catch (_: Exception) {
                     // Le jeton de rafraîchissement expirera seul : rien ne le garde plus sur l'appareil.
                 }
-                auth.clearSession()
-                store.update { SecureState() }
+                forgetSession()
             }
         }
+    }
+
+    /**
+     * Session et dernier compte oubliés, même si la clé ne s'ouvre plus. D'abord l'arrêt du rafraîchissement
+     * automatique : un rafraîchissement en vol réécrirait la session après son effacement, et sans dernier compte connu
+     * elle serait adoptée au lancement suivant. Puis le stockage : `clearSession` passe par
+     * `SessionManager.deleteSession`, qui relit le stockage et échouerait sur une clé illisible. Enfin `clearSession`
+     * vide la session en mémoire, sans réseau (au contraire de `signOut(SignOutScope.LOCAL)`, qui appelle `/logout`).
+     */
+    private suspend fun forgetSession() {
+        auth.stopAutoRefreshForCurrentSession()
+        store.clear()
+        auth.clearSession()
     }
 
     /**

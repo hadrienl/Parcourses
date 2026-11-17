@@ -38,6 +38,8 @@ class DataStoreSecureStateStore internal constructor(
     private val keys: SessionKeys = SessionKeys.None,
     /** Le Keystore et les préférences bloquent : jamais sur le fil de l'appelant (écran À propos). */
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** Fichier de [sessions], supprimé par [clear] quand sa clé ne peut plus être recréée. */
+    private val sessionFile: File? = null,
 ) : SecureStateStore {
     // Lecture, transformation et écriture forment un tout : un rafraîchissement et une déconnexion en parallèle
     // ne doivent pas s'écraser (ni ressusciter une session supprimée). Verrou non réentrant : voir [update].
@@ -96,6 +98,32 @@ class DataStoreSecureStateStore internal constructor(
             }
         }
 
+    override suspend fun clear() {
+        lock.withLock {
+            readingErrors {
+                // Clé illisible : la session l'est aussi et part de toute façon. Son matériel de clé part avec elle,
+                // sans quoi l'état vide ne pourrait pas être écrit.
+                val usable = withContext(io) { runCatching { aead.get() }.isSuccess }
+                if (!usable) withContext(io) { keys.destroy() }
+                try {
+                    // Fichier chiffré par l'ancienne clé : illisible, il est remplacé par un état vide (voir `create`).
+                    sessions.updateData { SessionHolder() }
+                } catch (e: IOException) {
+                    // Clé détruite mais pas recréée (Keystore mort) : plus rien ne déchiffre la session, effacée de
+                    // fait. Le fichier part aussi : absent, il se relit vide sans clé, et la purge qui suit aboutit.
+                    if (usable || !withContext(io) { deleteSessionFile() }) throw e
+                }
+                accounts.updateData { AccountMarker() }
+            }
+        }
+    }
+
+    /** Vrai si le fichier de la session n'existe plus. DataStore, en échec de lecture, le relira absent. */
+    private fun deleteSessionFile(): Boolean {
+        val file = sessionFile ?: return false
+        return file.delete() || !file.exists()
+    }
+
     private suspend inline fun <T> readingErrors(block: () -> T): T =
         try {
             block()
@@ -153,6 +181,7 @@ class DataStoreSecureStateStore internal constructor(
                 monitored,
                 keys,
                 io,
+                sessionFile,
             )
         }
 

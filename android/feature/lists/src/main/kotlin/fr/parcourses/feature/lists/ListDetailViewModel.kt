@@ -297,12 +297,10 @@ class ListDetailViewModel(
     }
 
     /**
-     * Propositions en cours d'ajout, par forme normalisée : un double appui sur une même proposition ne l'ajoute
-     * qu'une fois. Une saisie validée pendant l'écriture d'une autre n'est pas ignorée (#54) : elle attend son tour.
+     * Les ajouts s'écrivent un par un, dans l'ordre où ils ont été validés. Une saisie validée pendant l'écriture d'une
+     * autre n'est pas ignorée (#54) : elle attend son tour. Chaque ajout relit la liste sous ce verrou : un double
+     * appui sur une proposition ne l'ajoute qu'une fois, quel que soit le moment du second appui (#113).
      */
-    private val adding = mutableSetOf<String>()
-
-    /** Les ajouts s'écrivent un par un, dans l'ordre où ils ont été validés. */
     private val writes = Mutex()
 
     /**
@@ -327,7 +325,6 @@ class ListDetailViewModel(
 
     /** Ajoute une proposition en gardant la quantité déjà tapée. */
     fun add(suggestion: ItemSuggestion) {
-        if (suggestion.normalizedName in adding) return
         val text = input.text.toString()
         val entry = analyzer.analyze(text)
         val categoryId = suggestion.categoryId ?: analyzer.analyze(suggestion.label).categoryId
@@ -383,9 +380,9 @@ class ListDetailViewModel(
     fun dismissQuantityTip() = quantityTip.invalidate()
 
     /**
-     * La saisie est vidée tout de suite (un second appel ne la retrouve pas) et rendue si l'écriture échoue, sauf
-     * si l'utilisateur a déjà retapé autre chose. La liste est lue au moment d'écrire : une reprise de compte faite
-     * pendant l'attente est suivie.
+     * La saisie est vidée tout de suite (un second appel ne la retrouve pas) et rendue si rien n'est écrit (échec,
+     * ou proposition déjà à acheter), sauf si l'utilisateur a déjà retapé autre chose. La liste est lue au moment
+     * d'écrire : une reprise de compte faite pendant l'attente est suivie.
      */
     @Suppress("LongParameterList")
     private fun add(
@@ -397,7 +394,6 @@ class ListDetailViewModel(
         categoryId: String,
         mergesQuantity: Boolean = false,
     ) {
-        adding += normalizedName
         input.clearText()
         val entry = Entry(label, normalizedName, quantity, productId, categoryId, mergesQuantity)
         // Ni annulable ni sautée : le texte a déjà quitté le champ, un Retour juste après ne doit pas perdre l'article.
@@ -406,7 +402,10 @@ class ListDetailViewModel(
         }
     }
 
-    /** Saisie à écrire. [mergesQuantity] : une saisie rapide, qui peut mettre à jour un article existant (#110). */
+    /**
+     * Saisie à écrire. [mergesQuantity] : une saisie rapide, qui peut mettre à jour un article existant (#110) ; sinon
+     * une proposition, qui n'est jamais ajoutée par-dessus un article de même forme encore à acheter.
+     */
     private class Entry(
         val label: String,
         val normalizedName: String,
@@ -420,23 +419,28 @@ class ListDetailViewModel(
         text: String,
         entry: Entry,
     ) {
-        try {
-            val written = writes.withLock { perform { addOrMerge(entry) } }
-            if (written == null && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
-        } finally {
-            adding -= entry.normalizedName
-        }
+        val written = writes.withLock { perform { addOrMerge(entry) } }
+        // Rien d'écrit (échec, ou proposition déjà à acheter) : la saisie revient, sauf si l'utilisateur a retapé.
+        if (written != true && input.text.isEmpty()) input.setTextAndPlaceCursorAtEnd(text)
     }
 
     /**
      * Met à jour la quantité de l'article visé par `entryMergeTarget` (libellé inchangé), sinon ajoute l'article. La
      * liste est lue au moment d'écrire, dans l'ordre de ses positions.
+     *
+     * Une proposition déjà à acheter n'est pas ajoutée : l'écran ne la montre plus, seul un appui sur une proposition
+     * pas encore retirée y mène. Par exemple le second d'un double appui, reçu une fois la première écriture finie
+     * mais avant que l'écran ne retire la proposition (#113), ou un appui juste après l'arrivée du même article par la
+     * synchronisation. Renvoie faux si rien n'est écrit.
      */
-    private suspend fun addOrMerge(entry: Entry) {
+    private suspend fun addOrMerge(entry: Entry): Boolean {
         val listId = currentListId.value
+        val items = lists.items(listId)
+        if (!entry.mergesQuantity && items.any { it.normalizedName == entry.normalizedName && it.checkedAt == null }) {
+            return false
+        }
         val target =
             if (entry.mergesQuantity) {
-                val items = lists.items(listId)
                 ItemQuantity
                     .entryMergeTarget(
                         QuantityEntry(entry.normalizedName, entry.quantity),
@@ -459,6 +463,7 @@ class ListDetailViewModel(
             )
             quantityTip.itemAdded()
         }
+        return true
     }
 
     // Toute erreur d'écriture est montrée à l'utilisateur ; l'annulation est relancée.
