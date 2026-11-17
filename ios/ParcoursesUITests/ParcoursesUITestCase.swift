@@ -64,9 +64,17 @@ nonisolated class ParcoursesUITestCase: XCTestCase {
     // Un seul instantané par essai. Le prédicat `exists AND isEnabled` en demandait deux, et deux requêtes lentes
     // (10 s puis 4 s, CI iOS latest, `testAuditShoppingAX5` sur 5335023) épuisaient les 15 s sur une ligne déjà
     // trouvée et active.
-    while (try? element.snapshot())?.isEnabled != true {
+    // L'erreur du dernier essai part dans le message : introuvable, ambigu (plusieurs correspondances) ou inactif.
+    var reason = "inactif"
+    while true {
+      do {
+        if try element.snapshot().isEnabled { break }
+        reason = "inactif"
+      } catch {
+        reason = error.localizedDescription
+      }
       guard deadline.timeIntervalSinceNow > 0 else {
-        XCTFail("élément toujours inactif : \(element)", file: file, line: line)
+        XCTFail("élément pas prêt (\(reason)) : \(element)", file: file, line: line)
         return false
       }
       Thread.sleep(forTimeInterval: 0.2)
