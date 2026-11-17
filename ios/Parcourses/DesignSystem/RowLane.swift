@@ -174,9 +174,12 @@ struct RowLane<Content: View>: View {
 
 /// Décalage du couloir et bouton révélé, dérivés d'une seule valeur animable : pendant une animation, SwiftUI rappelle
 /// `body` à chaque image avec le décalage interpolé, et la largeur, la hauteur et les opacités du bouton en découlent.
-/// Le bouton est toujours là (largeur nulle, sans toucher ni élément d'accessibilité quand la ligne est fermée) : ni
-/// insertion, ni retrait, ni transition. Avant, il était inséré par un `if` et sa géométrie passée en valeur ; au
-/// relâcher, sa disparition animée repartait d'un état périmé (capsule fantôme à la taille ouverte, sur iPhone).
+/// Le bouton n'existe que si une place est découverte : le `if` est évalué ici, à chaque image, sur le décalage
+/// interpolé, et le bouton naît et disparaît à largeur nulle, sans transition. Avant, il était inséré par un `if` dans
+/// `RowLane`, sur l'état final, et sa géométrie passée en valeur ; au relâcher, sa disparition animée repartait d'un
+/// état périmé (capsule fantôme à la taille ouverte, sur iPhone). Un bouton toujours présent mais de largeur nulle ne
+/// convenait pas non plus : `.accessibilityHidden` ne le retirait pas de l'arbre d'accessibilité, et XCUITest trouvait
+/// un « Pas trouvé » par ligne fermée.
 nonisolated private struct LaneSlide: ViewModifier, Animatable {
   var offset: CGFloat
   let action: LaneAction?
@@ -198,8 +201,9 @@ nonisolated private struct LaneSlide: ViewModifier, Animatable {
       // Au-dessus du contenu, il passe avant l'élément de la ligne au test de toucher de l'accessibilité (sous lui,
       // XCUITest le jugeait « not hittable »).
       .overlay(alignment: .trailing) {
-        if let action {
+        if let action, revealed >= 1 {
           button(action, revealed: revealed)
+            .transition(.identity)
         }
       }
   }
@@ -229,10 +233,7 @@ nonisolated private struct LaneSlide: ViewModifier, Animatable {
       .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .allowsHitTesting(revealed >= 1)
     .accessibilityLabel(action.title)
-    // Ligne fermée : le bouton n'existe pas pour VoiceOver ni pour les tests (« n'existe que ligne ouverte »).
-    .accessibilityHidden(revealed < 1)
   }
 
   /// iOS 26 : capsule de 34 pt de haut, à 11 pt des bords de la place découverte, pictogramme seul dedans et libellé
