@@ -17,6 +17,7 @@ import fr.parcourses.core.data.account.InMemoryAccountSwitchFlag
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.ObservedAccountSwitchFlag
 import fr.parcourses.core.data.account.PurgeFailure
+import fr.parcourses.core.data.account.PurgeFailureCounter
 import fr.parcourses.core.data.account.PurgeOperation
 import fr.parcourses.core.data.account.PurgeStep
 import fr.parcourses.core.data.account.PurgeStepException
@@ -54,8 +55,10 @@ class PurgeFailureTest : DataTest() {
     private val gateway = fakeGateway()
     private val kind = InMemoryAccountKindFlag()
     private val cursors = InMemorySyncCursors()
-    private val session = AccountSession(null, kind)
-    private val switch = ObservedAccountSwitchFlag(InMemoryAccountSwitchFlag()) { session.switchFlagCleared() }
+    private val session: AccountSession =
+        AccountSession(null, kind, purgeFailures = PurgeFailureCounter { switch.isPending })
+    private val switch: ObservedAccountSwitchFlag =
+        ObservedAccountSwitchFlag(InMemoryAccountSwitchFlag()) { session.switchFlagCleared() }
 
     /** Référentiel des catégories illisible tant que vrai : la purge échoue à l'étape `categories`. */
     private var seedFails = false
@@ -318,6 +321,31 @@ class PurgeFailureTest : DataTest() {
             }
         }
     }
+
+    /** Le bandeau suit le vrai drapeau `account.switch`, lu à chaque échec, comme `hasPendingSwitch` sur iOS. */
+    @Test
+    fun theBannerFollowsTheRealSwitchFlag() =
+        runBlocking {
+            var pending = false
+            val counter = PurgeFailureCounter { pending }
+            val switchFailure = PurgeFailure(PurgeOperation.Switch, PurgeStep.Session)
+            // Rejeu dont la purge a déjà effacé le drapeau (`acknowledgeAccount` en échec) : pas de bandeau.
+            repeat(3) { counter.purgeFailed(switchFailure) }
+            assertEquals(3, counter.count.value)
+            assertNull(counter.blockedSwitch.first())
+            // Déconnexions en échec avant d'avoir effacé un `account.switch` posé : bandeau, comme sur iOS.
+            pending = true
+            val signOutFailure = PurgeFailure(PurgeOperation.SignOut, PurgeStep.Store)
+            counter.purgeFailed(signOutFailure)
+            assertEquals(signOutFailure, counter.blockedSwitch.first())
+            // Drapeau effacé sans purge, derniers échecs venus de la déconnexion : le compteur garde sa valeur, le
+            // bandeau disparaît, l'alerte de la déconnexion reste au-delà du seuil.
+            pending = false
+            counter.switchFlagCleared()
+            assertEquals(4, counter.count.value)
+            assertNull(counter.blockedSwitch.first())
+            assertEquals(signOutFailure, counter.blocked.first())
+        }
 
     private fun repository() = RoomListRepository(db)
 }

@@ -33,6 +33,7 @@ import fr.parcourses.core.data.account.InMemoryAccountSwitchFlag
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.ObservedAccountSwitchFlag
 import fr.parcourses.core.data.account.PurgeFailure
+import fr.parcourses.core.data.account.PurgeFailureCounter
 import fr.parcourses.core.data.account.PurgeOperation
 import fr.parcourses.core.data.account.PurgeStep
 import fr.parcourses.core.data.sync.AccountKind
@@ -85,8 +86,10 @@ class PurgeFailureUiTest {
     private var seedFails = true
     private val kind = InMemoryAccountKindFlag().apply { write(AccountKind.Email) }
     private val cursors = InMemorySyncCursors().apply { accountId = Uuid.random() }
-    private val session = AccountSession(null, kind)
-    private val switch = ObservedAccountSwitchFlag(InMemoryAccountSwitchFlag()) { session.switchFlagCleared() }
+    private val session: AccountSession =
+        AccountSession(null, kind, purgeFailures = PurgeFailureCounter { switch.isPending })
+    private val switch: ObservedAccountSwitchFlag =
+        ObservedAccountSwitchFlag(InMemoryAccountSwitchFlag()) { session.switchFlagCleared() }
     private val purge =
         LocalDataPurge(
             db,

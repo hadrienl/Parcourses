@@ -142,16 +142,21 @@ interface PurgeFailureRecorder {
  * Compteur des purges en échec (#129), porté par [AccountSession] :
  * - **+1** à chaque purge en échec ([AccountSignOut], essai ou « Réessayer » ; [AccountSwitchReplay], au lancement ou
  *   au retour au premier plan) ;
- * - **0** à chaque purge réussie, et quand le drapeau `account.switch` qu'un rejeu en échec a laissé est effacé par un
- *   autre chemin ([switchFlagCleared]).
+ * - **0** à chaque purge réussie, et quand le drapeau `account.switch` est effacé par un autre chemin alors que la
+ *   dernière purge en échec était un rejeu ([switchFlagCleared]).
  *
  * En mémoire seulement. Seul le code public est journalisé : ni texte d'erreur, ni donnée personnelle.
+ * [isSwitchPending] lit le vrai drapeau `account.switch` à chaque échec, comme `hasPendingSwitch` sur iOS : un rejeu
+ * dont la purge a déjà effacé le drapeau (`acknowledgeAccount` en échec) ne montre pas le bandeau, une déconnexion en
+ * échec avant d'avoir effacé le drapeau le montre.
  */
-class PurgeFailureCounter : PurgeFailureRecorder {
+class PurgeFailureCounter(
+    private val isSwitchPending: () -> Boolean = { false },
+) : PurgeFailureRecorder {
     private val failureCount = MutableStateFlow(0)
     private val lastFailure = MutableStateFlow<PurgeFailure?>(null)
 
-    /** `account.switch` laissé par un rejeu en échec, et pas encore effacé. */
+    /** `account.switch` posé, lu au dernier échec et suivi ensuite par [switchFlagCleared]. */
     private val switchPending = MutableStateFlow(false)
     private val lock = Any()
 
@@ -164,18 +169,26 @@ class PurgeFailureCounter : PurgeFailureRecorder {
             last.takeIf { count >= AccountSession.PURGE_FAILURE_THRESHOLD }
         }
 
-    /** Seuil franchi, `account.switch` laissé par un rejeu en échec : la dernière purge en échec, sinon `null`. */
+    /** Seuil franchi, `account.switch` posé : la dernière purge en échec, sinon `null`. */
     val blockedSwitch: Flow<PurgeFailure?> =
         combine(failureCount, lastFailure, switchPending) { count, last, pending ->
             last.takeIf { pending && count >= AccountSession.PURGE_FAILURE_THRESHOLD }
         }
 
+    @Suppress("TooGenericExceptionCaught") // Stockage illisible : le drapeau est tenu pour absent.
     override fun purgeFailed(failure: PurgeFailure) {
+        // Lu hors du verrou : les purges tournent hors du fil principal.
+        val pending =
+            try {
+                isSwitchPending()
+            } catch (e: Exception) {
+                Log.w(TAG, "Drapeau account.switch illisible : ${e.javaClass.simpleName}")
+                false
+            }
         synchronized(lock) {
             // Le code et le drapeau d'abord, le compteur ensuite : le seuil n'est jamais vu avec l'ancien code.
             lastFailure.value = failure
-            // Un rejeu en échec laisse toujours `account.switch`.
-            if (failure.operation == PurgeOperation.Switch) switchPending.value = true
+            switchPending.value = pending
             failureCount.update { it + 1 }
         }
         Log.w(TAG, "Purge impossible : ${failure.publicCode}")
@@ -184,13 +197,13 @@ class PurgeFailureCounter : PurgeFailureRecorder {
     override fun purgeSucceeded() = synchronized(lock) { reset() }
 
     /**
-     * `account.switch` effacé (purge d'une déconnexion ou d'une suppression, connexion achevée, rejeu) : si un rejeu en
-     * échec l'avait laissé, le compteur revient à 0. Sinon rien ne change : une déconnexion qui échoue après sa purge
-     * (laquelle efface ce drapeau à chaque essai) continue de compter.
+     * `account.switch` effacé (purge d'une déconnexion ou d'une suppression, connexion achevée, rejeu) : le bandeau
+     * disparaît, et si la dernière purge en échec était un rejeu, le compteur revient à 0. Sinon il garde sa valeur :
+     * une déconnexion qui échoue après sa purge (laquelle efface ce drapeau à chaque essai) continue de compter.
      */
     fun switchFlagCleared() =
         synchronized(lock) {
-            if (switchPending.value) reset()
+            if (lastFailure.value?.operation == PurgeOperation.Switch) reset() else switchPending.value = false
         }
 
     private fun reset() {

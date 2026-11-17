@@ -231,8 +231,9 @@ class AccountSignOut(
      * purges en échec, avec sa première étape en échec (#129) ; une réussite le remet à 0.
      */
     @Suppress("TooGenericExceptionCaught") // Toute panne locale garde le drapeau : « Réessayer ».
-    private suspend fun finish(): AccountSignOutOutcome =
-        try {
+    private suspend fun finish(): AccountSignOutOutcome {
+        var purged = false
+        return try {
             host.suspendSync()
             purgeStep(PurgeStep.Session) { gateway.signOut() }
             // Étapes attribuées dans la purge elle-même (base, catégories, préférences).
@@ -241,13 +242,12 @@ class AccountSignOut(
                 host.clearLocalState()
                 flag.clear()
             }
+            purged = true
             failures?.purgeSucceeded()
-            purgeStep(PurgeStep.Session) {
-                try {
-                    withTimeoutOrNull(timeout) { gateway.ensureSession() }
-                } catch (e: RemoteError) {
-                    Log.i(TAG, "Nouveau compte reporté : ${e.message}")
-                }
+            try {
+                withTimeoutOrNull(timeout) { gateway.ensureSession() }
+            } catch (e: RemoteError) {
+                Log.i(TAG, "Nouveau compte reporté : ${e.message}")
             }
             host.rebuild()
             Log.i(TAG, "Déconnecté")
@@ -256,9 +256,11 @@ class AccountSignOut(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Purge de la déconnexion interrompue : ${e.purgeCauseName}")
-            failures?.purgeFailed(PurgeFailure(PurgeOperation.SignOut, e.failedPurgeStep))
+            // Une panne après la purge (drapeau effacé, compteur remis à 0) n'est pas une purge en échec.
+            if (!purged) failures?.purgeFailed(PurgeFailure(PurgeOperation.SignOut, e.failedPurgeStep))
             AccountSignOutOutcome.Failed(AccountSignOutError.Unknown)
         }
+    }
 
     private companion object {
         const val TAG = "AccountSignOut"

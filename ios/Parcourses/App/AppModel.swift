@@ -53,9 +53,12 @@ final class AppModel {
 
   /// Retour au premier plan : un changement de compte encore dû (rejeu en échec, ou purge restée en attente après un
   /// code vérifié) est rejoué, puis le compte relu. Pas à l'activation du lancement : le rejeu de lancement
-  /// (`resumePendingSwitch`) s'en charge, et un second essai compterait un second échec de purge (#129).
+  /// (`resumePendingSwitch`) s'en charge, et un second essai compterait un second échec de purge (#129). Le drapeau
+  /// est consommé : une activation sans passage en arrière-plan (Centre de contrôle, alerte système) ne rejoue pas.
   func foreground() async {
-    if hasEnteredBackground, await account?.replayPendingSwitch() == true { sync?.resume() }
+    let isReturning = hasEnteredBackground
+    hasEnteredBackground = false
+    if isReturning, await account?.replayPendingSwitch() == true { sync?.resume() }
     await account?.refresh()
   }
 

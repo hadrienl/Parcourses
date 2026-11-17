@@ -40,7 +40,8 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     let sheetIsShown: Bool
     /// Audit du panneau de l'article (#110, écrans « article » et « article-… ») avec sa feuille modale à l'écran.
     let itemSheetIsShown: Bool
-    /// Alerte à l'écran (#129, alerte de la déconnexion au-delà du seuil) : l'écran reste visible sous son voile.
+    /// Alerte de la déconnexion au-delà du seuil à l'écran (#129, audits « deconnexion-aide… ») : l'écran Compte reste
+    /// visible sous son voile.
     let alertIsShown: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
@@ -51,7 +52,7 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     @MainActor
     init(_ app: XCUIApplication, name: String, modal: Bool) {
       self.modal = modal
-      alertIsShown = modal && app.alerts.firstMatch.exists
+      alertIsShown = modal && name.hasPrefix("deconnexion-aide") && app.alerts.firstMatch.exists
       itemSheetIsShown =
         modal && (name == "article" || name.hasPrefix("article-")) && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
@@ -120,9 +121,11 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       //    constat qu'en 2 quater, l'écran reste visible sous le voile de l'alerte, que la modalité rend inaccessible.
       //    Constaté sur iOS 26.5 à la taille par défaut seulement, où l'alerte laisse voir à moitié des lignes de
       //    l'écran Compte ; en AX5, l'alerte couvre l'écran et l'audit passe. Même borne : ce type, sans élément
-      //    localisé, **un** constat par écran, et seulement quand une alerte est affichée. L'alerte elle-même (titre,
-      //    message, boutons) reste auditée.
-      if screen.alertIsShown && issue.auditType == .elementDetection { return .veiledText }
+      //    localisé, **un** constat par écran, seulement sur les audits « deconnexion-aide », alerte affichée, à la
+      //    taille par défaut. L'alerte elle-même (titre, message, boutons) reste auditée.
+      if screen.alertIsShown && !screen.launchedAtLargestSize && issue.auditType == .elementDetection {
+        return .veiledText
+      }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }

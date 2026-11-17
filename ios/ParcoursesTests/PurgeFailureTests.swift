@@ -305,6 +305,22 @@ struct PurgeFailureCodeTests {
     #expect(setup.session.lastPurgeFailure == nil)
   }
 
+  /// Drapeau `account.switch` effacé sans purge alors que les échecs viennent de la déconnexion : le compteur garde sa
+  /// valeur, l'alerte de la déconnexion ne repasse pas au message d'avant le seuil (même règle qu'Android).
+  @Test func signOutFailuresKeepCountingWhenTheSwitchFlagIsClearedWithoutPurge() async throws {
+    let setup = try await makeSetup(failures: 2, switchPending: true)
+    await setup.session.refresh()
+    await setup.session.signOut()
+    await setup.session.retrySignOut()
+    #expect(setup.session.purgeFailureCount == 2)
+    #expect(setup.switchFlags.isPending)
+    await setup.gateway.setEmail(nil)
+    #expect(await setup.session.replayPendingSwitch())
+    #expect(!setup.switchFlags.isPending)
+    #expect(setup.session.purgeFailureCount == 2)
+    #expect(setup.session.lastPurgeFailure?.operation == .signOut)
+  }
+
   /// Drapeau `account.switch` effacé par la purge d'une déconnexion : le compteur repart de 0, le bandeau disparaît.
   @Test func theCounterIsResetWhenASignOutPurgeClearsTheSwitchFlag() async throws {
     let setup = try await makeSetup(failures: 3, switchPending: true)

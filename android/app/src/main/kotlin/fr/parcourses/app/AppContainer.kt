@@ -19,6 +19,7 @@ import fr.parcourses.core.data.account.ContinueWithoutAccount
 import fr.parcourses.core.data.account.DeletionGuardedGateway
 import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.account.ObservedAccountSwitchFlag
+import fr.parcourses.core.data.account.PurgeFailureCounter
 import fr.parcourses.core.data.account.PurgeStep
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
@@ -280,7 +281,10 @@ class AppContainer(
         sessionGeneration.flatMapLatest { session.engine?.waitsForSession ?: flowOf(false) }
 
     /** Compte de l'appareil pour les écrans (#87) : type, adresse, prénom, session perdue. */
-    val accountSession: AccountSession by lazy { AccountSession(gateway, accountKind, waitsForSession) }
+    val accountSession: AccountSession by lazy {
+        // Le compteur lit le vrai drapeau `account.switch` à chaque échec (#129).
+        AccountSession(gateway, accountKind, waitsForSession, PurgeFailureCounter { switchFlag.isPending })
+    }
 
     /** Une liaison par écran de connexion ; `null` sans Supabase. */
     fun newAccountLink(): AccountLink? =
@@ -551,12 +555,21 @@ class AppContainer(
 
     /**
      * « Réessayer » du bandeau « Changement de compte inachevé » (#129) : le rejeu, puis la synchronisation s'il
-     * aboutit. Le bandeau disparaît avec le compteur, remis à 0 par la réussite.
+     * aboutit. Le bandeau disparaît avec le compteur, remis à 0 par la réussite. Un second appui pendant le rejeu est
+     * ignoré : un seul geste ne compte qu'un échec.
      */
     fun retryAccountSwitch() {
-        if (gateway == null) return
-        maintenanceScope.launch { if (replayAccountSwitch()) notifySessionChange() }
+        if (gateway == null || !retryingSwitch.compareAndSet(false, true)) return
+        maintenanceScope.launch {
+            try {
+                if (replayAccountSwitch()) notifySessionChange()
+            } finally {
+                retryingSwitch.set(false)
+            }
+        }
     }
+
+    private val retryingSwitch = AtomicBoolean(false)
 
     /** Build sans Supabase : la suppression ne purge que l'appareil (§5.7). */
     val isLocalOnly: Boolean get() = config == null

@@ -164,9 +164,9 @@ final class AccountSession {
       if isPending {
         switchFlags.save()
       } else {
-        // Drapeau effacé par la connexion : plus de rejeu dû, le compteur repart de 0.
+        // Drapeau effacé par la connexion : plus de rejeu dû, le compteur des rejeux en échec repart de 0.
         switchFlags.clear()
-        self?.resetPurgeFailures()
+        self?.switchFlagCleared()
       }
     }
     link.isSwitchPending = { switchFlags.isPending }
@@ -273,8 +273,8 @@ final class AccountSession {
       recordPurgeFailure(.switch, error)
       return false
     }
-    // Drapeau effacé : plus rien à purger.
-    resetPurgeFailures()
+    // Drapeau effacé : plus rien à purger. Après une purge, `adoptAccount` a déjà remis le compteur à 0.
+    switchFlagCleared()
     return true
   }
 
@@ -308,6 +308,13 @@ final class AccountSession {
     Self.logger.error(
       "Purge en échec : \(failure.publicCode, privacy: .public), \(count, privacy: .public) d'affilée \(String(describing: error), privacy: .private)"
     )
+  }
+
+  /// `account.switch` effacé sans purge (session absente ou anonyme, connexion achevée) : si la dernière purge en échec
+  /// était un rejeu, le compteur repart de 0. Une déconnexion en échec, elle, continue de compter (même règle
+  /// qu'Android, `PurgeFailureCounter.switchFlagCleared`).
+  private func switchFlagCleared() {
+    if lastPurgeFailure?.operation == .switch { resetPurgeFailures() }
   }
 
   private func resetPurgeFailures() {
