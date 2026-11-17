@@ -42,7 +42,7 @@ perles déplacées, dont sans `onPlaced` de la gouttière et sans rappel de la s
 - `onPlaced` (qui lit `positionInRoot`), `onGloballyPositioned` et `onLayoutRectChanged(0, 0)` : 0,00 dp d'écart sur
   les marqueurs, dans toutes les images du tri, des départs et des deux défilements. Aucun retard d'une image : la
   valeur écrite pendant la mise en page est celle que lit le dessin de la même image. Aucun trou aux pixels.
-- `onLayoutRectChanged` par défaut (rebond de 64 ms) : inutilisable, valeurs reçues trop tard.
+- `onLayoutRectChanged` par défaut (anti-rebond de 64 ms) : inutilisable, valeurs reçues trop tard.
 - Coordonnées lues au dessin, sans état : exactes, mais le `drawBehind` n'est jamais redessiné pendant un défilement
   (0 dessin sur 66 et 100 images), d'où un trait figé jusqu'à 576 dp à côté de sa perle.
 - `onPlaced` d'une gouttière n'est pas rappelé quand seul l'élément parent est replacé, sauf si son rappel lit les

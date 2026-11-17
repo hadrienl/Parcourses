@@ -32,4 +32,4 @@ Les couleurs franches permettent de lire chaque image de l'enregistrement :
 - l'écart entre les bouts du trait et les perles extrêmes : un trait qui dépasse ou une perle hors du trait ;
 - le plus grand trou.
 
-Les résultats sont dans le compte rendu de la PR et au §7 de `docs/design/115-fil-immobile.md`.
+Les résultats sont dans le compte rendu de la PR et au §9 de `docs/design/115-fil-immobile.md`.

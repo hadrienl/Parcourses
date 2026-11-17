@@ -41,7 +41,6 @@ struct TrackLab: View {
   @State private var items: [Item]
   @State private var phase: Phase = .idle
   @State private var shown: TrackEnds?
-  @State private var rolesKey: [Int?] = []
   @State private var delayBottom = false
 
   init(scenario: String, trackMode: String, listAnimated: Bool, followResponse: Double) {
@@ -81,26 +80,14 @@ struct TrackLab: View {
       }
     }
     .onChange(of: TrackEnds.resolve(items: items, model: model), initial: true) { _, target in
+      // Mode « follow » : les départs ont été posés par `step` avant la mutation ; ici, on anime vers les positions
+      // finales avec un ressort calé sur celui des cellules d'UIKit.
       guard trackMode == "follow", let target else { return }
-      let roles = ThreadRoles(items)
-      let key = [roles.first, roles.next, roles.last]
-      if key != rolesKey {
-        // Rôles changés, positions encore anciennes : le bout part de la perle qui prend le rôle.
-        if let oldLast = rolesKey.last ?? nil, !items.contains(where: { $0.id == oldLast }) { delayBottom = true }
-        rolesKey = key
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-          if delayBottom, let shown { self.shown = TrackEnds(top: target.top, junction: target.junction, bottom: shown.bottom) }
-          else { shown = target }
-        }
-        return
-      }
-      let spring = Animation.spring(response: followResponse, dampingFraction: 1)
-      guard model.animated else {
+      guard model.animated, shown != nil else {
         shown = target
         return
       }
+      let spring = Animation.spring(response: followResponse, dampingFraction: 1)
       if delayBottom, let current = shown {
         // La dernière perle part en fondu : le trait ne se raccourcit qu'après.
         delayBottom = false
@@ -120,10 +107,33 @@ struct TrackLab: View {
     .task { await run() }
   }
 
-  private func step(_ next: Phase, animated: Bool = true, _ change: () -> Void) async {
+  private func step(_ next: Phase, animated: Bool = true, _ change: (inout [Item]) -> Void) async {
     phase = next
     model.animated = animated
-    change()
+    var newItems = items
+    change(&newItems)
+    if trackMode == "follow", let current = shown {
+      // Relevé avant la mutation : nouveaux rôles, positions encore anciennes. Seuls les bouts dont le porteur
+      // change repartent de l'ancienne place de leur nouvelle perle ; les autres gardent leur valeur affichée.
+      let old = ThreadRoles(items)
+      let new = ThreadRoles(newItems)
+      if let start = TrackEnds.resolve(items: newItems, model: model) {
+        let lastLeaves = old.last.map { id in !newItems.contains { $0.id == id } } ?? false
+        delayBottom = lastLeaves
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+          shown = TrackEnds(
+            top: new.first == old.first ? current.top : start.top,
+            junction: new.next == old.next ? current.junction : start.junction,
+            bottom: new.last == old.last || lastLeaves ? current.bottom : start.bottom)
+        }
+        // Une image entre les deux : sinon la transaction sans animation s'applique aussi à la `List`, qui ne
+        // glisse plus (constaté au passage 5, où « follow » mesurait en fait une liste sans animation).
+        try? await Task.sleep(for: .milliseconds(20))
+      }
+    }
+    items = newItems
     try? await Task.sleep(for: .seconds(1.6))
     model.animated = false
     try? await Task.sleep(for: .seconds(0.4))
@@ -137,26 +147,24 @@ struct TrackLab: View {
       await fling(.flingSlow, velocity: 2500)
     } else {
       let original = items
-      await step(.sort) {
+      await step(.sort) { order in
         // Le dernier remonte, le prochain descend, un autre devient dernier.
-        var order = items
         let last = order.removeLast()
         order.insert(last, at: 4)
         let next = order.remove(at: 2)
         order.insert(next, at: 8)
         let fifth = order.remove(at: 5)
         order.append(fifth)
-        items = order
       }
-      await step(.sortBack) { items = original }
-      await step(.departFirst) { items.removeFirst() }
-      await step(.departLast) { items.removeLast() }
-      await step(.check) {
-        if let index = items.firstIndex(where: { !$0.checked }) { items[index].checked = true }
+      await step(.sortBack) { $0 = original }
+      await step(.departFirst) { $0.removeFirst() }
+      await step(.departLast) { $0.removeLast() }
+      await step(.check) { order in
+        if let index = order.firstIndex(where: { !$0.checked }) { order[index].checked = true }
       }
-      await step(.insert) {
-        items.insert(Item(id: 100), at: 2)
-        items.append(Item(id: 101))
+      await step(.insert) { order in
+        order.insert(Item(id: 100), at: 2)
+        order.append(Item(id: 101))
       }
     }
     phase = .done

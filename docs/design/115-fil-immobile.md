@@ -298,7 +298,8 @@ Option **B** retenue, avec la recommandation sur les six questions posées.
    marqueur change ; il ne se déplace jamais.
 
 Suite : lot 0 (prototypes) sur la branche `proto/115-lot0`, avec le critère de repli du §7 (7 pt) pour iOS.
-Résultat au §9 : Android garde B ; iOS passe en A (trait unique, liste sans animation).
+Résultat au §9 : Android garde B ; iOS passe en A′ (trait unique de B, liste sans animation) ; D1 ne vaut que sur
+Android.
 
 ## 9. Résultats du lot 0 (2026-11-17)
 
@@ -314,7 +315,7 @@ départs, `scrollBy` et `animateScrollBy` rapides.
 | `onLayoutRectChanged(0, 0)` | 0,00 dp | aucun | aucun |
 | `onGloballyPositioned` | 0,00 dp | aucun | aucun |
 | `onPlaced` | 0,00 dp, mais par effet de bord (lecture de `positionInRoot()` au placement) | aucun | aucun |
-| `onLayoutRectChanged` réglages par défaut (rebond 64 ms) | > 1 000 dp | — | oui |
+| `onLayoutRectChanged` réglages par défaut (anti-rebond de 64 ms) | > 1 000 dp | — | oui |
 | Coordonnées lues au dessin, sans état | 576 dp au défilement (trait jamais redessiné) | — | — |
 
 Conséquences pour le lot 1 :
@@ -325,32 +326,52 @@ Conséquences pour le lot 1 :
 - quand un rôle change de ligne sans mouvement, la position est republiée par l'affectation des rôles ;
 - le bout bas ne se raccourcit qu'après `TicketMotion.fade` quand la dernière perle part (une ligne qui part n'est
   plus joignable pendant son fondu) ;
-- clés préfixées par section, vérifiées : la ligne sort et entre en fondu au lieu de glisser de 210 dp.
+- clés préfixées par section, vérifiées : la ligne sort et entre en fondu au lieu de glisser (trajet de 224 dp avec
+  la clé partagée).
 
-### 9.2 iOS : B hors seuil, **A retenu**
+Portée de la mesure : la référence est la position de mise en page de la gouttière (`positionInRoot`, calques
+compris) ; les pixels ne vérifient que le trait. Le 0 dp prouve que le trait est dessiné dans la même image que la
+mise en page, sous Robolectric. Le lot 1 ajoute une vérification sur appareil (enregistrement d'écran).
 
-Banc : `List` de 12 lignes (tri, départ de la première et de la dernière, coche, insertion) et de 40 lignes (lancers
-pilotés image par image), simulateur iPhone 17 Pro sous iOS 26.5, enregistrement d'écran analysé aux pixels.
+### 9.2 iOS : B hors seuil, **A′ retenu** (trait unique, liste sans animation)
 
-| Situation | B (bouts animés vers la position finale) | B compensé | A (liste sans animation) |
+Banc : `List` de 12 lignes (tri, tri inverse, départ de la première puis de la dernière ligne, coche, insertion) et
+de 40 lignes (lancers pilotés image par image), simulateur iPhone 17 Pro sous iOS 26.5, enregistrement d'écran
+analysé aux pixels par `analyze.py`. Écart maximal entre un bout (ou la jonction) et la perle qui porte son rôle, et
+entre les bouts et les perles extrêmes (trait qui dépasse, perle hors du trait).
+
+| Phase | B : bouts animés vers la position finale (`Motion.reorder`) | B compensé (« follow ») | A′ : liste sans animation |
 | --- | --- | --- | --- |
 | Repos | ≤ 0,5 pt | ≤ 0,5 pt | ≤ 0,3 pt |
-| Lancer rapide (défilement) | ≤ 0,5 pt, sans retard | — | ≤ 0,5 pt |
-| Départ de la première ligne (rôles stables) | jonction 10 à 17 pt derrière sa perle | 56 pt | une seule image, ≤ 0,3 pt |
-| Tri qui change la dernière ligne | trait qui dépasse la dernière perle de 111 pt pendant ~0,25 s ; jonction à 88–145 pt de la perle suivante | idem | une seule image, ≤ 0,3 pt |
+| Lancer rapide | ≤ 0,5 pt, sans retard | — | identique : le défilement n'emprunte aucune animation de liste |
+| Départ de la première ligne (rôles stables) | jonction à 16,5 pt | jonction à 56 pt | une image, ≤ 0,3 pt |
+| Tri (la dernière ligne remonte, la suivante descend) | jonction à 113 pt, bout bas à 128 pt ; le trait dépasse la dernière perle de 111 pt | bout bas à 336 pt | une image, ≤ 0,3 pt |
+| Tri inverse | bout bas à 169 pt ; dépassement de 111 pt | bout bas à 448 pt | une image, ≤ 0,3 pt |
+| Insertion | jonction à 23 pt, bout bas à 50 pt | jonction à 615 pt (perle insérée sans position connue) | une image, ≤ 0,3 pt |
 
-Causes, toutes deux hors de notre portée :
-1. `onGeometryChange` donne la position **finale** dès le début d'une mise à jour de la `List` ; les cellules, elles,
-   sont animées par UIKit (Core Animation). Quand un rôle (suivante, dernière) change de ligne, le bout se pose à
-   l'arrivée pendant que sa perle part encore de l'ancienne place. La compensation (« départ sur l'ancienne
-   position ») échoue : la géométrie est déjà à jour quand le changement de rôle est observé.
-2. UIKit n'applique pas `Motion.reorder` aux cellules de `List` : leur courbe mesurée correspond à un ressort critique
-   d'environ 0,3 s, contre 0,4 s ; avec l'image de retard du rendu SwiftUI, l'écart culmine à 10–17 pt.
+A′ est vérifié image par image : l'enregistrement ne compte qu'une image par changement (86 images en tout), sans
+image intermédiaire où le trait et les perles divergeraient. Les mesures ont été faites au simulateur (60 Hz) : un
+appareil à 120 Hz réduirait le retard d'une image, pas les écarts dus aux changements de rôle.
+
+Constats :
+1. `onGeometryChange` donne la position **finale** dès la mise à jour de la `List` ; les cellules, elles, sont
+   animées par UIKit (Core Animation). Quand un rôle (suivante, dernière) change de ligne, le bout se pose sur
+   l'arrivée pendant que sa perle part encore de l'ancienne place.
+2. UIKit n'applique pas `Motion.reorder` aux cellules de `List` : sur le départ de la première ligne, la perle suit
+   un ressort critique d'environ 0,3 s (ajusté à la main sur la série image par image), contre 0,4 s.
+3. Compensation essayée : relever l'ancienne position du nouveau porteur de rôle **avant** de changer la liste, puis
+   animer avec un ressort de 0,3 s (et 0,35 s). Elle n'a pas tenu le seuil (tableau) ; la cause exacte de ce second
+   échec n'est pas établie. Piège trouvé en route : une transaction sans animation posée dans la même mise à jour que
+   le changement de liste coupe aussi l'animation de la `List`.
+4. Non essayé : remplacer `List` par `ScrollView` + `LazyVStack`, où lignes et trait partageraient la même animation
+   SwiftUI. C'est l'option C du §4, écartée pour son coût (comportements natifs de liste, audits à reprendre).
 
 Le défilement, lui, est exact (`onGeometryChange` est synchrone avec le défilement) : le trait unique de B est donc
-gardé sur iOS, **sans animation de la liste**. Critère du §7 dépassé : **iOS passe en A** (décision du coordinateur,
-2026-11-17), Android garde B. Écart à noter dans `SYNC.md` : sur iOS, tri, départ et insertion se font sans
-glissement (perles et lignes changent de place d'un coup) ; la coche reste animée sur place.
+gardé sur iOS, **sans animation de la liste**. Ce n'est pas l'option A du §4 (morceaux de fil par ligne) mais
+**A′** : `ThreadTrack`, `ThreadGutter` et `RowLane` comme en B, tri, départ et insertion sans glissement. Critère
+du §7 dépassé : **iOS passe en A′** (décision du coordinateur, 2026-11-17) ; Android garde B. D1 (« les perles
+glissent le long du trait ») ne vaut donc que sur Android. Écart à noter dans `SYNC.md` aux lots 1 et 2 : sur iOS,
+lignes et perles changent de place d'un coup ; la coche reste animée sur place.
 
 ### 9.3 Gestes iOS (banc `LaneLab`, tests XCUITest verts)
 
@@ -359,7 +380,8 @@ glissement (perles et lignes changent de place d'un coup) ; la coche reste anim�
   regroupé. Correction trouvée : le **glisser complet** se décide sur la distance réelle (60 % du couloir), seule
   l'ouverture tient compte de la vitesse ; sinon un geste vif supprime au lieu d'ouvrir.
 - Couloir rogné au bord de la gouttière, perle et trait intacts, en LTR comme en RTL (`.offset` et les formes
-  suivent le sens d'écriture ; le pan convertit la translation en sens logique).
+  suivent le sens d'écriture ; le pan convertit la translation en sens logique). Vérifié sur capture ; le test RTL
+  n'affirme que l'ouverture de la ligne.
 - Défilement vertical et geste retour du bord d'écran : non gênés.
 - `contextMenu` sur le couloir : l'aperçu soulevé est le couloir seul, mais le système le **resserre et le place à
   16 pt du bord d'écran** ; la carte recouvre la gouttière de la ligne soulevée (perle cachée le temps du menu). Le fil

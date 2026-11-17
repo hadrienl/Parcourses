@@ -12,6 +12,7 @@ import json
 import subprocess
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 PAPER = (250, 250, 250)
 COLORS = {
@@ -47,10 +48,19 @@ def nearest(rgb, table, limit=90):
     return best if dist <= limit else None
 
 
+def video_path(argument):
+    """Chemin validé : fichier existant, extension vidéo attendue, absolu (jamais pris pour une option d'ffmpeg)."""
+    path = Path(argument).resolve(strict=True)
+    if not path.is_file() or path.suffix.lower() not in (".mov", ".mp4"):
+        sys.exit(f"vidéo attendue (.mov ou .mp4) : {argument}")
+    return path
+
+
 def probe(video):
+    # `file:` : protocole explicite, le chemin ne peut pas être lu comme une option ni comme un autre protocole.
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height",
-         "-of", "json", video], capture_output=True, check=True, text=True).stdout
+         "-of", "json", "--", f"file:{video}"], capture_output=True, check=True, text=True, shell=False).stdout
     s = json.loads(out)["streams"][0]
     return s["width"], s["height"]
 
@@ -59,9 +69,9 @@ def column_frames(video, x, height):
     """Rend la colonne x de chaque image (une image enregistrée = une image lue, sans rééchantillonnage)."""
     # Largeur et abscisse paires : le H.264 sous-échantillonne la chrominance par 2.
     x -= x % 2
-    cmd = ["ffmpeg", "-v", "error", "-i", video, "-fps_mode", "passthrough",
+    cmd = ["ffmpeg", "-v", "error", "-i", f"file:{video}", "-fps_mode", "passthrough",
            "-vf", f"crop=2:{height}:{x}:0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
-    data = subprocess.run(cmd, capture_output=True, check=True).stdout
+    data = subprocess.run(cmd, capture_output=True, check=True, shell=False).stdout
     size = height * 6
     # On garde le premier des deux pixels de chaque ligne.
     return [b"".join(data[i + y * 6:i + y * 6 + 3] for y in range(height)) for i in range(0, len(data), size)]
@@ -144,7 +154,7 @@ def gaps(track_runs, scale):
 
 
 def main():
-    video = sys.argv[1]
+    video = video_path(sys.argv[1])
     scale = float(sys.argv[sys.argv.index("--scale") + 1]) if "--scale" in sys.argv else 3.0
     width, height = probe(video)
     track = column_frames(video, int(14 * scale), height)
