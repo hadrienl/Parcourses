@@ -254,7 +254,10 @@ struct ItemLine: View {
       }
       .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1, anchor: .leading)
       .opacity(isPressed ? 0.85 : 1)
-      .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isPressed)
+      // Enfoncement retardé de 0,1 s, comme le surlignage d'une cellule UIKit : un glisser qui démarre ne fait pas
+      // d'abord s'enfoncer puis ressortir la ligne (#115). Le relâcher, lui, est immédiat.
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: 0.15).delay(isPressed ? 0.1 : 0), value: isPressed)
       if let authorMark { AuthorMark(initial: authorMark) }
     }
     .padding(.vertical, Space.xs)

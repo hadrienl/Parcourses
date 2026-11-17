@@ -269,7 +269,8 @@ struct ListDetailView: View {
   private func editableRow(_ row: ItemRow, threadId: String) -> some View {
     let pressed = pressedRow == row.id
     let delete = LaneAction(
-      title: "Supprimer", systemImage: "trash", tint: Palette.deleteSwipe, allowsFullSwipe: false
+      title: "Supprimer", systemImage: "trash", tint: Self.deleteTint.fill, foreground: Self.deleteTint.icon,
+      allowsFullSwipe: false
     ) { self.delete(row) }
     return ThreadRow(id: threadId) {
       // Préparation : rien n'est parcouru, la case seule porte l'état coché.
@@ -315,6 +316,16 @@ struct ListDetailView: View {
     }
     .threadLineRow()
     .sensoryFeedback(.success, trigger: row.isChecked) { _, checked in checked }
+  }
+
+  /// Teinte du glisser « Supprimer », celle du `.swipeActions` natif de Mes listes : l'accent de l'app sur iOS 26 (le
+  /// pictogramme prend `onAccent`, le blanc ne tient que 2,3:1 sur l'accent sombre) ; le rouge sur iOS 18.
+  private static var deleteTint: (fill: Color, icon: Color) {
+    if #available(iOS 26, *) {
+      (Palette.accent, Palette.onAccent)
+    } else {
+      (Palette.deleteSwipe, .white)
+    }
   }
 
   /// Suppression sans animation de la liste (option A′, #115) : la ligne part d'un coup, le trait reste exact.

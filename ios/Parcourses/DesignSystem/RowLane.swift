@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 // Couloir d'une ligne du ticket (#115, `docs/design/115-fil-immobile.md` §6.2) : seule partie de la ligne qui glisse
 // ou s'enfonce. Le glisser maison remplace `.swipeActions`, qui décalait toute la cellule, fil compris, et dont le
@@ -16,14 +17,27 @@ enum LaneMotion {
   static func settle(reduced: Bool) -> Animation {
     reduced ? .easeOut(duration: 0.2) : .spring(response: 0.3, dampingFraction: 0.86)
   }
+
+  /// Relâcher : le ressort part à la vitesse du doigt, exprimée en part de la distance restante par seconde, pour que
+  /// le couloir finisse le mouvement sans marquer d'arrêt. Sans rebond quand les animations sont réduites.
+  static func release(velocity: CGFloat, from current: CGFloat, to target: CGFloat, reduced: Bool) -> Animation {
+    let distance = target - current
+    let initial = abs(distance) < 1 ? 0 : min(max(velocity / distance, -20), 20)
+    return .interpolatingSpring(duration: 0.35, bounce: reduced ? 0 : 0.1, initialVelocity: Double(initial))
+  }
+
+  /// Pan immobile depuis ce délai : il échoue, et laisse la main au toucher, à l'appui long et au menu.
+  static let stillPanTimeout: Duration = .milliseconds(200)
 }
 
 /// Action révélée par le glisser du couloir.
 struct LaneAction {
   let title: String
   let systemImage: String
-  /// Fond du bouton, sous un libellé blanc (4,5:1 au moins).
+  /// Fond du bouton (capsule sur iOS 26, rectangle sur iOS 18).
   let tint: Color
+  /// Pictogramme, et libellé sur iOS 18, posés sur `tint` : 4,5:1 au moins.
+  var foreground: Color = .white
   /// Glisser complet : l'action part au relâcher, au-delà de `LaneMotion.fullSwipeShare` du couloir.
   let allowsFullSwipe: Bool
   let perform: () -> Void
@@ -46,6 +60,9 @@ struct RowLane<Content: View>: View {
   @State private var drag: CGFloat = 0
   @State private var laneWidth: CGFloat = 0
   @State private var pastFullSwipe = false
+  /// État lu en direct par le délégué du pan : une copie faite à la mise à jour de la vue pouvait être en retard, et
+  /// le geste retour emportait alors l'écran au lieu de refermer la ligne.
+  @State private var panState = LanePanState()
   /// Largeur du bouton ouvert : grandit avec le texte, sans dépasser la moitié du couloir.
   @ScaledMetric(relativeTo: .subheadline) private var scaledActionWidth: CGFloat = 88
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -66,9 +83,10 @@ struct RowLane<Content: View>: View {
       .clipped()
       .gesture(
         LanePan(
-          isEnabled: action != nil && injectedOffset == nil, isOpen: openId == id, onChange: changed, onEnd: ended,
+          isEnabled: action != nil && injectedOffset == nil, state: panState, onChange: changed, onEnd: ended,
           onCancel: cancelled)
       )
+      .onChange(of: openId == id, initial: true) { _, open in panState.isOpen = open }
       .onGeometryChange(for: CGFloat.self) {
         $0.size.width
       } action: {
@@ -98,30 +116,74 @@ struct RowLane<Content: View>: View {
     return -(actionWidth + (distance - actionWidth) * 0.3)
   }
 
+  /// Bouton révélé, à la forme du `.swipeActions` natif de la version d'iOS : capsule sur iOS 26, rectangle plein
+  /// hauteur sur iOS 18. Il occupe exactement la place découverte et se rétracte avec elle.
   private func actionButton(_ action: LaneAction, revealed: CGFloat) -> some View {
     Button {
       perform(action)
     } label: {
-      VStack(spacing: 2) {
-        Image(systemName: action.systemImage).font(.body.weight(.semibold))
-        Text(action.title)
-          .font(.subheadline.weight(.semibold))
-          .lineLimit(2)
-          .minimumScaleFactor(0.6)
+      Group {
+        if #available(iOS 26, *) {
+          capsuleLabel(action, revealed: revealed)
+        } else {
+          rectangleLabel(action, revealed: revealed)
+        }
       }
-      .multilineTextAlignment(.center)
-      .foregroundStyle(.white)
-      .padding(.horizontal, Space.xs / 2)
-      // Le libellé reste contre le contenu ; le fond remplit tout l'espace découvert (glisser complet).
-      .frame(width: actionWidth)
-      .frame(width: revealed, alignment: .leading)
+      .frame(width: revealed)
       .frame(maxHeight: .infinity)
-      .background(action.tint)
       .clipped()
       .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
     .accessibilityLabel(action.title)
+  }
+
+  /// iOS 26 : capsule de 34 pt de haut, à 11 pt des bords de la place découverte, pictogramme seul dedans et libellé
+  /// dessous, en texte secondaire (relevé sur `ListsView`). Elle naît d'une pastille, s'allonge au glisser complet,
+  /// pictogramme contre le contenu, sans libellé.
+  private func capsuleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
+    let margin: CGFloat = 11
+    let width = max(0, revealed - margin * 2)
+    let height = min(34, width)
+    return VStack(spacing: 4) {
+      Capsule()
+        .fill(action.tint)
+        .frame(width: width, height: height)
+        .overlay(alignment: pastFullSwipe ? .leading : .center) {
+          Image(systemName: action.systemImage)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(action.foreground)
+            .padding(.horizontal, 14)
+            .opacity(width >= 28 ? 1 : 0)
+        }
+      Text(action.title)
+        .font(.footnote)
+        .foregroundStyle(Palette.inkMuted)
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .fixedSize()
+        .opacity(width >= 48 && !pastFullSwipe ? 1 : 0)
+    }
+  }
+
+  /// iOS 18 : rectangle plein hauteur, pictogramme et libellé blancs. Le libellé reste centré tant que le bouton
+  /// s'ouvre, puis contre le contenu quand il s'étire.
+  private func rectangleLabel(_ action: LaneAction, revealed: CGFloat) -> some View {
+    VStack(spacing: 2) {
+      Image(systemName: action.systemImage).font(.body.weight(.semibold))
+      Text(action.title)
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(2)
+        .minimumScaleFactor(0.6)
+    }
+    .multilineTextAlignment(.center)
+    .foregroundStyle(action.foreground)
+    .padding(.horizontal, Space.xs / 2)
+    .frame(width: actionWidth)
+    .frame(width: revealed, alignment: revealed > actionWidth ? .leading : .center)
+    .frame(maxHeight: .infinity)
+    .background(action.tint)
   }
 
   private var settle: Animation {
@@ -131,16 +193,21 @@ struct RowLane<Content: View>: View {
   private func changed(_ translation: CGFloat) {
     // Une seule ligne ouverte : glisser une autre ligne referme la première.
     if let open = openId, open != id { withAnimation(settle) { openId = nil } }
-    drag = translation
+    // Le couloir suit le doigt, sans animation : rien ne doit s'interposer entre le doigt et la ligne.
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    withTransaction(transaction) { drag = translation }
     guard let action else { return }
     pastFullSwipe = action.allowsFullSwipe && laneWidth > 0 && -rawOffset > laneWidth * LaneMotion.fullSwipeShare
   }
 
-  /// Ouverture : distance projetée par la vitesse (`swipeLeft()` d'XCUITest est court et rapide). Glisser complet :
-  /// distance réelle.
+  /// Ouverture : distance projetée par la vitesse (`swipeLeft()` d'XCUITest est court et rapide), et sens du geste :
+  /// un relâcher vif vers la fin de ligne ferme, vers la gouttière ouvre. Glisser complet : distance réelle. Le ressort
+  /// part de la position affichée, à la vitesse du doigt.
   private func ended(_ velocity: CGFloat) {
     // Distance relevée avant de remettre le glisser à zéro, quoi qu'il arrive ensuite.
     let offset = rawOffset
+    let shown = currentOffset
     pastFullSwipe = false
     guard let action else {
       drag = 0
@@ -151,9 +218,12 @@ struct RowLane<Content: View>: View {
       return
     }
     let projected = -(offset + velocity * 0.15)
-    withAnimation(settle) {
+    let opens = abs(velocity) > 300 ? velocity < 0 : projected > actionWidth / 2
+    let target: CGFloat = opens ? -actionWidth : 0
+    let animation = LaneMotion.release(velocity: velocity, from: shown, to: target, reduced: reduceMotion)
+    withAnimation(animation) {
       drag = 0
-      if projected > actionWidth / 2 {
+      if opens {
         openId = id
       } else if openId == id {
         openId = nil
@@ -196,38 +266,66 @@ struct LanePressStyle: ButtonStyle {
   }
 }
 
+/// État du couloir partagé avec le délégué du pan, lu au moment où UIKit le consulte.
+final class LanePanState {
+  /// La ligne de ce couloir est ouverte.
+  var isOpen = false
+}
+
+/// Pan qui échoue s'il n'a pas démarré après `LaneMotion.stillPanTimeout` : un doigt posé sans glisser ne le garde pas
+/// en attente jusqu'au relâcher. Sans cela, ce qui attend son échec (appui long, menu contextuel, toucher) ne se
+/// décidait qu'au relâcher : le menu s'ouvrait alors, et l'article était coché du même coup.
+final class LanePanRecognizer: UIPanGestureRecognizer {
+  private var touchGeneration = 0
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesBegan(touches, with: event)
+    touchGeneration += 1
+    let generation = touchGeneration
+    Task { [weak self] in
+      try? await Task.sleep(for: LaneMotion.stillPanTimeout)
+      guard let self, self.touchGeneration == generation, self.state == .possible else { return }
+      self.state = .failed
+    }
+  }
+
+  override func reset() {
+    super.reset()
+    touchGeneration += 1
+  }
+}
+
 /// Pan horizontal du couloir : il ne démarre que si le geste part d'abord à l'horizontale, hors des 24 pt du bord
 /// d'écran. Il ne gêne ni le défilement de la liste, ni le toucher, ni l'appui long. Ligne fermée, il refuse un
 /// mouvement vers la fin de ligne et cède au geste retour (bord d'écran, et plein écran sur iOS 26) ; ligne ouverte,
 /// c'est le geste retour qui l'attend : un glisser vers la fin de ligne referme la ligne sans quitter l'écran.
 private struct LanePan: UIGestureRecognizerRepresentable {
   let isEnabled: Bool
-  /// La ligne de ce couloir est ouverte.
-  let isOpen: Bool
+  let state: LanePanState
   let onChange: (CGFloat) -> Void
   /// Relâcher : vitesse logique.
   let onEnd: (CGFloat) -> Void
   let onCancel: () -> Void
   @Environment(\.layoutDirection) private var direction
 
-  func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-    let pan = UIPanGestureRecognizer()
+  func makeUIGestureRecognizer(context: Context) -> LanePanRecognizer {
+    let pan = LanePanRecognizer()
     pan.delegate = context.coordinator
     configure(pan, context.coordinator)
     return pan
   }
 
-  func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+  func updateUIGestureRecognizer(_ recognizer: LanePanRecognizer, context: Context) {
     configure(recognizer, context.coordinator)
   }
 
-  private func configure(_ recognizer: UIPanGestureRecognizer, _ coordinator: Coordinator) {
+  private func configure(_ recognizer: LanePanRecognizer, _ coordinator: Coordinator) {
     recognizer.isEnabled = isEnabled
-    coordinator.isOpen = isOpen
+    coordinator.state = state
     coordinator.sign = direction == .rightToLeft ? -1 : 1
   }
 
-  func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+  func handleUIGestureRecognizerAction(_ recognizer: LanePanRecognizer, context: Context) {
     // Décalage logique : négatif vers le début de ligne (côté gouttière), quel que soit le sens d'écriture.
     let sign: CGFloat = direction == .rightToLeft ? -1 : 1
     let translation = recognizer.translation(in: recognizer.view).x * sign
@@ -243,7 +341,8 @@ private struct LanePan: UIGestureRecognizerRepresentable {
   func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
 
   final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-    var isOpen = false
+    var state = LanePanState()
+    private var isOpen: Bool { state.isOpen }
     /// -1 en écriture de droite à gauche : la fin de ligne est à gauche.
     var sign: CGFloat = 1
 
@@ -262,8 +361,10 @@ private struct LanePan: UIGestureRecognizerRepresentable {
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer
     ) -> Bool {
-      if other is UIScreenEdgePanGestureRecognizer { return true }
-      return !isOpen && other === Self.contentPopGesture(near: gesture.view)
+      // Le geste retour plein écran d'abord : s'il est aussi un geste de bord, la règle du bord le ferait toujours
+      // passer devant, même ligne ouverte.
+      if other === Self.contentPopGesture(near: gesture.view) { return !isOpen }
+      return other is UIScreenEdgePanGestureRecognizer
     }
 
     func gestureRecognizer(
