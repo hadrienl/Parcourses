@@ -115,7 +115,14 @@ class ReviewSignInGatewayTest {
             assertEquals(500, internal.status)
             assertEquals("internal", internal.code)
 
-            assertEquals(anonymous.toString(), harness.store.read().session?.user?.id)
+            assertEquals(
+                anonymous.toString(),
+                harness.store
+                    .read()
+                    .session
+                    ?.user
+                    ?.id,
+            )
             assertEquals(anonymous, gateway.currentAccountId())
         }
 

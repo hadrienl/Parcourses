@@ -382,6 +382,7 @@ class AccountLink(
         val outcome =
             when (purpose) {
                 EmailCodePurpose.Link -> AccountLinkOutcome.Linked
+
                 // Compte de revue (#149) : connexion à un compte existant.
                 EmailCodePurpose.SignIn, EmailCodePurpose.Review -> AccountLinkOutcome.SignedIn(name, added ?: 0)
             }

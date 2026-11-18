@@ -123,13 +123,13 @@ select is((select status from public.review_sign_in_attempt('revue@test.local', 
           'un échec reste compté au-delà des accords');
 
 -- 5. Verrou : au 100ᵉ échec depuis la remise à zéro, plus rien ne passe.
-delete from accounts.review_sign_in_log;
+delete from accounts.review_sign_in_log where id is not null;
 update accounts.review_access set failures_since_reset = 98 where id;
 select is((select status from public.review_sign_in_attempt('revue@test.local', false)), 'rejected', '99ᵉ échec');
 select ok((select locked_at is null from accounts.review_access), 'pas encore verrouillé');
 select is((select status from public.review_sign_in_attempt('revue@test.local', false)), 'rejected', '100ᵉ échec');
 select ok((select locked_at is not null from accounts.review_access), 'verrouillé');
-delete from accounts.review_sign_in_log;
+delete from accounts.review_sign_in_log where id is not null;
 select is((select status from public.review_sign_in_attempt('revue@test.local', true)), 'locked',
           'verrouillé : bon code refusé, même hors plafond');
 

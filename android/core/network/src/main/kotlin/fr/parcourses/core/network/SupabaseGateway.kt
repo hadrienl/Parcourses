@@ -240,21 +240,10 @@ class SupabaseGateway internal constructor(
                 // `currentAccessTokenOrNull` ne regarde pas l'échéance (supabase-kt 3.8) : un jeton bientôt expiré est
                 // d'abord rafraîchi, pour que `deleteAccount` le reçoive valable.
                 val previousToken = if (previous?.isAnonymous == true) keptAnonymousToken() else null
-                val type =
-                    when (purpose) {
-                        EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
-                        EmailCodePurpose.SignIn -> OtpType.Email.EMAIL
-                        // Compte de revue des stores (#149) : code fixe vérifié par `review-sign-in`, pas par GoTrue.
-                        EmailCodePurpose.Review -> null
-                    }
                 // La session ouverte par le code est importée par le SDK, puis enregistrée chiffrée. Pas de garde du
                 // dernier compte : un autre compte est attendu après `SignIn` et `Review`, la synchronisation le
                 // reprendra.
-                if (type == null) {
-                    reviewSignIn(email, code)
-                } else {
-                    authRequest { auth.verifyEmailOtp(type = type, email = email, token = code) }
-                }
+                openCodeSession(email, code, purpose)
                 if (auth.currentSessionOrNull() == null) throw RemoteError.Unauthorized()
                 val id = userId()
                 VerifiedCode(id, previousToken.takeIf { previous?.id != id.toString() })
@@ -336,6 +325,24 @@ class SupabaseGateway internal constructor(
         } catch (_: Exception) {
             null
         }
+
+    /** Session du code saisi : vérifié par GoTrue, ou par `review-sign-in` pour le compte de revue (#149). */
+    private suspend fun openCodeSession(
+        email: String,
+        code: String,
+        purpose: EmailCodePurpose,
+    ) {
+        val type =
+            when (purpose) {
+                EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
+
+                EmailCodePurpose.SignIn -> OtpType.Email.EMAIL
+
+                // Compte de revue des stores (#149) : code fixe vérifié par `review-sign-in`, pas par GoTrue.
+                EmailCodePurpose.Review -> return reviewSignIn(email, code)
+            }
+        authRequest { auth.verifyEmailOtp(type = type, email = email, token = code) }
+    }
 
     /**
      * Compte de revue des stores (#149) : l'Edge Function `review-sign-in` vérifie le code fixe et renvoie une session.
