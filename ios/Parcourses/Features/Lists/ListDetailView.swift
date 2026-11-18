@@ -1,6 +1,5 @@
 import SwiftUI
 import TipKit
-import UIKit
 
 /// Une ligne du ticket de l'écran Liste : le nœud d'un rayon, ou un article.
 private enum ListLine: Identifiable {
@@ -36,11 +35,10 @@ struct ListDetailView: View {
   @State private var editing: ItemEditTarget?
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
-  /// Retour de l'appui long, au plus près du « tic » bref et net du menu de « Mes listes » (le générateur du menu natif
-  /// est privé) : un choc rigide à pleine intensité, préparé dès que le doigt se pose et joué au déclenchement, avant
-  /// la feuille. Essais sur iPhone (#115) : `.medium` trop faible, `.heavy` plus fort mais sourd. Seule haptique de
-  /// l'appui long : la coche et le balayage ont les leurs, qui ne jouent pas ici.
-  @State private var editHaptic = UIImpactFeedbackGenerator(style: .rigid)
+  /// Retour de l'appui long, au plus près du « tic » du menu de « Mes listes » : moteur démarré dès que le doigt se
+  /// pose, choc joué au déclenchement, avant la feuille (`PressHaptic`, #115). Seule haptique de l'appui long : la
+  /// coche et le balayage ont les leurs, qui ne jouent pas ici.
+  @State private var editHaptic = PressHaptic()
   /// Positions des perles, lues par le trait unique du fil (#115).
   @State private var thread = ThreadTrackModel()
   /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
@@ -150,6 +148,8 @@ struct ListDetailView: View {
       model.load()
       inputIsFocused = model.isEmpty && !model.isMissing && model.access.capabilities.canEditItems
     }
+    // Moteur haptique de l'appui long : arrêté hors de l'écran, redémarré au prochain toucher.
+    .onDisappear { editHaptic.stop() }
     // « Quitter la liste » : retour à Mes listes (la feuille se ferme d'elle-même).
     .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
     .onChange(of: accessChange) { _, change in
@@ -366,7 +366,7 @@ struct ListDetailView: View {
   private func edit(_ row: ItemRow) {
     guard let target = model.editTarget(for: row) else { return }
     quantityTip.invalidate(reason: .actionPerformed)
-    editHaptic.impactOccurred(intensity: 1.0)
+    editHaptic.play()
     editing = target
   }
 
