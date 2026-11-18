@@ -524,6 +524,21 @@ class SyncStore(
         catalogReadable: Boolean,
     ) {
         if (rows.isEmpty() && !catalogReadable) return
+        upsertProducts(rows, removingOthers = true)
+    }
+
+    /** Vrai si le cache contient un produit : vide (purge interrompue, #129), le catalogue est relu en entier. */
+    suspend fun hasProducts(): Boolean = db.products().any()
+
+    /** Produits publiés depuis le curseur (#47) : ajoutés ou mis à jour, aucun autre retiré. */
+    suspend fun mergeProducts(rows: List<RemoteProduct>) {
+        if (rows.isNotEmpty()) upsertProducts(rows, removingOthers = false)
+    }
+
+    private suspend fun upsertProducts(
+        rows: List<RemoteProduct>,
+        removingOthers: Boolean,
+    ) {
         db.withWriteTransaction {
             val known =
                 db
@@ -531,7 +546,7 @@ class SyncStore(
                     .getAll()
                     .map { it.id }
                     .toSet()
-            db.products().deleteAll()
+            if (removingOthers) db.products().deleteAll()
             db.products().upsertAll(
                 rows.map { row ->
                     // Serveur en avance sur le référentiel embarqué : pas de catégorie, le classifieur prend le relais.

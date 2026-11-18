@@ -83,6 +83,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -618,13 +619,22 @@ class SupabaseGateway internal constructor(
 
     override suspend fun fetchCategories(): List<CategoryRow> = authorized { loadCategories() }
 
-    override suspend fun fetchProducts(): List<RemoteProduct> =
+    override suspend fun fetchProducts(): List<RemoteProduct> = fetchProducts(publishedSince = null)
+
+    /**
+     * [publishedSince] : produits publiés depuis cette date (#47), avec un recouvrement d'une heure (une publication
+     * datée du début de sa transaction peut valider après la lecture). `null` : tout le catalogue publié.
+     */
+    override suspend fun fetchProducts(publishedSince: Instant?): List<RemoteProduct> =
         authorized {
             val rows =
                 fetchAllPages(ProductRow.serializer()) { from, to ->
                     rest
                         .from(ProductRow.spec.table)
                         .select(Columns.raw(ProductRow.spec.selection)) {
+                            if (publishedSince != null) {
+                                filter { gte("published_at", (publishedSince - CATALOG_OVERLAP).toString()) }
+                            }
                             order("id", Order.ASCENDING)
                             range(from, to)
                         }.data
@@ -636,7 +646,7 @@ class SupabaseGateway internal constructor(
             rows.map { row ->
                 val slug =
                     row.categoryId?.let { map.slug(it) ?: throw RemoteError.UnknownCategory(it.toString()) }
-                RemoteProduct(row.id, row.name, row.normalizedName, slug, row.offCode, row.createdAt)
+                RemoteProduct(row.id, row.name, row.normalizedName, slug, row.offCode, row.createdAt, row.publishedAt)
             }
         }
 
@@ -976,6 +986,9 @@ class SupabaseGateway internal constructor(
 
         /** Recouvrement du curseur : deux transactions proches peuvent valider dans le désordre. */
         val CURSOR_OVERLAP = 5.seconds
+
+        /** Recouvrement du curseur du catalogue (#47) : une publication nocturne peut durer plus longtemps. */
+        val CATALOG_OVERLAP = 1.hours
 
         /** Message `raise exception '…'` sans code : les erreurs stables du partage (`invalid_email`…). */
         const val RAISED_EXCEPTION = "P0001"

@@ -16,6 +16,8 @@ actor SupabaseGateway: RemoteGateway {
   static let lastAccountKey = "last-account-id"
   /// Recouvrement du curseur : deux transactions proches peuvent valider dans le désordre.
   static let cursorOverlap: TimeInterval = 5
+  /// Recouvrement du curseur du catalogue (#47) : une publication nocturne peut tenir une transaction plus longue.
+  static let catalogOverlap: TimeInterval = 3600
   /// `max_rows` côté serveur. La pagination avance du nombre de lignes reçues : un plafond plus bas passe aussi.
   private static let pageSize = 1000
 
@@ -441,10 +443,19 @@ actor SupabaseGateway: RemoteGateway {
   }
 
   func fetchProducts() async throws -> [RemoteProduct] {
+    try await fetchProducts(publishedSince: nil)
+  }
+
+  /// `publishedSince` : produits publiés depuis cette date (#47), avec un recouvrement d'une heure (une publication
+  /// datée du début de sa transaction peut valider après la lecture). `nil` : tout le catalogue publié.
+  func fetchProducts(publishedSince: Date?) async throws -> [RemoteProduct] {
     try await authorized {
       let rows: [ProductRow] = try await self.fetchAllPages { from, to in
-        try await self.rest.from(ProductRow.table).select(Self.selection(of: ProductRow.self))
-          .order("id").range(from: from, to: to).execute().value
+        var query = self.rest.from(ProductRow.table).select(Self.selection(of: ProductRow.self))
+        if let publishedSince {
+          query = query.gte("published_at", value: publishedSince.addingTimeInterval(-Self.catalogOverlap))
+        }
+        return try await query.order("id").range(from: from, to: to).execute().value
       }
       var map = try await self.currentCategoryMap()
       if rows.contains(where: { row in row.categoryId.map { map.slug(forRemoteId: $0) == nil } ?? false }) {
@@ -460,7 +471,7 @@ actor SupabaseGateway: RemoteGateway {
         }
         return RemoteProduct(
           id: row.id, name: row.name, normalizedName: row.normalizedName, categorySlug: slug,
-          offCode: row.offCode, createdAt: row.createdAt)
+          offCode: row.offCode, createdAt: row.createdAt, publishedAt: row.publishedAt)
       }
     }
   }

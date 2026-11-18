@@ -214,6 +214,8 @@ nonisolated protocol RemoteGateway: Sendable {
   func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow]
   func fetchCategories() async throws -> [CategoryRow]
   func fetchProducts() async throws -> [RemoteProduct]
+  /// Produits publiés depuis `publishedSince` (#47, avec recouvrement), tous si `nil`.
+  func fetchProducts(publishedSince: Date?) async throws -> [RemoteProduct]
 
   /// Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.
   /// Au plus `SyncRetryPolicy.maxResolutionBatch` entrées ; une ligne par entrée, dans l'ordre.
@@ -302,4 +304,13 @@ nonisolated protocol RealtimeTransport: Sendable {
   func userSignals(userId: UUID) async -> AsyncStream<RealtimeEvent>
   /// Quitte le canal et ferme la connexion.
   func closeUserSignals() async
+}
+
+nonisolated extension RemoteGateway {
+  /// Par défaut (doublures de test) : le catalogue entier, filtré sur l'appareil.
+  func fetchProducts(publishedSince: Date?) async throws -> [RemoteProduct] {
+    let rows = try await fetchProducts()
+    guard let publishedSince else { return rows }
+    return rows.filter { ($0.publishedAt ?? .distantPast) >= publishedSince }
+  }
 }

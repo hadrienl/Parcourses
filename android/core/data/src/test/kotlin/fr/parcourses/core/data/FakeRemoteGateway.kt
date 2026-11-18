@@ -309,6 +309,12 @@ class FakeRemoteGateway(
 
     override suspend fun fetchProducts(): List<RemoteProduct> = remoteProducts.also { enter("fetchProducts") }
 
+    override suspend fun fetchProducts(publishedSince: Instant?): List<RemoteProduct> {
+        if (publishedSince == null) return fetchProducts()
+        enter("fetchProductsSince", publishedSince.toString())
+        return remoteProducts.filter { (it.publishedAt ?: Instant.DISTANT_PAST) >= publishedSince }
+    }
+
     override suspend fun resolveProducts(items: List<ProductResolutionRequest>): List<ResolvedProductRow> {
         enter("resolveProducts")
         return resolver(items)

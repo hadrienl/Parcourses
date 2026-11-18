@@ -470,6 +470,40 @@ class SyncEngineTest : DataTest() {
             assertTrue(db.products().getAll().isEmpty())
         }
 
+    /**
+     * #47 : après un catalogue complet, la descente du lendemain ne lit que les produits publiés depuis, et ne retire
+     * rien. Le catalogue complet revient une fois par semaine.
+     */
+    @Test
+    fun theCatalogDownloadsOnlyNewlyPublishedProductsUntilTheWeeklyFullRefresh() =
+        runBlocking {
+            val start = now
+            gateway.remoteCategories = listOf(CategoryRow(7, "dairy", "Crèmerie", 1))
+            val old = RemoteProduct(Uuid.random(), "Lait", "lait", "dairy", null, start, publishedAt = start)
+            gateway.remoteProducts = listOf(old)
+            engine.drain(pull = true)
+            assertEquals(1, gateway.callsOf("fetchProducts").size)
+            assertEquals(start, cursors.catalogPublished)
+
+            // Le lendemain : un produit publié depuis ; l'ancien, absent de la réponse, reste dans le cache.
+            val fresh =
+                RemoteProduct(Uuid.random(), "Kéfir", "kefir", "dairy", null, start, publishedAt = start + 1.hours)
+            gateway.remoteProducts = listOf(fresh)
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(listOf("fetchProductsSince:$start"), gateway.callsOf("fetchProductsSince"))
+            assertEquals(2, db.products().getAll().size)
+            assertEquals(start + 1.hours, cursors.catalogPublished)
+
+            // Une semaine après le catalogue complet, il est relu en entier : le produit absent quitte le cache.
+            repeat(6) {
+                advance(25.hours)
+                engine.drain(pull = true)
+            }
+            assertEquals(2, gateway.callsOf("fetchProducts").size)
+            assertEquals(listOf(fresh.id.toString()), db.products().getAll().map { it.id })
+        }
+
     @Test
     fun noPullWithoutARequestOrASend() =
         runBlocking {
@@ -698,6 +732,28 @@ class SyncEngineTest : DataTest() {
             assertEquals(1, gateway.callsOf("resolveProducts").size)
             advance(2.minutes)
             engine.drain(pull = true)
+            assertEquals(2, gateway.callsOf("resolveProducts").size)
+        }
+
+    /**
+     * #47 : un article sans produit en retour n'est pas renvoyé avant un jour, même par un nouveau moteur (redémarrage
+     * de l'app) : les essais sont gardés avec les curseurs.
+     */
+    @Test
+    fun aLabelWithoutProductWaitsADayEvenAfterARestart() =
+        runBlocking {
+            val list = repository.createList("Courses", now)
+            repository.addItem(list.id, "Graines de chia", "graine chia", null, null, "bio", now)
+            engine.drain()
+            assertEquals(1, gateway.callsOf("resolveProducts").size)
+            assertEquals(1, cursors.resolutionAttempts.size)
+
+            val restarted = SyncEngine(gateway, db, cursors, classify, dependencies)
+            restarted.drain(pull = true)
+            assertEquals(1, gateway.callsOf("resolveProducts").size)
+
+            advance(24.hours)
+            SyncEngine(gateway, db, cursors, classify, dependencies).drain(pull = true)
             assertEquals(2, gateway.callsOf("resolveProducts").size)
         }
 

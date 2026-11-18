@@ -41,7 +41,7 @@ private nonisolated let t0 = syncEpoch
     #expect(try harness.entries().isEmpty)
   }
 
-  @Test func aLabelWithoutProductIsAskedOncePerRun() async throws {
+  @Test func aLabelWithoutProductIsAskedOncePerDayEvenAcrossLaunches() async throws {
     let harness = try SyncHarness()
     let list = try harness.lists.createList(name: "Courses", at: t0)
     try harness.lists.addItem(
@@ -52,14 +52,42 @@ private nonisolated let t0 = syncEpoch
     #expect(await harness.gateway.resolveRequests.map { $0.map(\.name) } == [["Graines de chia"]])
     #expect(try harness.fresh(ListItem.self).first?.productId == nil)
 
-    // Un nouvel article part seul ; un nouveau lancement redemande l'ancien.
+    // Un nouvel article part seul. Un nouveau lancement ne redemande pas l'ancien (#47) : les essais sont gardés sur
+    // l'appareil, et un article attend un jour.
     try harness.lists.addItem(
       listId: list.id, label: "Kombucha", normalizedName: "kombucha", quantity: nil, productId: nil,
       categoryId: "beverages", at: t0)
     await harness.engine.drain()
     #expect(await harness.gateway.resolveRequests.last?.map(\.name) == ["Kombucha"])
     await harness.makeEngine().drain()
+    #expect(await harness.gateway.resolveRequests.count == 2)
+    #expect(harness.cursors.resolutionAttempts.count == 2)
+
+    // Un jour plus tard (les plafonds du serveur sont quotidiens), les deux repartent.
+    harness.clock.advance(SyncRetryPolicy.resolutionAttemptInterval)
+    await harness.makeEngine().drain()
     #expect(await Set(harness.gateway.resolveRequests.last?.map(\.name) ?? []) == ["Graines de chia", "Kombucha"])
+  }
+
+  @Test func theAttemptFingerprintFollowsTheLabelAndTheCategory() {
+    let lait = ProductCandidate.fingerprint(label: "Lait", categorySlug: "dairy")
+    #expect(lait == ProductCandidate.fingerprint(label: "Lait", categorySlug: "dairy"))
+    #expect(lait != ProductCandidate.fingerprint(label: "Lait", categorySlug: "frozen"))
+    #expect(lait != ProductCandidate.fingerprint(label: "lait", categorySlug: "dairy"))
+    #expect(lait != ProductCandidate.fingerprint(label: "Lait", categorySlug: nil))
+    #expect(lait.count == 32)
+  }
+
+  @Test func attemptsArePersistedAndPurgedWithTheCursors() throws {
+    let suite = "test.resolution.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let cursors = UserDefaultsSyncCursors(defaults: defaults)
+    let attempts = [UUID(): ResolutionAttempt(fingerprint: "f", at: t0)]
+    cursors.resolutionAttempts = attempts
+    #expect(UserDefaultsSyncCursors(defaults: defaults).resolutionAttempts == attempts)
+    cursors.removeAll()
+    #expect(cursors.resolutionAttempts.isEmpty)
   }
 
   @Test func aFailedResolutionNeverHoldsTheQueue() async throws {

@@ -33,6 +33,9 @@ nonisolated final class MemorySyncCursors: SyncCursors, @unchecked Sendable {
   var lists: Date?
   var items: Date?
   var catalog: Date?
+  var catalogPublished: Date?
+  var catalogFull: Date?
+  var resolutionAttempts: [UUID: ResolutionAttempt] = [:]
   var tombstones: Date?
   var accountKind: AccountKind?
 }
@@ -57,6 +60,7 @@ actor ScriptedSyncGateway: RemoteGateway {
   var itemRows: [ListItemRow] = []
   var categories: [CategoryRow] = []
   var products: [RemoteProduct] = []
+  var productCursors: [Date] = []
   var listCursors: [Date?] = []
   var failingCheck: UUID?
   var failingList: UUID?
@@ -375,6 +379,12 @@ actor ScriptedSyncGateway: RemoteGateway {
   func fetchProducts() async throws -> [RemoteProduct] {
     try record("fetchProducts")
     return products
+  }
+  func fetchProducts(publishedSince: Date?) async throws -> [RemoteProduct] {
+    guard let publishedSince else { return try await fetchProducts() }
+    try record("fetchProducts(since)")
+    productCursors.append(publishedSince)
+    return products.filter { ($0.publishedAt ?? .distantPast) >= publishedSince }
   }
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] { [] }
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] { [] }
@@ -981,6 +991,42 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     await harness.gateway.setCatalog(categories: [], products: [product])
     harness.clock.advance(SyncRetryPolicy.catalogInterval)
     await harness.engine.drain(pull: true)
+    #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 1)
+  }
+
+  /// #47 : après un catalogue complet, la descente du lendemain ne lit que les produits publiés depuis, et ne retire
+  /// rien. Le catalogue complet revient une fois par semaine.
+  @Test func catalogDownloadsOnlyNewlyPublishedProductsUntilTheWeeklyFullRefresh() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first).id
+    let categories = [CategoryRow(id: 7, slug: slug, name: "n", defaultRank: 1)]
+    let old = RemoteProduct(
+      id: UUID(), name: "Lait", normalizedName: "lait", categorySlug: slug, offCode: nil, createdAt: t0,
+      publishedAt: t0)
+    await harness.gateway.setCatalog(categories: categories, products: [old])
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 1)
+    #expect(harness.cursors.catalogPublished == t0)
+
+    // Le lendemain : un produit publié depuis ; l'ancien, absent de la réponse, reste dans le cache.
+    let fresh = RemoteProduct(
+      id: UUID(), name: "Kéfir", normalizedName: "kefir", categorySlug: slug, offCode: nil, createdAt: t0,
+      publishedAt: t0.addingTimeInterval(3600))
+    await harness.gateway.setCatalog(categories: categories, products: [fresh])
+    harness.clock.advance(SyncRetryPolicy.catalogInterval)
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts(since)" }.count == 1)
+    #expect(await harness.gateway.productCursors == [t0])
+    #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 2)
+    #expect(harness.cursors.catalogPublished == t0.addingTimeInterval(3600))
+
+    // Une semaine après le catalogue complet, il est relu en entier : le produit absent quitte le cache.
+    for _ in 0..<6 {
+      harness.clock.advance(SyncRetryPolicy.catalogInterval)
+      await harness.engine.drain(pull: true)
+    }
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 2)
     #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 1)
   }
 

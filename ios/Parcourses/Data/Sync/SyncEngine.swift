@@ -24,8 +24,10 @@ nonisolated enum SyncRetryPolicy {
   static let parkedRetryDelay: TimeInterval = 6 * 3600
   /// Article refusé (`42501`) parce que sa liste n'est pas encore reçue : il attend la liste, sans consommer d'essai.
   static let listWaitDelay: TimeInterval = 30
-  /// Catalogue : une fois par jour (#9 §5.4).
+  /// Catalogue : une fois par jour (#9 §5.4), seulement les produits publiés depuis la dernière fois (#47).
   static let catalogInterval: TimeInterval = 86_400
+  /// Catalogue complet une fois par semaine (#47) : rattrape ce qu'une migration aurait changé sans republier.
+  static let catalogFullInterval: TimeInterval = 7 * 86_400
   /// Descente après un envoi : l'envoi d'une coche ne doit pas relire les listes à chaque fois.
   static let pullAfterSendInterval: TimeInterval = 60
   /// Une descente en échec ne se retente qu'une fois par minute, sans gêner l'envoi.
@@ -42,6 +44,9 @@ nonisolated enum SyncRetryPolicy {
   static let resolutionUnavailableInterval: TimeInterval = 300
   /// Autre refus définitif (requête refusée) : inutile d'insister à chaque passe.
   static let resolutionRejectedInterval: TimeInterval = 3600
+  /// Article déjà soumis sans produit en retour (#47) : renvoyé au plus une fois par jour, relancements compris. Les
+  /// plafonds de `resolve_products` sont quotidiens.
+  static let resolutionAttemptInterval: TimeInterval = 86_400
 
   /// Délai de la résolution après une erreur.
   static func resolutionDelay(after error: any Error) -> TimeInterval {
@@ -114,9 +119,6 @@ actor SyncEngine {
   private var backoffUntil: Date?
   private var pullBackoffUntil: Date?
   private var lastPull: Date?
-  /// Libellé déjà soumis à `resolve_products`, par article : sans produit, il n'est pas renvoyé avant le prochain
-  /// lancement (quota du jour, catégorie refusée). Un libellé modifié repart.
-  private var resolutionAttempts: [UUID: String] = [:]
   private var resolutionBackoffUntil: Date?
   /// Dernière réconciliation complète faite sans heure du serveur (en mémoire) : la suivante avant l'envoi attend
   /// `undatedFullReconcileSpacing`.
@@ -354,6 +356,8 @@ actor SyncEngine {
       store = SyncStore(modelContainer: container)
       cursors.lists = nil
       cursors.items = nil
+      // Nouveau compte, nouveaux plafonds du jour : les articles sans produit repartent.
+      cursors.resolutionAttempts = [:]
       // Sans curseur : la première descente du nouveau compte réconcilie ses articles en entier (vecteur `007`).
       cursors.tombstones = nil
       undatedFullReconcileNotBefore = nil
@@ -453,14 +457,22 @@ actor SyncEngine {
   private func resolveProducts() async {
     let now = dependencies.now()
     if let resolutionBackoffUntil, resolutionBackoffUntil > now { return }
+    // Essais déjà faits (#47), gardés sur l'appareil : un article sans produit en retour (plafond du jour, catégorie
+    // ou libellé refusés) attend un jour, même après un relancement. Libellé ou catégorie modifiés : il repart.
+    let stored = cursors.resolutionAttempts
+    var attempts = stored.filter { now.timeIntervalSince($0.value.at) < SyncRetryPolicy.resolutionAttemptInterval }
+    if attempts.count != stored.count { cursors.resolutionAttempts = attempts }
     do {
       while !Task.isCancelled {
         let candidates = try await store.productCandidates(
-          excluding: resolutionAttempts, limit: SyncRetryPolicy.maxResolutionBatch)
+          excluding: attempts.mapValues(\.fingerprint), limit: SyncRetryPolicy.maxResolutionBatch)
         guard !candidates.isEmpty else { break }
         let rows = try await gateway.resolveProducts(candidates.map(\.request))
         guard rows.count == candidates.count else { throw RemoteError.unexpected }
-        for candidate in candidates { resolutionAttempts[candidate.itemId] = candidate.label }
+        for candidate in candidates {
+          attempts[candidate.itemId] = ResolutionAttempt(fingerprint: candidate.fingerprint, at: now)
+        }
+        cursors.resolutionAttempts = attempts
         let matches = zip(candidates, rows).compactMap { ProductMatch($0, $1) }
         guard !matches.isEmpty else { continue }
         let changed = try await MainActor.run { [container] in
@@ -921,10 +933,22 @@ actor SyncEngine {
       if cursors.catalog.map({ now.timeIntervalSince($0) >= SyncRetryPolicy.catalogInterval }) ?? true {
         let categories = try await gateway.fetchCategories()
         try await store.applyCategories(categories)
-        // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit publié »
-        // (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
-        catalogChanged = try await store.replaceProducts(
-          try await gateway.fetchProducts(), catalogReadable: !categories.isEmpty)
+        if let since = cursors.catalogPublished, let full = cursors.catalogFull, !categories.isEmpty,
+          now.timeIntervalSince(full) < SyncRetryPolicy.catalogFullInterval, now >= full,
+          try await store.hasProducts()
+        {
+          // Produits publiés depuis la dernière descente (#47) : un produit publié ne change plus, rien n'est retiré.
+          let rows = try await gateway.fetchProducts(publishedSince: since)
+          catalogChanged = try await store.mergeProducts(rows)
+          cursors.catalogPublished = Self.later(since, rows.compactMap(\.publishedAt).max())
+        } else {
+          // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
+          // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+          let rows = try await gateway.fetchProducts()
+          catalogChanged = try await store.replaceProducts(rows, catalogReadable: !categories.isEmpty)
+          cursors.catalogPublished = rows.compactMap(\.publishedAt).max()
+          cursors.catalogFull = now
+        }
         cursors.catalog = now
       }
       lastPull = now

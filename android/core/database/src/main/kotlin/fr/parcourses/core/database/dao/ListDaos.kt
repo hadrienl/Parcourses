@@ -229,6 +229,9 @@ interface ProductDao {
     @Query("DELETE FROM products")
     suspend fun deleteAll(): Int
 
+    @Query("SELECT EXISTS(SELECT 1 FROM products)")
+    suspend fun any(): Boolean
+
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun get(id: String): ProductEntity?
 

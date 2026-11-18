@@ -459,6 +459,9 @@ private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
   var lists: Date?
   var items: Date?
   var catalog: Date?
+  var catalogPublished: Date?
+  var catalogFull: Date?
+  var resolutionAttempts: [UUID: ResolutionAttempt] = [:]
   var tombstones: Date?
   var accountKind: AccountKind?
 }
