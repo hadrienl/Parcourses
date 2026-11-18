@@ -43,7 +43,7 @@ select public.attestation_challenge() as c1 \gset
 select public.attestation_challenge() as c2 \gset
 select tests.clear_authentication();
 select ok(:'c1' ~ '^[A-Za-z0-9_-]{43}$', 'défi : 43 caractères base64url');
-select isnt(:'c1', :'c2', 'deux défis différents');
+select isnt(:'c1'::text, :'c2'::text, 'deux défis différents');
 select is((select count(*)::integer from accounts.attestation_challenges where user_id = :'dina'), 1, 'un seul défi par compte');
 select is((select challenge_hash from accounts.attestation_challenges where user_id = :'dina'),
           sha256(convert_to(:'c2', 'UTF8')), 'seule l''empreinte du défi est gardée');
