@@ -123,7 +123,11 @@ android {
             storePassword = uploadSigning.getProperty("storePassword")
             keyAlias = uploadSigning.getProperty("keyAlias").trim()
             keyPassword = uploadSigning.getProperty("keyPassword")
-            uploadSigning.getProperty("storeType")?.trim()?.takeIf { it.isNotEmpty() }?.let { storeType = it }
+            uploadSigning
+                .getProperty("storeType")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { storeType = it }
         }
     }
     buildFeatures.buildConfig = true
