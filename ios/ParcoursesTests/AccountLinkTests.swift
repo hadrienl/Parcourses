@@ -420,6 +420,109 @@ final class LinkProbe {
       ])
   }
 
+  // MARK: - Compte de revue des stores (#149)
+
+  /// Aucun code demandé, même hors ligne ; la vérification suit une connexion à un compte existant : reprise, puis
+  /// suppression de l'ancien compte anonyme.
+  @Test func theReviewAddressRequestsNoCodeThenSignsInLikeAnExistingAccount() async {
+    let (link, gateway, kinds, probe) = makeLink()
+    await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: "ancien-jeton"))
+    await gateway.setServerName("Revue")
+    probe.resendable = 2
+    probe.online = false
+    link.email = "  Revue@Parcourses.Hadrien.EU "
+    await link.requestCode()
+    #expect(link.error == nil)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(link.sentTo == ReviewAccount.email)
+    #expect(link.codeSentAt == probe.now)
+    #expect(await gateway.calls.isEmpty)
+    probe.online = true
+    await link.verify(code: "123456")
+    #expect(link.phase == .done)
+    #expect(link.outcome == .signedIn(displayName: "Revue", addedLists: 2))
+    #expect(kinds.kind == .email)
+    #expect(probe.steps == ["suspend:0", "resume", "synchronize"])
+    #expect(!probe.callsAtSynchronization.contains("deleteAccount(accessToken:)"))
+    #expect(await gateway.deletedTokens == ["ancien-jeton"])
+    #expect(await gateway.calls == ["verifyCode:review:123456", "deleteAccount(accessToken:)", "displayName"])
+  }
+
+  /// Depuis un autre compte e-mail : drapeau `account.switch` et purge, comme une connexion.
+  @Test func theReviewAccountReplacesAnotherEmailAccountLikeASignIn() async {
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    probe.previousAccount = UUID()
+    probe.resendable = 3
+    await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: nil))
+    link.email = ReviewAccount.email
+    await link.requestCode()
+    #expect(link.purpose == .review)
+    #expect(await gateway.calls.isEmpty)
+    await link.verify(code: "333333")
+    #expect(probe.steps == ["suspend:0", "switch", "resume", "synchronize"])
+    #expect(!probe.switchFlag)
+    #expect(link.outcome == .signedIn(displayName: nil, addedLists: 0))
+    #expect(await gateway.calls == ["verifyCode:review:333333", "displayName"])
+  }
+
+  /// `review-sign-in` refuse tout par `400 invalid_code` : un code faux. Le réseau reste vérifié avec le code.
+  @Test func aRefusedReviewCodeIsAWrongCode() async {
+    let (link, gateway, kinds, probe) = makeLink()
+    link.email = ReviewAccount.email
+    await link.requestCode()
+    await gateway.setVerifyFailures([
+      AuthRequestError(status: 400, code: "invalid_code"), AuthRequestError(status: 500, code: "internal"),
+      RemoteError.network,
+    ])
+    await link.verify(code: "000000")
+    #expect(link.error == .invalidCode)
+    await link.verify(code: "000000")
+    #expect(link.error == .unknown)
+    await link.verify(code: "000000")
+    #expect(link.error == .offline)
+    probe.online = false
+    await link.verify(code: "000000")
+    #expect(link.error == .offline)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(kinds.kind == .anonymous)
+    #expect(await gateway.calls == Array(repeating: "verifyCode:review:000000", count: 3))
+  }
+
+  @Test func resendingTheReviewCodeStillSendsNothing() async {
+    let (link, gateway, _, probe) = makeLink()
+    link.email = ReviewAccount.email
+    await link.requestCode()
+    probe.now = probe.now.addingTimeInterval(AccountLink.resendDelay)
+    probe.online = false
+    await link.resendCode()
+    #expect(link.error == nil)
+    #expect(link.codeSentAt == probe.now)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(await gateway.calls.isEmpty)
+  }
+
+  @Test func anotherAddressAfterTheReviewAddressFollowsTheUsualPath() async {
+    let (link, gateway, _, _) = makeLink()
+    link.email = ReviewAccount.email
+    await link.requestCode()
+    link.changeEmail()
+    link.email = "revue@exemple.fr"
+    await link.requestCode()
+    #expect(link.purpose == .link)
+    #expect(await gateway.calls == ["linkEmail:revue@exemple.fr"])
+  }
+
+  @Test(arguments: [
+    (" Revue@Parcourses.Hadrien.EU\n", true), ("revue@parcourses.hadrien.eu", true), ("revue@exemple.fr", false),
+    ("xrevue@parcourses.hadrien.eu", false), ("revue@parcourses.hadrien.eu.fr", false),
+  ])
+  func onlyTheReviewAddressIsTheReviewAccount(email: String, matches: Bool) {
+    #expect(ReviewAccount.matches(AccountLink.normalize(email: email)) == matches)
+  }
+
   @Test(
     arguments: [
       ("Léa", "Léa"), ("  Jean-Pierre ", "Jean-Pierre"), ("", nil), ("   ", nil),

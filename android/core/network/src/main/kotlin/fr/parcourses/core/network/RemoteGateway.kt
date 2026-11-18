@@ -99,6 +99,9 @@ interface RemoteGateway {
      * Vérifie le code reçu et adopte la session qu'il ouvre : le même compte pour [EmailCodePurpose.Link], celui de
      * l'adresse pour [EmailCodePurpose.SignIn] (la synchronisation reprend alors les données, `AccountRekey`). Le jeton
      * d'un compte anonyme quitté est gardé **avant** la vérification. Code faux ou expiré : [AuthRequestError].
+     * [EmailCodePurpose.Review] (compte de revue des stores, #149) : comme [EmailCodePurpose.SignIn], mais le code
+     * fixe est vérifié par l'Edge Function `review-sign-in`, qui renvoie la session ; un refus lève aussi
+     * [AuthRequestError].
      */
     suspend fun verifyCode(
         email: String,

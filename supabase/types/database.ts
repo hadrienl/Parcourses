@@ -394,6 +394,11 @@ isOneToOne: false
               "category_slug": string,"id": string,"name": string,"normalized_name": string
             }[]
                            },
+"review_sign_in_attempt":
+{ Args: { "p_email": string,"p_ok": boolean }; Returns: {
+              "email": string,"status": string,"user_id": string
+            }[]
+                           },
 "revoke_invitation":
 { Args: { "p_invitation_id": string }; Returns: undefined
                            },

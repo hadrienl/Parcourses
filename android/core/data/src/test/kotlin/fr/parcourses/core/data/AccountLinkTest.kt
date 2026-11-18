@@ -16,6 +16,7 @@ import fr.parcourses.core.data.account.InMemoryAccountKindFlag
 import fr.parcourses.core.data.account.InMemoryAccountSignOutFlag
 import fr.parcourses.core.data.account.InMemoryAccountSwitchFlag
 import fr.parcourses.core.data.account.LocalDataPurge
+import fr.parcourses.core.data.account.ReviewAccount
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.sync.AccountKind
 import fr.parcourses.core.data.sync.AccountRekey
@@ -597,5 +598,112 @@ class AccountLinkTest : DataTest() {
 
             assertEquals(AccountLinkPhase.Done, link.state.value.phase)
             assertEquals(listOf("resume"), syncSteps)
+        }
+
+    /**
+     * Compte de revue des stores (#149) : aucune requête ni aucun e-mail pour l'adresse de revue, même hors ligne et
+     * au renvoi ; le code part à `review-sign-in`, puis tout se passe comme une connexion à un compte existant.
+     */
+    @Test
+    fun theReviewAddressSendsNothingThenSignsInLikeAnExistingAccount() =
+        runBlocking {
+            val mine = repository.createList("Apéro", now)
+            repository.addItem(mine.id, "chips", "chips", null, null, "savory-grocery", now)
+            engine.drain()
+            val anonymous = gateway.account
+            val review = Uuid.random()
+            gateway.codeAccount = review
+            val requests = gateway.calls.size
+            val link = link()
+
+            // Pas de contrôle du réseau à cette étape : rien ne part.
+            online = false
+            link.requestCode("  Revue@Parcourses.Hadrien.EU ")
+            val entering = link.state.value
+            assertEquals(AccountLinkPhase.EnterCode, entering.phase)
+            assertEquals(EmailCodePurpose.Review, entering.purpose)
+            assertEquals(ReviewAccount.EMAIL, entering.email)
+            assertEquals(now, entering.codeSentAt)
+            assertNull(entering.error)
+            assertEquals(requests, gateway.calls.size)
+
+            // « Renvoyer le code » : toujours rien, nouvelle heure d'envoi.
+            advance(2.minutes)
+            link.resendCode()
+            assertEquals(now, link.state.value.codeSentAt)
+            assertEquals(EmailCodePurpose.Review, link.state.value.purpose)
+            assertEquals(requests, gateway.calls.size)
+
+            // Le réseau est exigé à la vérification, comme pour un code reçu par e-mail.
+            link.verify("123456")
+            assertEquals(AccountLinkError.Offline, link.state.value.error)
+            assertTrue(gateway.callsOf("verifyCode").isEmpty())
+
+            online = true
+            link.verify("123456")
+
+            val done = link.state.value
+            assertEquals(listOf("verifyCode:review"), gateway.callsOf("verifyCode"))
+            assertEquals(AccountLinkPhase.Done, done.phase)
+            assertEquals(AccountLinkOutcome.SignedIn(null, addedLists = 1), done.outcome)
+            assertEquals(AccountKind.Email, kind.kind.value)
+            assertEquals(review, cursors.accountId)
+            assertEquals(1, sessionChanges)
+            // L'ancien compte anonyme est supprimé avec le jeton gardé avant le code, comme pour une connexion.
+            assertEquals(listOf("token-$anonymous"), gateway.deletedTokens)
+            assertTrue(gateway.callsOf("linkEmail").isEmpty())
+            assertTrue(gateway.callsOf("signInWithEmail").isEmpty())
+        }
+
+    /** Compte de revue (#149) : un code refusé par `review-sign-in` (`400 invalid_code`) est un code invalide. */
+    @Test
+    fun aCodeRefusedForTheReviewAccountIsInvalid() =
+        runBlocking {
+            engine.drain()
+            val anonymous = gateway.account
+            val link = link()
+            link.requestCode(ReviewAccount.EMAIL)
+            gateway.failNext("verifyCode", AuthRequestError(400, "invalid_code"))
+
+            link.verify("000000")
+
+            val refused = link.state.value
+            assertEquals(AccountLinkError.InvalidCode, refused.error)
+            assertEquals(AccountLinkPhase.EnterCode, refused.phase)
+            assertEquals(EmailCodePurpose.Review, refused.purpose)
+            assertEquals(AccountKind.Anonymous, kind.kind.value)
+            assertEquals(anonymous, gateway.account)
+            assertTrue(gateway.deletedTokens.isEmpty())
+            assertEquals(listOf("suspend", "resume"), syncSteps)
+        }
+
+    /** Compte de revue (#149) : depuis un compte e-mail sans session, aucune demande de code non plus. */
+    @Test
+    fun anEmailAccountReachesTheReviewAccountWithoutAnyCodeRequest() =
+        runBlocking {
+            kind.write(AccountKind.Email)
+            gateway.hasSession = false
+            val link = link()
+
+            link.requestCode(ReviewAccount.EMAIL)
+
+            assertEquals(EmailCodePurpose.Review, link.state.value.purpose)
+            assertTrue(gateway.callsOf("signInWithEmail").isEmpty())
+            assertTrue(gateway.callsOf("ensureSession").isEmpty())
+        }
+
+    /** Seule l'adresse exacte du compte de revue (#149) évite l'envoi d'un code : les autres gardent leur parcours. */
+    @Test
+    fun anyOtherAddressKeepsTheEmailCode() =
+        runBlocking {
+            assertTrue(ReviewAccount.matches("revue@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("revue@parcourses.hadrien.eu.com"))
+            assertFalse(ReviewAccount.matches("xrevue@parcourses.hadrien.eu"))
+            val link = link()
+
+            link.requestCode("revue@parcourses.hadrien.eu.com")
+
+            assertEquals(EmailCodePurpose.Link, link.state.value.purpose)
+            assertEquals(listOf("linkEmail:revue@parcourses.hadrien.eu.com"), gateway.callsOf("linkEmail"))
         }
 }

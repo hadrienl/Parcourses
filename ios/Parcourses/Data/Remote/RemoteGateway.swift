@@ -127,6 +127,9 @@ nonisolated enum VisitAccess: Sendable, Equatable {
 nonisolated enum EmailCodePurpose: String, Sendable {
   case link
   case signIn
+  /// Compte de revue des stores (#149, `ReviewAccount`) : aucun code envoyé, le code fixe est vérifié par l'Edge
+  /// Function `review-sign-in`. Pour le reste, une connexion à un compte existant, comme `signIn`.
+  case review
 }
 
 /// Code vérifié : le compte de la session, et le jeton d'accès du compte anonyme quitté s'il y en a un.

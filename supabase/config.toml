@@ -438,6 +438,11 @@ verify_jwt = false
 [functions.attest-device]
 verify_jwt = false
 
+# Edge Function du compte de revue des stores (#149) : adresse et code fixes, sans JWT (le relecteur n'a pas encore de
+# session). Secret REVIEW_SIGN_IN_CODE ; sans lui, elle refuse tout. Voir docs/hosted-supabase.md.
+[functions.review-sign-in]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 56327
