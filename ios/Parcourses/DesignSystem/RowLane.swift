@@ -640,12 +640,13 @@ final class LaneSwipeRecognizer: UIGestureRecognizer {
 }
 
 /// Appui long des lignes sans menu, calé sur le `contextMenu` natif de « Mes listes » (mesuré au simulateur : la
-/// rangée réagit vers 0,16 s, le menu démarre vers 0,5 s). Compté depuis l'horodatage du toucher : un
+/// rangée réagit vers 0,16 s, le menu démarre vers 0,5 s). Sans rangée soulevée pour annoncer le menu, 0,5 s paraissait
+/// encore long au doigt (iPhone) : la feuille part à 0,4 s. Compté depuis l'horodatage du toucher : un
 /// `onLongPressGesture(minimumDuration: 0.5)` de SwiftUI, qui reçoit le toucher en retard dans une `List`, partait à
 /// 0,76 s. Échoue après `allowableMovement` de mouvement (glisser, défilement).
 final class LaneHoldRecognizer: UIGestureRecognizer {
   /// Déclenchement, depuis le toucher.
-  static let duration: TimeInterval = 0.5
+  static let duration: TimeInterval = 0.4
   /// Enfoncement, depuis le toucher (l'animation d'`ItemLine` ajoute son propre délai).
   static let pressDelay: TimeInterval = 0.06
   static let allowableMovement: CGFloat = 10

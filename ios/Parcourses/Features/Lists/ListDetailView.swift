@@ -36,10 +36,11 @@ struct ListDetailView: View {
   @State private var editing: ItemEditTarget?
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
-  /// Retour de l'appui long, comme celui du menu de « Mes listes » : un choc moyen à pleine intensité, préparé dès que
-  /// le doigt se pose et joué au déclenchement, avant la feuille. `.sensoryFeedback`, joué dans la même mise à jour
-  /// que l'ouverture de la feuille et sans préparation, ne donnait qu'un retour faible (iPhone, #115).
-  @State private var editHaptic = UIImpactFeedbackGenerator(style: .medium)
+  /// Retour de l'appui long, aussi franc que celui du menu de « Mes listes » : un choc lourd à pleine intensité, préparé
+  /// dès que le doigt se pose et joué au déclenchement, avant la feuille. Un choc moyen, même préparé, restait trop
+  /// faible au doigt ; `.rigid` est plus sec mais plus léger (iPhone, #115). Seule haptique de l'appui long : la coche
+  /// et le balayage ont les leurs, qui ne jouent pas ici.
+  @State private var editHaptic = UIImpactFeedbackGenerator(style: .heavy)
   /// Positions des perles, lues par le trait unique du fil (#115).
   @State private var thread = ThreadTrackModel()
   /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
@@ -280,7 +281,7 @@ struct ListDetailView: View {
       Bead(state: .idle)
     } lane: {
       // Appui long calé sur le menu natif de « Mes listes » (`LaneHoldRecognizer`, #115) : la ligne s'enfonce, puis la
-      // feuille s'ouvre à 0,5 s du toucher, avec le retour haptique préparé au toucher.
+      // feuille s'ouvre à 0,4 s du toucher, avec le retour haptique préparé au toucher.
       RowLane(
         id: threadId, openId: $openLane, action: delete, onLongPress: { edit(row) },
         onPressing: { pressing in
@@ -365,7 +366,7 @@ struct ListDetailView: View {
   private func edit(_ row: ItemRow) {
     guard let target = model.editTarget(for: row) else { return }
     quantityTip.invalidate(reason: .actionPerformed)
-    editHaptic.impactOccurred(intensity: 1)
+    editHaptic.impactOccurred(intensity: 1.0)
     editing = target
   }
 
