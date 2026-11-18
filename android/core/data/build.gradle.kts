@@ -14,11 +14,16 @@ val syncVectors = rootProject.layout.projectDirectory.dir("../shared/test-vector
 // Vecteurs du partage (#87, lots 87.4 et 87.6), même règle.
 val sharingVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/sharing")
 
+// Vecteurs de l'attestation d'appareil (#137), même règle.
+val attestationVectors = rootProject.layout.projectDirectory.dir("../shared/test-vectors/attestation")
+
 tasks.withType<Test>().configureEach {
     inputs.dir(syncVectors).withPropertyName("syncVectors")
     systemProperty("parcourses.syncVectors", syncVectors.asFile.absolutePath)
     inputs.dir(sharingVectors).withPropertyName("sharingVectors")
     systemProperty("parcourses.sharingVectors", sharingVectors.asFile.absolutePath)
+    inputs.dir(attestationVectors).withPropertyName("attestationVectors")
+    systemProperty("parcourses.attestationVectors", attestationVectors.asFile.absolutePath)
 }
 
 dependencies {

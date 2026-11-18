@@ -116,7 +116,8 @@ class SupabaseGateway internal constructor(
     functionsUrl: String? = null,
 ) : RemoteGateway,
     SessionMaintenance,
-    RealtimeSignalSource {
+    RealtimeSignalSource,
+    AttestationGateway {
     private val functionsBase: String = (functionsUrl ?: "${client.supabaseHttpUrl}/functions/v1").trimEnd('/')
 
     private val auth: Auth get() = client.auth
@@ -913,6 +914,65 @@ class SupabaseGateway internal constructor(
 
     // endregion
 
+    // region Attestation d'appareil (#137)
+
+    override suspend fun attestationAccount(): AttestationAccount =
+        mapped {
+            val id = resolveExistingSession()
+            // `is_anonymous` absent : traité comme un compte e-mail, rien ne part chez Google.
+            AttestationAccount(id, isAnonymous = auth.currentUserOrNull()?.isAnonymous == true)
+        }
+
+    override suspend fun attestationChallenge(): AttestationReply =
+        attestDevice(
+            buildJsonObject {
+                put("step", "challenge")
+                put("platform", ATTESTATION_PLATFORM)
+            },
+        )
+
+    override suspend fun verifyAttestation(
+        challenge: String,
+        token: String,
+    ): AttestationReply =
+        attestDevice(
+            buildJsonObject {
+                put("step", "verify")
+                put("platform", ATTESTATION_PLATFORM)
+                put("challenge", challenge)
+                put("token", token)
+            },
+        )
+
+    /**
+     * Comme `send-invitation` : hors du client PostgREST, avec le JWT de l'utilisateur. Toute réponse HTTP est rendue
+     * telle quelle, avec les champs lisibles du corps ; seule l'absence de réponse lève (`RemoteError.Network`).
+     */
+    private suspend fun attestDevice(body: JsonObject): AttestationReply =
+        authorized {
+            val token = auth.currentAccessTokenOrNull() ?: throw RemoteError.Unauthorized(noLocalSession = true)
+            val response =
+                client.httpClient.request("$functionsBase/attest-device") {
+                    method = HttpMethod.Post
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                    contentType(ContentType.Application.Json)
+                    setBody(body.toString())
+                }
+            val text = response.bodyAsText()
+            val fields = runCatching { RemoteJson.parseToJsonElement(text) as? JsonObject }.getOrNull()
+            AttestationReply(
+                httpStatus = response.status.value,
+                status = fields.stringField("status"),
+                error = fields.stringField("error"),
+                challenge = fields.stringField("challenge"),
+            )
+        }
+
+    private fun JsonObject?.stringField(key: String): String? =
+        (this?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    // endregion
+
     // region Outils
 
     private suspend fun loadCategories(): List<CategoryRow> {
@@ -1015,6 +1075,9 @@ class SupabaseGateway internal constructor(
 
         /** Message `raise exception '…'` sans code : les erreurs stables du partage (`invalid_email`…). */
         const val RAISED_EXCEPTION = "P0001"
+
+        /** Plateforme annoncée à `attest-device` (#137). */
+        const val ATTESTATION_PLATFORM = "android"
 
         /** Événement Broadcast des signaux du partage (lot 87.2). */
         const val SIGNAL_EVENT = "changed"

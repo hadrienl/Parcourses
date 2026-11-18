@@ -83,6 +83,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_account_deletion_admin.sql` | `accounts.delete_account(uuid)`, réservée au rôle `postgres` : suppression d'un compte sur demande par e-mail (page `/supprimer-mes-donnees/`), identique à `delete_my_account`, qui l'appelle désormais (#87, lot 87.8) |
 | `…_inactive_email_accounts.sql` | Purge des comptes e-mail inactifs depuis 3 ans après une prévenance au moins 30 jours avant : `accounts.last_activity`, `accounts.inactivity_notices`, job `accounts-inactivity` (05:23 UTC), RPC `claim_inactivity_notices` et `confirm_inactivity_notice` réservées à `service_role` pour l'Edge Function `notify-inactive-accounts`, extension `pg_net` (#114) |
 | `…_graph_rebuild_prune.sql` | Recalcul complet (`graph.rebuild_jobs`, `start_rebuild`, `run_rebuild_jobs`, job `graph-rebuild`, bascule de version), verrou consultatif par magasin, traitement d'une visite partagé (`graph.process_visit`), publication d'un magasin partagée (`graph.publish_store_snapshot`), purge `graph-prune`, `graph.apply_deltas_jsonb` pour les vecteurs (#29) |
+| `…_device_attestation.sql` | Preuve d'appareil (#137) : `accounts.device_attestations`, défis à usage unique `accounts.attestation_challenges`, interrupteur `accounts.attestation_policy`, `catalog.is_established` recréée (anonyme : 7 jours ET attesté quand la preuve est exigée), RPC `attestation_challenge` (`authenticated`), `consume_attestation_challenge` et `record_device_attestation` (`service_role`, pour l'Edge Function `attest-device`), purge `accounts-attestation-challenges-purge` (04:27 UTC) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -183,8 +184,8 @@ forme courante encore privée coûte une unité à chaque nouveau compte, tant q
 
 Comptes anonymes jetables (#47) : un compte se crée sans effort, et 7 comptes neufs à 300 suffisaient à épuiser les
 2 000 du jour pour tout le monde. Un compte récent n'a donc que 100 revendications (20 comptes pour atteindre 2 000),
-et les comptes établis gardent une réserve jusqu'à 3 000. La vraie preuve d'appareil (App Attest, Play Integrity ou
-CAPTCHA) relève de #137. Un article refusé ce jour-là est renvoyé par les apps le lendemain (essais persistés, #47).
+et les comptes établis gardent une réserve jusqu'à 3 000. Depuis #137, la preuve d'appareil (App Attest, Play
+Integrity) peut s'ajouter à l'ancienneté : voir « Preuve d'appareil » plus bas. Un article refusé ce jour-là est renvoyé par les apps le lendemain (essais persistés, #47).
 
 Un plafond atteint n'empêche que les revendications : les produits publiés et ceux déjà revendiqués restent
 renvoyés, et les premières entrées de l'appel passent avant les suivantes. Les deux compteurs sont verrouillés
@@ -204,7 +205,8 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   par produit privé, sans aucun droit client (RLS active, aucune politique). `user_id … on delete cascade` : la
   suppression d'un compte (#68) emporte ses revendications.
 - **Comptes établis** (#47, `catalog.is_established`) : un compte e-mail, ou un compte anonyme d'au moins **7 jours**
-  (`auth.users.created_at`). Un compte récent revendique, mais **ne vote pas** : seuil, libellé et catégorie ne
+  (`auth.users.created_at`) ; et, quand la preuve d'appareil est exigée (#137), ce compte anonyme doit aussi être
+  attesté. Un compte récent revendique, mais **ne vote pas** : seuil, libellé et catégorie ne
   comptent que les revendications des comptes établis. Le job `catalog-claims-publish` (04:12 UTC,
   `catalog.publish_matured`) publie chaque nuit les produits dont les votants ont mûri. Faire publier le libellé d'un
   tiers (§5.4 de `docs/play-data-safety.md`) demande ainsi 2 comptes préparés une semaine à l'avance ou 2 comptes
@@ -326,6 +328,46 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
 - Seed local et CI (`supabase/seeds/products_sample.sql`) : produits publiés d'emblée, tous repris par le
   catalogue de départ (il ne sert plus qu'à une base sans cette migration). Les helpers de test
   `tests.product(n)` créent aussi des produits publiés.
+
+## Preuve d'appareil (#137)
+
+Un compte anonyme se crée sans effort. La preuve d'appareil montre qu'il vient d'une vraie installation de l'app :
+App Attest sur iOS, Play Integrity sur Android, vérifiés par l'Edge Function `attest-device`. Elle **ne bloque rien** :
+connexion, listes, courses et apprentissage restent ouverts sans preuve. Elle ne joue que dans le catalogue commun, à
+travers `catalog.is_established` (vote pour la publication, quota de 300, réserve du plafond global).
+
+- **Règle** : un compte e-mail est établi ; un compte anonyme l'est avec au moins 7 jours, **et**, quand
+  `accounts.attestation_policy.required` est vrai, une ligne dans `accounts.device_attestations`. Les deux conditions
+  s'ajoutent : un vrai appareil peut créer et attester beaucoup de comptes, l'ancienneté oblige toujours à les
+  préparer une semaine à l'avance.
+- **Interrupteur** (`accounts.attestation_policy`, une ligne, faux par défaut) : tant qu'il est faux, la règle de #47
+  s'applique telle quelle. À passer à vrai par l'éditeur SQL une fois les secrets de la fonction posés et les apps
+  avec attestation publiées (`docs/hosted-supabase.md`).
+- `accounts.device_attestations (user_id, platform, attested_at)` : la seule trace gardée, la plateforme (`ios`,
+  `android`) et la date de la première attestation. Ni clé, ni jeton, ni verdict. Effacée avec le compte (cascade).
+- `accounts.attestation_challenges (user_id, challenge_hash, expires_at)` : un défi en cours par compte, 10 minutes,
+  seule son empreinte SHA-256 est gardée. Purge quotidienne des défis expirés (`accounts-attestation-challenges-purge`,
+  04:27 UTC).
+- RPC :
+  - `attestation_challenge()` (`authenticated`, `SECURITY DEFINER`) : 32 octets aléatoires en base64url sans
+    remplissage (43 caractères), qui remplacent le défi en cours ; nul si le compte est déjà attesté.
+    Au plus **5 défis par compte et par jour** (UTC, `accounts.attestation_attempts`, purgé avec les défis) : au-delà,
+    `too_many_attempts` (P0001), rendu en 429 par la fonction. Chaque vérification Android coûte un appel au quota
+    Play Integrity de l'app (10 000 par jour par défaut) : un compte qui boucle ne l'épuise pas pour les autres.
+  - `consume_attestation_challenge(p_user_id, p_challenge)` (`service_role`) : supprime le défi en cours du compte,
+    **avant** toute vérification, et dit s'il valait `p_challenge` sans avoir expiré. Un défi sert une seule fois,
+    même faux.
+  - `record_device_attestation(p_user_id, p_platform)` (`service_role`) : idempotente, la première date est gardée.
+- **Edge Function `attest-device`** : protocole dans `shared/test-vectors/attestation/README.md`. App Attest : chaîne
+  jusqu'à la racine d'Apple embarquée, nonce `SHA-256(authData ‖ SHA-256(défi))` égal à l'extension
+  `1.2.840.113635.100.8.2`, clé de la feuille d'empreinte `key_id`, `rpIdHash` d'un des `APP_ATTEST_APP_IDS`, compteur
+  à 0, environnement de production (développement sur réglage), `credentialId = key_id`. Pas d'assertion : une clé
+  neuve par compte. Play Integrity (requête classique) : `decodeIntegrityToken` avec le compte de service, puis
+  paquet, nonce = défi, jeton de moins de 10 minutes, `PLAY_RECOGNIZED`, `MEETS_DEVICE_INTEGRITY` ; la licence n'est
+  pas exigée.
+- **Apps** : une tentative au lancement, pour un compte anonyme seulement, sans texte ni attente ; reprise discrète
+  (1 h après un échec passager, 24 h si le serveur n'est pas configuré, 7 jours après un refus) ; rien de plus sur un
+  appareil sans service d'attestation (simulateur, appareil sans Play Services).
 
 ## Comptes e-mail et synchro multi-appareil (#87, lot 87.1)
 

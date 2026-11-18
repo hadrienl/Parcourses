@@ -22,6 +22,9 @@ final class AppModel {
   private let accountOperations = AccountOperationQueue()
   /// Passée en arrière-plan depuis le lancement : seule une activation qui suit est un retour au premier plan.
   @ObservationIgnored private var hasEnteredBackground = false
+  /// Preuve d'appareil (#137), `nil` sans serveur. Gardée d'une reconstruction à l'autre : une tentative par lancement.
+  @ObservationIgnored private let attestation: DeviceAttestation?
+  @ObservationIgnored private var didStartAttestation = false
 
   init(
     flags: any AccountDeletionFlagStore = UserDefaultsAccountDeletionFlagStore(),
@@ -31,6 +34,7 @@ final class AppModel {
     let keychain = GuardedSecureStore.live()
     let gateway = AuthBootstrap.makeGateway(keychain: keychain)
     self.gateway = gateway
+    attestation = gateway.map { DeviceAttestation(gateway: $0) }
     environment = Result { try AppEnvironment.live(gateway: gateway, keychain: keychain) }
     isResumingDeletion = flags.isDeletionPending
     let current = try? environment.get()
@@ -62,6 +66,14 @@ final class AppModel {
     hasEnteredBackground = false
     if isReturning, await account?.replayPendingSwitch() == true { sync?.resume() }
     await account?.refresh()
+  }
+
+  /// Après l'ouverture de session : une tentative d'attestation par lancement, en tâche de fond (#137). Elle ne bloque
+  /// rien et ne remonte aucune erreur.
+  func startAttestation() {
+    guard !didStartAttestation, let attestation else { return }
+    didStartAttestation = true
+    attestation.start()
   }
 
   /// L'app est passée en arrière-plan : la prochaine activation est un retour au premier plan.

@@ -1,0 +1,13 @@
+{
+  "id": "002-next-state",
+  "function": "nextState",
+  "description": "État persisté après une tentative (#137). attested et unsupported sont définitifs. transient (réseau, 5xx, 401, erreur passagère d'Apple ou de Play) : reprise discrète au lancement suivant, au plus tôt 1 h après. notConfigured (secrets absents sur le serveur) : 24 h. rejected (preuve refusée, défi invalide) : 7 jours.",
+  "format_version": 1,
+  "cases": [
+    { "name": "attesté", "input": { "outcome": "attested", "now": "2026-11-18T10:00:00Z" }, "expected": { "status": "attested", "nextAttemptAt": null } },
+    { "name": "service absent", "input": { "outcome": "unsupported", "now": "2026-11-18T10:00:00Z" }, "expected": { "status": "unsupported", "nextAttemptAt": null } },
+    { "name": "échec passager : 1 h", "input": { "outcome": "transient", "now": "2026-11-18T10:00:00Z" }, "expected": { "status": "pending", "nextAttemptAt": "2026-11-18T11:00:00Z" } },
+    { "name": "serveur non configuré : 24 h", "input": { "outcome": "notConfigured", "now": "2026-11-18T10:00:00Z" }, "expected": { "status": "pending", "nextAttemptAt": "2026-11-19T10:00:00Z" } },
+    { "name": "preuve refusée : 7 jours", "input": { "outcome": "rejected", "now": "2026-11-18T10:00:00Z" }, "expected": { "status": "pending", "nextAttemptAt": "2026-11-25T10:00:00Z" } }
+  ]
+}

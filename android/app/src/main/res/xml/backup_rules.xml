@@ -6,4 +6,5 @@
     <exclude domain="sharedpref" path="account_deletion.xml" />
     <exclude domain="sharedpref" path="account_sign_out.xml" />
     <exclude domain="sharedpref" path="account_switch.xml" />
+    <exclude domain="sharedpref" path="device_attestation.xml" />
 </full-backup-content>

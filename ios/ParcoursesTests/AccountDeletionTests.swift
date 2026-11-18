@@ -425,6 +425,9 @@ final class DeletionHarness: AccountDeletionHost {
     cursors.catalogPublished = now
     cursors.catalogUnpublished = now
     defaults.set("visite", forKey: "liveActivityDismissedVisitId")
+    // Attestation d'appareil du compte (#137).
+    UserDefaultsAttestationStateStore(defaults: defaults).save(
+      AttestationState(status: .attested, nextAttemptAt: nil), for: UUID())
     let url = Self.cachedURL
     urlCache.storeCachedResponse(
       CachedURLResponse(
@@ -470,6 +473,8 @@ final class DeletionHarness: AccountDeletionHost {
       #expect(defaults.object(forKey: key) == nil, "\(key)", sourceLocation: sourceLocation)
     }
     #expect(defaults.object(forKey: "liveActivityDismissedVisitId") == nil, sourceLocation: sourceLocation)
+    #expect(
+      defaults.object(forKey: UserDefaultsAttestationStateStore.key) == nil, sourceLocation: sourceLocation)
     #expect(!isResponseCached, sourceLocation: sourceLocation)
     #expect(flags.load() == nil, sourceLocation: sourceLocation)
   }

@@ -97,6 +97,8 @@ Les tests du script tournent en CI (`supabase`), sans réseau : `python3 scripts
    elle répond `sent = false`, et l'app propose « Copier le lien ».
    Puis `supabase functions deploy notify-inactive-accounts` et ses secrets, et les deux secrets de Vault : voir
    « Purge des comptes e-mail inactifs » plus bas.
+   Puis `supabase functions deploy attest-device`, avec ses secrets quand Apple et Google sont réglés : voir « Preuve
+   d'appareil » plus bas. Sans secrets, elle répond `not_configured`, et rien ne change.
 5. Vérifier :
    - `scripts/hosted-auth-config.py` doit répondre « à jour ». La relecture porte sur la configuration enregistrée,
      et l'Auth redémarre ensuite en quelques instants.
@@ -219,3 +221,85 @@ au bout de 5 s, et l'app réessaie.
 **Purge.** Chaque semaine, les arêtes et entrées dont le poids décru est sous 0,01 disparaissent. Le journal :
 `select finished_at, claimed, skipped, detail from graph.runs where kind = 'prune' order by id desc limit 4;`
 (`skipped` : magasins verrouillés, purgés la semaine suivante).
+
+## Preuve d'appareil (#137)
+
+L'Edge Function `attest-device` vérifie App Attest (iOS) et Play Integrity (Android), et marque le compte attesté
+(`accounts.device_attestations`). Conception et règle : `docs/data-model.md`, « Preuve d'appareil ».
+
+**Sans réglage, rien ne change.** Tant que les secrets d'une plateforme manquent, la fonction répond
+`not_configured` pour elle, et les apps réessaient le lendemain. Tant que l'interrupteur `accounts.attestation_policy`
+est faux, la base garde la règle de #47 : personne n'est pénalisé.
+
+### 1. Apple (App Attest)
+
+1. **Apple Developer**, Certificates, Identifiers & Profiles, Identifiers, `app.parcourses` : cocher **App Attest**.
+   Avec la signature automatique, Xcode peut le faire au premier build qui porte l'entitlement.
+2. **Entitlement** dans `ios/project.yml`. Le dépôt ne l'ajoute pas : un profil sans la capacité ferait échouer la
+   signature. À ajouter à `targets.Parcourses.entitlements.properties` :
+
+   ```yaml
+   # App Attest (#137) : environnement de développement en Debug, de production en Release.
+   com.apple.developer.devicecheck.appattest-environment: $(APP_ATTEST_ENVIRONMENT)
+   ```
+
+   Puis `APP_ATTEST_ENVIRONMENT = development` dans `ios/Config/Debug.xcconfig`, `APP_ATTEST_ENVIRONMENT = production`
+   dans `ios/Config/Release.xcconfig`, et `xcodegen generate`. Sans l'entitlement, un build de développement utilise
+   déjà l'environnement de développement. TestFlight et l'App Store utilisent toujours la production.
+3. L'identifiant d'app vérifié par le serveur est `<TEAMID>.<bundle id>`, soit `<TEAMID>.app.parcourses`. Le Team ID
+   est celui de `DEVELOPMENT_TEAM`.
+
+### 2. Google (Play Integrity)
+
+1. **Play Console**, app `fr.parcourses.app`, Tester et publier, Intégrité de l'app, API Play Integrity : **associer un
+   projet Google Cloud**, existant ou nouveau.
+2. **Google Cloud**, dans ce projet : activer l'API **Google Play Integrity API**.
+3. **Compte de service** dans ce même projet (IAM, Comptes de service), par exemple `parcourses-integrity`. Aucun rôle
+   n'est demandé par la documentation de Google ; si la fonction journalise `decode 403`, vérifier que le compte
+   est bien dans le projet associé. Créer une **clé JSON** et la garder hors du dépôt. Une règle d'organisation peut interdire les
+   clés : il faut alors la lever pour ce projet.
+4. Les verdicts exigés sont ceux par défaut (`PLAY_RECOGNIZED`, `MEETS_DEVICE_INTEGRITY`). Il n'y a rien à activer de
+   plus, en particulier pas les `environmentDetails`.
+
+Un build Debug installé depuis Android Studio n'est pas reconnu par Play (`UNRECOGNIZED_VERSION`) : il est refusé, et
+c'est voulu. Pour tester, passer par un test interne de la Play Console.
+
+### 3. Secrets et déploiement
+
+```sh
+supabase secrets set APP_ATTEST_APP_IDS=<TEAMID>.app.parcourses
+# Facultatif, pour tester les builds Debug sur l'hébergé (attestations de l'environnement de développement) :
+supabase secrets set APP_ATTEST_ALLOW_DEVELOPMENT=true
+supabase secrets set PLAY_INTEGRITY_PACKAGE_NAME=fr.parcourses.app
+supabase secrets set PLAY_INTEGRITY_SERVICE_ACCOUNT="$(cat chemin/vers/cle-compte-de-service.json)"
+supabase functions deploy attest-device --use-api
+```
+
+- `APP_ATTEST_APP_IDS` accepte plusieurs identifiants, séparés par des virgules.
+- `APP_ATTEST_ALLOW_DEVELOPMENT` : une attestation de développement exige une app signée par notre équipe, le risque
+  est faible. À retirer une fois les essais faits (`supabase secrets unset APP_ATTEST_ALLOW_DEVELOPMENT`).
+- La fonction réutilise `SUPABASE_URL` et les clés fournies par la plateforme (`functions/_shared/keys.ts`).
+  `verify_jwt = false` vient de `config.toml` : le JWT est vérifié par l'Auth.
+- Les refus sont journalisés avec leur seule raison (`attest-device: ios rejected (nonce)`), sans identifiant.
+
+**Vérifier :**
+- Un `GET` sur la fonction doit répondre `405`.
+- Une fois les apps publiées : `select platform, count(*) from accounts.device_attestations group by platform;`.
+- `select jobname, schedule from cron.job where jobname = 'accounts-attestation-challenges-purge';` doit donner
+  `27 4 * * *`.
+
+### 4. Activer l'exigence, le moment venu
+
+Quand les versions avec attestation sont publiées sur les deux plateformes et que les comptes actifs ont eu le temps
+de s'attester (quelques semaines), mesurer la part de comptes anonymes actifs attestés :
+
+```sql
+select count(*) filter (where a.user_id is not null) as attestes, count(*) as anonymes_actifs
+from auth.users as u
+left join accounts.device_attestations as a on a.user_id = u.id
+where u.is_anonymous and accounts.last_activity(u.id) > now() - interval '30 days';
+```
+
+Puis activer : `update accounts.attestation_policy set required = true, updated_at = now() where id;`. Revenir en arrière avec
+`required = false`. Un compte anonyme non attesté garde alors toutes ses fonctions : il perd seulement son vote pour la
+publication d'un produit et garde le quota réduit d'un compte récent (100 par jour).

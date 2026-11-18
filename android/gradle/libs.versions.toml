@@ -37,6 +37,9 @@ lifecycleNav3 = "2.11.0"
 # Choix du magasin (A7)
 playServicesLocation = "21.4.0"
 
+# Preuve d'appareil (#137) : dernière version stable sur maven.google.com le 18 novembre 2026, minSdk 23.
+playIntegrity = "1.6.0"
+
 # Captures d'écran (A11)
 roborazzi = "1.76.0"
 
@@ -78,6 +81,8 @@ androidx-benchmark-macro-junit4 = { module = "androidx.benchmark:benchmark-macro
 androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 # Choix du magasin (A7)
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+# Preuve d'appareil (#137)
+play-integrity = { module = "com.google.android.play:integrity", version.ref = "playIntegrity" }
 # Réseau et session (A5)
 supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
 supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt" }
