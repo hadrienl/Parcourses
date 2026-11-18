@@ -164,6 +164,6 @@ class ReviewSignInGatewayTest {
     }
 
     private companion object {
-        const val REVIEW_EMAIL = "revue@parcourses.hadrien.eu"
+        const val REVIEW_EMAIL = "revue-a1b2c3d4@parcourses.hadrien.eu"
     }
 }

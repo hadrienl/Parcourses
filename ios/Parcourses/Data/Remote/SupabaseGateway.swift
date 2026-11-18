@@ -573,7 +573,12 @@ actor SupabaseGateway: RemoteGateway {
       case .review:
         // Compte de revue (#149) : la session vient de `review-sign-in`, jamais de `verifyOTP`.
         let granted = try await self.reviewSignIn(email: email, code: code)
-        try await auth.setSession(accessToken: granted.accessToken, refreshToken: granted.refreshToken)
+        let installed = try await auth.setSession(accessToken: granted.accessToken, refreshToken: granted.refreshToken)
+        // Comme Android : une session d'un autre compte que celui accordé n'est jamais gardée.
+        guard installed.user.id == granted.userId else {
+          try? await auth.signOut(scope: .local)
+          throw RemoteError.unexpected
+        }
       case .link, .signIn:
         let type: EmailOTPType = purpose == .link ? .emailChange : .email
         let response = try await auth.verifyOTP(email: email, token: code, type: type)

@@ -43,6 +43,9 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
+/** Adresse de revue d'exemple (#149) : la vraie n'est que dans la base et les consoles des stores. */
+private const val REVIEW_ADDRESS = "revue-a1b2c3d4@parcourses.hadrien.eu"
+
 /** Comptes e-mail (#87, lot 87.5) : liaison, connexion à un compte existant, reprise, déconnexion, session perdue. */
 @RunWith(AndroidJUnit4::class)
 class AccountLinkTest : DataTest() {
@@ -618,11 +621,11 @@ class AccountLinkTest : DataTest() {
 
             // Pas de contrôle du réseau à cette étape : rien ne part.
             online = false
-            link.requestCode("  Revue@Parcourses.Hadrien.EU ")
+            link.requestCode("  Revue-A1B2C3D4@Parcourses.Hadrien.EU ")
             val entering = link.state.value
             assertEquals(AccountLinkPhase.EnterCode, entering.phase)
             assertEquals(EmailCodePurpose.Review, entering.purpose)
-            assertEquals(ReviewAccount.EMAIL, entering.email)
+            assertEquals(REVIEW_ADDRESS, entering.email)
             assertEquals(now, entering.codeSentAt)
             assertNull(entering.error)
             assertEquals(requests, gateway.calls.size)
@@ -662,7 +665,7 @@ class AccountLinkTest : DataTest() {
             engine.drain()
             val anonymous = gateway.account
             val link = link()
-            link.requestCode(ReviewAccount.EMAIL)
+            link.requestCode(REVIEW_ADDRESS)
             gateway.failNext("verifyCode", AuthRequestError(400, "invalid_code"))
 
             link.verify("000000")
@@ -685,25 +688,32 @@ class AccountLinkTest : DataTest() {
             gateway.hasSession = false
             val link = link()
 
-            link.requestCode(ReviewAccount.EMAIL)
+            link.requestCode(REVIEW_ADDRESS)
 
             assertEquals(EmailCodePurpose.Review, link.state.value.purpose)
             assertTrue(gateway.callsOf("signInWithEmail").isEmpty())
             assertTrue(gateway.callsOf("ensureSession").isEmpty())
         }
 
-    /** Seule l'adresse exacte du compte de revue (#149) évite l'envoi d'un code : les autres gardent leur parcours. */
+    /**
+     * Seule une adresse de la forme du compte de revue (#149) évite l'envoi d'un code : les autres gardent leur
+     * parcours.
+     */
     @Test
     fun anyOtherAddressKeepsTheEmailCode() =
         runBlocking {
-            assertTrue(ReviewAccount.matches("revue@parcourses.hadrien.eu"))
-            assertFalse(ReviewAccount.matches("revue@parcourses.hadrien.eu.com"))
-            assertFalse(ReviewAccount.matches("xrevue@parcourses.hadrien.eu"))
+            assertTrue(ReviewAccount.matches(REVIEW_ADDRESS))
+            assertTrue(ReviewAccount.matches("revue-7f3e9a0c1b@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("revue@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("revue-a1b2@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("revue-a1b2.c3d4@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("xrevue-a1b2c3d4@parcourses.hadrien.eu"))
+            assertFalse(ReviewAccount.matches("revue-a1b2c3d4@parcourses.hadrien.eu.com"))
             val link = link()
 
-            link.requestCode("revue@parcourses.hadrien.eu.com")
+            link.requestCode("revue-a1b2c3d4@parcourses.hadrien.eu.com")
 
             assertEquals(EmailCodePurpose.Link, link.state.value.purpose)
-            assertEquals(listOf("linkEmail:revue@parcourses.hadrien.eu.com"), gateway.callsOf("linkEmail"))
+            assertEquals(listOf("linkEmail:revue-a1b2c3d4@parcourses.hadrien.eu.com"), gateway.callsOf("linkEmail"))
         }
 }

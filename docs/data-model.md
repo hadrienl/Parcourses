@@ -84,7 +84,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_inactive_email_accounts.sql` | Purge des comptes e-mail inactifs depuis 3 ans après une prévenance au moins 30 jours avant : `accounts.last_activity`, `accounts.inactivity_notices`, job `accounts-inactivity` (05:23 UTC), RPC `claim_inactivity_notices` et `confirm_inactivity_notice` réservées à `service_role` pour l'Edge Function `notify-inactive-accounts`, extension `pg_net` (#114) |
 | `…_graph_rebuild_prune.sql` | Recalcul complet (`graph.rebuild_jobs`, `start_rebuild`, `run_rebuild_jobs`, job `graph-rebuild`, bascule de version), verrou consultatif par magasin, traitement d'une visite partagé (`graph.process_visit`), publication d'un magasin partagée (`graph.publish_store_snapshot`), purge `graph-prune`, `graph.apply_deltas_jsonb` pour les vecteurs (#29) |
 | `…_device_attestation.sql` | Preuve d'appareil (#137) : `accounts.device_attestations`, défis à usage unique `accounts.attestation_challenges`, interrupteur `accounts.attestation_policy`, `catalog.is_established` recréée (anonyme : 7 jours ET attesté quand la preuve est exigée), RPC `attestation_challenge` (`authenticated`), `consume_attestation_challenge` et `record_device_attestation` (`service_role`, pour l'Edge Function `attest-device`), purge `accounts-attestation-challenges-purge` (04:27 UTC) |
-| `…_review_account.sql` | Compte de revue des stores (#149) : réglage sur une ligne `accounts.review_access` (interrupteur, adresse unique, comptes, magasin, compteur d'échecs, verrou), journal `accounts.review_sign_in_log` (purge `accounts-review-log-purge`, 04:33 UTC), RPC `review_sign_in_attempt` (`service_role`), `accounts.setup_review_account` et `accounts.reset_review_account` (`postgres`), trigger `parcourses_guard_review_credentials` sur `auth.users` |
+| `…_review_account.sql` | Compte de revue des stores (#149) : réglage sur une ligne `accounts.review_access` (interrupteur, adresse unique, comptes, magasin, compteur d'échecs, verrou), journal `accounts.review_sign_in_log` (purge `accounts-review-log-purge`, 04:33 UTC), RPC `review_sign_in_attempt` (`service_role`), `accounts.setup_review_account` et `accounts.reset_review_account` (`postgres`), trigger `parcourses_guard_review_credentials` sur `auth.users`, trigger `review_access_disabled` (coupure : sessions fermées) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
@@ -373,34 +373,43 @@ travers `catalog.is_established` (vote pour la publication, quota de 300, réser
 ## Compte de revue des stores (#149)
 
 Les relecteurs d'Apple et de Google ne lisent pas de boîte mail et ne créent pas de compte : il leur faut une adresse
-et un code fixes. Conception : commentaire de #149 ; mise en place et remise à zéro : `docs/hosted-supabase.md`.
+et un code fixes. Conception : #149, commentaire et relecture de sécurité. Mise en place, coupure et remise à zéro :
+`docs/hosted-supabase.md`.
 
-- **Apps** : constante `ReviewAccount` (`revue@parcourses.hadrien.eu`). Pour cette adresse, aucun e-mail : l'écran du
-  code s'ouvre aussitôt, avec `EmailCodePurpose.review`. Au 6ᵉ chiffre, l'app appelle `review-sign-in` au lieu de
-  `verifyOtp`, puis installe la session reçue. La suite est celle d'une connexion à un compte existant. Aucun texte
-  nouveau.
+- **Apps** : `ReviewAccount.matches` reconnaît la forme `revue-<6 à 32 lettres ou chiffres>@parcourses.hadrien.eu`.
+  - L'adresse exacte n'est pas dans le binaire. Son suffixe aléatoire n'est que dans la base et les consoles des
+    stores : un inconnu ne peut donc pas viser l'adresse, ni épuiser les plafonds.
+  - Pour une telle adresse, aucun e-mail : l'écran du code s'ouvre aussitôt (`EmailCodePurpose.review`).
+  - Au 6ᵉ chiffre, l'app appelle `review-sign-in` au lieu de `verifyOtp`, installe la session reçue et vérifie qu'elle
+    est celle de `user_id`. La suite est celle d'une connexion à un compte existant.
+  - Un refus s'affiche toujours « code invalide ». Aucun texte nouveau.
 - **Edge Function `review-sign-in`** (`verify_jwt = false`) : `POST {email, code}` →
   `200 {access_token, refresh_token, expires_in, expires_at, token_type, user_id}`, ou `400 {error: "invalid_code"}`
-  pour **tout** refus. Inerte sans secret `REVIEW_SIGN_IN_CODE` de 6 chiffres. Le code est comparé en temps constant,
-  sur les empreintes SHA-256. Le résultat va à `review_sign_in_attempt`, qui décide. La session est ouverte par
-  `generate_link` (`magiclink`, aucun e-mail) puis `/verify`, pour l'adresse rendue par la base, jamais celle de la
-  requête. Elle n'est rendue que si elle appartient au compte accordé.
+  pour **tout** refus.
+  - Inerte sans secret `REVIEW_SIGN_IN_CODE` de 6 chiffres.
+  - Le code est comparé en temps constant, sur les empreintes SHA-256. Le résultat va à `review_sign_in_attempt`,
+    qui décide.
+  - La session est ouverte par `generate_link` (`magiclink`, aucun e-mail) puis `/verify`, pour l'adresse rendue par
+    la base, jamais celle de la requête. Elle n'est rendue que si elle appartient au compte accordé.
 - **`accounts.review_access`** (une ligne, `id boolean check (id)`) : `enabled` (faux par défaut), `email`,
   `partner_email`, `user_id`, `partner_id` (`on delete set null`), `store_id`, `failures_since_reset`, `locked_at`,
-  `reset_at`. Fermée à tous les clients, `service_role` compris.
-- **`review_sign_in_attempt(p_email, p_ok)`** (`service_role`, `security definer`, verrou de la ligne) :
-  1. contrôles dans l'ordre : interrupteur, réglage, adresse, verrou, plafonds ;
-  2. journal ensuite : `rejected` (compteur, verrou au 100ᵉ) ou `granted`. Les essais bloqués ne sont pas journalisés.
-     Plafonds : 5 échecs par heure, 20 par 24 h, 30 accords par 24 h. Un code juste est refusé dès qu'un plafond est
-     atteint ;
+  `reset_at`. Fermée à tous les clients, `service_role` compris. Passer `enabled` à faux ferme les sessions des deux
+  comptes (trigger `review_access_disabled`).
+- **`review_sign_in_attempt(p_email, p_ok)`** (`service_role`, `security definer`) :
+  1. interrupteur, réglage et adresse, lus sans verrou : une autre adresse ne fait attendre personne ;
+  2. puis, sous verrou de la ligne : verrou posé, plafonds, journal. Seuls les essais évalués sont journalisés :
+     `rejected` (compteur, verrou au 100ᵉ) ou `granted`. Plafonds : 5 échecs par heure, 20 par 24 h, 30 accords par
+     24 h. Plafond atteint : tout essai est refusé, sans écriture, juste ou faux ;
   3. compte de revue ou partenaire disparu : recréé, avec ses données, au premier accord.
 - **Comptes** : créés par `accounts.ensure_review_user`, directement dans `auth.users` et `auth.identities`, confirmés,
   sans mot de passe. Le hook `before_user_created` refuse toute autre voie. Un compte existant n'est repris que s'il
   est déjà un compte de revue : jamais un compte ordinaire.
 - **Garde** `parcourses_guard_review_credentials` (`before update on auth.users`, seulement quand le mot de passe,
   l'adresse ou le téléphone changent) : pour les deux comptes, le mot de passe reste vide, l'adresse et le téléphone
-  ne changent pas. Une session obtenue une fois ne permet pas de revenir après un changement de code ou une
-  désactivation.
+  ne changent pas. Une session obtenue une fois ne laisse donc aucun moyen durable de revenir. La coupure et la remise
+  à zéro ferment les sessions ; la remise à zéro retire aussi les facteurs MFA et les identités autres que l'e-mail.
+- **Remise à zéro** (`accounts.reset_review_account(p_sign_out = true, p_code_rotated = false)`) : le journal, le
+  compteur d'échecs et le verrou ne repartent de zéro qu'après un changement de code (`p_code_rotated`).
 - **Données de démonstration** (`accounts.seed_review_data`) :
   - les prénoms « Alex » (revue) et « Camille » (partenaire) ;
   - « Courses de la semaine », au compte de revue, Camille éditrice, 8 articles ;
@@ -410,10 +419,12 @@ et un code fixes. Conception : commentaire de #149 ; mise en place et remise à 
   Le magasin connu est un magasin existant (`store_id`), nommé dans le texte des consoles. Aucun magasin fictif, aucune
   visite fabriquée.
 - **Limites** :
+  - les jetons d'accès déjà émis restent valables jusqu'à leur échéance (une heure) après une coupure ;
+  - un code GoTrue demandé directement à l'API ouvrirait le compte si le domaine recevait le courrier de ces adresses.
+    Il ne doit pas le recevoir ;
   - les visites d'un relecteur peuvent nourrir le graphe d'un vrai magasin. La remise à zéro les efface, et un
     recalcul (#29) en retire la trace ;
-  - le compte de revue est un compte e-mail, donc établi : il peut voter pour la publication d'un produit ;
-  - l'adresse est dans le binaire : quelqu'un peut épuiser les plafonds pendant une revue.
+  - le compte de revue est un compte e-mail, donc établi : il peut voter pour la publication d'un produit.
 
 ## Comptes e-mail et synchro multi-appareil (#87, lot 87.1)
 

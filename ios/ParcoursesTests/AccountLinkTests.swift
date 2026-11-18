@@ -128,6 +128,9 @@ nonisolated final class MemoryAccountKindStore: AccountKindStore, @unchecked Sen
 }
 
 /// Ce que la liaison a demandé au reste de l'app.
+/// Adresse de revue d'exemple (#149) : la vraie n'est que dans la base et les consoles des stores.
+private let reviewAddress = "revue-a1b2c3d4@parcourses.hadrien.eu"
+
 @MainActor
 final class LinkProbe {
   var synchronizations = 0
@@ -430,12 +433,12 @@ final class LinkProbe {
     await gateway.setServerName("Revue")
     probe.resendable = 2
     probe.online = false
-    link.email = "  Revue@Parcourses.Hadrien.EU "
+    link.email = "  Revue-A1B2C3D4@Parcourses.Hadrien.EU "
     await link.requestCode()
     #expect(link.error == nil)
     #expect(link.phase == .enterCode)
     #expect(link.purpose == .review)
-    #expect(link.sentTo == ReviewAccount.email)
+    #expect(link.sentTo == reviewAddress)
     #expect(link.codeSentAt == probe.now)
     #expect(await gateway.calls.isEmpty)
     probe.online = true
@@ -455,7 +458,7 @@ final class LinkProbe {
     probe.previousAccount = UUID()
     probe.resendable = 3
     await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: nil))
-    link.email = ReviewAccount.email
+    link.email = reviewAddress
     await link.requestCode()
     #expect(link.purpose == .review)
     #expect(await gateway.calls.isEmpty)
@@ -469,7 +472,7 @@ final class LinkProbe {
   /// `review-sign-in` refuse tout par `400 invalid_code` : un code faux. Le réseau reste vérifié avec le code.
   @Test func aRefusedReviewCodeIsAWrongCode() async {
     let (link, gateway, kinds, probe) = makeLink()
-    link.email = ReviewAccount.email
+    link.email = reviewAddress
     await link.requestCode()
     await gateway.setVerifyFailures([
       AuthRequestError(status: 400, code: "invalid_code"), AuthRequestError(status: 500, code: "internal"),
@@ -492,7 +495,7 @@ final class LinkProbe {
 
   @Test func resendingTheReviewCodeStillSendsNothing() async {
     let (link, gateway, _, probe) = makeLink()
-    link.email = ReviewAccount.email
+    link.email = reviewAddress
     await link.requestCode()
     probe.now = probe.now.addingTimeInterval(AccountLink.resendDelay)
     probe.online = false
@@ -506,7 +509,7 @@ final class LinkProbe {
 
   @Test func anotherAddressAfterTheReviewAddressFollowsTheUsualPath() async {
     let (link, gateway, _, _) = makeLink()
-    link.email = ReviewAccount.email
+    link.email = reviewAddress
     await link.requestCode()
     link.changeEmail()
     link.email = "revue@exemple.fr"
@@ -516,8 +519,10 @@ final class LinkProbe {
   }
 
   @Test(arguments: [
-    (" Revue@Parcourses.Hadrien.EU\n", true), ("revue@parcourses.hadrien.eu", true), ("revue@exemple.fr", false),
-    ("xrevue@parcourses.hadrien.eu", false), ("revue@parcourses.hadrien.eu.fr", false),
+    (" Revue-A1B2C3D4@Parcourses.Hadrien.EU\n", true), ("revue-7f3e9a0c1b@parcourses.hadrien.eu", true),
+    ("revue@parcourses.hadrien.eu", false), ("revue-a1b2@parcourses.hadrien.eu", false),
+    ("revue-a1b2.c3d4@parcourses.hadrien.eu", false), ("xrevue-a1b2c3d4@parcourses.hadrien.eu", false),
+    ("revue-a1b2c3d4@parcourses.hadrien.eu.fr", false), ("revue-a1b2c3d4@exemple.fr", false),
   ])
   func onlyTheReviewAddressIsTheReviewAccount(email: String, matches: Bool) {
     #expect(ReviewAccount.matches(AccountLink.normalize(email: email)) == matches)

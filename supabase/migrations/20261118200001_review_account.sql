@@ -255,6 +255,9 @@ revoke all on function accounts.seed_review_data() from public, anon, authentica
 -- 5. Réglage, depuis l'éditeur SQL du projet (rôle postgres) : adresses, magasin, comptes, données, compteurs.
 -- Idempotent. Laisse l'interrupteur tel quel (faux au premier réglage). Une autre adresse de revue que celle déjà
 -- réglée est refusée tant que l'ancien compte existe : une seule adresse à la fois (docs/hosted-supabase.md).
+-- L'adresse de revue a la forme que reconnaissent les apps (ReviewAccount) : « revue- », puis 6 à 32 lettres ou
+-- chiffres tirés au hasard. Ce suffixe n'est que dans la base et les consoles : qui lit le binaire ne peut pas viser
+-- l'adresse, donc ni épuiser les plafonds, ni chercher le code.
 create or replace function accounts.setup_review_account(p_email text, p_partner_email text, p_store_id uuid)
 returns jsonb
 language plpgsql
@@ -266,6 +269,10 @@ declare
   v_partner text := lower(btrim(p_partner_email));
   v_access accounts.review_access;
 begin
+  if v_email !~ '^revue-[a-z0-9]{6,32}@' then
+    raise exception 'review address must look like revue-<6 to 32 random letters or digits>@domain'
+      using errcode = '22023';
+  end if;
   if not exists (select 1 from public.stores as s where s.id = p_store_id) then
     raise exception 'unknown store' using errcode = 'P0002';
   end if;
@@ -276,14 +283,22 @@ begin
   update accounts.review_access as r
   set email = v_email, partner_email = v_partner, store_id = p_store_id, updated_at = now()
   where r.id;
-  return accounts.reset_review_account();
+  return accounts.reset_review_account(p_sign_out => true, p_code_rotated => true);
 end;
 $$;
 
--- Remise à zéro : comptes recréés s'ils manquent, données de démonstration remises à neuf, compteur d'échecs et
--- verrou levés. p_sign_out : les sessions ouvertes des deux comptes sont aussi fermées (code divulgué, fin d'une
--- revue). N'active ni ne désactive le mécanisme.
-create or replace function accounts.reset_review_account(p_sign_out boolean default false)
+-- Remise à zéro : comptes recréés s'ils manquent, données de démonstration remises à neuf, facteurs MFA et identités
+-- autres que l'e-mail retirés (rien d'attaché au compte ne survit à une remise à zéro). N'active ni ne désactive le
+-- mécanisme.
+-- - p_sign_out (vrai par défaut) : les sessions ouvertes des deux comptes sont fermées ; leurs jetons d'accès déjà
+--   émis restent valables jusqu'à leur échéance (une heure au plus).
+-- - p_code_rotated : à passer à vrai après un changement du secret REVIEW_SIGN_IN_CODE, et seulement alors. Le journal,
+--   le compteur d'échecs et le verrou repartent de zéro. Sans changement de code, ils sont gardés : une remise à zéro
+--   ne rend pas de nouveaux essais à qui cherche le code.
+create or replace function accounts.reset_review_account(
+  p_sign_out boolean default true,
+  p_code_rotated boolean default false
+)
 returns jsonb
 language plpgsql
 volatile
@@ -297,9 +312,17 @@ begin
   perform accounts.provision_review_accounts();
   perform accounts.seed_review_data();
   update accounts.review_access as r
-  set failures_since_reset = 0, locked_at = null, reset_at = now(), updated_at = now()
+  set failures_since_reset = case when p_code_rotated then 0 else r.failures_since_reset end,
+    locked_at = case when p_code_rotated then null else r.locked_at end,
+    reset_at = now(),
+    updated_at = now()
   where r.id
   returning r.* into v_access;
+  if p_code_rotated then
+    delete from accounts.review_sign_in_log as l where l.id is not null;
+  end if;
+  delete from auth.mfa_factors as f where f.user_id in (v_access.user_id, v_access.partner_id);
+  delete from auth.identities as i where i.user_id in (v_access.user_id, v_access.partner_id) and i.provider <> 'email';
   if p_sign_out then
     delete from auth.sessions as s where s.user_id in (v_access.user_id, v_access.partner_id);
   end if;
@@ -316,7 +339,29 @@ end;
 $$;
 
 revoke all on function accounts.setup_review_account(text, text, uuid) from public, anon, authenticated, service_role;
-revoke all on function accounts.reset_review_account(boolean) from public, anon, authenticated, service_role;
+revoke all on function accounts.reset_review_account(boolean, boolean) from public, anon, authenticated, service_role;
+
+-- Couper le mécanisme ferme aussi les sessions ouvertes des deux comptes : un code divulgué ne laisse pas d'accès
+-- après « enabled = false ». Les jetons d'accès déjà émis restent valables jusqu'à leur échéance (une heure au plus).
+create or replace function accounts.review_access_disabled()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  delete from auth.sessions as s where s.user_id in (new.user_id, new.partner_id, old.user_id, old.partner_id);
+  return null;
+end;
+$$;
+
+revoke all on function accounts.review_access_disabled() from public, anon, authenticated, service_role;
+
+drop trigger if exists review_access_disabled on accounts.review_access;
+create trigger review_access_disabled
+  after update of enabled on accounts.review_access
+  for each row
+  when (old.enabled and not new.enabled)
+  execute function accounts.review_access_disabled();
 
 -- 6. Accord d'un essai de connexion au compte de revue, pour l'Edge Function review-sign-in (service_role). La
 -- fonction a déjà comparé le code au secret, en temps constant ; p_ok en est le résultat. Sous verrou de la ligne de
@@ -345,7 +390,9 @@ declare
   v_failures_day integer;
   v_grants_day integer;
 begin
-  select r.* into v_access from accounts.review_access as r where r.id for update;
+  -- Lecture sans verrou d'abord : une requête pour une autre adresse, ou mécanisme coupé, ne fait jamais attendre
+  -- les autres. Le verrou n'est pris que pour l'adresse réglée, et l'état est relu sous lui.
+  select r.* into v_access from accounts.review_access as r where r.id;
   if not found or not v_access.enabled then
     return query select 'disabled'::text, null::uuid, null::text;
     return;
@@ -356,6 +403,11 @@ begin
   end if;
   if p_email is null or lower(btrim(p_email)) <> v_access.email then
     return query select 'unknown_email'::text, null::uuid, null::text;
+    return;
+  end if;
+  select r.* into v_access from accounts.review_access as r where r.id for update;
+  if not v_access.enabled or lower(btrim(p_email)) is distinct from v_access.email then
+    return query select 'disabled'::text, null::uuid, null::text;
     return;
   end if;
   if v_access.locked_at is not null then
@@ -370,8 +422,9 @@ begin
   into v_failures_hour, v_failures_day, v_grants_day
   from accounts.review_sign_in_log as l
   where l.attempted_at > now() - interval '24 hours';
+  -- Tout essai, juste ou faux, est refusé de la même façon et sans écriture : la durée ne distingue pas un bon code.
   if v_failures_hour >= c_failures_per_hour or v_failures_day >= c_failures_per_day
-     or (coalesce(p_ok, false) and v_grants_day >= c_grants_per_day) then
+     or v_grants_day >= c_grants_per_day then
     return query select 'rate_limited'::text, null::uuid, null::text;
     return;
   end if;

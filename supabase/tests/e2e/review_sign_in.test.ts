@@ -6,7 +6,8 @@
 // - aucun e-mail ne part vers l'adresse de revue ;
 // - refus uniformes : autre adresse (dont un vrai compte e-mail avec le bon code), code faux, mécanisme coupé ;
 // - un mot de passe posé avec la session ne permet pas de se connecter ;
-// - compte supprimé par son relecteur : recréé au prochain accord.
+// - compte supprimé par son relecteur : recréé au prochain accord ;
+// - coupé : la session ouverte ne se rafraîchit plus.
 //
 // Prérequis : Supabase local démarré (`supabase start`).
 
@@ -15,7 +16,7 @@ import { assert, client, emailAccount, localStack, type Session, type Stack } fr
 
 const FUNCTION_PORT = 54996;
 const CODE = "482915";
-const REVIEW = "revue-e2e-149@example.com";
+const REVIEW = "revue-e2e149test@example.com";
 const PARTNER = "demo-e2e-149@example.com";
 
 async function startReviewSignIn(stack: Stack): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -143,9 +144,15 @@ Deno.test("review-sign-in : session du seul compte de revue, refus uniformes", a
     const renamed = ((await relisted.json()) as { name: string }[]).map((l) => l.name);
     assert(JSON.stringify(renamed) === '["Apéro de samedi","Courses de la semaine"]', `listes recréées : ${JSON.stringify(renamed)}`);
 
-    // Coupé : même le bon code est refusé.
+    // Coupé : même le bon code est refusé, et la session ouverte ne se rafraîchit plus.
     await psql("update accounts.review_access set enabled = false where id;");
     refused(await post(REVIEW, CODE), "coupé à nouveau");
+    const afterDisable = await call("/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: again.refresh_token }),
+    });
+    await afterDisable.body?.cancel();
+    assert(!afterDisable.ok, `rafraîchissement après coupure refusé : ${afterDisable.status}`);
   } finally {
     await fn.stop();
     await psql(`

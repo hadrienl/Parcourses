@@ -309,14 +309,22 @@ publication d'un produit et garde le quota réduit d'un compte récent (100 par 
 ## Compte de revue des stores (#149)
 
 Les relecteurs d'Apple (TestFlight externe, App Store) et de Google (Play Console) se connectent avec une adresse et un
-code fixes, qui n'expirent pas : `revue@parcourses.hadrien.eu` (constante `ReviewAccount` des deux apps) et le code de
-6 chiffres gardé dans le secret `REVIEW_SIGN_IN_CODE`. L'app n'envoie aucun e-mail pour cette adresse : elle passe
-directement à l'écran du code et le vérifie auprès de l'Edge Function `review-sign-in`. Conception : `docs/data-model.md`,
-« Compte de revue des stores ».
+code fixes, qui n'expirent pas :
+
+- l'adresse est `revue-<suffixe aléatoire>@parcourses.hadrien.eu`. Les apps ne connaissent que cette forme
+  (`ReviewAccount.matches`), pas le suffixe, qui n'est que dans la base et les consoles des stores ;
+- le code de 6 chiffres est gardé dans le secret `REVIEW_SIGN_IN_CODE`.
+
+Pour une adresse de cette forme, l'app n'envoie aucun e-mail : elle passe directement à l'écran du code et le vérifie
+auprès de l'Edge Function `review-sign-in`. Conception : `docs/data-model.md`, « Compte de revue des stores ».
 
 Trois verrous, tous nécessaires pour qu'une connexion passe : le secret posé, l'interrupteur
-`accounts.review_access.enabled` à vrai, et les comptes réglés. **Ne jamais mettre le code dans le dépôt**, ni dans un
-ticket : seulement dans les secrets Supabase et dans les consoles des stores.
+`accounts.review_access.enabled` à vrai, et les comptes réglés. **Ne jamais mettre le code ni l'adresse dans le
+dépôt**, ni dans un ticket : seulement dans les secrets Supabase, la base et les consoles des stores.
+
+**Prérequis** : aucune boîte ne doit recevoir le courrier de `revue-…@parcourses.hadrien.eu` ni de
+`demo-…@parcourses.hadrien.eu`. Pas de redirection attrape-tout sur le domaine : sinon, un code GoTrue demandé
+directement à l'API (`/auth/v1/otp`) ouvrirait ces comptes sans passer par l'interrupteur.
 
 ### 1. Mise en place
 
@@ -330,26 +338,34 @@ ticket : seulement dans les secrets Supabase et dans les consoles des stores.
    order by a.contributors desc limit 10;
    ```
 
-3. Créer les comptes et les données de démonstration (éditeur SQL du projet, rôle `postgres`) :
+3. Tirer les deux adresses, avec un suffixe aléatoire de 6 à 32 lettres minuscules ou chiffres :
+
+   ```sh
+   echo "revue-$(openssl rand -hex 6)@parcourses.hadrien.eu"
+   echo "demo-$(openssl rand -hex 6)@parcourses.hadrien.eu"
+   ```
+
+4. Créer les comptes et les données de démonstration (éditeur SQL du projet, rôle `postgres`) :
 
    ```sql
-   select accounts.setup_review_account('revue@parcourses.hadrien.eu', 'demo@parcourses.hadrien.eu', '<id du magasin>');
+   select accounts.setup_review_account('<adresse revue-…>', '<adresse demo-…>', '<id du magasin>');
    ```
 
    La réponse donne les deux comptes et le nom du magasin, à reporter dans les textes des consoles. Les comptes sont
-   créés directement dans `auth.users`, confirmés, **sans mot de passe** : le hook `before_user_created` refuserait
-   toute autre création. La fonction refuse une adresse qui appartient déjà à un compte ordinaire.
-4. Générer le code, sans le zéro de tête ni une suite évidente, et le poser :
+   créés directement dans `auth.users`, confirmés, **sans mot de passe**, car le hook `before_user_created` refuserait
+   toute autre création. La fonction refuse une adresse de revue d'une autre forme, et une adresse qui appartient déjà
+   à un compte ordinaire.
+5. Générer le code et le poser :
 
    ```sh
    code=$(python3 -c 'import secrets; print(secrets.randbelow(900000) + 100000)')
    supabase secrets set REVIEW_SIGN_IN_CODE="$code"
    supabase functions deploy review-sign-in --use-api
-   echo "$code"   # à reporter dans la Play Console et App Store Connect, puis effacer l'historique du terminal
+   echo "$code"   # à reporter dans la Play Console et App Store Connect
    ```
 
-5. Activer : `update accounts.review_access set enabled = true, updated_at = now() where id;`.
-6. Vérifier :
+6. Activer : `update accounts.review_access set enabled = true, updated_at = now() where id;`.
+7. Vérifier :
    - un `GET` sur la fonction répond `405` ;
    - dans l'app, se connecter avec l'adresse de revue et le code : les listes « Courses de la semaine » et « Apéro de
      samedi » apparaissent, partagées avec Camille ;
@@ -357,37 +373,53 @@ ticket : seulement dans les secrets Supabase et dans les consoles des stores.
 
 ### 2. Couper, changer le code
 
-- **Couper** : `update accounts.review_access set enabled = false, updated_at = now() where id;`. Effet immédiat : tout
-  essai est refusé. Retirer le secret (`supabase secrets unset REVIEW_SIGN_IN_CODE`) coupe aussi, sans toucher la base.
-- **Changer le code** (code divulgué, fin d'une revue) : nouveau `supabase secrets set REVIEW_SIGN_IN_CODE=…`, puis
-  `select accounts.reset_review_account(true);` pour fermer les sessions ouvertes, et mettre à jour les consoles.
-  Une session ouverte reste valable jusqu'à cette fermeture : le compte n'a aucun mot de passe, et un trigger
-  l'empêche d'en recevoir un, ou de changer d'adresse.
+- **Couper** : `update accounts.review_access set enabled = false, updated_at = now() where id;`. Tout essai est
+  refusé. Un trigger ferme aussi les sessions ouvertes des deux comptes : elles ne se rafraîchissent plus. Les jetons
+  d'accès déjà émis restent valables jusqu'à leur échéance, une heure au plus. Retirer le secret
+  (`supabase secrets unset REVIEW_SIGN_IN_CODE`) bloque les nouvelles connexions, mais ne ferme pas les sessions.
+- **Changer le code** (code divulgué, fin d'une revue) :
+  1. nouveau `supabase secrets set REVIEW_SIGN_IN_CODE=…` ;
+  2. `select accounts.reset_review_account(p_code_rotated => true);`. Elle ferme les sessions et remet à zéro le
+     journal, le compteur d'échecs et le verrou ;
+  3. mettre à jour les consoles.
+
+  Le compte n'a aucun mot de passe : un trigger l'empêche d'en recevoir un ou de changer d'adresse. La remise à zéro
+  retire aussi les facteurs MFA et les identités autres que l'e-mail. Rien d'attaché au compte ne survit donc.
 
 ### 3. Remise à zéro des données
 
 ```sql
-select accounts.reset_review_account();        -- données de démonstration, compteur d'échecs et verrou
-select accounts.reset_review_account(true);    -- idem, et ferme les sessions ouvertes des deux comptes
+select accounts.reset_review_account();                        -- données, MFA, identités tierces, sessions fermées
+select accounts.reset_review_account(false);                   -- idem, sessions gardées (revue en cours)
+select accounts.reset_review_account(p_code_rotated => true);  -- après un changement de code seulement
 ```
 
-La remise à zéro recrée les comptes s'ils manquent. Elle efface les listes des deux comptes, leurs appartenances à
-d'autres listes et leurs visites, puis recrée les deux listes. Elle ne touche pas à l'interrupteur. À faire avant
-chaque soumission, quand une revue précédente a laissé des données.
+La remise à zéro :
 
-Le relecteur peut supprimer le compte (« Supprimer mes données », qu'Apple vérifie) : ses listes partent à Camille,
-et le prochain accord recrée le compte et ses données. La revue suivante n'est pas bloquée.
+- recrée les comptes s'ils manquent ;
+- efface les listes des deux comptes, leurs appartenances à d'autres listes et leurs visites ;
+- recrée les deux listes ;
+- ne touche pas à l'interrupteur.
+
+À faire avant chaque soumission, quand une revue précédente a laissé des données. **Sans `p_code_rotated`, le journal,
+le compteur d'échecs et le verrou sont gardés** : une remise à zéro ne rend pas d'essais à qui chercherait le code.
+
+Le relecteur peut supprimer le compte (« Supprimer mes données », qu'Apple vérifie). Ses listes partent alors à
+Camille, et le prochain accord recrée le compte et ses données. La revue suivante n'est pas bloquée.
 
 ### 4. Plafonds et verrou
 
 - 5 échecs par heure glissante, 20 par 24 h : au-delà, tout essai est refusé, bon code compris, jusqu'à ce que la
   fenêtre passe ;
-- 30 connexions accordées par 24 h ;
-- **100 échecs depuis la dernière remise à zéro : verrou**, levé seulement par `accounts.reset_review_account()`.
-  Un code de 6 chiffres a ainsi au plus 1 chance sur 10 000 d'être trouvé.
+- 30 connexions accordées par 24 h : au-delà, tout essai est refusé ;
+- **100 échecs depuis le dernier changement de code : verrou**, levé seulement par
+  `accounts.reset_review_account(p_code_rotated => true)`, après un nouveau code. Un code de 6 chiffres a ainsi au
+  plus 1 chance sur 9 000 d'être trouvé par code, et il faut d'abord connaître l'adresse.
 
-Toutes les réponses de refus sont identiques (`400 invalid_code`) : la raison est dans les journaux de la fonction
-(`review-sign-in: refused (rate_limited)`, sans adresse ni code). Pour savoir où en est le mécanisme :
+Seuls les essais pour l'adresse réglée comptent. Comme le suffixe n'est pas dans les apps, un inconnu ne peut pas
+épuiser les plafonds. Toutes les réponses de refus sont identiques (`400 invalid_code`). La raison est dans les
+journaux de la fonction (`review-sign-in: refused (rate_limited)`), sans adresse ni code. Pour savoir où en est le
+mécanisme :
 
 ```sql
 select enabled, email, failures_since_reset, locked_at, reset_at from accounts.review_access;
@@ -395,8 +427,7 @@ select outcome, count(*) from accounts.review_sign_in_log
 where attempted_at > now() - interval '24 hours' group by outcome;
 ```
 
-L'adresse est dans le binaire des apps : quelqu'un peut épuiser les plafonds pendant une revue. Parade : changer le
-code, puis `select accounts.reset_review_account(true);`.
+Si l'adresse a fuité et que les plafonds sont épuisés : tirer une nouvelle adresse et un nouveau code (section 5).
 
 ### 5. Changer d'adresse
 
@@ -406,7 +437,8 @@ Une seule adresse à la fois. Supprimer d'abord les deux comptes, puis vider le 
 select accounts.delete_account(u.id) from auth.users as u
 where u.id in (select user_id from accounts.review_access union select partner_id from accounts.review_access);
 update accounts.review_access set enabled = false, email = null, partner_email = null where id;
-select accounts.setup_review_account('<nouvelle adresse>', '<nouveau partenaire>', '<id du magasin>');
+select accounts.setup_review_account('<nouvelle adresse revue-…>', '<nouvelle adresse demo-…>', '<id du magasin>');
 ```
 
-Puis changer `ReviewAccount` dans les deux apps et publier.
+Les apps n'ont pas à changer, tant que la nouvelle adresse garde la forme `revue-<suffixe>@parcourses.hadrien.eu`.
+Puis réactiver, et mettre à jour les consoles.
