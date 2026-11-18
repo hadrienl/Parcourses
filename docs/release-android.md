@@ -104,10 +104,11 @@ L'AAB est écrit dans `android/app/build/outputs/bundle/release/app-release.aab`
 ### Vérifier la signature
 
 ```sh
-keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | grep SHA256
+keytool -J-Duser.language=en -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | grep SHA256
 ```
 
-On doit retrouver l'empreinte de la clé d'envoi ci-dessus. Si l'empreinte est celle de la clé de debug, le fichier
+On doit retrouver l'empreinte de la clé d'envoi ci-dessus. (`-J-Duser.language=en` : sous une locale française, keytool 21
+plante sur cette commande.) Si l'empreinte est celle de la clé de debug, le fichier
 de propriétés n'a pas été trouvé : relire l'avertissement de Gradle.
 
 On range ensuite une copie de chaque AAB envoyé dans `~/.config/parcourses/builds/`, nommée avec sa version

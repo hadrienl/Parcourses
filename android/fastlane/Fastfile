@@ -89,7 +89,8 @@ end
 # Vérifie que l'AAB est signé par la clé d'envoi. N'affiche que l'empreinte, jamais de secret.
 def verify_upload_signature(aab)
   keytool = ENV["JAVA_HOME"] ? File.join(ENV["JAVA_HOME"], "bin", "keytool") : "keytool"
-  output = sh(keytool, "-printcert", "-jarfile", aab, log: false)
+  # Sortie en anglais : sous une locale française, keytool 21 plante (MissingFormatArgumentException).
+  output = sh(keytool, "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", aab, log: false)
   fingerprints = output.scan(/SHA256:\s*([0-9A-F:]{95})/).flatten
   return if fingerprints.include?(UPLOAD_CERT_SHA256)
 
