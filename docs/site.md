@@ -36,7 +36,8 @@ Ces réglages sont à faire dans le dépôt GitHub, par son propriétaire :
 ## Empreintes Android
 
 `assetlinks.json` ne contient pour l'instant que l'empreinte du certificat de **debug** de la machine de
-développement : la release est encore signée avec la clé de debug (voir `android/app/build.gradle.kts`). Cette clé a un mot de passe
+développement. Depuis #12, la release est signée avec la clé d'envoi Play quand elle est présente, mais les APK
+installés depuis Play portent la signature de Google : voir `docs/release-android.md`. Cette clé de debug a un mot de passe
 connu : si `~/.android/debug.keystore` fuyait, une autre app `fr.parcourses.app` signée avec elle ouvrirait les liens
 `/i/`. Les builds d'une autre machine ou de la CI, eux, ne sont pas vérifiés. Il faut donc passer à la clé d'upload
 Play dès que possible, puis retirer l'empreinte de debug. Quand

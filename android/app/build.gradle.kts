@@ -44,12 +44,86 @@ val invitationHost: String =
         .orEmpty()
         .trim()
 
+// Version de l'envoi (#12) : chaque AAB envoyé sur Play doit avoir un versionCode plus grand que le précédent.
+//   -Pparcourses.versionCode=<entier>   (défaut : 1)
+//   -Pparcourses.versionName=<texte>    (défaut : 0.1.0)
+val appVersionCode: Int =
+    providers.gradleProperty("parcourses.versionCode").orNull?.trim().let { raw ->
+        if (raw.isNullOrEmpty()) {
+            1
+        } else {
+            // Plafond de Google Play : 2 100 000 000.
+            raw.toIntOrNull()?.takeIf { it in 1..2_100_000_000 }
+                ?: throw GradleException("parcourses.versionCode : entier de 1 à 2100000000 attendu, reçu « $raw »")
+        }
+    }
+val appVersionName: String =
+    providers
+        .gradleProperty("parcourses.versionName")
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() } ?: "0.1.0"
+
+// Signature de la release par la clé d'envoi Play (#12). La clé et ses mots de passe restent hors du dépôt, dans un
+// fichier de propriétés (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`, et `storeType` en option) :
+//   -Pparcourses.signing=<chemin>, sinon PARCOURSES_ANDROID_SIGNING,
+//   sinon ~/.config/parcourses/android-signing.properties.
+// Un chemin donné explicitement doit exister. Sans chemin explicite et sans le fichier par défaut (CI, autre poste),
+// la release est signée avec la clé de debug, avec un avertissement : ce paquet-là n'est pas envoyable sur Play.
+// Un `storeFile` relatif se lit depuis le dossier du fichier de propriétés. Ne jamais journaliser les mots de passe.
+val homeDirectory: String = providers.systemProperty("user.home").get()
+val explicitSigningPath: String? =
+    providers
+        .gradleProperty("parcourses.signing")
+        .orElse(providers.environmentVariable("PARCOURSES_ANDROID_SIGNING"))
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+val signingPropertiesFile: File =
+    (explicitSigningPath ?: "$homeDirectory/.config/parcourses/android-signing.properties")
+        .let { if (it == "~" || it.startsWith("~/")) homeDirectory + it.removePrefix("~") else it }
+        .let { rootProject.file(it) }
+// `fileContents` : le fichier (et son absence) devient une entrée suivie par le cache de configuration.
+val signingPropertiesText: String? =
+    providers.fileContents(layout.projectDirectory.file(signingPropertiesFile.absolutePath)).asText.orNull
+if (signingPropertiesText == null && explicitSigningPath != null) {
+    throw GradleException(
+        "Fichier de signature introuvable : $signingPropertiesFile (parcourses.signing ou PARCOURSES_ANDROID_SIGNING)",
+    )
+}
+val uploadSigning: java.util.Properties? =
+    signingPropertiesText?.let { text ->
+        java.util.Properties().apply { load(text.reader()) }.also { properties ->
+            val missing =
+                listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+                    .filter { properties.getProperty(it).isNullOrBlank() }
+            if (missing.isNotEmpty()) {
+                throw GradleException("Clés absentes de $signingPropertiesFile : ${missing.joinToString()}")
+            }
+        }
+    }
+if (uploadSigning == null) {
+    logger.warn(
+        "Parcourses : $signingPropertiesFile introuvable, la release est signée avec la clé de debug. " +
+            "Ce paquet est refusé par Google Play ; voir docs/release-android.md.",
+    )
+}
+
 android {
     namespace = "fr.parcourses.app"
     defaultConfig {
         applicationId = "fr.parcourses.app"
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+    if (uploadSigning != null) {
+        signingConfigs.create("upload") {
+            storeFile = signingPropertiesFile.parentFile.resolve(uploadSigning.getProperty("storeFile").trim())
+            storePassword = uploadSigning.getProperty("storePassword")
+            keyAlias = uploadSigning.getProperty("keyAlias").trim()
+            keyPassword = uploadSigning.getProperty("keyPassword")
+            uploadSigning.getProperty("storeType")?.trim()?.takeIf { it.isNotEmpty() }?.let { storeType = it }
+        }
     }
     buildFeatures.buildConfig = true
     defaultConfig.buildConfigField("String", "INVITATION_HOST", invitationHost.asBuildConfigString())
@@ -84,8 +158,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signé avec la clé de debug : la clé d'envoi Play n'est pas encore créée et n'entrera jamais dans le dépôt.
-            signingConfig = signingConfigs.getByName("debug")
+            // Clé d'envoi Play quand son fichier de propriétés est présent, clé de debug sinon (voir plus haut).
+            signingConfig = signingConfigs.getByName(if (uploadSigning != null) "upload" else "debug")
         }
     }
     // Variantes de mesure (`benchmarkRelease`, `nonMinifiedRelease`), créées par le plugin Baseline Profile à partir
@@ -109,6 +183,16 @@ if (selectedEnvironment.orNull != "local") {
                 variant.buildConfigFields?.put(field, BuildConfigField("String", "\"\"", null))
             }
         }
+    }
+}
+
+// Le plugin Baseline Profile crée `benchmarkRelease` et `nonMinifiedRelease` dans son propre `finalizeDsl` en leur
+// copiant la signature de `release`. Ce bloc, enregistré après lui, les remet sur la clé de debug : la clé d'envoi
+// ne sert qu'aux paquets destinés à Play.
+androidComponents.finalizeDsl { extension ->
+    val debugSigning = extension.signingConfigs.getByName("debug")
+    listOf("benchmarkRelease", "nonMinifiedRelease").forEach { name ->
+        extension.buildTypes.findByName(name)?.signingConfig = debugSigning
     }
 }
 

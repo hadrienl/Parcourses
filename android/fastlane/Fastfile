@@ -1,0 +1,105 @@
+# Publication Android sur Google Play (#12). Voir docs/release-android.md.
+#
+#   bundle exec fastlane android check_metadata         # contrôle local de la fiche, sans réseau
+#   bundle exec fastlane android internal                # envoie l'AAB sur la piste de test interne
+#   bundle exec fastlane android internal aab:<chemin> status:draft
+#   bundle exec fastlane android metadata                # envoie la fiche fr-FR (textes seulement)
+#   bundle exec fastlane android metadata validate_only:true
+#
+# Le code Ruby de ce fichier s'exécute dans android/fastlane/ : les chemins ci-dessous en partent.
+
+default_platform(:android)
+
+# Empreinte SHA-256 du certificat de la clé d'envoi (upload.jks, alias `upload`). Un AAB signé par une autre clé,
+# celle de debug notamment, est refusé avant tout envoi.
+UPLOAD_CERT_SHA256 = "63:3D:2C:38:C4:5A:2D:5F:2B:93:EC:B9:2C:CF:51:F2:A3:30:72:6D:DF:24:C7:E2:19:C3:F4:4D:60:3B:9F:91"
+
+# Limites de la Play Console, en caractères.
+LISTING_LIMITS = {
+  "title.txt" => 30,
+  "short_description.txt" => 80,
+  "full_description.txt" => 4000,
+}.freeze
+CHANGELOG_LIMIT = 500
+
+platform :android do
+  desc "Contrôle local de la fiche fr-FR : fichiers présents, non vides, dans les limites de la Play Console"
+  lane :check_metadata do
+    locale_dir = File.expand_path("metadata/android/fr-FR")
+    errors = []
+    LISTING_LIMITS.each do |name, limit|
+      path = File.join(locale_dir, name)
+      unless File.file?(path)
+        errors << "#{name} manquant"
+        next
+      end
+      text = File.read(path, encoding: "UTF-8").strip
+      errors << "#{name} vide" if text.empty?
+      errors << "#{name} : #{text.length} caractères, #{limit} au plus" if text.length > limit
+    end
+    Dir.glob(File.join(locale_dir, "changelogs", "*.txt")).sort.each do |path|
+      length = File.read(path, encoding: "UTF-8").strip.length
+      errors << "changelogs/#{File.basename(path)} : #{length} caractères, #{CHANGELOG_LIMIT} au plus" if length > CHANGELOG_LIMIT
+    end
+    UI.user_error!("Fiche Play invalide :\n- #{errors.join("\n- ")}") unless errors.empty?
+    UI.success("Fiche fr-FR conforme aux limites de la Play Console")
+  end
+
+  desc "Envoie l'AAB release sur la piste de test interne (options : aab, status = completed | draft)"
+  lane :internal do |options|
+    aab = File.expand_path(options[:aab] || "../app/build/outputs/bundle/release/app-release.aab")
+    UI.user_error!("AAB introuvable : #{aab}. Construire d'abord : voir docs/release-android.md") unless File.file?(aab)
+    verify_upload_signature(aab)
+    require_service_account_key
+    check_metadata
+    upload_to_play_store(
+      track: "internal",
+      aab: aab,
+      # `draft` tant que l'app n'a jamais été publiée sur aucune piste : Play refuse alors toute autre version.
+      release_status: options[:status] || "completed",
+      metadata_path: File.expand_path("metadata/android"),
+      # Seules les notes de version partent avec l'AAB : changelogs/<versionCode>.txt, sinon changelogs/default.txt.
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Envoie la fiche Play fr-FR (titre, descriptions), sans AAB ni images (option : validate_only)"
+  lane :metadata do |options|
+    require_service_account_key
+    check_metadata
+    upload_to_play_store(
+      metadata_path: File.expand_path("metadata/android"),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      validate_only: options[:validate_only] == true || options[:validate_only].to_s == "true",
+    )
+  end
+end
+
+# Vérifie que l'AAB est signé par la clé d'envoi. N'affiche que l'empreinte, jamais de secret.
+def verify_upload_signature(aab)
+  keytool = ENV["JAVA_HOME"] ? File.join(ENV["JAVA_HOME"], "bin", "keytool") : "keytool"
+  output = sh(keytool, "-printcert", "-jarfile", aab, log: false)
+  fingerprints = output.scan(/SHA256:\s*([0-9A-F:]{95})/).flatten
+  return if fingerprints.include?(UPLOAD_CERT_SHA256)
+
+  UI.user_error!(
+    "#{aab} n'est pas signé par la clé d'envoi (empreinte trouvée : #{fingerprints.join(", ")}). " \
+    "Le fichier de signature était-il présent au build ?",
+  )
+end
+
+def require_service_account_key
+  key = CredentialsManager::AppfileConfig.try_fetch_value(:json_key_file)
+  return if key && File.file?(key)
+
+  UI.user_error!(
+    "Clé du compte de service introuvable (#{key}). La déposer dans ~/.config/parcourses/ " \
+    "ou définir PARCOURSES_PLAY_JSON_KEY : voir docs/release-android.md",
+  )
+end
