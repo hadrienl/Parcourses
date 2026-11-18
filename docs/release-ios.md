@@ -26,9 +26,12 @@ de la fiche.
 
   ```sh
   cd ios
-  bundle config set --local path vendor/bundle   # gems dans ios/vendor/bundle, ignoré par git
+  bundle config set --local path ~/.cache/parcourses/bundle
   bundle install
   ```
+
+  Les gems vont hors du dépôt : installées dans `ios/`, leurs fichiers Swift feraient échouer
+  `xcrun swift-format lint -r .`, qui ne sait pas exclure un dossier.
 
 - **Compte de l'équipe `QMJKZ67Z3H` connecté dans Xcode** (*Réglages → Comptes*), avec le rôle Admin ou Titulaire du
   compte. La signature est automatique : au premier build, Xcode crée le certificat de distribution et les profils de

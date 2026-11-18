@@ -7,7 +7,9 @@
   /// - `owner` : Hadrien, sa liste « Courses de la semaine » partagée avec Léa (peut modifier) et Tom (lecture seule) ;
   /// - `viewer` : Tom, lecteur de cette liste ;
   /// - `invitation` : Léa, une invitation d'Hadrien en attente ;
-  /// - `anonymous` : compte anonyme, une liste à soi (« Partager » passe par la connexion).
+  /// - `anonymous` : compte anonyme, une liste à soi (« Partager » passe par la connexion) ;
+  /// - `demo` : captures App Store (#145). Hadrien, comme `owner`, avec en plus la liste « Courses de samedi », son
+  ///   catalogue, trois magasins proches et l'instantané appris du Supermarché des Halles (`UITestDemoData`).
   ///
   /// `PARCOURSES_TEST_PENDING_SWITCH=1` : changement de compte interrompu (drapeau `account.switch` posé), rejoué au
   /// lancement vers le compte du scénario (#129).
@@ -16,7 +18,7 @@
     static let pendingSwitchVariable = "PARCOURSES_TEST_PENDING_SWITCH"
 
     nonisolated enum Scenario: String {
-      case owner, viewer, invitation, anonymous
+      case owner, viewer, invitation, anonymous, demo
     }
 
     static let hadrien = UUID(uuidString: "11111111-1111-4111-8111-111111111111") ?? UUID()
@@ -60,7 +62,7 @@
     init(scenario: Scenario) {
       self.scenario = scenario
       switch scenario {
-      case .owner, .anonymous: me = Self.hadrien
+      case .owner, .anonymous, .demo: me = Self.hadrien
       case .viewer: me = Self.tom
       case .invitation: me = Self.lea
       }
@@ -87,7 +89,12 @@
             updatedBy: scenario == .anonymous ? Self.hadrien : entry.2)
         }
       }
-      if scenario == .owner || scenario == .viewer {
+      if scenario == .demo {
+        let (list, rows) = Self.demoList(start: start)
+        lists.append(list)
+        for row in rows { items[row.id] = row }
+      }
+      if scenario == .owner || scenario == .viewer || scenario == .demo {
         members = [
           ListMemberRow(
             listId: Self.listId, userId: Self.lea, role: "editor", addedBy: Self.hadrien,
@@ -102,6 +109,21 @@
             expiresAt: .now.addingTimeInterval(7 * 86_400 - 60), sentCount: 1, expired: false)
         ]
       }
+    }
+
+    /// Scénario `demo` : la liste à soi des captures, saisie dans le désordre il y a une heure.
+    private static func demoList(start: Date) -> (ListRow, [ListItemRow]) {
+      let created = start.addingTimeInterval(-600)
+      let list = ListRow(
+        id: UITestDemoData.listId, ownerId: hadrien, name: UITestDemoData.listName, createdAt: created,
+        updatedAt: created)
+      let rows = UITestDemoData.articles.enumerated().map { offset, article in
+        let at = created.addingTimeInterval(Double(10 * offset))
+        return ListItemRow(
+          id: article.itemId, listId: UITestDemoData.listId, productId: article.productId, label: article.label,
+          quantity: article.quantity, checkedAt: nil, createdAt: at, updatedAt: at, updatedBy: hadrien)
+      }
+      return (list, rows)
     }
 
     private func names() -> [UUID: String] {
@@ -197,14 +219,31 @@
     func fetchTombstones(after: Date?) async throws -> [TombstoneRow] { [] }
     func fetchTombstones(ids: [UUID]) async throws -> [TombstoneRow] { [] }
     func fetchCategories() async throws -> [CategoryRow] { [] }
-    func fetchProducts() async throws -> [RemoteProduct] { [] }
+    func fetchProducts() async throws -> [RemoteProduct] {
+      guard scenario == .demo else { return [] }
+      return UITestDemoData.articles.map {
+        RemoteProduct(
+          id: $0.productId, name: $0.label, normalizedName: $0.normalizedName, categorySlug: $0.categorySlug,
+          offCode: nil, createdAt: start)
+      }
+    }
     func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
       items.map { ResolvedProductRow(normalizedName: $0.name.lowercased(), id: nil, name: nil, categorySlug: nil) }
     }
-    func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] { [] }
+    func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] {
+      guard scenario == .demo else { return [] }
+      return UITestDemoData.stores.map {
+        NearbyStoreRow(id: $0.id, name: $0.name, chain: nil, address: $0.address, distanceM: $0.distanceM)
+      }
+    }
     func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] { [] }
     func storeOrganicAisle(id: UUID) async throws -> Bool? { nil }
-    func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse { .none }
+    func graphSnapshot(storeId: UUID, knownVersion: Int64?) async throws -> GraphSnapshotResponse {
+      guard scenario == .demo, let store = UITestDemoData.stores.first(where: { $0.id == storeId }),
+        let payload = UITestDemoData.snapshotPayload(for: store)
+      else { return .none }
+      return .payload(payload)
+    }
 
     // MARK: - Comptes
 
@@ -213,7 +252,7 @@
       if signedOut { return nil }
       return switch scenario {
       case .anonymous: nil
-      case .owner: "hadrien@exemple.fr"
+      case .owner, .demo: "hadrien@exemple.fr"
       case .viewer: "tom@exemple.fr"
       case .invitation: "lea@exemple.fr"
       }
