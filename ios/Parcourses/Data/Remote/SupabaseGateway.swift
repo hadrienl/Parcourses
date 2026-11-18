@@ -38,6 +38,8 @@ actor SupabaseGateway: RemoteGateway {
   private var categoryMap: CategoryMap?
   /// Edge Function `send-invitation` (#87) ; les tests d'intégration la lancent avec Deno, ailleurs que la pile.
   let sendInvitationURL: URL
+  /// Edge Function `attest-device` (#137).
+  let attestDeviceURL: URL
   /// Liens construits pour « Copier le lien ».
   let invitationLinks: InvitationLinks
   /// Canal temps réel `user:<uid>` ouvert, `nil` en arrière-plan ou pour un compte anonyme.
@@ -55,6 +57,7 @@ actor SupabaseGateway: RemoteGateway {
   ) {
     self.sendInvitationURL =
       sendInvitationURL ?? configuration.url.appending(path: "functions/v1/send-invitation")
+    attestDeviceURL = configuration.url.appending(path: "functions/v1/attest-device")
     self.invitationLinks = invitationLinks
     self.store = store
     self.deletionFlags = deletionFlags

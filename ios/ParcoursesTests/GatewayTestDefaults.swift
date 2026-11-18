@@ -24,6 +24,13 @@ extension RemoteGateway {
   func signOut() async throws { throw RemoteError.unauthorized }
   func deleteAccount(accessToken: String) async throws { throw RemoteError.unauthorized }
 
+  // Preuve d'appareil (#137) : sans session, rien n'est tenté.
+  func attestationAccount() async throws -> AttestationAccount { throw RemoteError.unauthorized }
+  func attestationChallenge() async throws -> AttestationReply { throw RemoteError.unauthorized }
+  func verifyAttestation(challenge: String, keyId: String, attestation: String) async throws -> AttestationReply {
+    throw RemoteError.unauthorized
+  }
+
   // Partage (#87, lot 87.4) : aucune liste partagée, et les actions échouent comme sans réseau.
   func sendInvitation(listId: UUID, email: String, role: ListRole) async throws -> SentInvitation {
     throw SharingRequestError(error: nil)

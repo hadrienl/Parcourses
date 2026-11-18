@@ -78,6 +78,8 @@ struct ParcoursesApp: App {
           if let gateway = app.gateway {
             await AuthBootstrap.signIn(gateway)
             environment.sync?.sessionDidChange()
+            // Preuve d'appareil (#137), compte anonyme seulement : tâche de fond, rien n'attend son issue.
+            app.startAttestation()
           }
           await app.account?.refresh()
           await app.sharing?.foreground()
