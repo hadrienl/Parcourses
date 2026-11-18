@@ -134,6 +134,34 @@
     {
       "term": "gerbe de fleurs",
       "reason": "bouquet"
+    },
+    {
+      "term": "amuse-gueule",
+      "reason": "apéritif"
+    },
+    {
+      "term": "amuses-gueules",
+      "reason": "apéritif, pluriel"
+    },
+    {
+      "term": "poubelle à pédale",
+      "reason": "équipement de cuisine"
+    },
+    {
+      "term": "poubelles à pédale",
+      "reason": "équipement de cuisine, pluriel"
+    },
+    {
+      "term": "pan con tomate",
+      "reason": "tartine catalane"
+    },
+    {
+      "term": "folle blanche",
+      "reason": "cépage"
+    },
+    {
+      "term": "negro amaro",
+      "reason": "cépage (negroamaro)"
     }
   ]
 }

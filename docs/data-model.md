@@ -234,30 +234,47 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   - **Correspondance** (`catalog.has_blocked_term`) : mot entier, ou suite de mots pour un terme qui en a
     plusieurs. Un `s` ou un `x` final est toléré. Jamais de sous-chaîne : « concombre » et « culotte » passent.
   - **Exceptions** : `catalog.allowed_terms (term, lang, reason, added_at)` liste des expressions légitimes
-    (« con carne », « con leche », « cul noir », « tapette à souris », « tanche »…). Elles sont retirées du libellé **avant** la
+    (« con carne », « amuse-gueule », « poubelle à pédale », « cul noir », « tanche »…). Elles sont retirées du libellé **avant** la
     recherche.
   - **Faux positif** (« bite », mot breton) : comme toute forme refusée, le produit n'est ni créé ni revendiqué.
     L'article reste dans la liste de son auteur, rangé par sa catégorie, sans aucun message.
   - **Ajouter un terme** en SQL : `insert into catalog.blocked_terms (term) values ('…');`, puis
     `select catalog.unpublish_blocked();` pour retirer les produits déjà publiés qui le contiennent. Même chose
-    après le retrait d'une exception. Une exception s'ajoute par
-    `insert into catalog.allowed_terms (term, reason) values ('…', '…');`.
+    après le retrait d'une exception.
+  - **Ajouter une exception** : `insert into catalog.allowed_terms (term, reason) values ('…', '…');`, puis
+    `select catalog.restore_unblocked();`.
+  - **Ne pas supprimer** un terme de la liste source : une migration suivante le remettrait. Une exception le
+    neutralise.
+  - **Caractères invisibles** : le trait d'union conditionnel, les espaces et les liants de largeur nulle sont
+    supprimés avant la recherche. « mer\u200bde » est donc refusé.
+  - **Nouvelle version de la liste** : une nouvelle migration ne reprend que `catalog.blocked_terms_fr()` et le bloc
+    de chargement. Recopier les autres fonctions les ramènerait à leur version de #138.
 - **Retrait d'un produit publié** (#138) :
-  - **Fonction** : `catalog.unpublish_product(id, reason = 'admin')`, réservée à `service_role` et `postgres`.
+  - **Fonction** : `catalog.unpublish_product(id, reason = 'admin')`, en `security definer`, réservée à
+    `service_role` (connexion SQL : `catalog` n'est pas exposé par l'API) et à `postgres`.
+  - **Seulement un produit publié** : un produit privé renvoie faux. Sa forme n'a jamais été publique ; une ligne
+    de retrait la garderait au-delà du dernier compte qui l'a saisie (#68), et dirait aux autres comptes qu'elle
+    existe. Pour l'empêcher d'être publiée, ajouter un terme refusé.
   - **Effets** : le produit redevient privé (`published_at` nul, `name` ramené à la forme normalisée,
     revendications supprimées) et une ligne est écrite dans `catalog.product_unpublications (product_id,
-    unpublished_at, reason)`.
-  - **Définitif** : ni `claim_candidates`, ni `publish_claimed`, ni `publish_matured`, ni `publish_starter` ne le
+    unpublished_at, reason, published_name)`, avec le libellé publié d'alors.
+  - **Durable** : ni `claim_candidates`, ni `publish_claimed`, ni `publish_matured`, ni `publish_starter` ne le
     reprennent. La purge ne le supprime jamais, car sa ligne empêche qu'il soit recréé puis republié.
   - **Listes** : les articles et les coches qui portent son id restent valides. Le graphe le retire des instantanés
     au recalcul de la nuit.
   - **Termes refusés** : `catalog.unpublish_blocked()` retire, avec `reason = 'blocked_term'`, les produits publiés
     qui contiennent un terme refusé. La migration l'appelle une fois.
-  - **Republier** à la main un produit retiré à tort : supprimer sa ligne de `catalog.product_unpublications`, puis
-    remettre `published_at = now()` et son libellé. Les apps le relisent par le catalogue incrémental.
+  - **Exception ajoutée après coup** : `catalog.restore_unblocked()` republie, sous leur libellé d'alors et avec un
+    nouveau `published_at`, les produits retirés pour un terme refusé (`reason = 'blocked_term'`) que plus aucun
+    terme ne refuse. Les apps les relisent par le catalogue incrémental. Un retrait d'administrateur
+    (`reason = 'admin'`) n'est jamais annulé par cette fonction.
+  - **Republier** à la main un produit retiré par un administrateur : supprimer sa ligne de
+    `catalog.product_unpublications`, puis remettre `published_at = now()` et `name = published_name`.
   - **RPC `unpublished_products(p_since timestamptz = null)`** → `table (id uuid, unpublished_at timestamptz)`.
-    Elle renvoie les produits retirés depuis `p_since`, ou tous, sans jamais leur libellé. Elle est en
-    `security definer`, réservée à `authenticated`.
+    Elle renvoie les produits retirés depuis `p_since`, ou tous : tous avaient été publiés. Elle ne donne jamais
+    leur libellé ni la raison du retrait. Elle est en `security definer`, réservée à `authenticated`.
+  - **Ordre de déploiement** : la migration **avant** les apps qui appellent la RPC. Sans elle, leur descente du
+    catalogue échoue (`PGRST202`) à chaque passe.
 - **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
   `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont

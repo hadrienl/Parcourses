@@ -495,9 +495,11 @@ actor SyncStore {
   /// Les articles qui portent leur id restent intacts (`ListItem.productId` n'est pas une relation). Renvoie vrai si
   /// le cache a changé : un id déjà absent (recouvrement, produit jamais téléchargé) ne change rien.
   func removeProducts(ids: [UUID]) throws -> Bool {
-    let removed = Set(ids)
+    let removed = Array(Set(ids))
     guard !removed.isEmpty else { return false }
-    let products = try modelContext.fetch(FetchDescriptor<Product>()).filter { removed.contains($0.id) }
+    // Filtre côté stockage : le dernier retrait revient à chaque descente (recouvrement), sans charger tout le cache.
+    let predicate = #Predicate<Product> { removed.contains($0.id) }
+    let products = try modelContext.fetch(FetchDescriptor<Product>(predicate: predicate))
     guard !products.isEmpty else { return false }
     products.forEach(modelContext.delete)
     try modelContext.save()

@@ -4,15 +4,17 @@
 --    légitimes (« chili con carne », « tanche »), retirées du libellé avant la recherche.
 -- 2. catalog.is_publishable refuse un libellé qui contient un terme refusé, mot entier : à la revendication comme à
 --    la publication. Une forme refusée reste privée : son auteur garde son article, rien ne l'en avertit.
--- 3. catalog.unpublish_product retire un produit du catalogue commun sans toucher aux listes qui le portent ; il ne
---    sera plus jamais publié. catalog.unpublish_blocked retire ceux que le filtre refuse désormais. La RPC
+-- 3. catalog.unpublish_product retire un produit publié du catalogue commun sans toucher aux listes qui le portent ;
+--    il ne sera plus publié. catalog.unpublish_blocked retire ceux que le filtre refuse désormais, et
+--    catalog.restore_unblocked republie ceux qu'une exception ajoutée depuis rend acceptables. La RPC
 --    unpublished_products donne aux apps les ids retirés depuis leur curseur : le catalogue incrémental de #47 les
 --    efface du cache sans attendre le rechargement complet de la semaine.
 
 -- Forme de mot : normalize_label (minuscules, sans accents, espaces réduits), puis tout ce qui n'est ni lettre ni
--- chiffre ramené à un espace. « Pousse-crotte » → « pousse crotte », « Fils d'… » → « fils d … ». Un terme sous
--- cette forme ne contient que des lettres, des chiffres et des espaces : il entre tel quel dans une expression
--- régulière.
+-- chiffre ramené à un espace. « Pousse-crotte » → « pousse crotte », « Fils d'… » → « fils d … ». Les caractères
+-- invisibles (trait d'union conditionnel, espaces et liants de largeur nulle) sont d'abord supprimés : ils ne coupent
+-- pas un mot qui s'afficherait entier. Un terme sous cette forme ne contient que des lettres, des chiffres et des
+-- espaces : il entre tel quel dans une expression régulière.
 create or replace function catalog.term_form(p_text text)
 returns text
 language sql
@@ -20,12 +22,15 @@ immutable
 parallel safe
 set search_path = ''
 as $$
-  select btrim(regexp_replace(public.normalize_label(p_text), '[^[:alnum:]]+', ' ', 'g'));
+  select btrim(regexp_replace(
+    public.normalize_label(regexp_replace(p_text, '[\u00ad\u200b-\u200f\u2060\ufeff]', '', 'g')),
+    '[^[:alnum:]]+', ' ', 'g'));
 $$;
 
 -- Termes refusés, sous leur forme de mot. Entretenus par migration (nouvelle version du fichier partagé) ou par un
 -- administrateur en SQL : insert into catalog.blocked_terms (term) values ('…'), puis
--- select catalog.unpublish_blocked() pour retirer ce qui était déjà publié. Aucun droit client.
+-- select catalog.unpublish_blocked() pour retirer ce qui était déjà publié. Un terme de la liste source ne se
+-- supprime pas (une migration suivante le remettrait) : une exception le neutralise. Aucun droit client.
 create table if not exists catalog.blocked_terms (
   term      text primary key check (char_length(term) between 2 and 100 and term = catalog.term_form(term)),
   lang      text not null default 'fr' check (lang ~ '^[a-z]{2}$'),
@@ -110,35 +115,47 @@ $$;
 
 -- Produits retirés du catalogue commun, une ligne par produit, jamais purgée : elle empêche toute nouvelle
 -- publication et sert de signal aux apps. reason : admin (catalog.unpublish_product) ou blocked_term
--- (catalog.unpublish_blocked). Aucun droit client : les apps passent par la RPC unpublished_products.
+-- (catalog.unpublish_blocked, réversible par catalog.restore_unblocked, qui republie sous published_name, le libellé
+-- d'alors, déjà public). Aucun droit client : les apps passent par la RPC unpublished_products.
 create table if not exists catalog.product_unpublications (
   product_id      uuid primary key references public.products (id) on delete cascade,
   unpublished_at  timestamptz not null default now(),
-  reason          text not null default 'admin' check (reason in ('admin', 'blocked_term'))
+  reason          text not null default 'admin' check (reason in ('admin', 'blocked_term')),
+  published_name  text not null
 );
 create index if not exists product_unpublications_at_idx
 on catalog.product_unpublications (unpublished_at, product_id);
 revoke all on catalog.product_unpublications from public, anon, authenticated;
 alter table catalog.product_unpublications enable row level security;
 
--- Retire un produit du catalogue commun : il redevient privé (published_at nul, name ramené à la forme normalisée,
--- revendications supprimées) et ne pourra plus être revendiqué ni publié. Les articles et les coches qui portent son
--- id restent valides : aucune liste n'est cassée, l'article est rangé par sa catégorie. Le graphe le retire des
--- instantanés au recalcul de la nuit. Un produit encore privé peut aussi être retiré : il ne sera jamais publié.
+-- Retire un produit publié du catalogue commun : il redevient privé (published_at nul, name ramené à la forme
+-- normalisée, revendications supprimées) et ne pourra plus être revendiqué ni publié. Les articles et les coches qui
+-- portent son id restent valides : aucune liste n'est cassée, l'article est rangé par sa catégorie. Le graphe le
+-- retire des instantanés au recalcul de la nuit. Un produit privé n'est pas retiré (faux) : sa forme n'a jamais été
+-- publique, et une ligne ici la garderait au-delà du dernier compte qui l'a saisie (#68), tout en signalant aux
+-- autres comptes qu'elle existe ; il se supprime, ou un terme refusé l'empêche d'être publié.
 -- Verrous : le produit, puis ses revendications, comme publish_claimed. Renvoie vrai si le produit vient d'être
--- retiré, faux s'il est inconnu ou l'était déjà. Réservée au service (service_role, postgres).
+-- retiré, faux s'il est inconnu, privé ou déjà retiré. SECURITY DEFINER, réservée au service (service_role,
+-- postgres) : catalog et products ne sont pas modifiables par les autres rôles.
 create or replace function catalog.unpublish_product(p_product_id uuid, p_reason text default 'admin')
 returns boolean
 language plpgsql
 volatile
+security definer
 set search_path = ''
 as $$
+declare
+  v_name text;
 begin
-  perform 1 from public.products as p where p.id = p_product_id for no key update;
+  select p.name into v_name
+  from public.products as p
+  where p.id = p_product_id and p.published_at is not null
+  for no key update;
   if not found then
     return false;
   end if;
-  insert into catalog.product_unpublications (product_id, reason) values (p_product_id, p_reason)
+  insert into catalog.product_unpublications (product_id, reason, published_name)
+  values (p_product_id, p_reason, v_name)
   on conflict (product_id) do nothing;
   if not found then
     return false;
@@ -157,6 +174,7 @@ create or replace function catalog.unpublish_blocked()
 returns integer
 language plpgsql
 volatile
+security definer
 set search_path = ''
 as $$
 declare
@@ -177,8 +195,43 @@ begin
 end;
 $$;
 
--- Signal des apps : produits retirés depuis p_since (tous si nul), id et date seulement, jamais le libellé. Un
--- produit retiré ne revient pas : l'app l'efface de son cache (le rechargement complet hebdomadaire ne le lit plus).
+-- Republie les produits retirés pour un terme refusé (reason blocked_term) que plus aucun terme ne refuse : à lancer
+-- après l'ajout d'une exception (ou le retrait d'un terme ajouté par un administrateur). Ils reprennent leur libellé
+-- publié d'alors, avec une nouvelle date de publication : le catalogue incrémental des apps les relit. Un retrait
+-- par un administrateur (reason admin) n'est jamais annulé ici. Rejouable. Renvoie le nombre de produits republiés.
+create or replace function catalog.restore_unblocked()
+returns integer
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_row record;
+  v_count integer := 0;
+begin
+  for v_row in
+    select u.product_id, u.published_name
+    from catalog.product_unpublications as u
+    inner join public.products as p on p.id = u.product_id
+    where u.reason = 'blocked_term' and not catalog.has_blocked_term(p.normalized_name)
+    order by p.normalized_name
+    for update of p, u
+  loop
+    delete from catalog.product_unpublications as u where u.product_id = v_row.product_id;
+    update public.products as p
+    set published_at = now(), name = v_row.published_name
+    where p.id = v_row.product_id;
+    delete from catalog.product_claims as c where c.product_id = v_row.product_id;
+    v_count := v_count + 1;
+  end loop;
+  return v_count;
+end;
+$$;
+
+-- Signal des apps : produits retirés depuis p_since (tous si nul), id et date seulement, jamais le libellé ni la
+-- raison. Tous étaient publiés. L'app les efface de son cache (le rechargement complet hebdomadaire ne les lit plus) ;
+-- un produit republié revient par le catalogue incrémental, sa ligne ici ayant disparu.
 -- SECURITY DEFINER : catalog n'est pas lisible par les clients.
 create or replace function public.unpublished_products(p_since timestamptz default null)
 returns table (id uuid, unpublished_at timestamptz)
@@ -404,20 +457,23 @@ revoke all on function catalog.has_blocked_term(text) from public, anon, authent
 revoke all on function catalog.is_publishable(text) from public, anon, authenticated;
 revoke all on function catalog.unpublish_product(uuid, text) from public, anon, authenticated;
 revoke all on function catalog.unpublish_blocked() from public, anon, authenticated;
+revoke all on function catalog.restore_unblocked() from public, anon, authenticated;
 revoke all on function catalog.publish_claimed(uuid[]) from public, anon, authenticated;
 revoke all on function catalog.publish_matured() from public, anon, authenticated;
 revoke all on function catalog.claim_candidates(jsonb, uuid) from public, anon, authenticated;
 revoke all on function catalog.publish_starter(jsonb) from public, anon, authenticated;
 revoke all on function catalog.purge_claims(timestamptz) from public, anon, authenticated;
--- Retrait réservé au service : l'accès au schéma ne lui ouvre rien d'autre (tables et fonctions de catalog sont
--- fermées par défaut, #69).
+-- Retrait réservé au service (connexion SQL en service_role ; catalog n'est pas exposé par l'API) : l'accès au
+-- schéma ne lui ouvre rien d'autre, tables et fonctions de catalog étant fermées par défaut (#69).
 grant usage on schema catalog to service_role;
 grant execute on function catalog.unpublish_product(uuid, text) to service_role;
 grant execute on function catalog.unpublish_blocked() to service_role;
+grant execute on function catalog.restore_unblocked() to service_role;
 
 -- Liste et exceptions : shared/catalog/blocked-terms.fr.json, repris tel quel entre les marqueurs $terms$
--- (scripts/check-blocked-terms.ts). Un changement du fichier impose une nouvelle migration : copier celle-ci, puis
--- --write.
+-- (scripts/check-blocked-terms.ts). Un changement du fichier impose une nouvelle migration qui ne reprend que cette
+-- fonction et le bloc de chargement ci-dessous (pas les fonctions plus haut, qu'elle remettrait dans leur version de
+-- #138), puis --write. Le bloc de chargement y appelle aussi catalog.restore_unblocked().
 create or replace function catalog.blocked_terms_fr()
 returns jsonb
 language sql
@@ -561,6 +617,34 @@ as $f$
     {
       "term": "gerbe de fleurs",
       "reason": "bouquet"
+    },
+    {
+      "term": "amuse-gueule",
+      "reason": "apéritif"
+    },
+    {
+      "term": "amuses-gueules",
+      "reason": "apéritif, pluriel"
+    },
+    {
+      "term": "poubelle à pédale",
+      "reason": "équipement de cuisine"
+    },
+    {
+      "term": "poubelles à pédale",
+      "reason": "équipement de cuisine, pluriel"
+    },
+    {
+      "term": "pan con tomate",
+      "reason": "tartine catalane"
+    },
+    {
+      "term": "folle blanche",
+      "reason": "cépage"
+    },
+    {
+      "term": "negro amaro",
+      "reason": "cépage (negroamaro)"
     }
   ]
 }
@@ -569,7 +653,8 @@ $f$;
 revoke all on function catalog.blocked_terms_fr() from public, anon, authenticated;
 
 -- Chargement rejouable : un terme déjà présent (ajouté par un administrateur, ou par une migration précédente)
--- n'est pas touché. Puis retrait des produits déjà publiés qui contiennent un terme refusé.
+-- n'est pas touché. Puis retrait des produits déjà publiés qui contiennent un terme refusé, et republication de ceux
+-- qu'une nouvelle exception rend acceptables.
 do $$
 begin
   insert into catalog.blocked_terms (term, lang, source)
@@ -583,5 +668,6 @@ begin
   on conflict (term) do nothing;
 
   perform catalog.unpublish_blocked();
+  perform catalog.restore_unblocked();
 end;
 $$;

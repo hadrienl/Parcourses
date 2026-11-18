@@ -5,7 +5,9 @@
 // - aucun libellé du catalogue de départ (shared/catalog/starter.fr.json) ni aucun mot-clé du classifieur des apps
 //   (shared/categories/keywords.fr.json) n'est refusé : ce sont des produits légitimes, un refus serait un faux
 //   positif. La correspondance est une approximation de catalog.has_blocked_term ; le test pgTAP 37 vérifie la vraie.
-// Un changement du fichier partagé impose une nouvelle migration : copier la précédente, puis --write.
+// Un changement du fichier partagé impose une nouvelle migration qui ne reprend que catalog.blocked_terms_fr et le
+// bloc de chargement de la précédente (pas ses autres fonctions), puis --write. Ne pas retirer un terme de la liste
+// source : ajouter une exception.
 // Ne jamais lancer --write sur une migration déjà appliquée (la CI refuse sa modification).
 //
 // Usage :
@@ -26,10 +28,10 @@ const { blocked, allowed } = JSON.parse(text) as Terms;
 const { products } = JSON.parse(await Deno.readTextFile(STARTER)) as { products: { label: string }[] };
 const { keywords } = JSON.parse(await Deno.readTextFile(KEYWORDS)) as { keywords: { k: string }[] };
 
-// Approximation de catalog.term_form : public.normalize_label (minuscules, sans accents, ligatures comprises), puis
-// tout ce qui n'est ni lettre ni chiffre ramené à un espace.
+// Approximation de catalog.term_form : caractères invisibles supprimés, public.normalize_label (minuscules, sans
+// accents, ligatures comprises), puis tout ce qui n'est ni lettre ni chiffre ramené à un espace.
 const termForm = (s: string) =>
-  s.toLowerCase().replaceAll("œ", "oe").replaceAll("æ", "ae").normalize("NFD")
+  s.replace(/[\u00ad\u200b-\u200f\u2060\ufeff]/g, "").toLowerCase().replaceAll("œ", "oe").replaceAll("æ", "ae").normalize("NFD")
     .replace(/\p{Diacritic}/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 const errors: string[] = [];
@@ -53,6 +55,15 @@ const refused = (label: string) => blockedRe.test((" " + termForm(label) + " ").
 
 for (const a of allowed) {
   if (!blockedRe.test(` ${termForm(a.term)} `)) errors.push(`exception « ${a.term} » : aucun terme refusé dedans`);
+}
+// Libellés légitimes déjà rencontrés comme faux positifs, ou proches d'un terme refusé : ils doivent passer.
+const LEGIT = [
+  "Amuse-gueules", "Poubelle à pédale", "Chili con carne", "Café con leche", "Pan con tomate", "Porc cul noir",
+  "Cul-de-poule", "Tapettes à souris", "Tanche", "Gerbe de fleurs", "Folle blanche", "Negro amaro", "Concombre",
+  "Culotte", "Bitter", "Biscottes", "Merguez", "Pédalo",
+];
+for (const l of LEGIT) {
+  if (refused(l)) errors.push(`libellé légitime : « ${l} » serait refusé`);
 }
 for (const p of products) {
   if (refused(p.label)) errors.push(`catalogue de départ : « ${p.label} » serait refusé`);
