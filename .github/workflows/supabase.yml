@@ -92,8 +92,11 @@ jobs:
 
       - name: Edge Functions (typage et lint)
         run: |
-          deno check supabase/functions/*/index.ts supabase/tests/vectors/gen_learn_tests.ts
-          deno lint supabase/functions/ supabase/tests/e2e/ supabase/tests/vectors/
+          deno check supabase/functions/*/index.ts supabase/tests/vectors/gen_learn_tests.ts supabase/tests/functions/*.ts
+          deno lint supabase/functions/ supabase/tests/e2e/ supabase/tests/vectors/ supabase/tests/functions/
+
+      - name: Edge Functions (tests unitaires, vérifications App Attest et Play Integrity, #137)
+        run: deno test --allow-read supabase/tests/functions/
 
       - name: Test pgTAP des vecteurs learn/ à jour (#29)
         run: deno run --allow-read supabase/tests/vectors/gen_learn_tests.ts --check
@@ -123,7 +126,7 @@ jobs:
       - name: Tests pgTAP
         run: supabase test db
 
-      - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage, temps réel)
+      - name: Bout en bout (visites → instantané → tri de référence, comptes e-mail, pierres tombales, partage, temps réel, preuve d'appareil)
         env:
           # Pile isolée : le test à froid (#123) peut couper la connexion de Realtime à la base.
           REALTIME_123_COLD: "1"

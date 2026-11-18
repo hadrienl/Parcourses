@@ -337,6 +337,9 @@ isOneToOne: false
               "id": string
             }[]
                            },
+"attestation_challenge":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "claim_inactivity_notices":
 { Args: { "p_limit"?: number }; Returns: {
               "cycle_id": string,"email": string,"purge_after": string,"user_id": string
@@ -344,6 +347,9 @@ isOneToOne: false
                            },
 "confirm_inactivity_notice":
 { Args: { "p_cycle_id": string,"p_user_id": string }; Returns: boolean
+                           },
+"consume_attestation_challenge":
+{ Args: { "p_challenge": string,"p_user_id": string }; Returns: boolean
                            },
 "create_invitation":
 { Args: { "p_email": string,"p_list_id": string,"p_role"?: string,"p_send_email"?: boolean }; Returns: {
@@ -376,6 +382,9 @@ isOneToOne: false
 { Args: { "p_token": string }; Returns: {
               "email_matches": boolean,"expires_at": string,"invitation_id": string,"invited_email_masked": string,"inviter_name": string,"list_id": string,"list_name": string,"role": string,"status": string
             }[]
+                           },
+"record_device_attestation":
+{ Args: { "p_platform": string,"p_user_id": string }; Returns: undefined
                            },
 "remove_member":
 { Args: { "p_list_id": string,"p_user_id": string }; Returns: undefined

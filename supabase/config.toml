@@ -433,6 +433,11 @@ verify_jwt = false
 [functions.notify-inactive-accounts]
 verify_jwt = false
 
+# Edge Function de la preuve d'appareil (#137) : App Attest et Play Integrity. Le JWT de l'utilisateur est vérifié par
+# l'Auth (GET /auth/v1/user), comme pour send-invitation. Secrets : voir docs/hosted-supabase.md.
+[functions.attest-device]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 56327

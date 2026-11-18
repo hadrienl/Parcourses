@@ -48,11 +48,20 @@
           <tr><td>Votre prénom, si vous le donnez</td><td>Le montrer aux membres de vos listes partagées, et dans les e-mails d'invitation que vous envoyez</td><td>Jusqu'à ce que vous le changiez ou que votre compte soit supprimé</td></tr>
           <tr><td>L'adresse e-mail d'une personne que vous invitez</td><td>Lui envoyer l'invitation, et la lui proposer quand elle se connecte avec cette adresse</td><td>L'invitation est valable 7&nbsp;jours après son dernier envoi (« Renvoyer » ou « Copier le lien » la prolongent). Elle est effacée 30&nbsp;jours après avoir été acceptée, refusée, annulée ou après son expiration</td></tr>
           <tr><td>Les libellés que vous saisissez, en tant que produits du catalogue commun</td><td>Relier les articles de tous au même produit pour apprendre l'ordre des rayons</td><td>Un libellé reste privé tant que moins de 3&nbsp;personnes l'ont saisi. Publié, il n'est plus rattaché à personne. Non publié, il est effacé avec votre compte, ou au plus tard quand vous ne l'utilisez plus dans vos listes et que 180&nbsp;jours ont passé depuis sa saisie</td></tr>
+          <tr><td>La preuve que votre compte vient d'une vraie installation de l'app : la date et le système (iOS ou Android)</td><td>Protéger le catalogue commun contre les faux comptes. Elle ne sert qu'aux comptes sans adresse e-mail. Sans elle, l'app fonctionne entièrement : votre compte compte seulement moins dans la publication des produits du catalogue</td><td>Jusqu'à la suppression de votre compte</td></tr>
           <tr><td>Des données techniques : adresse IP, date, version de l'app</td><td>Faire fonctionner le service et le protéger contre les abus</td><td>Le journal de connexion est effacé avec votre compte, et ses lignes de plus de 90&nbsp;jours chaque nuit. Les journaux techniques de nos prestataires suivent leur propre durée. Dans le plan actuel, aucune sauvegarde n'est conservée au-delà de la suppression ; si cela change, cette page sera mise à jour</td></tr>
         </tbody>
       </table>
     </div>
     <p>L'app ne lit pas vos contacts. Elle ne collecte aucun identifiant d'appareil ni identifiant publicitaire.</p>
+
+    <h2>La preuve d'appareil</h2>
+    <p>Pour qu'un même appareil ne puisse pas créer à volonté des comptes qui pèsent dans le catalogue commun, l'app demande une fois, avec un compte sans adresse e-mail, une preuve qu'elle est bien l'app Parcourses installée sur un vrai appareil :</p>
+    <ul>
+      <li><strong>sur iPhone</strong>, par App Attest d'Apple : le système crée une clé propre à l'app sur l'appareil et la fait certifier par Apple. Nous recevons ce certificat, la clé publique et un défi signé ;</li>
+      <li><strong>sur Android</strong>, par Play Integrity de Google : les services Google Play envoient à Google des informations sur l'app (nom, version, certificat de signature, licence Google Play) et sur l'appareil (attestation de son intégrité). Google nous renvoie un verdict chiffré, que nous lui faisons déchiffrer.</li>
+    </ul>
+    <p>Nous vérifions la preuve, puis ne gardons que sa date et le système. Ni la clé, ni le jeton, ni le verdict ne sont conservés. Apple et Google traitent ces informations selon leurs propres règles ; Google indique ne pas les partager et interdit de s'en servir pour suivre une personne ou un appareil. Si la preuve n'est pas possible (appareil sans services Google, par exemple), rien ne vous est demandé et l'app fonctionne normalement.</p>
 
     <h2>Le plan commun des rayons</h2>
     <p>Les visites de tous sont combinées en un plan de chaque magasin : quels rayons se suivent, et dans quel ordre. Ce plan ne contient aucun identifiant de personne. Les dates y sont arrondies au jour, et le plan d'un magasin n'est montré à tous qu'une fois que deux personnes au moins y ont contribué. Quand vous supprimez votre compte, votre contribution à ce plan reste, puisqu'elle n'est plus rattachée à vous.</p>
@@ -65,14 +74,15 @@
     <ul>
       <li><strong>Supabase</strong> : hébergement de la base de données et de l'authentification, à Paris (Amazon Web Services, région <code>eu-west-3</code>) ;</li>
       <li><strong>Resend</strong> : envoi des e-mails de connexion et d'invitation, et de l'e-mail qui prévient de la suppression d'un compte inactif. Le service reçoit l'adresse du destinataire, le contenu de l'e-mail et le prénom de la personne qui invite ;</li>
+      <li><strong>Apple</strong> (App Attest) et <strong>Google</strong> (Play Integrity) : la preuve d'appareil, décrite plus haut ;</li>
       <li><strong>GitHub Pages</strong> : hébergement de ce site, qui ne dépose ni cookie ni traceur. GitHub enregistre l'adresse IP des visiteurs dans ses journaux techniques.</li>
     </ul>
-    <p>Supabase, Resend et GitHub sont des sociétés américaines. Les transferts de données vers les États-Unis sont encadrés par le cadre de protection des données UE–États-Unis (Data Privacy Framework) ou, à défaut, par les clauses contractuelles types de la Commission européenne. La base de données de l'app est hébergée à Paris ; les e-mails sont envoyés par Resend, aux États-Unis.</p>
+    <p>Supabase, Resend, GitHub, Apple et Google sont des sociétés américaines. Les transferts de données vers les États-Unis sont encadrés par le cadre de protection des données UE–États-Unis (Data Privacy Framework) ou, à défaut, par les clauses contractuelles types de la Commission européenne. La base de données de l'app est hébergée à Paris ; les e-mails sont envoyés par Resend, aux États-Unis.</p>
 
     <h2>Sur quelles bases</h2>
     <ul>
       <li>Le fonctionnement du service que vous utilisez : listes, synchronisation, partage, connexion.</li>
-      <li>Notre intérêt légitime à améliorer l'ordre des rayons pour tous (le plan commun) et à protéger le service contre les abus.</li>
+      <li>Notre intérêt légitime à améliorer l'ordre des rayons pour tous (le plan commun) et à protéger le service contre les abus, dont la preuve d'appareil.</li>
       <li>Pour l'adresse d'une personne invitée : l'intérêt légitime de la personne qui invite, et le nôtre, à lui transmettre l'invitation. L'e-mail d'invitation renvoie vers cette page, et l'adresse est effacée au plus tard 30&nbsp;jours après la fin de l'invitation.</li>
     </ul>
 

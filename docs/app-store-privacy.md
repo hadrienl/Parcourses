@@ -57,6 +57,17 @@ personnalisation, ni marketing.
 - **Widgets** (`ios/ParcoursesWidgets/PrivacyInfo.xcprivacy`) : ils ne collectent rien et n'appellent aucune API à
   raison obligatoire. `PrivacyManifestTests` balaie leur code à chaque test pour le vérifier.
 
+## Preuve d'appareil (#137)
+
+Une fois, au lancement, et pour un compte anonyme seulement, l'app crée une clé dans le Secure Enclave, puis demande à
+Apple de l'attester (`DCAppAttestService`, App Attest). C'est le système qui échange avec Apple. L'app envoie ensuite
+l'attestation au serveur (Edge Function `attest-device`) : des certificats d'Apple, la clé publique et le défi signé.
+Le serveur la vérifie et ne garde que la plateforme et la date, rattachées au compte, jusqu'à sa suppression.
+
+- Aucun type de donnée nouveau : c'est un attribut de l'identifiant utilisateur (`UserID`), déjà déclaré.
+- Finalité : *App Functionality*, qui couvre explicitement la prévention de la fraude et la sécurité.
+- `PrivacyInfo.xcprivacy` : rien à ajouter. DeviceCheck n'est pas une API à raison obligatoire.
+
 ## Points à revoir si le code change
 
 - Ajouter des notifications push : le jeton d'appareil devient un identifiant à déclarer.
