@@ -379,6 +379,8 @@ private struct LanePan: UIViewRepresentable {
     var onEnd: (CGFloat) -> Void = { _ in }
     var onCancel: () -> Void = {}
     private var isOpen: Bool { state.isOpen }
+    /// Gestes de SwiftUI du toucher en cours, reconnus en même temps que le glisser et annulés quand il démarre.
+    private var swiftUIGestures: [WeakGesture] = []
 
     override init() {
       super.init()
@@ -390,6 +392,7 @@ private struct LanePan: UIViewRepresentable {
       // Décalage logique : négatif vers le début de ligne (côté gouttière), quel que soit le sens d'écriture.
       let translation = recognizer.translation.x * sign
       let velocity = recognizer.velocity.x * sign
+      if recognizer.state == .began { cancelSwiftUIGestures() }
       switch recognizer.state {
       case .began, .changed: onChange(translation)
       case .ended: onEnd(velocity)
@@ -401,7 +404,18 @@ private struct LanePan: UIViewRepresentable {
     /// Seuls les touchers qui commencent dans le couloir : la gouttière et le reste de la cellule n'en font pas partie.
     func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
       guard let anchor, anchor.window != nil else { return false }
+      swiftUIGestures = []
       return anchor.bounds.contains(touch.location(in: anchor))
+    }
+
+    /// Le glisser démarre : le toucher, le bouton et l'appui long de SwiftUI qui suivaient ce doigt sont annulés (un
+    /// geste désactivé puis réactivé passe à « annulé »). Sans cela, le relâcher cocherait l'article.
+    private func cancelSwiftUIGestures() {
+      for gesture in swiftUIGestures.compactMap(\.gesture) where gesture.isEnabled {
+        gesture.isEnabled = false
+        gesture.isEnabled = true
+      }
+      swiftUIGestures = []
     }
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
@@ -410,7 +424,7 @@ private struct LanePan: UIViewRepresentable {
       let start = swipe.startLocation.x
       if start < 24 || start > window.bounds.width - 24 { return false }
       // Ligne fermée : rien à faire vers la fin de ligne, ce mouvement revient au geste retour plein écran.
-      return isOpen || swipe.translation.x * sign < 0
+      return isOpen || swipe.startDelta.x * sign < 0
     }
 
     func gestureRecognizer(
@@ -428,14 +442,19 @@ private struct LanePan: UIViewRepresentable {
       isOpen && other === Self.contentPopGesture(near: gesture.view)
     }
 
-    /// Interaction du menu contextuel (gestes d'UIKit qui ne sont pas des pans) : en même temps que le glisser. Les
-    /// gestes de SwiftUI (toucher, bouton, appui long) et les pans (défilement, gestes retour) gardent leur exclusion :
-    /// un glisser qui démarre les annule, sans coche ni menu au relâcher.
+    /// Tout sauf les pans (défilement, gestes retour) : en même temps que le glisser. L'interaction du menu contextuel
+    /// ne l'attend pas, et le geste du bouton de SwiftUI, qui démarre dès que le doigt se pose (mode courses), ne
+    /// l'empêche pas de démarrer. Les gestes de SwiftUI sont retenus pour être annulés quand le glisser démarre.
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
       guard !(other is UIPanGestureRecognizer) else { return false }
-      return !NSStringFromClass(type(of: other)).contains("SwiftUI")
+      if NSStringFromClass(type(of: other)).contains("SwiftUI"),
+        !swiftUIGestures.contains(where: { $0.gesture === other })
+      {
+        swiftUIGestures.append(WeakGesture(gesture: other))
+      }
+      return true
     }
 
     /// Geste retour plein écran de la pile de navigation (iOS 26), s'il y en a une.
@@ -451,6 +470,11 @@ private struct LanePan: UIViewRepresentable {
       return nil
     }
   }
+}
+
+/// Référence faible à un geste d'une autre vue.
+private struct WeakGesture {
+  weak var gesture: UIGestureRecognizer?
 }
 
 /// Vue d'ancrage du glisser : au fond du couloir, sans toucher ; elle pose le pan sur la cellule qui la contient, et
@@ -505,6 +529,9 @@ final class LaneSwipeRecognizer: UIGestureRecognizer {
   private static let velocityWindow: TimeInterval = 0.08
 
   private(set) var startLocation: CGPoint = .zero
+  /// Mouvement au seuil, depuis le toucher : il donne le sens du glisser quand le délégué le laisse démarrer (la
+  /// translation, elle, repart de zéro à ce moment).
+  private(set) var startDelta: CGPoint = .zero
   private var origin: CGPoint = .zero
   private(set) var translation: CGPoint = .zero
   private(set) var velocity: CGPoint = .zero
@@ -517,6 +544,7 @@ final class LaneSwipeRecognizer: UIGestureRecognizer {
     }
     let point = touch.location(in: nil)
     startLocation = point
+    startDelta = .zero
     origin = point
     translation = .zero
     velocity = .zero
@@ -534,6 +562,7 @@ final class LaneSwipeRecognizer: UIGestureRecognizer {
       if dy >= Self.slop && dy >= dx {
         state = .failed
       } else if dx >= Self.slop && dx > dy {
+        startDelta = CGPoint(x: point.x - startLocation.x, y: point.y - startLocation.y)
         origin = point
         translation = .zero
         state = .began
