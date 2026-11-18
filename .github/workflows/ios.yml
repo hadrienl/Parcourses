@@ -49,6 +49,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
       - run: xcrun swift-format lint --strict -r .
+      - name: Fiche App Store (limites d'Apple, catégories, âge 4+)
+        run: ruby scripts/check-store-metadata.rb
 
   app:
     name: app (iOS ${{ matrix.ios }})

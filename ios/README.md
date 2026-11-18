@@ -42,6 +42,11 @@ L'identifiant d'équipe se lit dans Xcode (Settings > Accounts) ou sur developer
 Puis `xcodegen generate`, ouvrir le projet, choisir l'iPhone et lancer. La signature automatique crée les
 identifiants et l'App Group. Sur l'iPhone : activer le mode développeur, et faire confiance au profil si iOS le demande.
 
+## Publication (#145)
+
+TestFlight, fiche App Store et captures passent par fastlane, depuis `ios/` : `bundle exec fastlane check`,
+`screenshots`, `beta`, `metadata`. Prérequis, clé d'API et vérifications : [`docs/release-ios.md`](../docs/release-ios.md).
+
 ## Version de XcodeGen
 
 **2.46.0**, épinglée dans `.github/workflows/ios.yml` (archive officielle vérifiée par SHA-256

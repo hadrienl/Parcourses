@@ -8,3 +8,18 @@ Config/Local.xcconfig
 Config/Cloud.xcconfig
 Parcourses/Info.plist
 ParcoursesWidgets/Info.plist
+# fastlane (#145) : gems installées localement, builds, rapports et secrets de publication.
+vendor/bundle/
+.bundle/
+build/
+*.ipa
+*.dSYM.zip
+*.xcarchive
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+fastlane/screenshots/screenshots.html
+fastlane/README.md
+# Clé d'API App Store Connect : elle vit dans ~/.config/parcourses/, jamais dans le dépôt.
+*.p8
+*.env

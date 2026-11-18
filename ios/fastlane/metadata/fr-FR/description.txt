@@ -1,0 +1,22 @@
+Parcourses range votre liste de courses dans l'ordre où vous croisez les rayons de votre magasin. Vous traversez le magasin une seule fois, sans revenir sur vos pas ni oublier le beurre.
+
+Vous écrivez, Parcourses range
+Tapez vos articles comme ils vous viennent, dans n'importe quel ordre. Le rayon de chacun est deviné dès l'ajout, fautes de frappe comprises : « yahourt » rejoint la crèmerie, « mozarella » les fromages.
+
+Au magasin, cochez au fil des rayons
+Parcourses propose le magasin où vous êtes. La liste prend l'ordre de ses rayons, et chaque article coché vous mène au suivant. Sur l'écran verrouillé, une Live Activity affiche le prochain article et ce qu'il reste à prendre, et vous laisse cocher sans déverrouiller l'iPhone.
+
+Un trajet appris avec les courses de tous
+Personne ne dessine le plan des magasins. Parcourses le déduit de l'ordre dans lequel chacun coche ses articles : plus il y a de passages, plus l'ordre est juste. Dans un magasin encore inconnu, la liste suit un ordre courant, et votre passage aide à le corriger. Ce qui est mis en commun, c'est l'ordre des rayons, sans identifiant de personne.
+
+Une liste pour toute la maison
+Partagez une liste par e-mail avec les vôtres. Ce que l'un ajoute ou coche apparaît aussitôt chez les autres, même quand chacun fait un bout du magasin. Chaque membre peut modifier la liste, ou seulement la lire.
+
+Même sans réseau
+Entre les surgelés et les packs d'eau, le réseau disparaît souvent. La liste et l'ordre des rayons sont déjà sur votre iPhone, et vos coches partent dès que le réseau revient.
+
+Sans compte, sans publicité
+Parcourses s'utilise tout de suite, sans créer de compte. Une adresse e-mail n'est demandée que pour partager une liste ou la retrouver sur un autre appareil. L'app n'affiche aucune publicité et n'embarque aucun outil d'analyse. Votre position sert une seule fois, à trouver le magasin où vous êtes, puis elle est oubliée. Vous pouvez supprimer toutes vos données depuis l'app, à tout moment.
+
+D'abord dans le Gers
+Parcourses démarre avec les supermarchés du Gers, où les premiers trajets s'apprennent dès maintenant. Ailleurs, les magasins ne sont pas encore référencés : votre liste reste rangée par rayon, dans un ordre courant.

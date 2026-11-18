@@ -1,0 +1,5 @@
+# Outils de publication iOS (#145) : `bundle install`, puis `bundle exec fastlane <lane>` depuis ios/.
+# Version figée ici et dans Gemfile.lock : une mise à jour se fait par `bundle update fastlane`, dans une PR.
+source "https://rubygems.org"
+
+gem "fastlane", "2.241.2"

@@ -19,3 +19,6 @@ local.properties
 # Claude
 .claude/worktrees/
 .claude/settings.local.json
+
+# Clés d'API App Store Connect (#145)
+*.p8
