@@ -81,6 +81,7 @@ val explicitSigningPath: String? =
         .orNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
+
 // Développe un `~` initial : Gradle et `Properties` ne le font pas.
 fun expandHome(path: String): String =
     if (path == "~" || path.startsWith("~/")) homeDirectory + path.removePrefix("~") else path
