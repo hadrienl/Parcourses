@@ -36,11 +36,11 @@ struct ListDetailView: View {
   @State private var editing: ItemEditTarget?
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
-  /// Retour de l'appui long, aussi franc que celui du menu de « Mes listes » : un choc lourd à pleine intensité, préparé
-  /// dès que le doigt se pose et joué au déclenchement, avant la feuille. Un choc moyen, même préparé, restait trop
-  /// faible au doigt ; `.rigid` est plus sec mais plus léger (iPhone, #115). Seule haptique de l'appui long : la coche
-  /// et le balayage ont les leurs, qui ne jouent pas ici.
-  @State private var editHaptic = UIImpactFeedbackGenerator(style: .heavy)
+  /// Retour de l'appui long, au plus près du « tic » bref et net du menu de « Mes listes » (le générateur du menu natif
+  /// est privé) : un choc rigide à pleine intensité, préparé dès que le doigt se pose et joué au déclenchement, avant
+  /// la feuille. Essais sur iPhone (#115) : `.medium` trop faible, `.heavy` plus fort mais sourd. Seule haptique de
+  /// l'appui long : la coche et le balayage ont les leurs, qui ne jouent pas ici.
+  @State private var editHaptic = UIImpactFeedbackGenerator(style: .rigid)
   /// Positions des perles, lues par le trait unique du fil (#115).
   @State private var thread = ThreadTrackModel()
   /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
