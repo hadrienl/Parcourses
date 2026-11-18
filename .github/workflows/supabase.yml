@@ -10,6 +10,7 @@ on:
       - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
+      - "shared/test-vectors/learn/**"
       - ".sqlfluff"
       - ".sqlfluffignore"
       - ".github/workflows/supabase.yml"
@@ -22,6 +23,7 @@ on:
       - "shared/catalog/**"
       - "shared/contract/**"
       - "shared/reference/**"
+      - "shared/test-vectors/learn/**"
       - ".github/workflows/supabase.yml"
   # Lancement à la main : version longue du test Realtime après abonnement (#123).
   workflow_dispatch:
@@ -90,8 +92,11 @@ jobs:
 
       - name: Edge Functions (typage et lint)
         run: |
-          deno check supabase/functions/*/index.ts
-          deno lint supabase/functions/ supabase/tests/e2e/
+          deno check supabase/functions/*/index.ts supabase/tests/vectors/gen_learn_tests.ts
+          deno lint supabase/functions/ supabase/tests/e2e/ supabase/tests/vectors/
+
+      - name: Test pgTAP des vecteurs learn/ à jour (#29)
+        run: deno run --allow-read supabase/tests/vectors/gen_learn_tests.ts --check
 
       - name: Démarrage
         # Mailpit et Realtime restent démarrés : les tests de bout en bout de #87 y lisent les codes de connexion et y

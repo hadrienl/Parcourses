@@ -1,0 +1,125 @@
+{
+  "id": "113-merge-existing-graph",
+  "description": "Graphe existant : arêtes et entrées renforcées (décroissance d'une semaine, obs_count + 1), arête et entrée non touchées recopiées telles quelles.",
+  "format_version": 1,
+  "input": {
+    "params": {
+      "BURST_GAP_S": 4,
+      "BURST_MIN_SIZE": 3,
+      "MIN_VALID_CHECKS": 3,
+      "MAX_CHECKS": 500,
+      "SKIP2_FACTOR": 0.5,
+      "SORTED_VISIT_WEIGHT": 0.3,
+      "HALF_LIFE_DAYS": 90
+    },
+    "graph_before": {
+      "edges": [
+        {
+          "a": "p-a",
+          "b": "p-c",
+          "weight": 3,
+          "last_seen_at": "2026-09-24T00:00:00Z",
+          "obs_count": 4
+        },
+        {
+          "a": "p-d",
+          "b": "p-e",
+          "weight": 0.7,
+          "last_seen_at": "2026-08-01T00:00:00Z",
+          "obs_count": 2
+        }
+      ],
+      "entries": [
+        {
+          "product_id": "p-c",
+          "weight": 2.5,
+          "last_seen_at": "2026-09-24T00:00:00Z",
+          "obs_count": 3
+        },
+        {
+          "product_id": "p-d",
+          "weight": 1,
+          "last_seen_at": "2026-08-01T00:00:00Z",
+          "obs_count": 1
+        }
+      ]
+    },
+    "visit": {
+      "was_sorted": false,
+      "ended_at": "2026-10-01T10:30:00Z",
+      "checks": [
+        {
+          "id": "k01",
+          "product_id": "p-c",
+          "checked_at": "2026-10-01T10:00:00Z"
+        },
+        {
+          "id": "k02",
+          "product_id": "p-a",
+          "checked_at": "2026-10-01T10:00:30Z"
+        },
+        {
+          "id": "k03",
+          "product_id": "p-b",
+          "checked_at": "2026-10-01T10:01:00Z"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "outcome": "learned",
+    "v": 1,
+    "ignored_check_ids": [],
+    "edges": [
+      {
+        "a": "p-a",
+        "b": "p-b",
+        "weight": 1,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 1
+      },
+      {
+        "a": "p-a",
+        "b": "p-c",
+        "weight": 3.832986274096663,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 5
+      },
+      {
+        "a": "p-b",
+        "b": "p-c",
+        "weight": 0.5,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 1
+      },
+      {
+        "a": "p-d",
+        "b": "p-e",
+        "weight": 0.7,
+        "last_seen_at": "2026-08-01T00:00:00Z",
+        "obs_count": 2
+      }
+    ],
+    "entries": [
+      {
+        "product_id": "p-a",
+        "weight": 0.5,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 1
+      },
+      {
+        "product_id": "p-c",
+        "weight": 3.3608218950805524,
+        "last_seen_at": "2026-10-01T10:30:00Z",
+        "obs_count": 4
+      },
+      {
+        "product_id": "p-d",
+        "weight": 1,
+        "last_seen_at": "2026-08-01T00:00:00Z",
+        "obs_count": 1
+      }
+    ],
+    "tolerance": 1e-9
+  }
+}

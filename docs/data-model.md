@@ -38,11 +38,24 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
   des visites ont été apprises dans le magasin dans la fenêtre `PUBLISH_CONTRIBUTOR_WINDOW_DAYS` (180 jours) et
   garde ce **nombre seul** dans `graph.snapshot_audience`. La RPC sert l'instantané à tous à partir de
   `PUBLISH_MIN_CONTRIBUTORS` (2) contributeurs ; sinon au seul demandeur dont les visites apprises sont **toutes**
-  celles du magasin (`store_stats.visits_count`, jamais décrémenté, même quand un compte est supprimé) ; sinon
+  celles du magasin (`store_stats.visits_count`, jamais décrémenté, même quand un compte est supprimé, sauf par un
+  recalcul complet, qui recompte les visites présentes et retire du graphe celles des comptes supprimés) ; sinon
   `{"none": true}`. Un magasin sous le seuil dont d'autres comptes ont contribué (hors fenêtre, ou supprimés) n'est
   servi à personne. Paramètres de la version 2 de
   `graph.algo_versions`. La publication bloque l'apprentissage (verrou `graph-process`) pour que le contenu et le
   comptage décrivent les mêmes visites.
+- **Recalcul complet** (#29, conception #11 §9) : `graph.start_rebuild(version)` met un travail par magasin dans
+  `graph.rebuild_jobs` ; le job `graph-rebuild` (chaque minute) rejoue un magasin par passage, toutes ses visites d'un
+  jour terminé, avec les paramètres de la version cible, et publie son instantané « à minuit ». Le magasin est
+  verrouillé pendant le rejeu (verrou consultatif `graph-store`) : le flux courant et la purge le sautent. Le dernier
+  travail fait basculer la version active, puis relance les magasins appris entre-temps par l'ancienne version.
+  Un recalcul repart des seules visites présentes : les contributions des comptes supprimés quittent le graphe.
+  Procédure : `docs/hosted-supabase.md`.
+- **Purge** (#29, conception #11 §5) : `graph.prune_edges`, job `graph-prune` (dimanche 04:23 UTC), supprime les
+  arêtes et entrées dont le poids décru est sous 0,01 (environ 600 jours sans observation).
+- **Vecteurs `learn/`** (#29, conception #11 §11.2) : `shared/test-vectors/learn/`, produits par
+  `shared/reference/learn.ts`, rejoués par `graph.learn_visit` et `graph.apply_deltas_jsonb` dans le test pgTAP
+  `34_learn_vectors`, généré par `supabase/tests/vectors/gen_learn_tests.ts`.
 
 ## Migrations
 
@@ -68,6 +81,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_list_sharing.sql` | `list_members`, `sharing.list_invitations`, `sharing.rate_counters`, RLS par rôle, RPC du partage (`create_invitation`, `revoke_invitation`, `list_sharing`, `my_invitations`, `preview_invitation`, `accept_invitation`, `decline_invitation`, `set_member_role`, `remove_member`), signaux Broadcast et politique `realtime.messages`, `delete_my_account` avec transfert des listes partagées, purge `sharing-invitations-purge` (#87, lot 87.2) |
 | `…_account_deletion_admin.sql` | `accounts.delete_account(uuid)`, réservée au rôle `postgres` : suppression d'un compte sur demande par e-mail (page `/supprimer-mes-donnees/`), identique à `delete_my_account`, qui l'appelle désormais (#87, lot 87.8) |
 | `…_inactive_email_accounts.sql` | Purge des comptes e-mail inactifs depuis 3 ans après une prévenance au moins 30 jours avant : `accounts.last_activity`, `accounts.inactivity_notices`, job `accounts-inactivity` (05:23 UTC), RPC `claim_inactivity_notices` et `confirm_inactivity_notice` réservées à `service_role` pour l'Edge Function `notify-inactive-accounts`, extension `pg_net` (#114) |
+| `…_graph_rebuild_prune.sql` | Recalcul complet (`graph.rebuild_jobs`, `start_rebuild`, `run_rebuild_jobs`, job `graph-rebuild`, bascule de version), verrou consultatif par magasin, traitement d'une visite partagé (`graph.process_visit`), publication d'un magasin partagée (`graph.publish_store_snapshot`), purge `graph-prune`, `graph.apply_deltas_jsonb` pour les vecteurs (#29) |
 
 Toutes les migrations sont rejouables (`if not exists`, `drop policy if exists`, `create or replace`).
 Une nouvelle table est **fermée par défaut** (`alter default privileges ... revoke all`) : sa migration
