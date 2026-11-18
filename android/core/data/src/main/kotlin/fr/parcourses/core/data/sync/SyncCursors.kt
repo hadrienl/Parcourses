@@ -18,6 +18,12 @@ interface SyncCursors {
      */
     var catalogPublished: Instant?
 
+    /**
+     * Plus récente date de dépublication reçue (#138, heure du serveur) : la descente incrémentale ne lit que les
+     * dépublications depuis. `null` : toutes. Le téléchargement complet ne la touche pas.
+     */
+    var catalogUnpublished: Instant?
+
     /** Dernier téléchargement complet du catalogue (#47) : il est refait chaque semaine. */
     var catalogFull: Instant?
 
@@ -59,6 +65,7 @@ class InMemorySyncCursors : SyncCursors {
     override var items: Instant? = null
     override var catalog: Instant? = null
     override var catalogPublished: Instant? = null
+    override var catalogUnpublished: Instant? = null
     override var catalogFull: Instant? = null
     override var resolutionAttempts: Map<String, ResolutionAttempt> = emptyMap()
     override var tombstones: Instant? = null
@@ -70,6 +77,7 @@ class InMemorySyncCursors : SyncCursors {
         items = null
         catalog = null
         catalogPublished = null
+        catalogUnpublished = null
         catalogFull = null
         resolutionAttempts = emptyMap()
         tombstones = null
@@ -102,6 +110,10 @@ class SharedPreferencesSyncCursors(
     override var catalogPublished: Instant?
         get() = read(CATALOG_PUBLISHED)
         set(value) = write(CATALOG_PUBLISHED, value)
+
+    override var catalogUnpublished: Instant?
+        get() = read(CATALOG_UNPUBLISHED)
+        set(value) = write(CATALOG_UNPUBLISHED, value)
 
     override var catalogFull: Instant?
         get() = read(CATALOG_FULL)
@@ -176,6 +188,7 @@ class SharedPreferencesSyncCursors(
         const val CATALOG = "sync.cursor.catalog"
         const val TOMBSTONES = "sync.cursor.tombstones"
         const val CATALOG_PUBLISHED = "sync.cursor.catalogPublished"
+        const val CATALOG_UNPUBLISHED = "sync.cursor.catalogUnpublished"
         const val CATALOG_FULL = "sync.cursor.catalogFull"
         const val RESOLUTION_ATTEMPTS = "sync.resolutionAttempts"
         const val ATTEMPT_FIELDS = 3

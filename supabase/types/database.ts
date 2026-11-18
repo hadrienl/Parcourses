@@ -398,6 +398,11 @@ isOneToOne: false
                            },
 "store_graph_snapshot":
 { Args: { "p_known_version"?: number,"p_store_id": string }; Returns: Json
+                           },
+"unpublished_products":
+{ Args: { "p_since"?: string }; Returns: {
+              "id": string,"unpublished_at": string
+            }[]
                            }
           }
           Enums: {

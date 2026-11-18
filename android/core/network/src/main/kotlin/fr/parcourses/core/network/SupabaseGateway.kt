@@ -26,6 +26,7 @@ import fr.parcourses.core.network.dto.ProfilePatch
 import fr.parcourses.core.network.dto.ProfileRow
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
+import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
@@ -649,6 +650,28 @@ class SupabaseGateway internal constructor(
                 RemoteProduct(row.id, row.name, row.normalizedName, slug, row.offCode, row.createdAt, row.publishedAt)
             }
         }
+
+    /**
+     * [since] : dépublications depuis cette date (#138), avec le même recouvrement d'une heure que les publications.
+     * `null` : toutes. Paginé comme le catalogue : `max_rows` s'applique aussi aux fonctions qui renvoient une table.
+     */
+    override suspend fun fetchUnpublishedProducts(since: Instant?): List<RemoteUnpublishedProduct> {
+        val parameters =
+            buildJsonObject {
+                put("p_since", since?.let { (it - CATALOG_OVERLAP).toString() })
+            }
+        return authorized {
+            fetchAllPages(RemoteUnpublishedProduct.serializer()) { from, to ->
+                rest
+                    .rpc("unpublished_products", parameters) {
+                        // Ordre redit ici : c'est lui qui rend les pages disjointes, pas celui du corps de la fonction.
+                        order("unpublished_at", Order.ASCENDING)
+                        order("id", Order.ASCENDING)
+                        range(from, to)
+                    }.data
+            }
+        }
+    }
 
     override suspend fun resolveProducts(items: List<ProductResolutionRequest>): List<ResolvedProductRow> {
         if (items.isEmpty()) return emptyList()

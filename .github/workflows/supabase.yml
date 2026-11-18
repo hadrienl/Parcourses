@@ -90,6 +90,9 @@ jobs:
       - name: Catalogue de départ conforme à shared/catalog et au classifieur
         run: deno run --allow-read scripts/check-starter-catalog.ts
 
+      - name: Termes refusés conformes à shared/catalog, sans faux positif connu (#138)
+        run: deno run --allow-read scripts/check-blocked-terms.ts
+
       - name: Edge Functions (typage et lint)
         run: |
           deno check supabase/functions/*/index.ts supabase/tests/vectors/gen_learn_tests.ts

@@ -434,6 +434,10 @@ private actor SwitchableGateway: RemoteGateway {
     try check()
     return try await remote.fetchProducts()
   }
+  func fetchUnpublishedProducts(since: Date?) async throws -> [RemoteUnpublishedProduct] {
+    try check()
+    return try await remote.fetchUnpublishedProducts(since: since)
+  }
   func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
     try check()
     return try await remote.resolveProducts(items)
@@ -460,6 +464,7 @@ private nonisolated final class ItCursors: SyncCursors, @unchecked Sendable {
   var items: Date?
   var catalog: Date?
   var catalogPublished: Date?
+  var catalogUnpublished: Date?
   var catalogFull: Date?
   var resolutionAttempts: [UUID: ResolutionAttempt] = [:]
   var tombstones: Date?
