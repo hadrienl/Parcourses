@@ -1,0 +1,15 @@
+# Captures App Store (#145) : `bundle exec fastlane screenshots` depuis ios/.
+# iPhone 6,9 pouces (1320 × 2868), la seule taille exigée par App Store Connect pour l'iPhone.
+devices(["iPhone 17 Pro Max"])
+languages(["fr-FR"])
+# Scheme réservé aux captures : ses tests ne tournent pas dans la CI normale.
+scheme("ParcoursesScreenshots")
+project("./Parcourses.xcodeproj")
+output_directory("./fastlane/screenshots")
+clear_previous_screenshots(true)
+# Barre d'état propre : 9:41, réseau et batterie pleins.
+override_status_bar(true)
+# Simulateur remis à zéro avant les captures : ni données ni autorisation d'un lancement précédent.
+erase_simulator(true)
+stop_after_first_error(true)
+concurrent_simulators(false)

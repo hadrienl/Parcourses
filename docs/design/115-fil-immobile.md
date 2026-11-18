@@ -416,3 +416,25 @@ Retours de l'utilisateur sur iPhone, corrigés avant la fusion ; le détail est 
   horloges d'XCUITest et de l'enregistrement dérivent). L'attente de 200 ms ajoutée en cours de route est retirée ; le
   reste est le délai du menu contextuel d'iOS (réglable par Accessibilité > Toucher > Durée du toucher prolongé). Une
   mesure sur iPhone, touchers affichés, reste à faire quand une vidéo sera fournie.
+
+### 9.5 Appui long rétabli, décisions finales (PR #144, 2026-11-18)
+
+Régression de main e64cc8a sur iPhone : l'appui long ne réagissait qu'au relâcher. Le pan SwiftUI du couloir entrait
+dans l'arbitrage des gestes, et le menu contextuel comme l'appui long de l'écran Liste attendaient son échec, qu'un
+doigt immobile ne provoque qu'au relâcher. Le simulateur ouvrait le menu quand même, d'où une CI verte. Le pan est
+devenu un geste UIKit de la cellule (`LaneSwipeRecognizer` : 10 pt, mouvement horizontal dominant), reconnu en même
+temps que les autres.
+
+- **Mode courses** : `contextMenu` natif, inchangé.
+- **Écran Liste** : la feuille Quantité directe de #110 reste, sans menu ni **soulèvement** de la rangée. Geste UIKit
+  `LaneHoldRecognizer`, compté depuis l'horodatage du toucher : la ligne s'enfonce à 0,16 s, la feuille part à
+  **0,4 s** (le natif soulève la rangée à 0,16 s et ouvre le menu vers 0,5 s ; sans soulèvement, 0,5 s paraissait
+  long au doigt). Annulé au-delà de 10 pt de mouvement (balayage, défilement).
+- **Haptique de l'écran Liste** : choc transitoire CoreHaptics (`PressHaptic`, intensité 1, netteté 0,75), moteur
+  démarré au toucher et arrêté quand l'écran disparaît, repli sur `UIImpactFeedbackGenerator(style: .rigid)` à pleine
+  intensité. Essais sur iPhone : `.medium` trop faible, `.heavy` sourd, `.rigid` du bon timbre mais faible.
+- **Limite connue** : le « tic » du menu natif vient d'un générateur privé d'UIKit, joué par `UIContextMenuInteraction`.
+  Il n'est pas reproductible sans `contextMenu` ; le choc de l'écran Liste s'en approche sans l'égaler, accepté tel
+  quel par l'utilisateur.
+- **Rebond à l'ouverture** (§9.4) : abandonné. Jamais ressenti au doigt sur iPhone ; une autre courbe de relâcher
+  laissait le film du simulateur inchangé, la cause n'est donc pas le ressort.

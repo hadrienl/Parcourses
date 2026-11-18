@@ -1,0 +1,249 @@
+# Publication de l'app iOS (#145). Mode d'emploi : docs/release-ios.md.
+#
+#   bundle exec fastlane check        vérifie la fiche, sans contacter Apple
+#   bundle exec fastlane screenshots  captures App Store sur le simulateur (iPhone 6,9 pouces)
+#   bundle exec fastlane beta         build Release signé, envoyé sur TestFlight (testeurs internes)
+#   bundle exec fastlane metadata     fiche App Store en français, sans soumettre à la revue
+#
+# Les lanes `beta` et `metadata` contactent App Store Connect avec la clé d'API (voir `api_key`). Les autres restent
+# sur la machine.
+
+require "tmpdir"
+
+default_platform(:ios)
+
+# Dossier ios/ : fastlane lance les actions depuis là, mais `sh` depuis fastlane/.
+IOS_DIR = File.expand_path("..", __dir__)
+TEAM_ID = "QMJKZ67Z3H"
+SCHEME = "Parcourses"
+SCREENSHOTS_SCHEME = "ParcoursesScreenshots"
+XCODEGEN_VERSION = "2.46.0" # comme .github/workflows/ios.yml
+CONFIG_DIR = File.expand_path("~/.config/parcourses")
+# Variables lues par l'action `app_store_connect_api_key`, renseignées par l'environnement ou par ce fichier.
+API_KEY_ENV_FILE = File.join(CONFIG_DIR, "app-store-connect.env")
+METADATA_PATH = "./fastlane/metadata"
+SCREENSHOTS_PATH = "./fastlane/screenshots"
+AGE_RATING_PATH = "./fastlane/age_rating.json"
+# Taille exigée pour l'iPhone 6,9 pouces, en portrait.
+SCREENSHOT_SIZE = [1320, 2868].freeze
+
+platform :ios do
+  desc "Vérifie la fiche App Store sans contacter Apple : limites, catégories, URL, classification par âge"
+  lane :check do
+    sh("ruby", File.join(IOS_DIR, "scripts/check-store-metadata.rb"))
+    check_metadata_file_names
+    check_age_rating_keys
+    UI.success("Fiche conforme")
+  end
+
+  desc "Captures App Store par snapshot, à partir des tests UI du scheme #{SCREENSHOTS_SCHEME}"
+  lane :screenshots do
+    generate_project
+    derived_data = Dir.mktmpdir("parcourses-snapshot-")
+    begin
+      # Le reste vient du Snapfile.
+      capture_screenshots(derived_data_path: derived_data)
+    ensure
+      FileUtils.rm_rf(derived_data)
+    end
+    check_screenshots(required: true)
+  end
+
+  desc "Build Release signé, numéro de build suivant celui de TestFlight, envoyé aux testeurs internes"
+  lane :beta do
+    ensure_tracked_files_clean
+    ensure_cloud_config
+    generate_project
+    key = api_key
+
+    build_number = latest_testflight_build_number(api_key: key, app_identifier: "app.parcourses",
+                                                  initial_build_number: 0) + 1
+    UI.message("Build #{marketing_version} (#{build_number})")
+
+    build_dir = File.join(IOS_DIR, "build")
+    FileUtils.rm_rf(build_dir)
+    ipa = build_app(
+      project: File.join(IOS_DIR, "Parcourses.xcodeproj"),
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      export_team_id: TEAM_ID,
+      export_options: { signingStyle: "automatic", teamID: TEAM_ID },
+      # Signature automatique : Xcode crée ou met à jour les profils avec le compte connecté dans Xcode.
+      # CURRENT_PROJECT_VERSION s'applique à l'app et à l'extension, dont les numéros doivent être égaux.
+      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{TEAM_ID} CURRENT_PROJECT_VERSION=#{build_number}",
+      export_xcargs: "-allowProvisioningUpdates",
+      output_directory: build_dir,
+      archive_path: File.join(build_dir, "Parcourses.xcarchive"),
+      derived_data_path: File.join(build_dir, "DerivedData"),
+      clean: true
+    )
+
+    check_archive_versions(archive: File.join(build_dir, "Parcourses.xcarchive"), build_number: build_number)
+
+    upload_to_testflight(
+      api_key: key,
+      ipa: ipa,
+      # Le traitement d'Apple prend de 5 à 30 min. Le groupe interne reçoit le build dès la fin du traitement s'il
+      # est en distribution automatique (docs/release-ios.md).
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      skip_submission: true
+    )
+    # Symboles envoyés avec l'IPA : rien à garder sur la machine.
+    FileUtils.rm_rf(build_dir)
+    UI.success("Build #{marketing_version} (#{build_number}) envoyé sur TestFlight")
+  end
+
+  desc "Envoie la fiche App Store en français (textes, URL, catégories, âge, captures), sans soumettre à la revue"
+  lane :metadata do
+    check
+    has_screenshots = check_screenshots(required: false)
+    deliver(
+      api_key: api_key,
+      app_identifier: "app.parcourses",
+      platform: "ios",
+      app_version: marketing_version,
+      metadata_path: METADATA_PATH,
+      screenshots_path: SCREENSHOTS_PATH,
+      app_rating_config_path: AGE_RATING_PATH,
+      languages: ["fr-FR"],
+      skip_binary_upload: true,
+      skip_screenshots: !has_screenshots,
+      overwrite_screenshots: has_screenshots,
+      submit_for_review: false,
+      automatic_release: false,
+      run_precheck_before_submit: false,
+      # Pas d'aperçu HTML à valider : les textes sont relus dans la PR qui les modifie.
+      force: true
+    )
+  end
+
+  # Versions lues dans l'archive, app et extension : celles qu'App Store Connect verra. Un Info.plist qui ne suivrait
+  # plus les réglages enverrait toujours 1.0 (1), refusé dès le deuxième envoi.
+  private_lane :check_archive_versions do |options|
+    app = File.join(options[:archive], "Products/Applications/Parcourses.app")
+    expected = { "CFBundleShortVersionString" => marketing_version, "CFBundleVersion" => options[:build_number].to_s }
+    [File.join(app, "Info.plist"), File.join(app, "PlugIns/ParcoursesWidgets.appex/Info.plist")].each do |plist|
+      expected.each do |key, value|
+        found = sh("/usr/libexec/PlistBuddy", "-c", "Print :#{key}", plist, log: false).strip
+        UI.user_error!("#{plist} : #{key} = #{found}, attendu #{value}") if found != value
+      end
+    end
+  end
+
+  # Clé d'API App Store Connect : variables d'environnement, sinon ~/.config/parcourses/app-store-connect.env.
+  private_lane :api_key do
+    load_env_file(API_KEY_ENV_FILE)
+    key_id = ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_ID", "")
+    issuer_id = ENV.fetch("APP_STORE_CONNECT_API_KEY_ISSUER_ID", "")
+    if key_id.empty? || issuer_id.empty?
+      UI.user_error!("Clé d'API absente : renseigner APP_STORE_CONNECT_API_KEY_KEY_ID et " \
+                     "APP_STORE_CONNECT_API_KEY_ISSUER_ID dans #{API_KEY_ENV_FILE} (docs/release-ios.md)")
+    end
+    path = File.expand_path(ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_FILEPATH",
+                                      File.join(CONFIG_DIR, "AuthKey_#{key_id}.p8")))
+    UI.user_error!("Fichier de clé introuvable : #{path}") unless File.file?(path)
+    if (File.stat(path).mode & 0o077) != 0
+      UI.user_error!("#{path} est lisible par d'autres comptes : chmod 600 \"#{path}\"")
+    end
+    app_store_connect_api_key(key_id: key_id, issuer_id: issuer_id, key_filepath: path, duration: 1200,
+                              in_house: false)
+  end
+
+  # Projet Xcode régénéré par XcodeGen : il n'est pas versionné.
+  private_lane :generate_project do
+    version = sh("xcodegen", "--version", log: false).strip.split.last
+    if version != XCODEGEN_VERSION
+      UI.important("XcodeGen #{version} au lieu de #{XCODEGEN_VERSION} (version de la CI) : le projet peut différer")
+    end
+    Dir.chdir(IOS_DIR) { sh("xcodegen", "generate", "--quiet") }
+  end
+
+  # Le build envoyé doit être celui d'un commit : aucun fichier suivi modifié (les fichiers ignorés ne comptent pas).
+  private_lane :ensure_tracked_files_clean do
+    changes = sh("git", "status", "--porcelain", "--untracked-files=no", log: false).strip
+    UI.user_error!("Fichiers suivis modifiés, à commiter avant un build :\n#{changes}") unless changes.empty?
+  end
+
+  # Un build Release sans Config/Cloud.xcconfig n'aurait pas de serveur : l'app resterait locale sans le dire.
+  private_lane :ensure_cloud_config do
+    path = File.join(IOS_DIR, "Config/Cloud.xcconfig")
+    UI.user_error!("#{path} manquant : le copier depuis Cloud.xcconfig.example et le renseigner") unless File.file?(path)
+    text = File.read(path)
+    %w[SUPABASE_URL SUPABASE_PUBLISHABLE_KEY].each do |name|
+      value = text[/^\s*#{name}\s*=\s*(.*?)\s*$/, 1].to_s
+      if value.empty? || value.include?("<")
+        UI.user_error!("#{name} n'est pas renseigné dans #{path}")
+      end
+    end
+  end
+
+  # Clés de age_rating.json comparées à celles que connaît spaceship (questionnaire Apple à jour pour cette version de
+  # fastlane) : une clé inconnue ferait échouer `metadata`, une clé manquante laisserait une réponse vide.
+  private_lane :check_age_rating_keys do
+    json = JSON.parse(File.read(File.join(IOS_DIR, "fastlane/age_rating.json")))
+    # reverse_attr_map : nom ruby → nom de l'API (camelCase), rempli par `attr_mapping` du modèle.
+    known = Spaceship::ConnectAPI::AgeRatingDeclaration.reverse_attr_map.values -
+            %w[gamblingAndContests developerAgeRatingInfoUrl]
+    unknown = json.keys - known
+    missing = known - json.keys
+    UI.user_error!("age_rating.json : clés inconnues #{unknown.join(', ')}") unless unknown.empty?
+    UI.user_error!("age_rating.json : réponses manquantes #{missing.join(', ')}") unless missing.empty?
+  end
+
+  # Noms des fichiers de la fiche comparés aux champs que lit deliver : un fichier mal nommé serait ignoré sans bruit.
+  private_lane :check_metadata_file_names do
+    require "deliver"
+    upload = Deliver::UploadMetadata
+    localised = (upload::LOCALISED_VERSION_VALUES.keys + upload::LOCALISED_APP_VALUES.keys).map(&:to_s)
+    global = (upload::NON_LOCALISED_VERSION_VALUES.keys + upload::NON_LOCALISED_APP_VALUES.keys).map(&:to_s)
+    root = File.join(IOS_DIR, "fastlane/metadata")
+    unknown = Dir.children(root).sort.filter_map do |entry|
+      if File.directory?(File.join(root, entry))
+        Dir.children(File.join(root, entry)).reject { |f| localised.include?(File.basename(f, ".txt")) }
+                                           .map { |f| "#{entry}/#{f}" }
+      elsif !global.include?(File.basename(entry, ".txt"))
+        [entry]
+      end
+    end.flatten
+    UI.user_error!("Fichiers de fiche inconnus de deliver : #{unknown.join(', ')}") unless unknown.empty?
+  end
+
+  # Captures présentes et à la taille 6,9 pouces. Renvoie true s'il y en a.
+  private_lane :check_screenshots do |options|
+    files = Dir[File.join(IOS_DIR, "fastlane/screenshots/fr-FR/*.png")].sort
+    if files.empty?
+      UI.user_error!("Aucune capture dans fastlane/screenshots/fr-FR") if options[:required]
+      UI.important("Aucune capture : la fiche part sans elles (bundle exec fastlane screenshots)")
+      next false
+    end
+    files.each do |file|
+      size = sh("sips", "-g", "pixelWidth", "-g", "pixelHeight", file, log: false)
+             .scan(/pixel(?:Width|Height): (\d+)/).flatten.map(&:to_i)
+      UI.user_error!("#{File.basename(file)} : #{size.join('×')} au lieu de #{SCREENSHOT_SIZE.join('×')}") if size != SCREENSHOT_SIZE
+    end
+    UI.message("#{files.count} captures à #{SCREENSHOT_SIZE.join('×')}")
+    true
+  end
+end
+
+# Version affichée (MARKETING_VERSION de Config/Base.xcconfig), commune à l'app et à la fiche.
+def marketing_version
+  text = File.read(File.join(IOS_DIR, "Config/Base.xcconfig"))
+  text[/^MARKETING_VERSION\s*=\s*(\S+)/, 1] || UI.user_error!("MARKETING_VERSION introuvable dans Base.xcconfig")
+end
+
+# Fichier KEY=valeur, sans écraser une variable déjà définie dans l'environnement.
+def load_env_file(path)
+  return unless File.file?(path)
+
+  File.foreach(path) do |line|
+    next if line.strip.empty? || line.lstrip.start_with?("#")
+
+    name, value = line.strip.sub(/\Aexport\s+/, "").split("=", 2)
+    next if value.nil?
+
+    ENV[name.strip] ||= value.strip.delete_prefix('"').delete_suffix('"')
+  end
+end

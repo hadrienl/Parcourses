@@ -35,7 +35,10 @@ struct ListDetailView: View {
   @State private var editing: ItemEditTarget?
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
-  @State private var editTrigger = 0
+  /// Retour de l'appui long, au plus près du « tic » du menu de « Mes listes » : moteur démarré dès que le doigt se
+  /// pose, choc joué au déclenchement, avant la feuille (`PressHaptic`, #115). Seule haptique de l'appui long : la
+  /// coche et le balayage ont les leurs, qui ne jouent pas ici.
+  @State private var editHaptic = PressHaptic()
   /// Positions des perles, lues par le trait unique du fil (#115).
   @State private var thread = ThreadTrackModel()
   /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
@@ -145,6 +148,8 @@ struct ListDetailView: View {
       model.load()
       inputIsFocused = model.isEmpty && !model.isMissing && model.access.capabilities.canEditItems
     }
+    // Moteur haptique de l'appui long : arrêté hors de l'écran, redémarré au prochain toucher.
+    .onDisappear { editHaptic.stop() }
     // « Quitter la liste » : retour à Mes listes (la feuille se ferme d'elle-même).
     .onChange(of: model.didLeave) { _, left in if left { dismiss() } }
     .onChange(of: accessChange) { _, change in
@@ -164,7 +169,6 @@ struct ListDetailView: View {
         model.save(edit, for: target.id)
       }
     }
-    .sensoryFeedback(.impact(weight: .medium), trigger: editTrigger)
     .sheet(item: $shareModel) { share in
       if let sharing { ShareListSheet(model: share, center: sharing) }
     }
@@ -276,7 +280,19 @@ struct ListDetailView: View {
       // Préparation : rien n'est parcouru, la case seule porte l'état coché.
       Bead(state: .idle)
     } lane: {
-      RowLane(id: threadId, openId: $openLane, action: delete) {
+      // Appui long calé sur le menu natif de « Mes listes » (`LaneHoldRecognizer`, #115) : la ligne s'enfonce, puis la
+      // feuille s'ouvre à 0,4 s du toucher, avec le retour haptique préparé au toucher.
+      RowLane(
+        id: threadId, openId: $openLane, action: delete, onLongPress: { edit(row) },
+        onPressing: { pressing in
+          if pressing {
+            editHaptic.prepare()
+            pressedRow = row.id
+          } else if pressedRow == row.id {
+            pressedRow = nil
+          }
+        }
+      ) {
         itemLine(row, readOnly: false, pressed: pressed)
           .accessibilityElement(children: .combine)
           .accessibilityLabel(row.accessibilityLabel)
@@ -303,15 +319,6 @@ struct ListDetailView: View {
         closeLane()
       } else {
         model.toggle(row)
-      }
-    }
-    .onLongPressGesture(minimumDuration: 0.5) {
-      edit(row)
-    } onPressingChanged: { pressing in
-      if pressing {
-        pressedRow = row.id
-      } else if pressedRow == row.id {
-        pressedRow = nil
       }
     }
     .threadLineRow()
@@ -359,7 +366,7 @@ struct ListDetailView: View {
   private func edit(_ row: ItemRow) {
     guard let target = model.editTarget(for: row) else { return }
     quantityTip.invalidate(reason: .actionPerformed)
-    editTrigger += 1
+    editHaptic.play()
     editing = target
   }
 
