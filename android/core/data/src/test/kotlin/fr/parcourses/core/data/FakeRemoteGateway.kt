@@ -24,6 +24,7 @@ import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.ProfileRow
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
+import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
@@ -31,6 +32,7 @@ import fr.parcourses.core.network.dto.TombstoneRow
 import fr.parcourses.core.network.dto.VerifiedCode
 import fr.parcourses.core.network.dto.VisitAccess
 import fr.parcourses.core.network.dto.VisitInsert
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -47,6 +49,9 @@ class FakeRemoteGateway(
     var remoteItems: List<ListItemRow> = emptyList()
     var remoteCategories: List<CategoryRow> = emptyList()
     var remoteProducts: List<RemoteProduct> = emptyList()
+
+    /** Produits dépubliés du serveur (#138). */
+    var remoteUnpublished: List<RemoteUnpublishedProduct> = emptyList()
     var resolver: (
         List<ProductResolutionRequest>,
     ) -> List<ResolvedProductRow> = { list -> list.map { ResolvedProductRow() } }
@@ -313,6 +318,14 @@ class FakeRemoteGateway(
         if (publishedSince == null) return fetchProducts()
         enter("fetchProductsSince", publishedSince.toString())
         return remoteProducts.filter { (it.publishedAt ?: Instant.DISTANT_PAST) >= publishedSince }
+    }
+
+    /** Comme `SupabaseGateway` et la RPC : recouvrement d'une heure, tri par date puis id. */
+    override suspend fun fetchUnpublishedProducts(since: Instant?): List<RemoteUnpublishedProduct> {
+        enter("fetchUnpublishedProducts", since?.toString())
+        return remoteUnpublished
+            .filter { since == null || it.unpublishedAt >= since - 1.hours }
+            .sortedWith(compareBy<RemoteUnpublishedProduct> { it.unpublishedAt }.thenBy { it.id.toString() })
     }
 
     override suspend fun resolveProducts(items: List<ProductResolutionRequest>): List<ResolvedProductRow> {

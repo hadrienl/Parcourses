@@ -1,0 +1,1 @@
+Première version de test de Parcourses, dans les supermarchés du Gers. Votre liste se range dans l’ordre des rayons, et chaque passage aide à apprendre le trajet du magasin. Merci de nous signaler tout ce qui vous surprend !

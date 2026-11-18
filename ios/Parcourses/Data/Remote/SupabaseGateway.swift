@@ -479,6 +479,17 @@ actor SupabaseGateway: RemoteGateway {
     }
   }
 
+  /// `since` : produits dépubliés depuis cette date (#138), avec le même recouvrement d'une heure que les
+  /// publications. `nil` : tous. La RPC trie par `unpublished_at, id`, ce qui rend la pagination stable.
+  func fetchUnpublishedProducts(since: Date?) async throws -> [RemoteUnpublishedProduct] {
+    let parameters = UnpublishedProductsParameters(since: since)
+    return try await authorized {
+      try await self.fetchAllPages { from, to in
+        try await self.rest.rpc("unpublished_products", params: parameters).range(from: from, to: to).execute().value
+      }
+    }
+  }
+
   func resolveProducts(_ items: [ProductResolutionRequest]) async throws -> [ResolvedProductRow] {
     guard !items.isEmpty else { return [] }
     let parameters = ResolveProductsParameters(pItems: items)
@@ -841,6 +852,20 @@ private nonisolated struct GraphSnapshotParameters: Encodable, Sendable {
   enum CodingKeys: String, CodingKey {
     case storeId = "p_store_id"
     case knownVersion = "p_known_version"
+  }
+}
+
+/// Paramètres de `unpublished_products` (#138). Le recouvrement est appliqué ici ; `p_since` absent vaut nul côté
+/// serveur (tous les produits dépubliés).
+nonisolated struct UnpublishedProductsParameters: Encodable, Sendable, Equatable {
+  let pSince: Date?
+
+  init(since: Date?) {
+    pSince = since?.addingTimeInterval(-SupabaseGateway.catalogOverlap)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case pSince = "p_since"
   }
 }
 

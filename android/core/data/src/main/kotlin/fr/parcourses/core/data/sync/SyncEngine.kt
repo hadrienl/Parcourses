@@ -1214,8 +1214,9 @@ class SyncEngine(
     ): Instant? = listOfNotNull(first, second).maxOrNull()
 
     /**
-     * Produits publiés (#47) : depuis le curseur, sans rien retirer (un produit publié ne change plus), ou le catalogue
-     * entier une fois par semaine et tant qu'il n'y a pas de curseur.
+     * Produits publiés (#47) : depuis le curseur, puis retrait des produits dépubliés depuis le leur (#138), ou le
+     * catalogue entier une fois par semaine et tant qu'il n'y a pas de curseur. Le catalogue entier exclut déjà les
+     * produits dépubliés (ils ne sont plus lisibles) : il ne lit pas les dépublications et laisse leur curseur.
      */
     private suspend fun pullCatalog(
         now: Instant,
@@ -1230,6 +1231,11 @@ class SyncEngine(
             val rows = gateway.fetchProducts(publishedSince = since)
             store.mergeProducts(rows)
             cursors.catalogPublished = later(since, rows.mapNotNull { it.publishedAt }.maxOrNull())
+            // Après la fusion : un produit publié puis dépublié dans la fenêtre quitte le cache.
+            val unpublishedSince = cursors.catalogUnpublished
+            val unpublished = gateway.fetchUnpublishedProducts(since = unpublishedSince)
+            store.removeProducts(unpublished.map { it.id })
+            cursors.catalogUnpublished = later(unpublishedSince, unpublished.maxOfOrNull { it.unpublishedAt })
         } else {
             // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
             // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.

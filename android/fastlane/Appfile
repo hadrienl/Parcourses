@@ -1,0 +1,5 @@
+# Application et compte de service Google Play (#12). La clé JSON du compte de service reste hors du dépôt.
+# Chemin par défaut : ~/.config/parcourses/play-service-account.json, surchargeable par PARCOURSES_PLAY_JSON_KEY.
+# PARCOURSES_PLAY_JSON_KEY doit être un chemin absolu (ou commencer par ~) : fastlane lit la clé tantôt depuis
+# android/, tantôt depuis android/fastlane/.
+json_key_file(File.expand_path(ENV.fetch("PARCOURSES_PLAY_JSON_KEY", "~/.config/parcourses/play-service-account.json")))

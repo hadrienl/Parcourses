@@ -217,6 +217,9 @@ nonisolated protocol RemoteGateway: AttestationGateway {
   func fetchProducts() async throws -> [RemoteProduct]
   /// Produits publiés depuis `publishedSince` (#47, avec recouvrement), tous si `nil`.
   func fetchProducts(publishedSince: Date?) async throws -> [RemoteProduct]
+  /// Produits dépubliés depuis `since` (#138, RPC `unpublished_products`, avec le recouvrement du catalogue), tous si
+  /// `nil`. Triés par date de dépublication.
+  func fetchUnpublishedProducts(since: Date?) async throws -> [RemoteUnpublishedProduct]
 
   /// Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.
   /// Au plus `SyncRetryPolicy.maxResolutionBatch` entrées ; une ligne par entrée, dans l'ordre.
@@ -314,4 +317,7 @@ nonisolated extension RemoteGateway {
     guard let publishedSince else { return rows }
     return rows.filter { ($0.publishedAt ?? .distantPast) >= publishedSince }
   }
+
+  /// Par défaut (doublures de test) : aucun produit dépublié.
+  func fetchUnpublishedProducts(since: Date?) async throws -> [RemoteUnpublishedProduct] { [] }
 }

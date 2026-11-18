@@ -322,6 +322,19 @@ nonisolated struct RemoteProduct: Sendable, Equatable {
   var publishedAt: Date? = nil
 }
 
+/// Ligne de la RPC `unpublished_products` (#138) : un produit retiré du catalogue commun par un administrateur. Ni
+/// libellé ni catégorie : l'identifiant suffit pour le retirer du cache.
+nonisolated struct RemoteUnpublishedProduct: Decodable, Sendable, Equatable {
+  let id: UUID
+  /// Heure du serveur : curseur `catalogUnpublished` de la descente suivante.
+  let unpublishedAt: Date
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case unpublishedAt = "unpublished_at"
+  }
+}
+
 // MARK: - Écriture (limitée aux colonnes accordées à `authenticated`)
 
 nonisolated struct ListUpsert: TableDTO, Equatable {

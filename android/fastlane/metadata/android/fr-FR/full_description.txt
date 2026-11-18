@@ -1,0 +1,27 @@
+Parcourses range votre liste de courses dans l’ordre où vous croisez les rayons de votre magasin. Vous le traversez une seule fois, sans revenir sur vos pas ni oublier le beurre.
+
+VOUS ÉCRIVEZ, PARCOURSES RANGE
+Tapez vos articles comme ils vous viennent. Le rayon de chaque article est deviné dès l’ajout, faute de frappe comprise : « nesqick » rejoint le petit-déjeuner.
+
+AU MAGASIN, COCHEZ AU FIL DES RAYONS
+Parcourses propose le magasin où vous êtes. Votre liste prend l’ordre de ses rayons, et chaque coche vous mène au prochain article.
+
+UN TRAJET APPRIS AVEC LES COURSES DE TOUS
+Personne ne dessine le plan du magasin. Parcourses le déduit de l’ordre dans lequel chacun coche ses articles : plus il y a de passages, plus l’ordre est juste. Le plan commun qui en sort ne contient aucun identifiant de personne. Dans un magasin encore peu connu, la liste suit un ordre courant, et votre passage aide à le corriger.
+
+UNE LISTE POUR TOUTE LA MAISON
+Partagez une liste avec vos proches : ce que l’un ajoute ou coche apparaît aussitôt chez l’autre, même quand chacun fait un bout du magasin. Chaque membre peut modifier la liste, ou seulement la lire.
+
+MÊME SANS RÉSEAU
+Entre les surgelés et les packs d’eau, la 4G disparaît souvent. Votre liste et l’ordre des rayons sont déjà sur votre téléphone ; vos coches partent dès que le réseau revient.
+
+LE PROCHAIN ARTICLE EN UN COUP D’ŒIL
+Pendant vos courses, une notification suit votre progression : le prochain article, et ce qu’il vous reste à prendre.
+
+VOS DONNÉES
+• Aucun compte à créer pour commencer. Votre adresse e-mail n’est demandée que si vous voulez partager une liste ou la retrouver sur un autre appareil.
+• Votre position sert uniquement à trouver le magasin où vous êtes : elle n’est jamais enregistrée.
+• Vous pouvez tout supprimer depuis l’app, à tout moment.
+Politique de confidentialité : https://parcourses.hadrien.eu/confidentialite/
+
+Parcourses démarre dans les supermarchés du Gers. D’autres départements suivront.

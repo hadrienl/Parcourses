@@ -1,6 +1,7 @@
 package fr.parcourses.core.data
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import fr.parcourses.core.data.account.LocalDataPurge
 import fr.parcourses.core.data.outbox.OutboxQueue
 import fr.parcourses.core.data.repository.RoomListRepository
 import fr.parcourses.core.data.sync.InMemorySyncCursors
@@ -12,6 +13,7 @@ import fr.parcourses.core.network.dto.CategoryRow
 import fr.parcourses.core.network.dto.ListItemRow
 import fr.parcourses.core.network.dto.ListRow
 import fr.parcourses.core.network.dto.RemoteProduct
+import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -25,6 +27,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -502,6 +505,117 @@ class SyncEngineTest : DataTest() {
             }
             assertEquals(2, gateway.callsOf("fetchProducts").size)
             assertEquals(listOf(fresh.id.toString()), db.products().getAll().map { it.id })
+        }
+
+    /**
+     * #138 : la descente incrémentale retire du cache les produits dépubliés depuis son curseur, avec une heure de
+     * recouvrement, puis avance ce curseur. L'article qui porte l'id d'un produit retiré ne change pas.
+     */
+    @Test
+    fun anIncrementalCatalogPullDropsUnpublishedProductsAndLeavesTheirItemsIntact() =
+        runBlocking {
+            val start = now
+            gateway.remoteCategories = listOf(CategoryRow(7, "dairy", "Crèmerie", 1))
+            val milk = RemoteProduct(Uuid.random(), "Lait", "lait", "dairy", null, start, publishedAt = start)
+            val kefir = RemoteProduct(Uuid.random(), "Kéfir", "kefir", "dairy", null, start, publishedAt = start)
+            val butter = RemoteProduct(Uuid.random(), "Beurre", "beurre", "dairy", null, start, publishedAt = start)
+            gateway.remoteProducts = listOf(milk, kefir, butter)
+            val list = repository.createList("Courses", now)
+            val added = repository.addItem(list.id, "Lait", "lait", null, milk.id.toString(), "dairy", now)
+            engine.drain(pull = true)
+            val item = db.items().get(added.id)
+            assertEquals(milk.id.toString(), item?.productId)
+            assertEquals(3, db.products().getAll().size)
+
+            // Le lendemain, le lait est dépublié, donc illisible (RLS). Sans curseur : toutes les dépublications.
+            val milkUnpublished = start + 2.hours
+            gateway.remoteProducts = listOf(kefir, butter)
+            gateway.remoteUnpublished = listOf(RemoteUnpublishedProduct(milk.id, milkUnpublished))
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(listOf("fetchUnpublishedProducts"), gateway.callsOf("fetchUnpublishedProducts"))
+            assertEquals(
+                setOf(kefir.id.toString(), butter.id.toString()),
+                db
+                    .products()
+                    .getAll()
+                    .map { it.id }
+                    .toSet(),
+            )
+            assertEquals(milkUnpublished, cursors.catalogUnpublished)
+            // L'article garde son produit, valide côté serveur, et rien ne repart.
+            assertEquals(item, db.items().get(added.id))
+            assertTrue(entries().isEmpty())
+
+            // Dépublication validée en retard, datée d'avant le curseur mais dans l'heure de recouvrement : retirée
+            // aussi. Le curseur ne recule pas.
+            gateway.remoteProducts = listOf(butter)
+            gateway.remoteUnpublished =
+                listOf(
+                    RemoteUnpublishedProduct(milk.id, milkUnpublished),
+                    RemoteUnpublishedProduct(kefir.id, milkUnpublished - 30.minutes),
+                )
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(
+                "fetchUnpublishedProducts:$milkUnpublished",
+                gateway.callsOf("fetchUnpublishedProducts").last(),
+            )
+            assertEquals(listOf(butter.id.toString()), db.products().getAll().map { it.id })
+            assertEquals(milkUnpublished, cursors.catalogUnpublished)
+            assertEquals(item, db.items().get(added.id))
+        }
+
+    /** #138 : le catalogue complet exclut déjà les produits dépubliés : il ne lit pas les dépublications. */
+    @Test
+    fun aFullCatalogPullNeitherReadsUnpublishedProductsNorMovesTheirCursor() =
+        runBlocking {
+            val start = now
+            gateway.remoteCategories = listOf(CategoryRow(7, "dairy", "Crèmerie", 1))
+            gateway.remoteProducts =
+                listOf(RemoteProduct(Uuid.random(), "Lait", "lait", "dairy", null, start, publishedAt = start))
+            gateway.remoteUnpublished = listOf(RemoteUnpublishedProduct(Uuid.random(), start + 1.hours))
+
+            // Premier passage : complet.
+            engine.drain(pull = true)
+            assertEquals(1, gateway.callsOf("fetchProducts").size)
+            assertTrue(gateway.callsOf("fetchUnpublishedProducts").isEmpty())
+            assertNull(cursors.catalogUnpublished)
+
+            // Une semaine plus tard : complet encore, curseur des dépublications laissé tel quel.
+            cursors.catalogUnpublished = start
+            advance(8.days)
+            engine.drain(pull = true)
+            assertEquals(2, gateway.callsOf("fetchProducts").size)
+            assertTrue(gateway.callsOf("fetchUnpublishedProducts").isEmpty())
+            assertEquals(start, cursors.catalogUnpublished)
+        }
+
+    /** #138 : un changement de compte e-mail purge l'appareil, curseur des dépublications compris. */
+    @Test
+    fun anAccountSwitchPurgeForgetsTheUnpublishedCursor() =
+        runBlocking {
+            val start = now
+            gateway.remoteCategories = listOf(CategoryRow(7, "dairy", "Crèmerie", 1))
+            gateway.remoteProducts =
+                listOf(RemoteProduct(Uuid.random(), "Lait", "lait", "dairy", null, start, publishedAt = start))
+            gateway.remoteUnpublished = listOf(RemoteUnpublishedProduct(Uuid.random(), start + 1.hours))
+            engine.drain(pull = true)
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(start + 1.hours, cursors.catalogUnpublished)
+
+            LocalDataPurge(db, cursors).run()
+
+            assertNull(cursors.catalogUnpublished)
+            assertNull(cursors.catalogPublished)
+            // Le catalogue repart en entier, puis les dépublications sont toutes relues.
+            engine.drain(pull = true)
+            assertEquals(1, gateway.callsOf("fetchUnpublishedProducts").size)
+            advance(25.hours)
+            engine.drain(pull = true)
+            assertEquals(List(2) { "fetchUnpublishedProducts" }, gateway.callsOf("fetchUnpublishedProducts"))
+            assertEquals(start + 1.hours, cursors.catalogUnpublished)
         }
 
     @Test

@@ -422,6 +422,8 @@ final class DeletionHarness: AccountDeletionHost {
     try context.save()
     let cursors = cursors
     cursors.catalog = now
+    cursors.catalogPublished = now
+    cursors.catalogUnpublished = now
     defaults.set("visite", forKey: "liveActivityDismissedVisitId")
     // Attestation d'appareil du compte (#137).
     UserDefaultsAttestationStateStore(defaults: defaults).save(

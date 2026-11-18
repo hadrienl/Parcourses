@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "locale": "fr",
+  "source": {
+    "name": "List of Dirty, Naughty, Obscene, and Otherwise Bad Words (LDNOOBW), liste française",
+    "url": "https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/blob/5faf2ba42d7b1c0977169ec3611df25a3c08eb13/fr",
+    "commit": "5faf2ba42d7b1c0977169ec3611df25a3c08eb13",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "changes": "Reprise telle quelle, sans modification. Les exceptions de « allowed » sont propres à Parcourses."
+  },
+  "blocked": [
+    "baiser",
+    "bander",
+    "bigornette",
+    "bite",
+    "bitte",
+    "bloblos",
+    "bordel",
+    "bourré",
+    "bourrée",
+    "brackmard",
+    "branlage",
+    "branler",
+    "branlette",
+    "branleur",
+    "branleuse",
+    "brouter le cresson",
+    "caca",
+    "chatte",
+    "chiasse",
+    "chier",
+    "chiottes",
+    "clito",
+    "clitoris",
+    "con",
+    "connard",
+    "connasse",
+    "conne",
+    "couilles",
+    "cramouille",
+    "cul",
+    "déconne",
+    "déconner",
+    "emmerdant",
+    "emmerder",
+    "emmerdeur",
+    "emmerdeuse",
+    "enculé",
+    "enculée",
+    "enculeur",
+    "enculeurs",
+    "enfoiré",
+    "enfoirée",
+    "étron",
+    "fille de pute",
+    "fils de pute",
+    "folle",
+    "foutre",
+    "gerbe",
+    "gerber",
+    "gouine",
+    "grande folle",
+    "grogniasse",
+    "gueule",
+    "jouir",
+    "la putain de ta mère",
+    "MALPT",
+    "ménage à trois",
+    "merde",
+    "merdeuse",
+    "merdeux",
+    "meuf",
+    "nègre",
+    "negro",
+    "nique ta mère",
+    "nique ta race",
+    "palucher",
+    "pédale",
+    "pédé",
+    "péter",
+    "pipi",
+    "pisser",
+    "pouffiasse",
+    "pousse-crotte",
+    "putain",
+    "pute",
+    "ramoner",
+    "sac à foutre",
+    "sac à merde",
+    "salaud",
+    "salope",
+    "suce",
+    "tapette",
+    "tanche",
+    "teuch",
+    "tringler",
+    "trique",
+    "troncher",
+    "trou du cul",
+    "turlute",
+    "zigounette",
+    "zizi"
+  ],
+  "allowed": [
+    {
+      "term": "tanche",
+      "reason": "poisson d'eau douce"
+    },
+    {
+      "term": "con carne",
+      "reason": "chili con carne"
+    },
+    {
+      "term": "con leche",
+      "reason": "café con leche, arroz con leche"
+    },
+    {
+      "term": "cul noir",
+      "reason": "porc cul noir, race porcine"
+    },
+    {
+      "term": "cul de poule",
+      "reason": "bol de cuisine"
+    },
+    {
+      "term": "tapette à souris",
+      "reason": "piège à souris"
+    },
+    {
+      "term": "tapettes à souris",
+      "reason": "piège à souris, pluriel"
+    },
+    {
+      "term": "gerbe de fleurs",
+      "reason": "bouquet"
+    },
+    {
+      "term": "amuse-gueule",
+      "reason": "apéritif"
+    },
+    {
+      "term": "amuses-gueules",
+      "reason": "apéritif, pluriel"
+    },
+    {
+      "term": "poubelle à pédale",
+      "reason": "équipement de cuisine"
+    },
+    {
+      "term": "poubelles à pédale",
+      "reason": "équipement de cuisine, pluriel"
+    },
+    {
+      "term": "pan con tomate",
+      "reason": "tartine catalane"
+    },
+    {
+      "term": "folle blanche",
+      "reason": "cépage"
+    },
+    {
+      "term": "negro amaro",
+      "reason": "cépage (negroamaro)"
+    }
+  ]
+}

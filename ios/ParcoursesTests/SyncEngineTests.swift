@@ -34,6 +34,7 @@ nonisolated final class MemorySyncCursors: SyncCursors, @unchecked Sendable {
   var items: Date?
   var catalog: Date?
   var catalogPublished: Date?
+  var catalogUnpublished: Date?
   var catalogFull: Date?
   var resolutionAttempts: [UUID: ResolutionAttempt] = [:]
   var tombstones: Date?
@@ -385,6 +386,18 @@ actor ScriptedSyncGateway: RemoteGateway {
     try record("fetchProducts(since)")
     productCursors.append(publishedSince)
     return products.filter { ($0.publishedAt ?? .distantPast) >= publishedSince }
+  }
+  /// Produits dépubliés (#138). Comme la RPC : `unpublished_at >= p_since`, `p_since` étant calculé par le vrai
+  /// `UnpublishedProductsParameters` (curseur moins le recouvrement d'une heure).
+  var unpublished: [RemoteUnpublishedProduct] = []
+  var unpublishedCursors: [Date?] = []
+  func setUnpublished(_ rows: [RemoteUnpublishedProduct]) { unpublished = rows }
+  func fetchUnpublishedProducts(since: Date?) async throws -> [RemoteUnpublishedProduct] {
+    try record("fetchUnpublishedProducts")
+    unpublishedCursors.append(since)
+    let threshold = UnpublishedProductsParameters(since: since).pSince
+    return unpublished.filter { row in threshold.map { row.unpublishedAt >= $0 } ?? true }
+      .sorted { ($0.unpublishedAt, $0.id.uuidString) < ($1.unpublishedAt, $1.id.uuidString) }
   }
   func nearbyStores(lat: Double, lng: Double, radiusM: Int, maxResults: Int) async throws -> [NearbyStoreRow] { [] }
   func searchStores(query: String, limit: Int) async throws -> [StoreSearchRow] { [] }
@@ -1028,6 +1041,121 @@ private func itemRow(_ id: UUID, listId: UUID, label: String, updatedAt: Date) -
     }
     #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 2)
     #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 1)
+  }
+
+  /// #138 : la descente incrémentale lit les dépublications depuis `catalogUnpublished`, avec une heure de
+  /// recouvrement. Le produit dépublié quitte le cache, l'article qui le portait reste intact, le curseur avance.
+  @Test func incrementalCatalogPullRemovesUnpublishedProducts() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first).id
+    let categories = [CategoryRow(id: 7, slug: slug, name: "n", defaultRank: 1)]
+    func product(_ name: String) -> RemoteProduct {
+      RemoteProduct(
+        id: UUID(), name: name, normalizedName: name.lowercased(), categorySlug: slug, offCode: nil, createdAt: t0,
+        publishedAt: t0)
+    }
+    let kept = product("Lait")
+    let banned = product("Injure")
+    let late = product("Retard")
+    let old = product("Ancien")
+    await harness.gateway.setCatalog(categories: categories, products: [kept, banned, late, old])
+    await harness.engine.drain(pull: true)
+    #expect(try harness.context.fetchCount(FetchDescriptor<Product>()) == 4)
+    let list = try harness.lists.createList(name: "Courses", at: t0)
+    let item = try harness.lists.addItem(
+      listId: list.id, label: "Injure", normalizedName: "injure", quantity: "2", productId: banned.id,
+      categoryId: slug, at: t0)
+
+    // Le lendemain : une dépublication, lue sans curseur (aucune encore reçue).
+    let unpublishedAt = t0.addingTimeInterval(7200)
+    await harness.gateway.setCatalog(categories: categories, products: [])
+    await harness.gateway.setUnpublished([RemoteUnpublishedProduct(id: banned.id, unpublishedAt: unpublishedAt)])
+    harness.clock.advance(SyncRetryPolicy.catalogInterval)
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts(since)" }.count == 1)
+    #expect(await harness.gateway.unpublishedCursors == [nil])
+    let cached = Set(try harness.context.fetch(FetchDescriptor<Product>()).map(\.id))
+    #expect(cached == [kept.id, late.id, old.id])
+    #expect(harness.cursors.catalogUnpublished == unpublishedAt)
+    // L'article garde son produit, son libellé, sa quantité et sa catégorie : aucune liste n'est cassée.
+    let itemAfter = try #require(
+      try harness.context.fetch(FetchDescriptor<ListItem>()).first { $0.id == item.id })
+    #expect(itemAfter.productId == banned.id)
+    #expect(itemAfter.label == "Injure")
+    #expect(itemAfter.quantity == "2")
+    #expect(itemAfter.categoryId == slug)
+
+    // Recouvrement : une dépublication validée en retard, datée de 30 min avant le curseur, est relue ; une autre,
+    // datée de 2 h avant, sort de la fenêtre. Le curseur ne recule pas.
+    await harness.gateway.setUnpublished([
+      RemoteUnpublishedProduct(id: old.id, unpublishedAt: unpublishedAt.addingTimeInterval(-7200)),
+      RemoteUnpublishedProduct(id: late.id, unpublishedAt: unpublishedAt.addingTimeInterval(-1800)),
+      RemoteUnpublishedProduct(id: banned.id, unpublishedAt: unpublishedAt),
+    ])
+    harness.clock.advance(SyncRetryPolicy.catalogInterval)
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.unpublishedCursors == [nil, unpublishedAt])
+    let remaining = Set(try harness.context.fetch(FetchDescriptor<Product>()).map(\.id))
+    #expect(remaining == [kept.id, old.id])
+    #expect(harness.cursors.catalogUnpublished == unpublishedAt)
+  }
+
+  /// #138 : le rechargement complet (premier, puis hebdomadaire) ne lit pas les dépublications ; il les exclut déjà
+  /// (RLS), et le curseur `catalogUnpublished` reste tel quel.
+  @Test func fullCatalogPullNeverReadsUnpublishedProducts() async throws {
+    let harness = try SyncHarness()
+    try harness.categories.seedIfNeeded()
+    let slug = try #require(try harness.categories.categories().first).id
+    let categories = [CategoryRow(id: 7, slug: slug, name: "n", defaultRank: 1)]
+    let lait = RemoteProduct(
+      id: UUID(), name: "Lait", normalizedName: "lait", categorySlug: slug, offCode: nil, createdAt: t0,
+      publishedAt: t0)
+    await harness.gateway.setCatalog(categories: categories, products: [lait])
+    await harness.gateway.setUnpublished([RemoteUnpublishedProduct(id: UUID(), unpublishedAt: t0)])
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 1)
+    #expect(await !harness.gateway.calls.contains("fetchUnpublishedProducts"))
+    #expect(harness.cursors.catalogUnpublished == nil)
+
+    // Six descentes incrémentales, puis le rechargement de la semaine : aucun appel de plus pour celui-ci.
+    for _ in 0..<6 {
+      harness.clock.advance(SyncRetryPolicy.catalogInterval)
+      await harness.engine.drain(pull: true)
+    }
+    #expect(await harness.gateway.calls.filter { $0 == "fetchUnpublishedProducts" }.count == 6)
+    #expect(harness.cursors.catalogUnpublished == t0)
+    harness.clock.advance(SyncRetryPolicy.catalogInterval)
+    await harness.engine.drain(pull: true)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchProducts" }.count == 2)
+    #expect(await harness.gateway.calls.filter { $0 == "fetchUnpublishedProducts" }.count == 6)
+    #expect(harness.cursors.catalogUnpublished == t0)
+  }
+
+  /// #138 : le recouvrement d'une heure est appliqué au paramètre de la RPC ; sans curseur, `p_since` est absent.
+  @Test func unpublishedProductsParametersApplyTheCatalogOverlap() throws {
+    #expect(UnpublishedProductsParameters(since: t0).pSince == t0.addingTimeInterval(-3600))
+    #expect(UnpublishedProductsParameters(since: nil).pSince == nil)
+    let encoded = try JSONEncoder().encode(UnpublishedProductsParameters(since: nil))
+    #expect(String(decoding: encoded, as: UTF8.self) == "{}")
+  }
+
+  /// #138 : le passage à un autre compte e-mail purge les préférences ; `catalogUnpublished` part avec les autres
+  /// curseurs du catalogue, et la suppression du compte (même purge) aussi.
+  @Test func anAccountSwitchForgetsTheUnpublishedCursor() throws {
+    let harness = try SyncHarness()
+    let defaults = try #require(UserDefaults(suiteName: "tests.unpublished.\(UUID().uuidString)"))
+    let cursors = UserDefaultsSyncCursors(defaults: defaults)
+    cursors.catalogPublished = t0
+    cursors.catalogUnpublished = t0
+    #expect(UserDefaultsSyncCursors.keys.contains("sync.cursor.catalogUnpublished"))
+    #expect(UserDefaultsSyncCursors(defaults: defaults).catalogUnpublished == t0)
+    try LocalDataPurge(
+      container: harness.container, keychain: MemorySecureStore(), defaults: defaults,
+      urlCache: URLCache(memoryCapacity: 1 << 20, diskCapacity: 0)
+    ).run(keepingSession: true)
+    #expect(cursors.catalogPublished == nil)
+    #expect(cursors.catalogUnpublished == nil)
   }
 
   /// #69 : un catalogue vide mais lisible (catégories reçues) vide le cache. Les noms d'autres comptes téléchargés

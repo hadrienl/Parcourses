@@ -75,6 +75,7 @@ auth.users ─┬─< lists ─┬─< list_items >─ products >─ categories
 | `…_graph_day_granularity.sql` | Dates du graphe ramenées au jour (Europe/Paris), instantanés publiés une fois par nuit et calculés à minuit (#70) |
 | `…_snapshot_min_contributors.sql` | Version 2 de l'algorithme (seuil et fenêtre), `graph.snapshot_audience`, instantané d'un magasin à un seul contributeur servi à lui seul (#70) |
 | `…_catalog_claims.sql` | Produit privé à sa création, `catalog.product_claims`, publication à 3 comptes par vote, `resolve_products` sans oracle, instantané limité aux produits publiés, purge `catalog-claims-purge`, rattrapage (#69) |
+| `…_catalog_blocked_terms.sql` | Termes refusés `catalog.blocked_terms` (liste française de LDNOOBW, CC BY 4.0) et exceptions `catalog.allowed_terms` dans `catalog.is_publishable`, retrait d'un produit (`catalog.unpublish_product`, `catalog.unpublish_blocked`, `catalog.product_unpublications`), RPC `unpublished_products` (#138) |
 | `…_catalog_hardening.sql` | Vote des seuls comptes établis et publication nocturne `catalog-claims-publish`, quota d'un compte récent, réserve du plafond global, filtre à la revendication, purge `catalog-counters-purge`, index `products_published_at_idx` (#47) |
 | `…_starter_catalog.sql` | Catalogue de départ : 150 produits courants publiés d'emblée (`shared/catalog/starter.fr.json`), purge des produits privés orphelins, instantanés recalculés (#69, lot S2) |
 | `…_accounts_sync.sql` | Schéma interne `sharing` (`readable_list_ids`, `list_tombstones`, purge `sharing-tombstones-purge`), `profiles`, `updated_by` sur `lists` et `list_items`, `list_item_tombstones`, gardes contre la résurrection d'un article ou d'une liste, RPC `accessible_list_ids`, hook Auth `accounts.before_user_created` (#87, lot 87.1) |
@@ -223,7 +224,59 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   de 2 lettres ou chiffres, ou contenant `://`, `www.`, un domaine (`.fr`, `.com`, `.net`, `.org`, `.eu`, `.io`,
   `.be`, `.ch`), `@`, les mots `at` ou `arobase`, 5 chiffres
   consécutifs, 8 chiffres séparés au plus par un espace, un point ou un tiret (téléphone) ou un caractère de
-  contrôle n'est jamais publiée. Les injures ne sont pas filtrées (#138).
+  contrôle n'est jamais publiée, pas plus qu'une forme qui contient un terme refusé (#138, ci-dessous).
+- **Termes refusés** (#138, `…_catalog_blocked_terms.sql`) :
+  - **Liste** : `catalog.blocked_terms (term, lang, source, added_at)`, sans aucun droit client. Elle reprend la
+    liste française de LDNOOBW (*List of Dirty, Naughty, Obscene, and Otherwise Bad Words*, licence
+    **CC BY 4.0**, commit cité dans le fichier), telle quelle, depuis `shared/catalog/blocked-terms.fr.json`.
+    `scripts/check-blocked-terms.ts` vérifie en CI que la dernière migration qui la porte reprend le fichier, et
+    qu'aucun libellé du catalogue de départ ni aucun mot-clé du classifieur n'est refusé.
+  - **Forme de mot** (`catalog.term_form`) : `normalize_label`, puis tout ce qui n'est ni lettre ni chiffre ramené
+    à un espace. Un déclencheur y ramène ce qu'un administrateur insère.
+  - **Correspondance** (`catalog.has_blocked_term`) : mot entier, ou suite de mots pour un terme qui en a
+    plusieurs. Un `s` ou un `x` final est toléré. Jamais de sous-chaîne : « concombre » et « culotte » passent.
+  - **Exceptions** : `catalog.allowed_terms (term, lang, reason, added_at)` liste des expressions légitimes
+    (« con carne », « amuse-gueule », « poubelle à pédale », « cul noir », « tanche »…). Elles sont retirées du libellé **avant** la
+    recherche.
+  - **Faux positif** (« bite », mot breton) : comme toute forme refusée, le produit n'est ni créé ni revendiqué.
+    L'article reste dans la liste de son auteur, rangé par sa catégorie, sans aucun message.
+  - **Ajouter un terme** en SQL : `insert into catalog.blocked_terms (term) values ('…');`, puis
+    `select catalog.unpublish_blocked();` pour retirer les produits déjà publiés qui le contiennent. Même chose
+    après le retrait d'une exception.
+  - **Ajouter une exception** : `insert into catalog.allowed_terms (term, reason) values ('…', '…');`, puis
+    `select catalog.restore_unblocked();`.
+  - **Ne pas supprimer** un terme de la liste source : une migration suivante le remettrait. Une exception le
+    neutralise.
+  - **Caractères invisibles** : le trait d'union conditionnel, les espaces et les liants de largeur nulle sont
+    supprimés avant la recherche. « mer\u200bde » est donc refusé.
+  - **Nouvelle version de la liste** : une nouvelle migration ne reprend que `catalog.blocked_terms_fr()` et le bloc
+    de chargement. Recopier les autres fonctions les ramènerait à leur version de #138.
+- **Retrait d'un produit publié** (#138) :
+  - **Fonction** : `catalog.unpublish_product(id, reason = 'admin')`, en `security definer`, réservée à
+    `service_role` (connexion SQL : `catalog` n'est pas exposé par l'API) et à `postgres`.
+  - **Seulement un produit publié** : un produit privé renvoie faux. Sa forme n'a jamais été publique ; une ligne
+    de retrait la garderait au-delà du dernier compte qui l'a saisie (#68), et dirait aux autres comptes qu'elle
+    existe. Pour l'empêcher d'être publiée, ajouter un terme refusé.
+  - **Effets** : le produit redevient privé (`published_at` nul, `name` ramené à la forme normalisée,
+    revendications supprimées) et une ligne est écrite dans `catalog.product_unpublications (product_id,
+    unpublished_at, reason, published_name)`, avec le libellé publié d'alors.
+  - **Durable** : ni `claim_candidates`, ni `publish_claimed`, ni `publish_matured`, ni `publish_starter` ne le
+    reprennent. La purge ne le supprime jamais, car sa ligne empêche qu'il soit recréé puis republié.
+  - **Listes** : les articles et les coches qui portent son id restent valides. Le graphe le retire des instantanés
+    au recalcul de la nuit.
+  - **Termes refusés** : `catalog.unpublish_blocked()` retire, avec `reason = 'blocked_term'`, les produits publiés
+    qui contiennent un terme refusé. La migration l'appelle une fois.
+  - **Exception ajoutée après coup** : `catalog.restore_unblocked()` republie, sous leur libellé d'alors et avec un
+    nouveau `published_at`, les produits retirés pour un terme refusé (`reason = 'blocked_term'`) que plus aucun
+    terme ne refuse. Les apps les relisent par le catalogue incrémental. Un retrait d'administrateur
+    (`reason = 'admin'`) n'est jamais annulé par cette fonction.
+  - **Republier** à la main un produit retiré par un administrateur : supprimer sa ligne de
+    `catalog.product_unpublications`, puis remettre `published_at = now()` et `name = published_name`.
+  - **RPC `unpublished_products(p_since timestamptz = null)`** → `table (id uuid, unpublished_at timestamptz)`.
+    Elle renvoie les produits retirés depuis `p_since`, ou tous : tous avaient été publiés. Elle ne donne jamais
+    leur libellé ni la raison du retrait. Elle est en `security definer`, réservée à `authenticated`.
+  - **Ordre de déploiement** : la migration **avant** les apps qui appellent la RPC. Sans elle, leur descente du
+    catalogue échoue (`PGRST202`) à chaque passe.
 - **Graphe** : un produit privé est appris (`store_edges`, `store_entries`, fermées aux clients depuis #70) mais
   `graph.snapshot_content` ne publie que les arêtes entre produits publiés et les entrées de produits publiés. Une
   fois publié, il apparaît avec ses observations passées à la publication nocturne suivante (les instantanés sont
@@ -251,10 +304,14 @@ Un libellé saisi librement peut contenir une donnée personnelle (« médicamen
   appel qui attendait le verrou à minuit. Le compteur global, sans donnée personnelle, est gardé 90 jours pour
   surveiller le plafond.
 - **Téléchargement par les apps** (#47) : un produit publié ne change plus (`publish_starter` ne touche que les
-  produits privés, la purge ne supprime que des produits privés). Les apps lisent donc chaque jour les seuls produits
+  produits privés, la purge ne supprime que des produits privés), sauf s'il est retiré (#138). Les apps lisent donc chaque jour les seuls produits
   publiés depuis leur curseur (`published_at >= curseur - 1 h`, index partiel `products_published_at_idx`), et le
   catalogue complet une fois par semaine. Une migration qui modifierait un produit publié doit en tenir compte : elle
   n'atteint les appareils qu'au catalogue complet suivant, sauf à republier le produit (nouveau `published_at`).
+  Un retrait (#138) est lu à chaque descente incrémentale :
+  - les apps appellent `unpublished_products` depuis leur curseur `catalogUnpublished`, moins 1 h ;
+  - elles effacent ces ids de leur cache ;
+  - les versions antérieures attendent le catalogue complet de la semaine.
 - **Rattrapage** (`catalog.backfill_claims`, appelé par la migration, rejouable) : revendications reconstituées
   depuis `list_items` (un compte par produit, libellé de son article le plus ancien de même forme, catégorie du
   produit), `name` des produits privés ramené à leur forme normalisée, puis publication à 3 comptes. À la première

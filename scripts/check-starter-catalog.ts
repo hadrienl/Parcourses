@@ -6,7 +6,8 @@
 // - deux libellés n'ont jamais la même forme normalisée par le serveur (public.normalize_label : minuscules, sans
 //   accents, espaces réduits ; pas de singulier) ;
 // - chaque libellé est publiable tel quel : 200 caractères au plus, sans espace en tête, en fin ni doublé, et il passe
-//   le filtre de catalog.is_publishable (une approximation est vérifiée ici, le test pgTAP 14 vérifie la vraie).
+//   le filtre de catalog.is_publishable (une approximation est vérifiée ici, le test pgTAP 14 vérifie la vraie ; les
+//   termes refusés de #138, par scripts/check-blocked-terms.ts et le test pgTAP 37).
 // Un changement du fichier partagé impose une nouvelle migration : copier la précédente, puis --write.
 // Ne jamais lancer --write sur une migration déjà appliquée (la CI refuse sa modification).
 //
