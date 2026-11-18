@@ -37,7 +37,8 @@ nonisolated enum AccountLinkOutcome: Sendable, Equatable {
 /// Compte anonyme : `linkEmail`, puis le code (`email_change`, même compte). Adresse déjà prise : `signInWithEmail`
 /// (sans création), puis le code (`email`), `AccountRekey` par la passe de synchronisation qui suit, et suppression de
 /// l'ancien compte anonyme avec son jeton gardé (un échec est sans conséquence, #68). Compte e-mail sans session :
-/// connexion directe, jamais de liaison.
+/// connexion directe, jamais de liaison. Compte de revue des stores (#149) : aucun code envoyé, puis la même suite
+/// qu'une connexion.
 @Observable
 final class AccountLink {
   /// Ce que la liaison demande au reste de l'app.
@@ -229,8 +230,9 @@ final class AccountLink {
 
   private func verifyAndMerge(code: String, purpose: EmailCodePurpose, sentTo: String, sync: inout SyncHold) async {
     let gateway = gateway
-    // Connexion depuis un compte e-mail : le changement de compte éventuel doit survivre à un arrêt de l'app.
-    let fromEmailAccount = !canLink && purpose == .signIn
+    // Connexion depuis un compte e-mail (compte de revue compris) : le changement de compte éventuel doit survivre à
+    // un arrêt de l'app.
+    let fromEmailAccount = !canLink && purpose != .link
     // Déjà posé par un essai interrompu : la purge qu'il protège reste due tant que ce code n'a pas abouti.
     let ownsSwitchFlag = fromEmailAccount && !dependencies.isSwitchPending()
     if fromEmailAccount { dependencies.markSwitch(true) }
@@ -310,6 +312,12 @@ final class AccountLink {
   // MARK: - Outils
 
   private func sendCode(to address: String) async {
+    // Compte de revue des stores (#149) : aucune requête, aucun e-mail, même pour « Renvoyer le code ». Rien ne part :
+    // le réseau n'est vérifié qu'avec le code.
+    if ReviewAccount.matches(address) {
+      error = nil
+      return codeSent(to: address, purpose: .review)
+    }
     guard dependencies.isOnline() else { return publish(.offline) }
     isWorking = true
     error = nil
@@ -317,13 +325,18 @@ final class AccountLink {
     do {
       // Compte anonyme : liaison, sauf si le code en cours est déjà un code de connexion (renvoi).
       let next = canLink && purpose != .signIn ? try await linkOrSignIn(address) : try await signIn(address)
-      purpose = next
-      sentTo = address
-      codeSentAt = dependencies.now()
-      phase = .enterCode
+      codeSent(to: address, purpose: next)
     } catch {
       publish(classifyRequest(error))
     }
+  }
+
+  /// Passage à la saisie du code.
+  private func codeSent(to address: String, purpose next: EmailCodePurpose) {
+    purpose = next
+    sentTo = address
+    codeSentAt = dependencies.now()
+    phase = .enterCode
   }
 
   /// Liaison au compte de l'appareil ; adresse déjà prise : connexion au compte existant (vecteur `010`).
@@ -385,6 +398,8 @@ final class AccountLink {
     case let error as AuthRequestError:
       if error.status == 429 { return .rateLimited }
       guard (400..<500).contains(error.status) else { return .unknown }
+      // Le code de revue (#149) n'expire jamais : un refus est toujours un code faux.
+      guard purpose != .review else { return .invalidCode }
       let age = codeSentAt.map { dependencies.now().timeIntervalSince($0) } ?? 0
       return age >= Self.codeLifetime ? .expiredCode : .invalidCode
     case let error as RemoteError: return error == .network || error == .notSent ? .offline : .unknown

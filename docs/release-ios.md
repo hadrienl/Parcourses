@@ -165,7 +165,9 @@ Rien n'est soumis à la revue (`submit_for_review: false`), et aucun binaire n'e
 Ces réglages ne passent pas par fastlane, ou pas encore :
 
 - *Prix et disponibilité* : gratuit, pays de diffusion.
-- *Informations pour la revue* (contact, notes pour le relecteur), au moment de la soumission.
+- *Informations pour la revue* (contact, notes pour le relecteur), au moment de la soumission. Le relecteur se connecte
+  avec le compte de revue (#149) : adresse et code fixes, réglés comme le décrit `docs/hosted-supabase.md`, section
+  « Compte de revue des stores (#149) ». Les mêmes identifiants vont dans les informations de test de TestFlight.
 - *Confidentialité de l'app* : déjà remplie (voir `docs/app-store-privacy.md`).
 
 ## Mettre fastlane à jour

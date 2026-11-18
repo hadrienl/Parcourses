@@ -40,6 +40,8 @@ actor SupabaseGateway: RemoteGateway {
   let sendInvitationURL: URL
   /// Edge Function `attest-device` (#137).
   let attestDeviceURL: URL
+  /// Edge Function `review-sign-in` (#149), connexion du compte de revue des stores.
+  let reviewSignInURL: URL
   /// Liens construits pour « Copier le lien ».
   let invitationLinks: InvitationLinks
   /// Canal temps réel `user:<uid>` ouvert, `nil` en arrière-plan ou pour un compte anonyme.
@@ -58,6 +60,7 @@ actor SupabaseGateway: RemoteGateway {
     self.sendInvitationURL =
       sendInvitationURL ?? configuration.url.appending(path: "functions/v1/send-invitation")
     attestDeviceURL = configuration.url.appending(path: "functions/v1/attest-device")
+    reviewSignInURL = configuration.url.appending(path: "functions/v1/review-sign-in")
     self.invitationLinks = invitationLinks
     self.store = store
     self.deletionFlags = deletionFlags
@@ -566,10 +569,22 @@ actor SupabaseGateway: RemoteGateway {
           expiresAt: session.expiresAt, now: Date.now.timeIntervalSince1970,
           refresh: { try await auth.refreshSession().accessToken })
       }
-      let type: EmailOTPType = purpose == .link ? .emailChange : .email
-      let response = try await auth.verifyOTP(email: email, token: code, type: type)
-      // Sans session dans la réponse, le jeton en cours porte encore `is_anonymous` : on le renouvelle.
-      if response.session == nil { _ = try await auth.refreshSession() }
+      switch purpose {
+      case .review:
+        // Compte de revue (#149) : la session vient de `review-sign-in`, jamais de `verifyOTP`.
+        let granted = try await self.reviewSignIn(email: email, code: code)
+        let installed = try await auth.setSession(accessToken: granted.accessToken, refreshToken: granted.refreshToken)
+        // Comme Android : une session d'un autre compte que celui accordé n'est jamais gardée.
+        guard installed.user.id == granted.userId else {
+          try? await auth.signOut(scope: .local)
+          throw RemoteError.unexpected
+        }
+      case .link, .signIn:
+        let type: EmailOTPType = purpose == .link ? .emailChange : .email
+        let response = try await auth.verifyOTP(email: email, token: code, type: type)
+        // Sans session dans la réponse, le jeton en cours porte encore `is_anonymous` : on le renouvelle.
+        if response.session == nil { _ = try await auth.refreshSession() }
+      }
       guard let session = auth.currentSession else { throw RemoteError.unauthorized }
       let left = previous.flatMap { $0.accountId != session.user.id ? $0.accessToken : nil }
       return VerifiedCode(accountId: session.user.id, previousAnonymousToken: left)
@@ -660,12 +675,15 @@ actor SupabaseGateway: RemoteGateway {
     return KeptAnonymousSession(accountId: accountId, accessToken: refreshed)
   }
 
-  /// Refus de GoTrue gardé tel quel (statut et `error_code`) : l'écran de connexion en tire son message.
+  /// Refus de GoTrue gardé tel quel (statut et `error_code`) : l'écran de connexion en tire son message. Un refus de
+  /// `review-sign-in`, déjà traduit, passe tel quel.
   private func mappedAuth<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
     do {
       return try await operation()
     } catch let AuthError.api(_, code, _, response) {
       throw AuthRequestError(status: response.statusCode, code: code.rawValue)
+    } catch let error as AuthRequestError {
+      throw error
     } catch {
       throw Self.classify(error)
     }

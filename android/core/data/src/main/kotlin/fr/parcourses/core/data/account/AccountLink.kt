@@ -128,7 +128,9 @@ interface AccountLinkHost {
  * - compte anonyme : `linkEmail`, puis le code de liaison (`EmailCodePurpose.Link`, même compte) ; adresse déjà prise
  *   (`email_exists`) : `signInWithEmail`, puis le code de connexion (`SignIn`), puis la reprise des données du
  *   téléphone (`AccountRekey`) et la suppression de l'ancien compte anonyme avec son jeton gardé avant le code ;
- * - compte e-mail sans session (vecteur `009`) : `signInWithEmail`, puis le code de connexion.
+ * - compte e-mail sans session (vecteur `009`) : `signInWithEmail`, puis le code de connexion ;
+ * - compte de revue des stores ([ReviewAccount], #149) : aucune requête ni aucun e-mail, la saisie du code s'ouvre
+ *   tout de suite (`Review`) ; le code est vérifié par `review-sign-in`, puis tout se passe comme pour `SignIn`.
  *
  * Le drapeau `account.kind` passe à `email` dès que le code est accepté. Le jeton de l'ancien compte reste en mémoire.
  */
@@ -227,7 +229,9 @@ class AccountLink(
                 } catch (e: RemoteError) {
                     Log.i(TAG, "Code refusé : ${e.message}")
                     if (setByMe) io { switchFlag.clear() }
-                    return fail(codeError(e, state.codeSentAt))
+                    // Le code de revue (#149) n'expire jamais : un refus est toujours un code faux.
+                    val sentAt = state.codeSentAt.takeUnless { purpose == EmailCodePurpose.Review }
+                    return fail(codeError(e, sentAt))
                 }
             io { kind.write(AccountKind.Email) }
             current.update { it.copy(phase = AccountLinkPhase.Merging, error = null) }
@@ -298,6 +302,16 @@ class AccountLink(
         }
 
     private suspend fun send(address: String) {
+        // Compte de revue (#149) : aucune requête, aucun e-mail, même pour « Renvoyer le code ». Pas de contrôle du
+        // réseau ici : il est fait à la vérification du code.
+        if (ReviewAccount.matches(address)) {
+            enterCode(EmailCodePurpose.Review)
+        } else {
+            sendByEmail(address)
+        }
+    }
+
+    private suspend fun sendByEmail(address: String) {
         if (!isOnline()) return fail(AccountLinkError.Offline)
         current.update { it.copy(busy = true, error = null) }
         val purpose =
@@ -307,6 +321,11 @@ class AccountLink(
                 Log.i(TAG, "Code non envoyé : ${e.message}")
                 return fail(requestError(e))
             }
+        enterCode(purpose)
+    }
+
+    /** Code « envoyé » : saisie du code, heure d'envoi pour « Renvoyer le code ». */
+    private fun enterCode(purpose: EmailCodePurpose) =
         current.update {
             it.copy(
                 phase = AccountLinkPhase.EnterCode,
@@ -316,7 +335,6 @@ class AccountLink(
                 error = null,
             )
         }
-    }
 
     /** Usage du code envoyé. Un refus lève [AuthRequestError], classé par [requestError]. */
     private suspend fun request(address: String): EmailCodePurpose {
@@ -364,16 +382,21 @@ class AccountLink(
         val outcome =
             when (purpose) {
                 EmailCodePurpose.Link -> AccountLinkOutcome.Linked
-                EmailCodePurpose.SignIn -> AccountLinkOutcome.SignedIn(name, added ?: 0)
+
+                // Compte de revue (#149) : connexion à un compte existant.
+                EmailCodePurpose.SignIn, EmailCodePurpose.Review -> AccountLinkOutcome.SignedIn(name, added ?: 0)
             }
         current.update { it.copy(phase = AccountLinkPhase.Done, busy = false, error = null, outcome = outcome) }
     }
 
-    /** Le prénom saisi est écrit pour un nouveau compte, ou pour un compte existant qui n'en a pas encore. */
+    /**
+     * Le prénom saisi est écrit pour un nouveau compte, ou pour un compte existant (`SignIn`, `Review`) qui n'en a pas
+     * encore.
+     */
     private suspend fun writeDisplayName(purpose: EmailCodePurpose): String? {
         val existing = runCatching { gateway.displayName() }.getOrNull()
         val typed = pendingName
-        if (typed == null || (purpose == EmailCodePurpose.SignIn && existing != null)) return existing
+        if (typed == null || (purpose != EmailCodePurpose.Link && existing != null)) return existing
         return try {
             gateway.setDisplayName(typed)
             typed

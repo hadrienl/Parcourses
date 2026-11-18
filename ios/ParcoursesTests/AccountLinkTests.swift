@@ -128,6 +128,9 @@ nonisolated final class MemoryAccountKindStore: AccountKindStore, @unchecked Sen
 }
 
 /// Ce que la liaison a demandé au reste de l'app.
+/// Adresse de revue d'exemple (#149) : la vraie n'est que dans la base et les consoles des stores.
+private let reviewAddress = "revue-a1b2c3d4@parcourses.hadrien.eu"
+
 @MainActor
 final class LinkProbe {
   var synchronizations = 0
@@ -418,6 +421,111 @@ final class LinkProbe {
       await gateway.calls.suffix(3) == [
         "linkEmail:lea@exemple.fr", "signInWithEmail:lea@exemple.fr", "signInWithEmail:lea@exemple.fr",
       ])
+  }
+
+  // MARK: - Compte de revue des stores (#149)
+
+  /// Aucun code demandé, même hors ligne ; la vérification suit une connexion à un compte existant : reprise, puis
+  /// suppression de l'ancien compte anonyme.
+  @Test func theReviewAddressRequestsNoCodeThenSignsInLikeAnExistingAccount() async {
+    let (link, gateway, kinds, probe) = makeLink()
+    await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: "ancien-jeton"))
+    await gateway.setServerName("Revue")
+    probe.resendable = 2
+    probe.online = false
+    link.email = "  Revue-A1B2C3D4@Parcourses.Hadrien.EU "
+    await link.requestCode()
+    #expect(link.error == nil)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(link.sentTo == reviewAddress)
+    #expect(link.codeSentAt == probe.now)
+    #expect(await gateway.calls.isEmpty)
+    probe.online = true
+    await link.verify(code: "123456")
+    #expect(link.phase == .done)
+    #expect(link.outcome == .signedIn(displayName: "Revue", addedLists: 2))
+    #expect(kinds.kind == .email)
+    #expect(probe.steps == ["suspend:0", "resume", "synchronize"])
+    #expect(!probe.callsAtSynchronization.contains("deleteAccount(accessToken:)"))
+    #expect(await gateway.deletedTokens == ["ancien-jeton"])
+    #expect(await gateway.calls == ["verifyCode:review:123456", "deleteAccount(accessToken:)", "displayName"])
+  }
+
+  /// Depuis un autre compte e-mail : drapeau `account.switch` et purge, comme une connexion.
+  @Test func theReviewAccountReplacesAnotherEmailAccountLikeASignIn() async {
+    let (link, gateway, _, probe) = makeLink(kind: .email)
+    probe.previousAccount = UUID()
+    probe.resendable = 3
+    await gateway.setVerified(VerifiedCode(accountId: UUID(), previousAnonymousToken: nil))
+    link.email = reviewAddress
+    await link.requestCode()
+    #expect(link.purpose == .review)
+    #expect(await gateway.calls.isEmpty)
+    await link.verify(code: "333333")
+    #expect(probe.steps == ["suspend:0", "switch", "resume", "synchronize"])
+    #expect(!probe.switchFlag)
+    #expect(link.outcome == .signedIn(displayName: nil, addedLists: 0))
+    #expect(await gateway.calls == ["verifyCode:review:333333", "displayName"])
+  }
+
+  /// `review-sign-in` refuse tout par `400 invalid_code` : un code faux. Le réseau reste vérifié avec le code.
+  @Test func aRefusedReviewCodeIsAWrongCode() async {
+    let (link, gateway, kinds, probe) = makeLink()
+    link.email = reviewAddress
+    await link.requestCode()
+    await gateway.setVerifyFailures([
+      AuthRequestError(status: 400, code: "invalid_code"), AuthRequestError(status: 500, code: "internal"),
+      RemoteError.network,
+    ])
+    await link.verify(code: "000000")
+    #expect(link.error == .invalidCode)
+    await link.verify(code: "000000")
+    #expect(link.error == .unknown)
+    await link.verify(code: "000000")
+    #expect(link.error == .offline)
+    probe.online = false
+    await link.verify(code: "000000")
+    #expect(link.error == .offline)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(kinds.kind == .anonymous)
+    #expect(await gateway.calls == Array(repeating: "verifyCode:review:000000", count: 3))
+  }
+
+  @Test func resendingTheReviewCodeStillSendsNothing() async {
+    let (link, gateway, _, probe) = makeLink()
+    link.email = reviewAddress
+    await link.requestCode()
+    probe.now = probe.now.addingTimeInterval(AccountLink.resendDelay)
+    probe.online = false
+    await link.resendCode()
+    #expect(link.error == nil)
+    #expect(link.codeSentAt == probe.now)
+    #expect(link.phase == .enterCode)
+    #expect(link.purpose == .review)
+    #expect(await gateway.calls.isEmpty)
+  }
+
+  @Test func anotherAddressAfterTheReviewAddressFollowsTheUsualPath() async {
+    let (link, gateway, _, _) = makeLink()
+    link.email = reviewAddress
+    await link.requestCode()
+    link.changeEmail()
+    link.email = "revue@exemple.fr"
+    await link.requestCode()
+    #expect(link.purpose == .link)
+    #expect(await gateway.calls == ["linkEmail:revue@exemple.fr"])
+  }
+
+  @Test(arguments: [
+    (" Revue-A1B2C3D4@Parcourses.Hadrien.EU\n", true), ("revue-7f3e9a0c1b@parcourses.hadrien.eu", true),
+    ("revue@parcourses.hadrien.eu", false), ("revue-a1b2@parcourses.hadrien.eu", false),
+    ("revue-a1b2.c3d4@parcourses.hadrien.eu", false), ("xrevue-a1b2c3d4@parcourses.hadrien.eu", false),
+    ("revue-a1b2c3d4@parcourses.hadrien.eu.fr", false), ("revue-a1b2c3d4@exemple.fr", false),
+  ])
+  func onlyTheReviewAddressIsTheReviewAccount(email: String, matches: Bool) {
+    #expect(ReviewAccount.matches(AccountLink.normalize(email: email)) == matches)
   }
 
   @Test(

@@ -28,6 +28,7 @@ import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
+import fr.parcourses.core.network.dto.ReviewSession
 import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
 import fr.parcourses.core.network.dto.TableSpec
@@ -44,6 +45,7 @@ import io.github.jan.supabase.auth.SignOutScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.exception.AuthRestException
 import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.auth.status.SessionSource
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.exception.PostgrestRestException
 import io.github.jan.supabase.postgrest.postgrest
@@ -238,14 +240,10 @@ class SupabaseGateway internal constructor(
                 // `currentAccessTokenOrNull` ne regarde pas l'échéance (supabase-kt 3.8) : un jeton bientôt expiré est
                 // d'abord rafraîchi, pour que `deleteAccount` le reçoive valable.
                 val previousToken = if (previous?.isAnonymous == true) keptAnonymousToken() else null
-                val type =
-                    when (purpose) {
-                        EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
-                        EmailCodePurpose.SignIn -> OtpType.Email.EMAIL
-                    }
                 // La session ouverte par le code est importée par le SDK, puis enregistrée chiffrée. Pas de garde du
-                // dernier compte : un autre compte est attendu après `SignIn`, la synchronisation le reprendra.
-                authRequest { auth.verifyEmailOtp(type = type, email = email, token = code) }
+                // dernier compte : un autre compte est attendu après `SignIn` et `Review`, la synchronisation le
+                // reprendra.
+                openCodeSession(email, code, purpose)
                 if (auth.currentSessionOrNull() == null) throw RemoteError.Unauthorized()
                 val id = userId()
                 VerifiedCode(id, previousToken.takeIf { previous?.id != id.toString() })
@@ -327,6 +325,61 @@ class SupabaseGateway internal constructor(
         } catch (_: Exception) {
             null
         }
+
+    /** Session du code saisi : vérifié par GoTrue, ou par `review-sign-in` pour le compte de revue (#149). */
+    private suspend fun openCodeSession(
+        email: String,
+        code: String,
+        purpose: EmailCodePurpose,
+    ) {
+        val type =
+            when (purpose) {
+                EmailCodePurpose.Link -> OtpType.Email.EMAIL_CHANGE
+
+                EmailCodePurpose.SignIn -> OtpType.Email.EMAIL
+
+                // Compte de revue des stores (#149) : code fixe vérifié par `review-sign-in`, pas par GoTrue.
+                EmailCodePurpose.Review -> return reviewSignIn(email, code)
+            }
+        authRequest { auth.verifyEmailOtp(type = type, email = email, token = code) }
+    }
+
+    /**
+     * Compte de revue des stores (#149) : l'Edge Function `review-sign-in` vérifie le code fixe et renvoie une session.
+     * Elle est appelée avec la seule clé publique, sans jeton d'utilisateur. Tout refus (`400 invalid_code`,
+     * `invalid_body`, `405`, `500 internal`) devient [AuthRequestError] (statut et champ `error`), classé comme un
+     * refus de GoTrue ; le réseau est classé par `mapped`. La session est ensuite importée comme celle d'un code
+     * e-mail : enregistrée chiffrée par le gestionnaire de session, rafraîchie par le SDK.
+     */
+    private suspend fun reviewSignIn(
+        email: String,
+        code: String,
+    ) {
+        val body =
+            buildJsonObject {
+                put("email", email)
+                put("code", code)
+            }
+        val response =
+            client.httpClient.request("$functionsBase/review-sign-in") {
+                method = HttpMethod.Post
+                // supabase-kt ajoute aussi la clé par défaut : même valeur, l'en-tête reste unique (`DefaultRequest`).
+                header(API_KEY_HEADER, client.supabaseKey)
+                contentType(ContentType.Application.Json)
+                setBody(body.toString())
+            }
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            val error = runCatching { RemoteJson.decodeFromString(FunctionError.serializer(), text) }.getOrNull()
+            throw AuthRequestError(response.status.value, error?.error)
+        }
+        // Réponse illisible : `SerializationException`, classée `Unexpected` par `mapped`.
+        val granted = RemoteJson.decodeFromString(ReviewSession.serializer(), text)
+        // Le compte de la session vient de `/user` avec le nouveau jeton (lu ensuite par `userId`).
+        val user = auth.retrieveUser(granted.accessToken)
+        if (!user.id.equals(granted.userId, ignoreCase = true)) throw RemoteError.Unexpected()
+        auth.importSession(granted.toUserSession(user), source = SessionSource.External)
+    }
 
     /** Un refus de GoTrue devient [AuthRequestError] (statut et code) ; le reste (réseau…) est classé par `mapped`. */
     private suspend fun <T> authRequest(request: suspend () -> T): T =
@@ -1075,6 +1128,9 @@ class SupabaseGateway internal constructor(
 
         /** Message `raise exception '…'` sans code : les erreurs stables du partage (`invalid_email`…). */
         const val RAISED_EXCEPTION = "P0001"
+
+        /** En-tête de la clé publique (Kong, Edge Functions). */
+        const val API_KEY_HEADER = "apikey"
 
         /** Plateforme annoncée à `attest-device` (#137). */
         const val ATTESTATION_PLATFORM = "android"
