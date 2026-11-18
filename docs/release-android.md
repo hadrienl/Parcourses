@@ -19,7 +19,7 @@ pendant ce temps.
 
 ### La clé d'envoi et sa sauvegarde
 
-La clé d'envoi est un magasin PKCS12, avec l'alias `upload`. Elle n'entre jamais dans le dépôt : le `.gitignore`
+La clé d'envoi est un magasin **PKCS12**, malgré l'extension `.jks`, avec l'alias `upload`. Elle n'entre jamais dans le dépôt : le `.gitignore`
 refuse `*.jks`, `*.keystore`, `*.p12` et `*signing*.properties`.
 
 | Fichier | Contenu | Droits |
@@ -39,8 +39,11 @@ s'écrivent jamais dans un ticket, un commit, un log ou un message. Pour vérifi
 secret, le mot de passe est demandé de façon interactive :
 
 ```sh
-keytool -list -v -keystore upload.jks -alias upload | grep SHA256
+keytool -list -v -keystore upload.jks -alias upload
 ```
+
+Lire la ligne `SHA256:`. Ne pas rediriger la sortie (`| grep`) : sans terminal, keytool peut afficher le mot de passe
+pendant la saisie.
 
 ## Construire l'AAB
 
@@ -48,16 +51,18 @@ keytool -list -v -keystore upload.jks -alias upload | grep SHA256
 
 `android/app/build.gradle.kts` lit le fichier de propriétés de signature à cet emplacement, par ordre de priorité :
 
-1. la propriété Gradle `-Pparcourses.signing=<chemin>` ;
+1. la propriété Gradle `-Pparcourses.signing=<chemin>` (un chemin relatif se lit depuis `android/`) ;
 2. la variable d'environnement `PARCOURSES_ANDROID_SIGNING` ;
 3. `~/.config/parcourses/android-signing.properties` par défaut.
 
 - Si le fichier existe, `release` est signée avec la clé d'envoi (configuration `upload`). Un `storeFile` relatif se
-  lit depuis le dossier du fichier de propriétés.
+  lit depuis le dossier du fichier de propriétés, et un `~` initial est développé. Le fichier suit le format
+  `java.util.Properties` : un `\` dans un mot de passe s'écrit `\\`.
 - Un chemin donné par l'option ou la variable doit exister : sinon, le build échoue.
 - Sans option, sans variable et sans le fichier par défaut (CI, autre poste), `release` est signée avec la clé de
   debug, et Gradle l'annonce : `Parcourses : … introuvable, la release est signée avec la clé de debug`. Ce paquet est
-  refusé par Play.
+  refusé par Play. L'avertissement n'apparaît que lorsque Gradle recalcule la configuration, pas quand il réutilise
+  son cache : seule la vérification de l'empreinte (plus bas, et dans la lane `internal`) fait foi.
 - Les variantes de mesure `benchmarkRelease` et `nonMinifiedRelease`, créées par le plugin Baseline Profile, restent
   signées avec la clé de debug, même quand la clé d'envoi est présente.
 
@@ -66,7 +71,7 @@ keytool -list -v -keystore upload.jks -alias upload | grep SHA256
 ### Version
 
 Chaque envoi sur Play doit avoir un `versionCode` **strictement plus grand** que tous ceux déjà envoyés, toutes
-pistes confondues. Un numéro refusé ne se réutilise pas.
+pistes confondues. Un `versionCode` déjà envoyé, même jamais publié, ne se réutilise pas.
 
 | Propriété | Défaut |
 | --- | --- |
@@ -143,7 +148,8 @@ bundle install
 ### Compte de service
 
 fastlane se connecte à l'API Google Play Developer avec la clé JSON d'un compte de service. Elle reste hors du dépôt :
-`~/.config/parcourses/play-service-account.json` (droits `600`), ou un autre chemin dans `PARCOURSES_PLAY_JSON_KEY`.
+`~/.config/parcourses/play-service-account.json` (droits `600`), ou un autre chemin **absolu** dans
+`PARCOURSES_PLAY_JSON_KEY`.
 
 Pour la créer, une seule fois :
 
@@ -161,9 +167,14 @@ Pour la créer, une seule fois :
 | `bundle exec fastlane android internal` | Vérifie que l'AAB est signé par la clé d'envoi, puis l'envoie sur la piste **test interne**, avec ses notes de version. | Google Play |
 | `bundle exec fastlane android metadata` | Envoie le titre et les descriptions `fr-FR`, sans AAB ni images. `validate_only:true` fait valider la fiche par Google sans la publier. | Google Play |
 
+supply rattache la fiche à une version d'une piste. La lane `metadata` vise donc la piste `internal` par défaut
+(`track:<piste>` pour une autre), car la piste `production` reste vide pendant la bêta. Si la piste contient plusieurs
+versions (un brouillon et une version déployée), préciser `version_code:<n>`.
+
 Options de `internal` :
 
-- `aab:<chemin>` : un autre AAB que `app/build/outputs/bundle/release/app-release.aab` ;
+- `aab:<chemin>` : un autre AAB que `app/build/outputs/bundle/release/app-release.aab` (un chemin relatif se lit
+  depuis `android/`) ;
 - `status:draft` : la version reste en brouillon dans la Play Console. C'est obligatoire tant que l'app n'a jamais
   été publiée sur aucune piste : Play refuse alors toute version qui n'est pas un brouillon.
 

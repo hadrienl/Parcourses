@@ -36,6 +36,8 @@ local.properties
 **/fastlane/Preview.html
 **/fastlane/test_output/
 **/fastlane/*.json
+*service-account*.json
+!.env.example
 # Gems de fastlane installées localement par bundler.
 android/.bundle/
 android/vendor/bundle/

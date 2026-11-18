@@ -37,7 +37,7 @@ Envoie l'AAB release sur la piste de test interne (options : aab, status = compl
 [bundle exec] fastlane android metadata
 ```
 
-Envoie la fiche Play fr-FR (titre, descriptions), sans AAB ni images (option : validate_only)
+Envoie la fiche Play fr-FR (titre, descriptions), sans AAB ni images (options : track, version_code, validate_only)
 
 ----
 

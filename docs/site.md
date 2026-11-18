@@ -39,10 +39,10 @@ Ces réglages sont à faire dans le dépôt GitHub, par son propriétaire :
 développement. Depuis #12, la release est signée avec la clé d'envoi Play quand elle est présente, mais les APK
 installés depuis Play portent la signature de Google : voir `docs/release-android.md`. Cette clé de debug a un mot de passe
 connu : si `~/.android/debug.keystore` fuyait, une autre app `fr.parcourses.app` signée avec elle ouvrirait les liens
-`/i/`. Les builds d'une autre machine ou de la CI, eux, ne sont pas vérifiés. Il faut donc passer à la clé d'upload
-Play dès que possible, puis retirer l'empreinte de debug. Quand
-l'app passera sur Google Play, il faudra ajouter l'empreinte de la **clé de signature de l'app**. On la trouve dans
-*Play Console → Intégrité de l'app → Signature de l'app*. On peut garder l'empreinte de debug pour les builds locaux.
+`/i/`. Les builds d'une autre machine ou de la CI, eux, ne sont pas vérifiés. Dès le premier envoi sur Google Play,
+il faudra ajouter l'empreinte de la **clé de signature de l'app** (celle de Google, pas celle de la clé d'envoi). On la
+trouve dans *Play Console → Intégrité de l'app → Signature de l'app*. L'empreinte de debug peut rester tant que des
+tests passent par un APK de debug, puis elle doit être retirée.
 
 Pour lire une empreinte :
 

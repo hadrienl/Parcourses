@@ -4,7 +4,7 @@
 #   bundle exec fastlane android internal                # envoie l'AAB sur la piste de test interne
 #   bundle exec fastlane android internal aab:<chemin> status:draft
 #   bundle exec fastlane android metadata                # envoie la fiche fr-FR (textes seulement)
-#   bundle exec fastlane android metadata validate_only:true
+#   bundle exec fastlane android metadata validate_only:true track:internal version_code:<n>
 #
 # Le code Ruby de ce fichier s'exécute dans android/fastlane/ : les chemins ci-dessous en partent.
 
@@ -47,7 +47,8 @@ platform :android do
 
   desc "Envoie l'AAB release sur la piste de test interne (options : aab, status = completed | draft)"
   lane :internal do |options|
-    aab = File.expand_path(options[:aab] || "../app/build/outputs/bundle/release/app-release.aab")
+    # Un chemin relatif se lit depuis android/, d'où l'on lance fastlane.
+    aab = File.expand_path(options[:aab] || "app/build/outputs/bundle/release/app-release.aab", "..")
     UI.user_error!("AAB introuvable : #{aab}. Construire d'abord : voir docs/release-android.md") unless File.file?(aab)
     verify_upload_signature(aab)
     require_service_account_key
@@ -65,11 +66,15 @@ platform :android do
     )
   end
 
-  desc "Envoie la fiche Play fr-FR (titre, descriptions), sans AAB ni images (option : validate_only)"
+  desc "Envoie la fiche Play fr-FR (titre, descriptions), sans AAB ni images (options : track, version_code, validate_only)"
   lane :metadata do |options|
     require_service_account_key
     check_metadata
     upload_to_play_store(
+      # supply rattache la fiche à une version de la piste choisie : `production` par défaut, vide pendant la bêta.
+      track: options[:track] || "internal",
+      # À préciser quand la piste contient plusieurs versions (un brouillon et une version publiée, par exemple).
+      version_code: options[:version_code]&.to_i,
       metadata_path: File.expand_path("metadata/android"),
       skip_upload_apk: true,
       skip_upload_aab: true,

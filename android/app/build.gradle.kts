@@ -71,7 +71,8 @@ val appVersionName: String =
 //   sinon ~/.config/parcourses/android-signing.properties.
 // Un chemin donné explicitement doit exister. Sans chemin explicite et sans le fichier par défaut (CI, autre poste),
 // la release est signée avec la clé de debug, avec un avertissement : ce paquet-là n'est pas envoyable sur Play.
-// Un `storeFile` relatif se lit depuis le dossier du fichier de propriétés. Ne jamais journaliser les mots de passe.
+// Un `storeFile` relatif se lit depuis le dossier du fichier de propriétés. Format `Properties` : un `\` dans un mot
+// de passe s'écrit `\\`. Ne jamais journaliser les mots de passe.
 val homeDirectory: String = providers.systemProperty("user.home").get()
 val explicitSigningPath: String? =
     providers
@@ -80,10 +81,13 @@ val explicitSigningPath: String? =
         .orNull
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
+// Développe un `~` initial : Gradle et `Properties` ne le font pas.
+fun expandHome(path: String): String =
+    if (path == "~" || path.startsWith("~/")) homeDirectory + path.removePrefix("~") else path
+
+// Un chemin relatif se lit depuis android/.
 val signingPropertiesFile: File =
-    (explicitSigningPath ?: "$homeDirectory/.config/parcourses/android-signing.properties")
-        .let { if (it == "~" || it.startsWith("~/")) homeDirectory + it.removePrefix("~") else it }
-        .let { rootProject.file(it) }
+    rootProject.file(expandHome(explicitSigningPath ?: "$homeDirectory/.config/parcourses/android-signing.properties"))
 // `fileContents` : le fichier (et son absence) devient une entrée suivie par le cache de configuration.
 val signingPropertiesText: String? =
     providers.fileContents(layout.projectDirectory.file(signingPropertiesFile.absolutePath)).asText.orNull
@@ -119,7 +123,8 @@ android {
     }
     if (uploadSigning != null) {
         signingConfigs.create("upload") {
-            storeFile = signingPropertiesFile.parentFile.resolve(uploadSigning.getProperty("storeFile").trim())
+            storeFile =
+                signingPropertiesFile.parentFile.resolve(expandHome(uploadSigning.getProperty("storeFile").trim()))
             storePassword = uploadSigning.getProperty("storePassword")
             keyAlias = uploadSigning.getProperty("keyAlias").trim()
             keyPassword = uploadSigning.getProperty("keyPassword")

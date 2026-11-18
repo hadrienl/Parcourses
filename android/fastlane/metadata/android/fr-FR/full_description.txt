@@ -7,7 +7,7 @@ AU MAGASIN, COCHEZ AU FIL DES RAYONS
 Parcourses propose le magasin où vous êtes. Votre liste prend l’ordre de ses rayons, et chaque coche vous mène au prochain article.
 
 UN TRAJET APPRIS AVEC LES COURSES DE TOUS
-Personne ne dessine le plan du magasin. Parcourses le déduit de l’ordre dans lequel chacun coche ses articles : plus il y a de passages, plus l’ordre est juste. Seul l’ordre des rayons est mis en commun, sans identifiant de personne. Dans un magasin encore peu connu, la liste suit un ordre courant, et votre passage aide à le corriger.
+Personne ne dessine le plan du magasin. Parcourses le déduit de l’ordre dans lequel chacun coche ses articles : plus il y a de passages, plus l’ordre est juste. Le plan commun qui en sort ne contient aucun identifiant de personne. Dans un magasin encore peu connu, la liste suit un ordre courant, et votre passage aide à le corriger.
 
 UNE LISTE POUR TOUTE LA MAISON
 Partagez une liste avec vos proches : ce que l’un ajoute ou coche apparaît aussitôt chez l’autre, même quand chacun fait un bout du magasin. Chaque membre peut modifier la liste, ou seulement la lire.
@@ -19,9 +19,9 @@ LE PROCHAIN ARTICLE EN UN COUP D’ŒIL
 Pendant vos courses, une notification suit votre progression : le prochain article, et ce qu’il vous reste à prendre.
 
 VOS DONNÉES
-• Aucun compte à créer pour commencer. Une adresse e-mail, facultative, sert seulement à retrouver vos listes sur un autre appareil et à recevoir les invitations de vos proches.
+• Aucun compte à créer pour commencer. Votre adresse e-mail n’est demandée que si vous voulez partager une liste ou la retrouver sur un autre appareil.
 • Votre position sert uniquement à trouver le magasin où vous êtes : elle n’est jamais enregistrée.
-• Vous pouvez supprimer votre compte et vos données depuis l’app, à tout moment.
+• Vous pouvez tout supprimer depuis l’app, à tout moment.
 Politique de confidentialité : https://parcourses.hadrien.eu/confidentialite/
 
 Parcourses démarre dans les supermarchés du Gers. D’autres départements suivront.
