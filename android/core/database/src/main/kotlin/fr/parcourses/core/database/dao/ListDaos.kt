@@ -229,6 +229,10 @@ interface ProductDao {
     @Query("DELETE FROM products")
     suspend fun deleteAll(): Int
 
+    /** Produits dépubliés (#138). Aucune clé étrangère : les articles qui portent ces ids restent tels quels. */
+    @Query("DELETE FROM products WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
+
     @Query("SELECT EXISTS(SELECT 1 FROM products)")
     suspend fun any(): Boolean
 

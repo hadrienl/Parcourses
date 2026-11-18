@@ -19,6 +19,7 @@ import fr.parcourses.core.network.dto.ProductResolutionRequest
 import fr.parcourses.core.network.dto.ProfileRow
 import fr.parcourses.core.network.dto.ReceivedInvitation
 import fr.parcourses.core.network.dto.RemoteProduct
+import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.ResolvedProductRow
 import fr.parcourses.core.network.dto.SentInvitation
 import fr.parcourses.core.network.dto.StoreSearchRow
@@ -255,6 +256,12 @@ interface RemoteGateway {
     /** Produits publiés depuis [publishedSince] (#47, avec recouvrement), tous si `null`. Par défaut : filtrés ici. */
     suspend fun fetchProducts(publishedSince: Instant?): List<RemoteProduct> =
         fetchProducts().filter { publishedSince == null || (it.publishedAt ?: Instant.DISTANT_PAST) >= publishedSince }
+
+    /**
+     * Produits dépubliés depuis [since] (#138, RPC `unpublished_products`), avec le recouvrement d'une heure du
+     * catalogue, tous si `null`. Triés par date de dépublication puis id. Jamais de libellé.
+     */
+    suspend fun fetchUnpublishedProducts(since: Instant?): List<RemoteUnpublishedProduct>
 
     /**
      * Produits partagés des libellés saisis librement (RPC `resolve_products`), créés au besoin par le serveur.

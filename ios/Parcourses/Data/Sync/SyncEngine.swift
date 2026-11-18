@@ -937,13 +937,20 @@ actor SyncEngine {
           now.timeIntervalSince(full) < SyncRetryPolicy.catalogFullInterval, now >= full,
           try await store.hasProducts()
         {
-          // Produits publiés depuis la dernière descente (#47) : un produit publié ne change plus, rien n'est retiré.
+          // Produits publiés depuis la dernière descente (#47) : un produit publié ne change plus.
           let rows = try await gateway.fetchProducts(publishedSince: since)
           catalogChanged = try await store.mergeProducts(rows)
           cursors.catalogPublished = Self.later(since, rows.compactMap(\.publishedAt).max())
+          // Puis les produits dépubliés depuis (#138) : ils quittent le cache. Un produit dépublié ne revient jamais
+          // publié, l'ordre des deux lectures est donc sans risque. Sans curseur, tous les dépubliés sont relus.
+          let unpublishedSince = cursors.catalogUnpublished
+          let unpublished = try await gateway.fetchUnpublishedProducts(since: unpublishedSince)
+          catalogChanged = try await store.removeProducts(ids: unpublished.map(\.id)) || catalogChanged
+          cursors.catalogUnpublished = Self.later(unpublishedSince, unpublished.map(\.unpublishedAt).max())
         } else {
           // Catégories reçues : le catalogue est lisible, et une liste de produits vide veut dire « aucun produit
-          // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris.
+          // publié » (#69). Elle vide alors le cache, noms d'autres comptes téléchargés avant compris. Les produits
+          // dépubliés n'y sont plus (RLS) : `catalogUnpublished` n'est pas lu, et reste tel quel (#138).
           let rows = try await gateway.fetchProducts()
           catalogChanged = try await store.replaceProducts(rows, catalogReadable: !categories.isEmpty)
           cursors.catalogPublished = rows.compactMap(\.publishedAt).max()

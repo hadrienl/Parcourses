@@ -10,6 +10,7 @@ import fr.parcourses.core.network.dto.ListItemFields
 import fr.parcourses.core.network.dto.ListItemUpsert
 import fr.parcourses.core.network.dto.ListUpsert
 import fr.parcourses.core.network.dto.ProductResolutionRequest
+import fr.parcourses.core.network.dto.RemoteUnpublishedProduct
 import fr.parcourses.core.network.dto.VisitAccess
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -18,6 +19,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -588,6 +590,33 @@ class SupabaseGatewayTest {
             gateway.fetchTombstones(after = now)
             val since = server.restRequests().last { it.url.encodedPath.endsWith("list_item_tombstones") }
             assertEquals("gte.2026-11-08T09:59:55Z", since.url.parameters["deleted_at"])
+        }
+
+    /** #138 : dépublications lues avec le recouvrement d'une heure du catalogue, paginées dans l'ordre du curseur. */
+    @Test
+    fun unpublishedProductsAreReadWithTheCatalogOverlap() =
+        runBlocking<Unit> {
+            gateway.ensureSession()
+            server.reply(
+                "POST rpc/unpublished_products",
+                Reply(body = """[{"id":"$id","unpublished_at":"2026-11-08T10:00:00+00:00"}]"""),
+                Reply(body = "[]"),
+            )
+
+            assertEquals(listOf(RemoteUnpublishedProduct(id, now)), gateway.fetchUnpublishedProducts(since = now))
+            val pages = server.restRequests().filter { it.url.encodedPath.endsWith("rpc/unpublished_products") }
+            assertEquals(listOf("0", "1"), pages.map { it.url.parameters["offset"] })
+            val first = pages.first()
+            val order = first.url.parameters["order"].orEmpty()
+            assertTrue(order, order.startsWith("unpublished_at.asc") && order.contains(",id.asc"))
+            val body = json(server.bodyOf(first)).jsonObject
+            assertEquals(setOf("p_since"), body.keys)
+            assertEquals("2026-11-08T09:00:00Z", body["p_since"]!!.jsonPrimitive.content)
+
+            // Sans curseur : toutes les dépublications.
+            assertTrue(gateway.fetchUnpublishedProducts(since = null).isEmpty())
+            val all = server.restRequests().last { it.url.encodedPath.endsWith("rpc/unpublished_products") }
+            assertEquals(JsonNull, json(server.bodyOf(all)).jsonObject["p_since"])
         }
 
     @Test

@@ -10,6 +10,9 @@ nonisolated protocol SyncCursors: Sendable {
   /// Plus récente date de publication reçue (#47, heure du serveur) : la descente suivante ne lit que les produits
   /// publiés depuis. `nil` : catalogue complet.
   var catalogPublished: Date? { get set }
+  /// Plus récente date de dépublication reçue (#138, heure du serveur) : la descente incrémentale suivante ne lit que
+  /// les produits dépubliés depuis. `nil` : tous. Le rechargement complet n'y touche pas.
+  var catalogUnpublished: Date? { get set }
   /// Dernier téléchargement complet du catalogue (#47) : il est refait chaque semaine.
   var catalogFull: Date? { get set }
   /// Essais de `resolve_products` par article (#47) : une empreinte et une date, rien de lisible.
@@ -27,7 +30,8 @@ nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   /// Toutes les clés des curseurs : la suppression du compte les efface (`LocalDataPurge`).
   static let keys = [
     "sync.cursor.account", "sync.cursor.lists", "sync.cursor.items", "sync.cursor.catalog", "sync.cursor.tombstones",
-    "sync.cursor.accountKind", "sync.cursor.catalogPublished", "sync.cursor.catalogFull", "sync.resolutionAttempts",
+    "sync.cursor.accountKind", "sync.cursor.catalogPublished", "sync.cursor.catalogUnpublished",
+    "sync.cursor.catalogFull", "sync.resolutionAttempts",
   ]
 
   init(defaults: UserDefaults = .standard) {
@@ -58,6 +62,10 @@ nonisolated struct UserDefaultsSyncCursors: SyncCursors, @unchecked Sendable {
   var catalogPublished: Date? {
     get { defaults.object(forKey: "sync.cursor.catalogPublished") as? Date }
     nonmutating set { defaults.set(newValue, forKey: "sync.cursor.catalogPublished") }
+  }
+  var catalogUnpublished: Date? {
+    get { defaults.object(forKey: "sync.cursor.catalogUnpublished") as? Date }
+    nonmutating set { defaults.set(newValue, forKey: "sync.cursor.catalogUnpublished") }
   }
   var catalogFull: Date? {
     get { defaults.object(forKey: "sync.cursor.catalogFull") as? Date }
