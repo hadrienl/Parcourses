@@ -1,5 +1,6 @@
 import SwiftUI
 import TipKit
+import UIKit
 
 /// Une ligne du ticket de l'écran Liste : le nœud d'un rayon, ou un article.
 private enum ListLine: Identifiable {
@@ -35,7 +36,10 @@ struct ListDetailView: View {
   @State private var editing: ItemEditTarget?
   /// Ligne sous le doigt pendant l'appui long : elle s'enfonce légèrement.
   @State private var pressedRow: UUID?
-  @State private var editTrigger = 0
+  /// Retour de l'appui long, comme celui du menu de « Mes listes » : un choc moyen à pleine intensité, préparé dès que
+  /// le doigt se pose et joué au déclenchement, avant la feuille. `.sensoryFeedback`, joué dans la même mise à jour
+  /// que l'ouverture de la feuille et sans préparation, ne donnait qu'un retour faible (iPhone, #115).
+  @State private var editHaptic = UIImpactFeedbackGenerator(style: .medium)
   /// Positions des perles, lues par le trait unique du fil (#115).
   @State private var thread = ThreadTrackModel()
   /// Ligne ouverte par le glisser (« Supprimer ») : une seule à la fois.
@@ -164,7 +168,6 @@ struct ListDetailView: View {
         model.save(edit, for: target.id)
       }
     }
-    .sensoryFeedback(.impact(weight: .medium), trigger: editTrigger)
     .sheet(item: $shareModel) { share in
       if let sharing { ShareListSheet(model: share, center: sharing) }
     }
@@ -305,10 +308,13 @@ struct ListDetailView: View {
         model.toggle(row)
       }
     }
+    // Durée par défaut de l'appui long d'UIKit. Rien ne la retarde plus : le glisser du couloir est un pan UIKit posé
+    // sur la cellule, hors des gestes de SwiftUI (`RowLane`), et n'est plus attendu (#115).
     .onLongPressGesture(minimumDuration: 0.5) {
       edit(row)
     } onPressingChanged: { pressing in
       if pressing {
+        editHaptic.prepare()
         pressedRow = row.id
       } else if pressedRow == row.id {
         pressedRow = nil
@@ -359,7 +365,7 @@ struct ListDetailView: View {
   private func edit(_ row: ItemRow) {
     guard let target = model.editTarget(for: row) else { return }
     quantityTip.invalidate(reason: .actionPerformed)
-    editTrigger += 1
+    editHaptic.impactOccurred(intensity: 1)
     editing = target
   }
 
