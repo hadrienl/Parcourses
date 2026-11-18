@@ -117,6 +117,9 @@ export async function verifyPlayIntegrity(
 ): Promise<PlayVerdict> {
   const fetchFn = options.fetch ?? fetch;
   const now = options.now ?? Date.now();
+  // Un jeton Play Integrity est un JWE compact (5 segments base64url) : toute autre forme est refusée sans appeler
+  // Google, ce qui n'entame pas le quota de l'app.
+  if (!/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]*){4}$/.test(token)) return { ok: false, reason: "token" };
   let response: Response;
   try {
     const bearer = await accessToken(config.serviceAccount, fetchFn, now);
@@ -137,6 +140,10 @@ export async function verifyPlayIntegrity(
     // Jeton illisible ou forgé.
     await response.body?.cancel();
     return { ok: false, reason: "token" };
+  }
+  if (response.status === 401) {
+    // Jeton d'accès révoqué ou expiré avant l'heure : le prochain appel en demande un neuf.
+    cache.delete(config.serviceAccount.client_email);
   }
   if (!response.ok) {
     // 401/403 (droits du compte de service, API non activée), 429 (quota), 5xx : réessayable.

@@ -3,7 +3,8 @@
 -- (accounts.attestation_policy.required), un compte anonyme n'est établi (vote, quota de 300) qu'avec 7 jours ET une
 -- attestation. Tant qu'elle ne l'est pas, la règle de #47 s'applique telle quelle.
 -- 1. Attestations : la plateforme et la date, rien d'autre (ni clé, ni jeton, ni verdict).
--- 2. Défis : un par compte, à usage unique, 10 minutes ; seule leur empreinte est gardée.
+-- 2. Défis : un par compte, à usage unique, 10 minutes ; seule leur empreinte est gardée. Au plus 5 par compte et par
+--    jour : chaque vérification Android coûte un appel au quota Play Integrity de l'app.
 -- 3. Interrupteur serveur, faux par défaut.
 -- 4. catalog.is_established recréée avec la nouvelle règle.
 -- 5. RPC : le défi (authenticated), sa consommation et l'enregistrement (service_role, pour l'Edge Function).
@@ -23,6 +24,14 @@ create table if not exists accounts.attestation_challenges (
   expires_at timestamptz not null
 );
 
+-- Défis émis par compte, le jour (UTC) du dernier. Les apps tentent au plus une fois par heure : 5 suffisent, et un
+-- compte qui boucle n'épuise pas le quota quotidien de Play Integrity (10 000 par défaut) pour tout le monde.
+create table if not exists accounts.attestation_attempts (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  day date not null,
+  attempts integer not null check (attempts > 0)
+);
+
 -- 3. Interrupteur, sur une seule ligne. À passer à vrai par l'éditeur SQL du projet, une fois les secrets de l'Edge
 -- Function posés et les apps avec attestation publiées (docs/hosted-supabase.md) :
 --   update accounts.attestation_policy set required = true, updated_at = now();
@@ -36,9 +45,11 @@ insert into accounts.attestation_policy (id) values (true) on conflict (id) do n
 alter table accounts.device_attestations enable row level security;
 alter table accounts.attestation_challenges enable row level security;
 alter table accounts.attestation_policy enable row level security;
+alter table accounts.attestation_attempts enable row level security;
 revoke all on accounts.device_attestations from public, anon, authenticated, service_role;
 revoke all on accounts.attestation_challenges from public, anon, authenticated, service_role;
 revoke all on accounts.attestation_policy from public, anon, authenticated, service_role;
+revoke all on accounts.attestation_attempts from public, anon, authenticated, service_role;
 
 create or replace function accounts.attestation_required()
 returns boolean
@@ -90,7 +101,8 @@ revoke all on function accounts.challenge_hash(text) from public, anon, authenti
 
 -- 5. Défi d'attestation de l'appelant : 32 octets aléatoires en base64url sans remplissage (43 caractères), qui
 -- convient tel quel au nonce de Play Integrity ; App Attest en signe l'empreinte SHA-256. Remplace le défi en cours,
--- valable 10 minutes. Nul si le compte est déjà attesté (rien à refaire).
+-- valable 10 minutes. Nul si le compte est déjà attesté (rien à refaire). Au-delà de 5 défis le même jour (UTC) :
+-- erreur too_many_attempts (P0001), que l'Edge Function rend en 429 ; l'app réessaie plus tard.
 -- SECURITY DEFINER : authenticated n'a aucun droit sur le schéma accounts.
 create or replace function public.attestation_challenge()
 returns text
@@ -100,7 +112,10 @@ security definer
 set search_path = ''
 as $$
 declare
+  c_daily_attempts constant integer := 5;
   v_user uuid := auth.uid();
+  v_day date := (now() at time zone 'UTC')::date;
+  v_attempts integer;
   v_challenge text;
 begin
   if v_user is null then
@@ -108,6 +123,13 @@ begin
   end if;
   if exists (select 1 from accounts.device_attestations as a where a.user_id = v_user) then
     return null;
+  end if;
+  insert into accounts.attestation_attempts as a (user_id, day, attempts) values (v_user, v_day, 1)
+  on conflict (user_id) do update
+  set attempts = case when a.day = excluded.day then a.attempts + 1 else 1 end, day = excluded.day
+  returning a.attempts into v_attempts;
+  if v_attempts > c_daily_attempts then
+    raise exception 'too_many_attempts' using errcode = 'P0001';
   end if;
   v_challenge := translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_');
   insert into accounts.attestation_challenges (user_id, challenge_hash, expires_at)
@@ -162,7 +184,8 @@ revoke all on function public.record_device_attestation(uuid, text) from public,
 grant execute on function public.consume_attestation_challenge(uuid, text) to service_role;
 grant execute on function public.record_device_attestation(uuid, text) to service_role;
 
--- 6. Défis expirés (job accounts-attestation-challenges-purge). Renvoie le nombre de lignes supprimées.
+-- 6. Défis expirés et compteurs d'avant la veille (job accounts-attestation-challenges-purge). Renvoie le nombre de
+-- lignes supprimées.
 create or replace function accounts.purge_attestation_challenges(p_now timestamptz default now())
 returns integer
 language plpgsql
@@ -170,11 +193,14 @@ volatile
 set search_path = ''
 as $$
 declare
-  v_deleted integer;
+  v_challenges integer;
+  v_attempts integer;
 begin
   delete from accounts.attestation_challenges as c where c.expires_at <= p_now;
-  get diagnostics v_deleted = row_count;
-  return v_deleted;
+  get diagnostics v_challenges = row_count;
+  delete from accounts.attestation_attempts as a where a.day < (p_now at time zone 'UTC')::date - 1;
+  get diagnostics v_attempts = row_count;
+  return v_challenges + v_attempts;
 end;
 $$;
 

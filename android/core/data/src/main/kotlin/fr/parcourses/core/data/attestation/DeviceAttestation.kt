@@ -79,6 +79,8 @@ class DeviceAttestation(
                 // Défi annoncé mais absent : réponse illisible, passagère.
                 is Step.Proceed -> challengeReply.challenge ?: return AttestationOutcome.Transient
             }
+        // Suppression ou déconnexion lancée entre-temps : rien ne part chez Google pour un compte qui s'en va.
+        if (isAccountBusy()) return AttestationOutcome.Transient
         val token =
             when (val result = tokens.token(challenge)) {
                 is IntegrityTokenResult.Token -> result.value

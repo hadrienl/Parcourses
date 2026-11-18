@@ -4,6 +4,7 @@
 // - défi émis pour le compte, puis consommé dès la vérification, même quand la preuve est refusée (usage unique) ;
 // - défi faux ou d'un autre compte : invalid_challenge, et le vrai défi est perdu aussi ;
 // - compte déjà attesté : pas de nouveau défi ;
+// - plus de 5 défis le même jour : 429 ;
 // - JWT absent ou invalide : 401.
 //
 // Prérequis : Supabase local démarré (`supabase start`).
@@ -108,6 +109,11 @@ Deno.test("attest-device : défi à usage unique, refus, non configuré, déjà 
       (await psql(`select count(*) from accounts.device_attestations where user_id = '${alice.user.id}'`)) === "0",
       "aucun refus n'atteste le compte",
     );
+
+    // Plafond : 5 défis par jour et par compte (quatre déjà émis).
+    await challenge(alice.access_token);
+    same(await post(alice.access_token, { step: "challenge", platform: "ios" }), 429, { error: "too_many_attempts" },
+      "sixième défi du jour");
 
     // Compte attesté : rien à refaire.
     await psql(`select public.record_device_attestation('${bob.user.id}', 'ios')`);

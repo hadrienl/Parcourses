@@ -2,15 +2,15 @@
 -- quota de resolve_products. La vérification cryptographique est testée côté Deno (supabase/tests/functions/).
 begin;
 \ir 00_helpers.psql
-select plan(48);
+select plan(56);
 
 -- Droits.
 select ok(not has_table_privilege(r, 'accounts.' || t, 'SELECT, INSERT, UPDATE, DELETE'), r || ' : aucun droit sur ' || t)
 from unnest(array['authenticated', 'anon', 'service_role']) as r,
-     unnest(array['device_attestations', 'attestation_challenges', 'attestation_policy']) as t;
+     unnest(array['device_attestations', 'attestation_challenges', 'attestation_policy', 'attestation_attempts']) as t;
 select ok((select bool_and(c.relrowsecurity) from pg_class as c join pg_namespace as n on n.oid = c.relnamespace
-           where n.nspname = 'accounts' and c.relname in ('device_attestations', 'attestation_challenges', 'attestation_policy')),
-          'RLS active sur les trois tables');
+           where n.nspname = 'accounts' and c.relname in ('device_attestations', 'attestation_challenges', 'attestation_policy', 'attestation_attempts')),
+          'RLS active sur les quatre tables');
 select ok(has_function_privilege('authenticated', 'public.attestation_challenge()', 'EXECUTE'), 'défi : authenticated');
 select ok(not has_function_privilege('anon', 'public.attestation_challenge()', 'EXECUTE'), 'défi : pas anon');
 select ok(not has_function_privilege('authenticated', 'public.consume_attestation_challenge(uuid, text)', 'EXECUTE'),
@@ -67,6 +67,18 @@ update accounts.attestation_challenges set expires_at = now() - interval '1 seco
 select ok(not public.consume_attestation_challenge(:'dina', :'c4'), 'défi expiré : refusé');
 select is((select count(*)::integer from accounts.attestation_challenges where user_id = :'dina'), 0, 'défi expiré : supprimé');
 
+-- Plafond : 5 défis par compte et par jour (UTC), remis à zéro le lendemain.
+select tests.create_user(null, true) as emma \gset
+select tests.authenticate_as(:'emma');
+select lives_ok($$ select public.attestation_challenge() from generate_series(1, 5) $$, 'plafond : 5 défis le même jour');
+select throws_ok($$ select public.attestation_challenge() $$, 'P0001', 'too_many_attempts', 'plafond : le 6e est refusé');
+select tests.clear_authentication();
+update accounts.attestation_attempts set day = day - 1 where user_id = :'emma';
+select tests.authenticate_as(:'emma');
+select lives_ok($$ select public.attestation_challenge() $$, 'plafond : remis à zéro le lendemain');
+select tests.clear_authentication();
+select is((select attempts from accounts.attestation_attempts where user_id = :'emma'), 1, 'plafond : compteur du nouveau jour');
+
 -- 4. Enregistrement, idempotent ; un compte attesté ne reçoit plus de défi.
 select public.record_device_attestation(:'dina', 'ios');
 update accounts.device_attestations set attested_at = now() - interval '1 day' where user_id = :'dina';
@@ -112,6 +124,7 @@ select ok(exists (select 1 from accounts.attestation_challenges where user_id = 
 delete from auth.users where id in (:'dina', :'alice');
 select ok(not exists (select 1 from accounts.device_attestations where user_id = :'dina'), 'cascade : attestation effacée');
 select ok(not exists (select 1 from accounts.attestation_challenges where user_id = :'alice'), 'cascade : défi effacé');
+select ok(not exists (select 1 from accounts.attestation_attempts where user_id in (:'dina', :'alice')), 'cascade : compteur effacé');
 
 select * from finish();
 rollback;

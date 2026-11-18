@@ -294,6 +294,9 @@ travers `catalog.is_established` (vote pour la publication, quota de 300, réser
 - RPC :
   - `attestation_challenge()` (`authenticated`, `SECURITY DEFINER`) : 32 octets aléatoires en base64url sans
     remplissage (43 caractères), qui remplacent le défi en cours ; nul si le compte est déjà attesté.
+    Au plus **5 défis par compte et par jour** (UTC, `accounts.attestation_attempts`, purgé avec les défis) : au-delà,
+    `too_many_attempts` (P0001), rendu en 429 par la fonction. Chaque vérification Android coûte un appel au quota
+    Play Integrity de l'app (10 000 par jour par défaut) : un compte qui boucle ne l'épuise pas pour les autres.
   - `consume_attestation_challenge(p_user_id, p_challenge)` (`service_role`) : supprime le défi en cours du compte,
     **avant** toute vérification, et dit s'il valait `p_challenge` sans avoir expiré. Un défi sert une seule fois,
     même faux.

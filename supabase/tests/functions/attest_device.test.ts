@@ -159,6 +159,56 @@ Deno.test("App Attest : chaque falsification est refusée", async () => {
   }
 });
 
+// Encodeur CBOR minimal, pour reconstruire l'objet d'attestation avec un autre x5c.
+function cbor(value: unknown): Uint8Array {
+  const head = (major: number, n: number): Uint8Array =>
+    n < 24
+      ? new Uint8Array([(major << 5) | n])
+      : n < 256
+      ? new Uint8Array([(major << 5) | 24, n])
+      : new Uint8Array([(major << 5) | 25, n >> 8, n & 0xff]);
+  if (value instanceof Uint8Array) return concat(head(2, value.length), value);
+  if (typeof value === "string") return concat(head(3, utf8(value).length), utf8(value));
+  if (Array.isArray(value)) return concat(head(4, value.length), ...value.map(cbor));
+  if (value instanceof Map) {
+    return concat(head(5, value.size), ...[...value].flatMap(([k, v]) => [cbor(k), cbor(v)]));
+  }
+  throw new Error("cbor : type non pris en charge");
+}
+
+Deno.test("App Attest : x5c réordonné, raccourci ou rallongé : refusé", async () => {
+  const object = decodeCbor(base64Decode(sample.attestation)) as Map<string, unknown>;
+  const statement = object.get("attStmt") as Map<string, unknown>;
+  const [leaf, intermediate] = statement.get("x5c") as Uint8Array[];
+  const root = pemDecode(APPLE_APP_ATTESTATION_ROOT_CA);
+  const rebuilt = (x5c: Uint8Array[]) => {
+    const stmt = new Map(statement);
+    stmt.set("x5c", x5c);
+    const copy = new Map(object);
+    copy.set("attStmt", stmt);
+    return btoa(String.fromCharCode(...cbor(copy)));
+  };
+  assertEquals(
+    await verifyAppAttestation({ ...input, attestation: rebuilt([leaf, intermediate]) }, config, { now: at }),
+    { ok: true },
+    "objet reconstruit à l'identique : accepté (l'encodeur du test est fidèle)",
+  );
+  const cases: [string, Uint8Array[], string][] = [
+    ["ordre inversé", [intermediate, leaf], "chain"],
+    ["feuille seule", [leaf], "format"],
+    ["racine ajoutée", [leaf, intermediate, root], "format"],
+    ["feuille signée par elle-même", [leaf, leaf], "chain"],
+    ["intermédiaire remplacé par la racine", [leaf, root], "chain"],
+  ];
+  for (const [name, x5c, reason] of cases) {
+    assertEquals(
+      await verifyAppAttestation({ ...input, attestation: rebuilt(x5c) }, config, { now: at }),
+      { ok: false, reason },
+      name,
+    );
+  }
+});
+
 Deno.test("CBOR et DER : formes inattendues refusées", () => {
   assertThrows(() => decodeCbor(new Uint8Array([0x01, 0x02])), "CBOR : données en trop");
   assertThrows(() => decodeCbor(new Uint8Array([0x5f, 0x41, 0x00, 0xff])), "CBOR : longueur indéfinie");
@@ -176,6 +226,8 @@ Deno.test("CBOR et DER : formes inattendues refusées", () => {
 // Play Integrity.
 
 const PACKAGE = "fr.parcourses.app";
+// Forme d'un jeton Play Integrity : JWE compact, 5 segments base64url.
+const JWE = "eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIn0.a2V5.aXY.Y2lwaGVy.dGFn";
 const CHALLENGE = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
 const NOW = Date.UTC(2026, 10, 18, 10, 0, 0);
 
@@ -257,12 +309,12 @@ Deno.test("Play Integrity : jeton OAuth signé, décodage, erreurs de Google", a
     }
     assertEquals(target, `https://playintegrity.googleapis.com/v1/${PACKAGE}:decodeIntegrityToken`, "point d'accès");
     assertEquals(new Headers(init!.headers).get("Authorization"), "Bearer ya29.test", "jeton d'accès");
-    assertEquals(JSON.parse(init!.body as string), { integrity_token: "jeton-play" }, "corps");
+    assertEquals(JSON.parse(init!.body as string), { integrity_token: JWE }, "corps");
     return new Response(JSON.stringify(decoded), { status: decodeStatus });
   }) as typeof fetch;
 
   clearTokenCache();
-  const run = () => verifyPlayIntegrity("jeton-play", CHALLENGE, cfg, { fetch: fakeFetch, now: NOW });
+  const run = () => verifyPlayIntegrity(JWE, CHALLENGE, cfg, { fetch: fakeFetch, now: NOW });
   assertEquals(await run(), { ok: true }, "verdict accepté");
   assertEquals(await run(), { ok: true }, "second appel");
   assertEquals(oauthCalls, 1, "jeton d'accès gardé en cache");
@@ -275,9 +327,26 @@ Deno.test("Play Integrity : jeton OAuth signé, décodage, erreurs de Google", a
   assertEquals(await run(), { ok: false, unavailable: true, reason: "decode 503" }, "Google indisponible : réessayable");
   decodeStatus = 403;
   assertEquals(await run(), { ok: false, unavailable: true, reason: "decode 403" }, "droits manquants : réessayable");
+  assertEquals(oauthCalls, 1, "jeton d'accès toujours en cache après un 403");
+  decodeStatus = 401;
+  assertEquals(await run(), { ok: false, unavailable: true, reason: "decode 401" }, "jeton d'accès refusé : réessayable");
+  decodeStatus = 200;
+  decoded = { tokenPayloadExternal: payload() };
+  assertEquals(await run(), { ok: true }, "après un 401, nouveau jeton d'accès");
+  assertEquals(oauthCalls, 2, "jeton d'accès redemandé après un 401");
+
+  const calls = oauthCalls;
+  for (const bad of ["jeton-play", "a.b.c", "a.b.c.d.e.f", "a+b.c.d.e.f", ""]) {
+    assertEquals(
+      await verifyPlayIntegrity(bad, CHALLENGE, cfg, { fetch: fakeFetch, now: NOW }),
+      { ok: false, reason: "token" },
+      `jeton mal formé « ${bad} » : refusé`,
+    );
+  }
+  assertEquals(oauthCalls, calls, "jeton mal formé : Google n'est pas appelé");
 
   clearTokenCache();
   const offline = (() => Promise.reject(new TypeError("network"))) as typeof fetch;
-  const result = await verifyPlayIntegrity("jeton-play", CHALLENGE, cfg, { fetch: offline, now: NOW });
+  const result = await verifyPlayIntegrity(JWE, CHALLENGE, cfg, { fetch: offline, now: NOW });
   assert(!result.ok && "unavailable" in result, "réseau coupé : réessayable");
 });

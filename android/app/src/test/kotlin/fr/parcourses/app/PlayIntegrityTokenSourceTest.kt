@@ -14,11 +14,9 @@ class PlayIntegrityTokenSourceTest {
                 IntegrityErrorCode.API_NOT_AVAILABLE,
                 IntegrityErrorCode.PLAY_STORE_NOT_FOUND,
                 IntegrityErrorCode.PLAY_SERVICES_NOT_FOUND,
-                IntegrityErrorCode.CANNOT_BIND_TO_SERVICE,
                 IntegrityErrorCode.APP_NOT_INSTALLED,
                 IntegrityErrorCode.APP_UID_MISMATCH,
                 IntegrityErrorCode.CLOUD_PROJECT_NUMBER_IS_INVALID,
-                IntegrityErrorCode.PLAY_STORE_ACCOUNT_NOT_FOUND,
             )
         codes.forEach { assertEquals("code $it", AttestationOutcome.Unsupported, integrityErrorOutcome(it)) }
     }
@@ -32,11 +30,12 @@ class PlayIntegrityTokenSourceTest {
                 IntegrityErrorCode.GOOGLE_SERVER_UNAVAILABLE,
                 IntegrityErrorCode.CLIENT_TRANSIENT_ERROR,
                 IntegrityErrorCode.INTERNAL_ERROR,
+                IntegrityErrorCode.CANNOT_BIND_TO_SERVICE,
             )
         codes.forEach { assertEquals("code $it", AttestationOutcome.Transient, integrityErrorOutcome(it)) }
     }
 
-    /** Nonce refusé, Play trop ancien (il se met à jour seul) ou code inconnu : nouvel essai dans 7 jours. */
+    /** Nonce refusé, Play trop ancien (il se met à jour seul), Play Store sans compte ou code inconnu : 7 jours. */
     @Test
     fun aRefusedNonceOrAnOutdatedPlayIsRetriedLater() {
         val codes =
@@ -46,6 +45,7 @@ class PlayIntegrityTokenSourceTest {
                 IntegrityErrorCode.NONCE_IS_NOT_BASE64,
                 IntegrityErrorCode.PLAY_STORE_VERSION_OUTDATED,
                 IntegrityErrorCode.PLAY_SERVICES_VERSION_OUTDATED,
+                IntegrityErrorCode.PLAY_STORE_ACCOUNT_NOT_FOUND,
                 -999,
             )
         codes.forEach { assertEquals("code $it", AttestationOutcome.Rejected, integrityErrorOutcome(it)) }

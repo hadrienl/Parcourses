@@ -43,18 +43,17 @@ class PlayIntegrityTokenSource(
  * - `unsupported`, définitif : service absent ou inutilisable sur cet appareil ou pour cette installation ;
  * - `transient`, au lancement suivant (1 h au moins) : réseau, quota, panne passagère de Google ou du client ;
  * - `rejected`, 7 jours : nonce refusé, Play Store ou Play Services trop anciens (ils se mettent à jour seuls en
- *   arrière-plan : un nouvel essai a toutes les chances d'aboutir), et tout code inconnu d'une version future.
+ *   arrière-plan : un nouvel essai a toutes les chances d'aboutir), aucun compte connecté au Play Store (il peut l'être
+ *   plus tard), et tout code inconnu d'une version future.
  */
 internal fun integrityErrorOutcome(errorCode: Int): AttestationOutcome =
     when (errorCode) {
         IntegrityErrorCode.API_NOT_AVAILABLE,
         IntegrityErrorCode.PLAY_STORE_NOT_FOUND,
         IntegrityErrorCode.PLAY_SERVICES_NOT_FOUND,
-        IntegrityErrorCode.CANNOT_BIND_TO_SERVICE,
         IntegrityErrorCode.APP_NOT_INSTALLED,
         IntegrityErrorCode.APP_UID_MISMATCH,
         IntegrityErrorCode.CLOUD_PROJECT_NUMBER_IS_INVALID,
-        IntegrityErrorCode.PLAY_STORE_ACCOUNT_NOT_FOUND,
         -> AttestationOutcome.Unsupported
 
         IntegrityErrorCode.NETWORK_ERROR,
@@ -62,6 +61,8 @@ internal fun integrityErrorOutcome(errorCode: Int): AttestationOutcome =
         IntegrityErrorCode.GOOGLE_SERVER_UNAVAILABLE,
         IntegrityErrorCode.CLIENT_TRANSIENT_ERROR,
         IntegrityErrorCode.INTERNAL_ERROR,
+        // Play Store ancien ou mémoire saturée : réessayable d'après Google.
+        IntegrityErrorCode.CANNOT_BIND_TO_SERVICE,
         -> AttestationOutcome.Transient
 
         else -> AttestationOutcome.Rejected

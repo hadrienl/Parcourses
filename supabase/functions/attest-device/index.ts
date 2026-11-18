@@ -12,7 +12,8 @@
 //   Le défi est consommé d'abord, que la preuve soit bonne ou non (usage unique). → 200 {status: "attested"},
 //   400 {error: "invalid_challenge"} (absent, d'un autre compte, expiré ou déjà servi), 400 {error: "rejected"}
 //   (preuve refusée, sans détail), 502 {error: "upstream_unavailable"} (Google injoignable : l'app réessaiera).
-// - 400 {error: "invalid_body"}, 401 {error: "unauthorized"}, 405, 500 {error: "misconfigured"}.
+// - 429 {error: "too_many_attempts"} : plus de 5 défis le même jour pour ce compte (quota Play Integrity).
+// - 400 {error: "invalid_body"}, 401 {error: "unauthorized"}, 405, 500 {error: "misconfigured" | "internal"}.
 //
 // Secrets (docs/hosted-supabase.md) : APP_ATTEST_APP_IDS (« TEAMID.bundle », séparés par des virgules),
 // APP_ATTEST_ALLOW_DEVELOPMENT (« true » : environnement de développement accepté), PLAY_INTEGRITY_PACKAGE_NAME,
@@ -34,6 +35,7 @@ const MAX_CHALLENGE = 64;
 const MAX_KEY_ID = 64;
 const MAX_ATTESTATION = 16_384;
 const MAX_TOKEN = 16_384;
+const MAX_BODY = 65_536;
 
 function appAttestConfig(): AppAttestConfig | null {
   const appIds = (Deno.env.get("APP_ATTEST_APP_IDS") ?? "")
@@ -61,9 +63,13 @@ async function handle(request: Request): Promise<Response> {
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
+  const length = Number(request.headers.get("Content-Length") ?? "0");
+  if (!Number.isFinite(length) || length > MAX_BODY) return json({ error: "invalid_body" }, 400);
   let body: Record<string, unknown>;
   try {
-    const parsed = await request.json();
+    const text = await request.text();
+    if (text.length > MAX_BODY) throw new Error();
+    const parsed = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     body = parsed;
   } catch {
@@ -73,10 +79,6 @@ async function handle(request: Request): Promise<Response> {
   if ((body.step !== "challenge" && body.step !== "verify") || (platform !== "ios" && platform !== "android")) {
     return json({ error: "invalid_body" }, 400);
   }
-
-  const ios = platform === "ios" ? appAttestConfig() : null;
-  const android = platform === "android" ? playIntegrityConfig() : null;
-  if (!ios && !android) return json({ status: "not_configured" });
 
   const url = Deno.env.get("SUPABASE_URL");
   const key = publishableKey();
@@ -92,6 +94,11 @@ async function handle(request: Request): Promise<Response> {
   const userId = ((await me.json()) as { id?: unknown }).id;
   if (typeof userId !== "string") return json({ error: "unauthorized" }, 401);
 
+  // Après l'authentification : un inconnu n'apprend pas quelles plateformes sont configurées.
+  const ios = platform === "ios" ? appAttestConfig() : null;
+  const android = platform === "android" ? playIntegrityConfig() : null;
+  if (!ios && !android) return json({ status: "not_configured" });
+
   // RPC avec le JWT de l'utilisateur (défi) ou avec la clé secrète (consommation, enregistrement).
   const rpc = (name: string, args: unknown, asService: boolean) =>
     fetch(`${url}/rest/v1/rpc/${name}`, {
@@ -106,7 +113,8 @@ async function handle(request: Request): Promise<Response> {
   if (body.step === "challenge") {
     const r = await rpc("attestation_challenge", {}, false);
     if (!r.ok) {
-      await r.body?.cancel();
+      const error = await r.json().catch(() => ({})) as { message?: string };
+      if (error.message === "too_many_attempts") return json({ error: "too_many_attempts" }, 429);
       return json({ error: "rpc_failed" }, r.status === 401 ? 401 : 500);
     }
     const challenge = await r.json();
@@ -156,10 +164,20 @@ async function handle(request: Request): Promise<Response> {
   return json({ status: "attested" });
 }
 
+// Filet : une panne inattendue (réseau vers l'API, réponse illisible) donne une 500 sans détail.
+async function safeHandle(request: Request): Promise<Response> {
+  try {
+    return await handle(request);
+  } catch (error) {
+    console.error(`attest-device: internal (${error instanceof Error ? error.name : "unknown"})`);
+    return json({ error: "internal" }, 500);
+  }
+}
+
 // ATTEST_DEVICE_PORT : seulement pour le test de bout en bout, qui lance la fonction avec Deno contre la pile locale.
 const port = Deno.env.get("ATTEST_DEVICE_PORT");
 if (port) {
-  Deno.serve({ port: Number(port), hostname: "127.0.0.1" }, handle);
+  Deno.serve({ port: Number(port), hostname: "127.0.0.1" }, safeHandle);
 } else {
-  Deno.serve(handle);
+  Deno.serve(safeHandle);
 }
