@@ -279,7 +279,19 @@ struct ListDetailView: View {
       // Préparation : rien n'est parcouru, la case seule porte l'état coché.
       Bead(state: .idle)
     } lane: {
-      RowLane(id: threadId, openId: $openLane, action: delete) {
+      // Appui long calé sur le menu natif de « Mes listes » (`LaneHoldRecognizer`, #115) : la ligne s'enfonce, puis la
+      // feuille s'ouvre à 0,5 s du toucher, avec le retour haptique préparé au toucher.
+      RowLane(
+        id: threadId, openId: $openLane, action: delete, onLongPress: { edit(row) },
+        onPressing: { pressing in
+          if pressing {
+            editHaptic.prepare()
+            pressedRow = row.id
+          } else if pressedRow == row.id {
+            pressedRow = nil
+          }
+        }
+      ) {
         itemLine(row, readOnly: false, pressed: pressed)
           .accessibilityElement(children: .combine)
           .accessibilityLabel(row.accessibilityLabel)
@@ -306,18 +318,6 @@ struct ListDetailView: View {
         closeLane()
       } else {
         model.toggle(row)
-      }
-    }
-    // Durée par défaut de l'appui long d'UIKit. Rien ne la retarde plus : le glisser du couloir est un pan UIKit posé
-    // sur la cellule, hors des gestes de SwiftUI (`RowLane`), et n'est plus attendu (#115).
-    .onLongPressGesture(minimumDuration: 0.5) {
-      edit(row)
-    } onPressingChanged: { pressing in
-      if pressing {
-        editHaptic.prepare()
-        pressedRow = row.id
-      } else if pressedRow == row.id {
-        pressedRow = nil
       }
     }
     .threadLineRow()

@@ -53,6 +53,11 @@ struct RowLane<Content: View>: View {
   let action: LaneAction?
   /// Décalage imposé, pour les rendus de test : la ligne est dessinée comme pendant un glisser.
   var injectedOffset: CGFloat?
+  /// Appui long sans menu (écran Liste, feuille Quantité de #110) : déclenché au même instant que le `contextMenu`
+  /// natif (`LaneHoldRecognizer`). `nil` : pas d'appui long ici (le mode courses a son `contextMenu`).
+  var onLongPress: (() -> Void)?
+  /// Doigt posé, avant le déclenchement : la ligne s'enfonce, comme une rangée de « Mes listes ».
+  var onPressing: ((Bool) -> Void)?
   @ViewBuilder let content: Content
 
   @State private var drag: CGFloat = 0
@@ -84,7 +89,8 @@ struct RowLane<Content: View>: View {
       .background {
         if injectedOffset == nil {
           LanePan(
-            isEnabled: action != nil, state: panState, onChange: changed, onEnd: ended, onCancel: cancelled)
+            isEnabled: action != nil, state: panState, onChange: changed, onEnd: ended, onCancel: cancelled,
+            onLongPress: onLongPress, onPressing: onPressing ?? { _ in })
         }
       }
       .onChange(of: openId == id, initial: true) { _, open in panState.isOpen = open }
@@ -345,10 +351,12 @@ private struct LanePan: UIViewRepresentable {
   /// Relâcher : vitesse logique.
   let onEnd: (CGFloat) -> Void
   let onCancel: () -> Void
+  let onLongPress: (() -> Void)?
+  let onPressing: (Bool) -> Void
   @Environment(\.layoutDirection) private var direction
 
   func makeUIView(context: Context) -> LaneAnchorView {
-    let view = LaneAnchorView(recognizer: context.coordinator.recognizer)
+    let view = LaneAnchorView(recognizers: [context.coordinator.recognizer, context.coordinator.hold])
     context.coordinator.anchor = view
     return view
   }
@@ -361,6 +369,9 @@ private struct LanePan: UIViewRepresentable {
     coordinator.onChange = onChange
     coordinator.onEnd = onEnd
     coordinator.onCancel = onCancel
+    coordinator.hold.isEnabled = onLongPress != nil
+    coordinator.onLongPress = onLongPress ?? {}
+    coordinator.hold.onPressing = onPressing
   }
 
   static func dismantleUIView(_ view: LaneAnchorView, coordinator: Coordinator) {
@@ -371,6 +382,7 @@ private struct LanePan: UIViewRepresentable {
 
   final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     let recognizer = LaneSwipeRecognizer()
+    let hold = LaneHoldRecognizer()
     weak var anchor: UIView?
     var state = LanePanState()
     /// -1 en écriture de droite à gauche : la fin de ligne est à gauche.
@@ -378,6 +390,7 @@ private struct LanePan: UIViewRepresentable {
     var onChange: (CGFloat) -> Void = { _ in }
     var onEnd: (CGFloat) -> Void = { _ in }
     var onCancel: () -> Void = {}
+    var onLongPress: () -> Void = {}
     private var isOpen: Bool { state.isOpen }
     /// Gestes de SwiftUI du toucher en cours, reconnus en même temps que le glisser et annulés quand il démarre.
     private var swiftUIGestures: [WeakGesture] = []
@@ -386,6 +399,20 @@ private struct LanePan: UIViewRepresentable {
       super.init()
       recognizer.addTarget(self, action: #selector(handle(_:)))
       recognizer.delegate = self
+      hold.addTarget(self, action: #selector(held(_:)))
+      hold.delegate = self
+    }
+
+    /// Appui long déclenché : les gestes de SwiftUI qui suivaient ce doigt (toucher de la ligne) sont annulés, sinon le
+    /// relâcher cocherait l'article ; puis l'action (feuille Quantité, avec son retour haptique).
+    @objc private func held(_ recognizer: LaneHoldRecognizer) {
+      guard recognizer.state == .began else { return }
+      for gesture in recognizer.touch?.gestureRecognizers ?? []
+      where gesture !== recognizer && NSStringFromClass(type(of: gesture)).contains("SwiftUI") && gesture.isEnabled {
+        gesture.isEnabled = false
+        gesture.isEnabled = true
+      }
+      onLongPress()
     }
 
     @objc private func handle(_ recognizer: LaneSwipeRecognizer) {
@@ -404,6 +431,8 @@ private struct LanePan: UIViewRepresentable {
     /// Seuls les touchers qui commencent dans le couloir : la gouttière et le reste de la cellule n'en font pas partie.
     func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
       guard let anchor, anchor.window != nil else { return false }
+      // Appui long : toute la ligne, gouttière comprise.
+      if gesture === hold { return true }
       swiftUIGestures = []
       return anchor.bounds.contains(touch.location(in: anchor))
     }
@@ -419,6 +448,9 @@ private struct LanePan: UIViewRepresentable {
     }
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+      // Appui long : rien à vérifier. Glisser : jamais après un appui long déclenché.
+      if gesture === hold { return true }
+      if hold.state == .began || hold.state == .changed { return false }
       guard let swipe = gesture as? LaneSwipeRecognizer, let window = gesture.view?.window else { return false }
       // Bord d'écran : le geste retour garde la priorité.
       let start = swipe.startLocation.x
@@ -430,6 +462,7 @@ private struct LanePan: UIViewRepresentable {
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer
     ) -> Bool {
+      if gesture === hold { return false }
       // Le geste retour plein écran d'abord : s'il est aussi un geste de bord, la règle du bord le ferait toujours
       // passer devant, même ligne ouverte.
       if other === Self.contentPopGesture(near: gesture.view) { return !isOpen }
@@ -439,7 +472,7 @@ private struct LanePan: UIViewRepresentable {
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-      isOpen && other === Self.contentPopGesture(near: gesture.view)
+      gesture !== hold && isOpen && other === Self.contentPopGesture(near: gesture.view)
     }
 
     /// Tout sauf les pans (défilement, gestes retour) : en même temps que le glisser. L'interaction du menu contextuel
@@ -448,6 +481,8 @@ private struct LanePan: UIViewRepresentable {
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
+      // Appui long : en même temps que tout ; un mouvement de plus de 10 pt le fait échouer de lui-même.
+      if gesture === hold { return true }
       guard !(other is UIPanGestureRecognizer) else { return false }
       if NSStringFromClass(type(of: other)).contains("SwiftUI"),
         !swiftUIGestures.contains(where: { $0.gesture === other })
@@ -480,11 +515,11 @@ private struct WeakGesture {
 /// Vue d'ancrage du glisser : au fond du couloir, sans toucher ; elle pose le pan sur la cellule qui la contient, et
 /// l'en retire quand elle quitte la fenêtre ou que la ligne disparaît.
 final class LaneAnchorView: UIView {
-  private let recognizer: UIGestureRecognizer
+  private let recognizers: [UIGestureRecognizer]
   private weak var host: UIView?
 
-  init(recognizer: UIGestureRecognizer) {
-    self.recognizer = recognizer
+  init(recognizers: [UIGestureRecognizer]) {
+    self.recognizers = recognizers
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     backgroundColor = .clear
@@ -497,13 +532,15 @@ final class LaneAnchorView: UIView {
     super.didMoveToWindow()
     let target = window == nil ? nil : Self.cell(containing: self)
     guard target !== host else { return }
-    host?.removeGestureRecognizer(recognizer)
+    for recognizer in recognizers {
+      host?.removeGestureRecognizer(recognizer)
+      target?.addGestureRecognizer(recognizer)
+    }
     host = target
-    target?.addGestureRecognizer(recognizer)
   }
 
   func detach() {
-    host?.removeGestureRecognizer(recognizer)
+    for recognizer in recognizers { host?.removeGestureRecognizer(recognizer) }
     host = nil
   }
 
@@ -599,5 +636,75 @@ final class LaneSwipeRecognizer: UIGestureRecognizer {
     guard let first = samples.first, let last = samples.last, last.time > first.time else { return }
     let elapsed = CGFloat(last.time - first.time)
     velocity = CGPoint(x: (last.point.x - first.point.x) / elapsed, y: (last.point.y - first.point.y) / elapsed)
+  }
+}
+
+/// Appui long des lignes sans menu, calé sur le `contextMenu` natif de « Mes listes » (mesuré au simulateur : la
+/// rangée réagit vers 0,16 s, le menu démarre vers 0,5 s). Compté depuis l'horodatage du toucher : un
+/// `onLongPressGesture(minimumDuration: 0.5)` de SwiftUI, qui reçoit le toucher en retard dans une `List`, partait à
+/// 0,76 s. Échoue après `allowableMovement` de mouvement (glisser, défilement).
+final class LaneHoldRecognizer: UIGestureRecognizer {
+  /// Déclenchement, depuis le toucher.
+  static let duration: TimeInterval = 0.5
+  /// Enfoncement, depuis le toucher (l'animation d'`ItemLine` ajoute son propre délai).
+  static let pressDelay: TimeInterval = 0.06
+  static let allowableMovement: CGFloat = 10
+
+  var onPressing: (Bool) -> Void = { _ in }
+  private(set) weak var touch: UITouch?
+  private var start: CGPoint = .zero
+  private var timers: [Task<Void, Never>] = []
+  private var pressing = false
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let touch = touches.first, event.allTouches?.count == 1 else {
+      if state == .possible { state = .failed }
+      return
+    }
+    self.touch = touch
+    start = touch.location(in: nil)
+    let elapsed = ProcessInfo.processInfo.systemUptime - touch.timestamp
+    timers = [
+      after(Self.pressDelay - elapsed) { $0.setPressing(true) },
+      after(Self.duration - elapsed) { if $0.state == .possible { $0.state = .began } },
+    ]
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let touch = touches.first else { return }
+    let point = touch.location(in: nil)
+    if hypot(point.x - start.x, point.y - start.y) > Self.allowableMovement { state = .failed }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = state == .began || state == .changed ? .ended : .failed
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = state == .began || state == .changed ? .cancelled : .failed
+  }
+
+  override func reset() {
+    super.reset()
+    for timer in timers { timer.cancel() }
+    timers = []
+    setPressing(false)
+    touch = nil
+  }
+
+  private func setPressing(_ value: Bool) {
+    guard pressing != value else { return }
+    pressing = value
+    onPressing(value)
+  }
+
+  private func after(_ delay: TimeInterval, _ action: @escaping @MainActor (LaneHoldRecognizer) -> Void) -> Task<
+    Void, Never
+  > {
+    Task { @MainActor [weak self] in
+      if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+      guard !Task.isCancelled, let self else { return }
+      action(self)
+    }
   }
 }
