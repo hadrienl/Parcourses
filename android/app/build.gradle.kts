@@ -156,6 +156,8 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.core)
     // Installe le Baseline Profile à la première ouverture quand Play ne l'a pas déjà fait (installation hors Play).
     implementation(libs.androidx.profileinstaller)
+    // Preuve d'appareil (#137) : Play Integrity, requête classique. Aucune permission, aucune règle R8 à ajouter.
+    implementation(libs.play.integrity)
     baselineProfile(project(":baselineprofile"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

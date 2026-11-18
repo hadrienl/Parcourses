@@ -3,6 +3,7 @@ package fr.parcourses.app
 import fr.parcourses.core.data.account.SharedPreferencesAccountDeletionFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSignOutFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSwitchFlag
+import fr.parcourses.core.data.attestation.SharedPreferencesAttestationStore
 import fr.parcourses.core.network.SupabaseConfig
 import fr.parcourses.core.network.session.SessionStorageFiles
 import org.junit.Assert.assertEquals
@@ -24,6 +25,9 @@ class BackupRulesTest {
     // Drapeau de changement de compte (#87) : jamais restauré sur un autre appareil.
     private val switchFlag = "${SharedPreferencesAccountSwitchFlag.FILE}.xml"
 
+    // Attestation d'appareil (#137) : elle prouve cet appareil-ci, jamais restaurée sur un autre.
+    private val attestation = "${SharedPreferencesAttestationStore.FILE}.xml"
+
     private fun excludes(
         file: String,
         section: String? = null,
@@ -44,6 +48,7 @@ class BackupRulesTest {
             "sharedpref:$deletionFlag",
             "sharedpref:$signOutFlag",
             "sharedpref:$switchFlag",
+            "sharedpref:$attestation",
         )
 
     @Test
