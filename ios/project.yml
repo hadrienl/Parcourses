@@ -47,9 +47,15 @@ targets:
       path: Parcourses/Info.plist
       properties:
         CFBundleDisplayName: Parcourses
+        # Versions tirées des réglages (Base.xcconfig, ou CURRENT_PROJECT_VERSION passé par `fastlane beta`, #145) :
+        # sans elles, XcodeGen écrit 1.0 (1) en dur. L'app et l'extension doivent porter les mêmes.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # App en français : les libellés système (clavier, VoiceOver) suivent.
         CFBundleDevelopmentRegion: fr
         CFBundleLocalizations: [fr]
+        # Chiffrement : HTTPS standard du système seulement, exempté. Évite la question à chaque envoi (#145).
+        ITSAppUsesNonExemptEncryption: false
         AppGroupIdentifier: $(APP_GROUP_ID)
         SupabaseURL: $(SUPABASE_URL)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
@@ -85,6 +91,10 @@ targets:
       path: ParcoursesWidgets/Info.plist
       properties:
         CFBundleDisplayName: Parcourses
+        # Versions tirées des réglages (Base.xcconfig, ou CURRENT_PROJECT_VERSION passé par `fastlane beta`, #145) :
+        # sans elles, XcodeGen écrit 1.0 (1) en dur. L'app et l'extension doivent porter les mêmes.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         AppGroupIdentifier: $(APP_GROUP_ID)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -151,4 +161,18 @@ schemes:
         Parcourses: all
     test:
       gather_coverage_data: true
-      targets: [ParcoursesTests, ParcoursesUITests]
+      targets:
+        - ParcoursesTests
+        # Captures App Store (#145) : compilées avec la suite, jouées seulement par le schéma ParcoursesScreenshots.
+        - name: ParcoursesUITests
+          skippedTests: [AppStoreScreenshotTests]
+  # Captures App Store (#145), lancées par `fastlane screenshots` (capture_screenshots) : la seule classe
+  # AppStoreScreenshotTests de la cible des tests UI.
+  ParcoursesScreenshots:
+    build:
+      targets:
+        Parcourses: all
+    test:
+      targets:
+        - name: ParcoursesUITests
+          selectedTests: [AppStoreScreenshotTests]

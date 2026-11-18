@@ -52,7 +52,7 @@ final class AppEnvironment {
     self.shoppingActivity = shoppingActivity
     self.gateway = gateway
     self.keychain = keychain
-    location = SystemLocationProvider()
+    location = Self.makeLocation()
     let context = container.mainContext
     // Écho temps réel de mes propres envois d'articles, ignoré par les signaux (#87 §6.6).
     let echoes = RecentItemWrites()
@@ -108,6 +108,14 @@ final class AppEnvironment {
         activity.begin {}
         return { activity.end() }
       })
+  }
+
+  /// Position du choix du magasin. Tests UI et captures (#145) : position imposée, sans demande système.
+  private static func makeLocation() -> any LocationProvider {
+    #if DEBUG
+      if let provider = UITestLocationProvider.fromEnvironment() { return provider }
+    #endif
+    return SystemLocationProvider()
   }
 
   /// Purge de l'appareil, sur le Keychain partagé. Tests UI : purges forcées en échec (#129).

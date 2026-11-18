@@ -1,0 +1,4 @@
+# Identité de l'app dans App Store Connect (#145). L'authentification passe par la clé d'API (voir Fastfile et
+# docs/release-ios.md), jamais par un identifiant Apple.
+app_identifier("app.parcourses")
+team_id("QMJKZ67Z3H")
