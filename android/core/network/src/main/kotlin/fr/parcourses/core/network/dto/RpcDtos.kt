@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** Ligne réduite à son identifiant : RPC `accessible_list_ids`, identifiants des articles d'une liste. */
@@ -59,6 +60,16 @@ data class ResolvedProductRow(
     val id: Uuid? = null,
     val name: String? = null,
     @SerialName("category_slug") val categorySlug: String? = null,
+)
+
+/**
+ * Ligne de la RPC `unpublished_products` (#138) : un produit dépublié par un administrateur, jamais son libellé.
+ * [unpublishedAt] (heure du serveur) fait avancer le curseur des dépublications.
+ */
+@Serializable
+data class RemoteUnpublishedProduct(
+    val id: Uuid,
+    @SerialName("unpublished_at") val unpublishedAt: Instant,
 )
 
 /** Réponse de la RPC `store_graph_snapshot`, sans interprétation du contenu. */

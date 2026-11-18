@@ -89,6 +89,9 @@ class AccountDeletionFlagTest {
         cursors.lists = Instant.fromEpochSeconds(1)
         cursors.items = Instant.fromEpochSeconds(2)
         cursors.catalog = Instant.fromEpochSeconds(3)
+        cursors.catalogPublished = Instant.fromEpochSeconds(4)
+        cursors.catalogUnpublished = Instant.fromEpochSeconds(5)
+        assertEquals(Instant.fromEpochSeconds(5), SharedPreferencesSyncCursors(context).catalogUnpublished)
 
         cursors.clear()
 
@@ -97,5 +100,7 @@ class AccountDeletionFlagTest {
         assertNull(relaunched.lists)
         assertNull(relaunched.items)
         assertNull(relaunched.catalog)
+        assertNull(relaunched.catalogPublished)
+        assertNull(relaunched.catalogUnpublished)
     }
 }

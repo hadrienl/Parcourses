@@ -23,3 +23,6 @@ fastlane/README.md
 # Clé d'API App Store Connect : elle vit dans ~/.config/parcourses/, jamais dans le dépôt.
 *.p8
 *.env
+# Le .gitignore racine ignore **/fastlane/*.json (clés de compte de service Android) : la classification par âge est
+# versionnée.
+!fastlane/age_rating.json

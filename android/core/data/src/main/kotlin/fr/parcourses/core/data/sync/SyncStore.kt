@@ -29,6 +29,7 @@ import fr.parcourses.core.network.dto.RemoteProduct
 import fr.parcourses.core.network.dto.VisitInsert
 import kotlin.time.Duration
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Mon rôle sur une liste a changé (#87, lot 87.6). */
 data class RoleChange(
@@ -535,6 +536,22 @@ class SyncStore(
         if (rows.isNotEmpty()) upsertProducts(rows, removingOthers = false)
     }
 
+    /**
+     * Produits dépubliés (#138) : retirés du cache, donc de l'autocomplétion et de la résolution locale. Les articles
+     * qui portent leur id ne changent pas : aucune clé étrangère ni cascade, et l'id reste valide côté serveur.
+     */
+    suspend fun removeProducts(ids: Collection<Uuid>) {
+        if (ids.isEmpty()) return
+        db.withWriteTransaction {
+            // Par paquets : sous 3.32 (pilote Android de SQLite, celui des tests), 999 paramètres au plus.
+            ids
+                .map(Uuid::toString)
+                .distinct()
+                .chunked(SQLITE_MAX_PARAMETERS)
+                .forEach { db.products().deleteByIds(it) }
+        }
+    }
+
     private suspend fun upsertProducts(
         rows: List<RemoteProduct>,
         removingOthers: Boolean,
@@ -879,5 +896,8 @@ class SyncStore(
 
         /** Taille d'un insert groupé de coches (#9 §5.2). */
         const val MAX_CHECKS_PER_BATCH = 200
+
+        /** Paramètres liés par requête : plafond de SQLite avant 3.32. */
+        private const val SQLITE_MAX_PARAMETERS = 999
     }
 }
