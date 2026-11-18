@@ -126,6 +126,18 @@ nonisolated final class ItemEditUITests: ParcoursesUITestCase {
     // Une coche aurait affiché la bannière, puis envoyé la ligne au panier après 600 ms.
     XCTAssertFalse(checkedBanner.waitForExistence(timeout: 2), "l'appui long a coché l'article")
     XCTAssertTrue(row(app, "lait", "non coché", in: "shoppingList").exists)
+    // Menu ouvert pendant l'appui, pas au relâcher : le doigt reste posé, puis remonte de 150 pt avant de se lever. Un
+    // menu qui n'attendrait que le relâcher serait annulé par ce mouvement (iPhone, 0658856). Il n'est rien choisi :
+    // le doigt se lève hors du menu, qui reste ouvert.
+    let held = row(app, "lait", "non coché", in: "shoppingList").coordinate(
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    held.press(
+      forDuration: 1.2, thenDragTo: held.withOffset(CGVector(dx: 0, dy: -150)), withVelocity: XCUIGestureVelocity(300),
+      thenHoldForDuration: 0.1)
+    XCTAssertTrue(app.buttons["Quantité"].waitForExistence(timeout: 5), "menu ouvert pendant l'appui")
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+    XCTAssertTrue(app.buttons["Quantité"].waitForNonExistence(timeout: 15), "menu refermé")
+    XCTAssertFalse(checkedBanner.waitForExistence(timeout: 2), "l'appui long tenu a coché l'article")
     // Un toucher bref coche toujours.
     tap(row(app, "lait", "non coché", in: "shoppingList"), until: checkedBanner)
     XCTAssertEqual(checkedBanner.label, "lait coché")

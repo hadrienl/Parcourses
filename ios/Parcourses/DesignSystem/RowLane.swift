@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 // Couloir d'une ligne du ticket (#115, `docs/design/115-fil-immobile.md` §6.2) : seule partie de la ligne qui glisse
 // ou s'enfonce. Le glisser maison remplace `.swipeActions`, qui décalait toute la cellule, fil compris, et dont le
@@ -52,6 +53,11 @@ struct RowLane<Content: View>: View {
   let action: LaneAction?
   /// Décalage imposé, pour les rendus de test : la ligne est dessinée comme pendant un glisser.
   var injectedOffset: CGFloat?
+  /// Appui long sans menu (écran Liste, feuille Quantité de #110) : déclenché au même instant que le `contextMenu`
+  /// natif (`LaneHoldRecognizer`). `nil` : pas d'appui long ici (le mode courses a son `contextMenu`).
+  var onLongPress: (() -> Void)?
+  /// Doigt posé, avant le déclenchement : la ligne s'enfonce, comme une rangée de « Mes listes ».
+  var onPressing: ((Bool) -> Void)?
   @ViewBuilder let content: Content
 
   @State private var drag: CGFloat = 0
@@ -78,11 +84,15 @@ struct RowLane<Content: View>: View {
         }
       )
       .clipped()
-      .gesture(
-        LanePan(
-          isEnabled: action != nil && injectedOffset == nil, state: panState, onChange: changed, onEnd: ended,
-          onCancel: cancelled)
-      )
+      // Glisser posé sur la cellule par une vue d'ancrage, hors des gestes de SwiftUI (voir `LanePan`).
+      // Rendus de test (`injectedOffset`) : pas de vue UIKit, qu'`ImageRenderer` ne dessine pas.
+      .background {
+        if injectedOffset == nil {
+          LanePan(
+            isEnabled: action != nil, state: panState, onChange: changed, onEnd: ended, onCancel: cancelled,
+            onLongPress: onLongPress, onPressing: onPressing ?? { _ in })
+        }
+      }
       .onChange(of: openId == id, initial: true) { _, open in panState.isOpen = open }
       .onGeometryChange(for: CGFloat.self) {
         $0.size.width
@@ -322,72 +332,137 @@ final class LanePanState {
   var isOpen = false
 }
 
-/// Pan horizontal du couloir : il ne démarre que si le geste part d'abord à l'horizontale, hors des 24 pt du bord
-/// d'écran. Il ne gêne ni le défilement de la liste, ni le toucher, ni l'appui long. Ligne fermée, il refuse un
-/// mouvement vers la fin de ligne et cède au geste retour (bord d'écran, et plein écran sur iOS 26) ; ligne ouverte,
-/// c'est le geste retour qui l'attend : un glisser vers la fin de ligne referme la ligne sans quitter l'écran.
-private struct LanePan: UIGestureRecognizerRepresentable {
+/// Glisser du couloir, posé sur la cellule de la `List` et non dans les gestes de SwiftUI : comme le balayage natif de
+/// « Mes listes », qui est un pan UIKit de la liste, rien n'attend son échec. Posé par `.gesture()`, il entrait dans
+/// l'arbitrage de SwiftUI, et le `contextMenu` et l'appui long de la ligne attendaient qu'il échoue, ce qu'un doigt
+/// posé ne fait qu'au relâcher : sur iPhone, le menu ne s'ouvrait qu'au relâcher (44830fa), plus tard (échec forcé à
+/// 200 ms, 63912a2) ou plus du tout (0658856, où la reconnaissance simultanée ne levait pas cette attente).
+///
+/// La vue d'ancrage, au fond du couloir, ne reçoit aucun toucher : elle donne le cadre du couloir et pose le pan sur
+/// la cellule qui la contient. Le pan ne garde que les touchers qui commencent dans ce cadre, ne démarre qu'après
+/// `LaneSwipeRecognizer.slop` de mouvement horizontal dominant, hors des 24 pt du bord d'écran, et échoue sur un
+/// mouvement vertical. Ligne fermée, il refuse un mouvement vers la fin de ligne et cède au geste retour (bord
+/// d'écran, et plein écran sur iOS 26) ; ligne ouverte, c'est le geste retour qui l'attend : un glisser vers la fin
+/// de ligne referme la ligne sans quitter l'écran.
+private struct LanePan: UIViewRepresentable {
   let isEnabled: Bool
   let state: LanePanState
   let onChange: (CGFloat) -> Void
   /// Relâcher : vitesse logique.
   let onEnd: (CGFloat) -> Void
   let onCancel: () -> Void
+  let onLongPress: (() -> Void)?
+  let onPressing: (Bool) -> Void
   @Environment(\.layoutDirection) private var direction
 
-  func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-    let pan = UIPanGestureRecognizer()
-    pan.delegate = context.coordinator
-    configure(pan, context.coordinator)
-    return pan
+  func makeUIView(context: Context) -> LaneAnchorView {
+    let view = LaneAnchorView(recognizers: [context.coordinator.recognizer, context.coordinator.hold])
+    context.coordinator.anchor = view
+    return view
   }
 
-  func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
-    configure(recognizer, context.coordinator)
-  }
-
-  private func configure(_ recognizer: UIPanGestureRecognizer, _ coordinator: Coordinator) {
-    recognizer.isEnabled = isEnabled
+  func updateUIView(_ view: LaneAnchorView, context: Context) {
+    let coordinator = context.coordinator
+    coordinator.recognizer.isEnabled = isEnabled
     coordinator.state = state
     coordinator.sign = direction == .rightToLeft ? -1 : 1
+    coordinator.onChange = onChange
+    coordinator.onEnd = onEnd
+    coordinator.onCancel = onCancel
+    coordinator.hold.isEnabled = onLongPress != nil
+    coordinator.onLongPress = onLongPress ?? {}
+    coordinator.hold.onPressing = onPressing
   }
 
-  func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-    // Décalage logique : négatif vers le début de ligne (côté gouttière), quel que soit le sens d'écriture.
-    let sign: CGFloat = direction == .rightToLeft ? -1 : 1
-    let translation = recognizer.translation(in: recognizer.view).x * sign
-    let velocity = recognizer.velocity(in: recognizer.view).x * sign
-    switch recognizer.state {
-    case .changed: onChange(translation)
-    case .ended: onEnd(velocity)
-    case .cancelled, .failed: onCancel()
-    default: break
-    }
+  static func dismantleUIView(_ view: LaneAnchorView, coordinator: Coordinator) {
+    view.detach()
   }
 
-  func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+  func makeCoordinator() -> Coordinator { Coordinator() }
 
   final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    let recognizer = LaneSwipeRecognizer()
+    let hold = LaneHoldRecognizer()
+    weak var anchor: UIView?
     var state = LanePanState()
-    private var isOpen: Bool { state.isOpen }
     /// -1 en écriture de droite à gauche : la fin de ligne est à gauche.
     var sign: CGFloat = 1
+    var onChange: (CGFloat) -> Void = { _ in }
+    var onEnd: (CGFloat) -> Void = { _ in }
+    var onCancel: () -> Void = {}
+    var onLongPress: () -> Void = {}
+    private var isOpen: Bool { state.isOpen }
+    /// Gestes de SwiftUI du toucher en cours, reconnus en même temps que le glisser et annulés quand il démarre.
+    private var swiftUIGestures: [WeakGesture] = []
+
+    override init() {
+      super.init()
+      recognizer.addTarget(self, action: #selector(handle(_:)))
+      recognizer.delegate = self
+      hold.addTarget(self, action: #selector(held(_:)))
+      hold.delegate = self
+    }
+
+    /// Appui long déclenché : les gestes de SwiftUI qui suivaient ce doigt (toucher de la ligne) sont annulés, sinon le
+    /// relâcher cocherait l'article ; puis l'action (feuille Quantité, avec son retour haptique).
+    @objc private func held(_ recognizer: LaneHoldRecognizer) {
+      guard recognizer.state == .began else { return }
+      for gesture in recognizer.touch?.gestureRecognizers ?? []
+      where gesture !== recognizer && NSStringFromClass(type(of: gesture)).contains("SwiftUI") && gesture.isEnabled {
+        gesture.isEnabled = false
+        gesture.isEnabled = true
+      }
+      onLongPress()
+    }
+
+    @objc private func handle(_ recognizer: LaneSwipeRecognizer) {
+      // Décalage logique : négatif vers le début de ligne (côté gouttière), quel que soit le sens d'écriture.
+      let translation = recognizer.translation.x * sign
+      let velocity = recognizer.velocity.x * sign
+      if recognizer.state == .began { cancelSwiftUIGestures() }
+      switch recognizer.state {
+      case .began, .changed: onChange(translation)
+      case .ended: onEnd(velocity)
+      case .cancelled, .failed: onCancel()
+      default: break
+      }
+    }
+
+    /// Seuls les touchers qui commencent dans le couloir : la gouttière et le reste de la cellule n'en font pas partie.
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      guard let anchor, anchor.window != nil else { return false }
+      // Appui long : toute la ligne, gouttière comprise.
+      if gesture === hold { return true }
+      swiftUIGestures = []
+      return anchor.bounds.contains(touch.location(in: anchor))
+    }
+
+    /// Le glisser démarre : le toucher, le bouton et l'appui long de SwiftUI qui suivaient ce doigt sont annulés (un
+    /// geste désactivé puis réactivé passe à « annulé »). Sans cela, le relâcher cocherait l'article.
+    private func cancelSwiftUIGestures() {
+      for gesture in swiftUIGestures.compactMap(\.gesture) where gesture.isEnabled {
+        gesture.isEnabled = false
+        gesture.isEnabled = true
+      }
+      swiftUIGestures = []
+    }
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-      guard let pan = gesture as? UIPanGestureRecognizer, let view = pan.view else { return true }
-      let velocity = pan.velocity(in: view)
-      let location = pan.location(in: view.window)
-      let width = view.window?.bounds.width ?? 0
+      // Appui long : rien à vérifier. Glisser : jamais après un appui long déclenché.
+      if gesture === hold { return true }
+      if hold.state == .began || hold.state == .changed { return false }
+      guard let swipe = gesture as? LaneSwipeRecognizer, let window = gesture.view?.window else { return false }
       // Bord d'écran : le geste retour garde la priorité.
-      if location.x < 24 || location.x > width - 24 { return false }
+      let start = swipe.startLocation.x
+      if start < 24 || start > window.bounds.width - 24 { return false }
       // Ligne fermée : rien à faire vers la fin de ligne, ce mouvement revient au geste retour plein écran.
-      if !isOpen && velocity.x * sign > 0 { return false }
-      return abs(velocity.x) > abs(velocity.y)
+      return isOpen || swipe.startDelta.x * sign < 0
     }
 
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer
     ) -> Bool {
+      if gesture === hold { return false }
       // Le geste retour plein écran d'abord : s'il est aussi un geste de bord, la règle du bord le ferait toujours
       // passer devant, même ligne ouverte.
       if other === Self.contentPopGesture(near: gesture.view) { return !isOpen }
@@ -397,19 +472,24 @@ private struct LanePan: UIGestureRecognizerRepresentable {
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer
     ) -> Bool {
-      isOpen && other === Self.contentPopGesture(near: gesture.view)
+      gesture !== hold && isOpen && other === Self.contentPopGesture(near: gesture.view)
     }
 
-    /// Interaction du menu contextuel (gestes d'UIKit qui ne sont pas des pans) : reconnue en même temps que le couloir,
-    /// pour qu'elle n'attende pas son échec. Sinon, le pan d'un doigt immobile restait en attente jusqu'au relâcher :
-    /// le menu ne s'ouvrait pas (ou seulement au relâcher), et le relâcher cochait l'article (iPhone, et CI « app (iOS
-    /// latest) » de 63912a2). Les gestes de SwiftUI (toucher, bouton, appui long) et les pans (défilement, gestes
-    /// retour) gardent leur exclusion : un glisser qui démarre les annule, sans menu ni coche au relâcher.
+    /// Tout sauf les pans (défilement, gestes retour) : en même temps que le glisser. L'interaction du menu contextuel
+    /// ne l'attend pas, et le geste du bouton de SwiftUI, qui démarre dès que le doigt se pose (mode courses), ne
+    /// l'empêche pas de démarrer. Les gestes de SwiftUI sont retenus pour être annulés quand le glisser démarre.
     func gestureRecognizer(
       _ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
+      // Appui long : en même temps que tout ; un mouvement de plus de 10 pt le fait échouer de lui-même.
+      if gesture === hold { return true }
       guard !(other is UIPanGestureRecognizer) else { return false }
-      return !NSStringFromClass(type(of: other)).contains("SwiftUI")
+      if NSStringFromClass(type(of: other)).contains("SwiftUI"),
+        !swiftUIGestures.contains(where: { $0.gesture === other })
+      {
+        swiftUIGestures.append(WeakGesture(gesture: other))
+      }
+      return true
     }
 
     /// Geste retour plein écran de la pile de navigation (iOS 26), s'il y en a une.
@@ -423,6 +503,209 @@ private struct LanePan: UIGestureRecognizerRepresentable {
         responder = current.next
       }
       return nil
+    }
+  }
+}
+
+/// Référence faible à un geste d'une autre vue.
+private struct WeakGesture {
+  weak var gesture: UIGestureRecognizer?
+}
+
+/// Vue d'ancrage du glisser : au fond du couloir, sans toucher ; elle pose le pan sur la cellule qui la contient, et
+/// l'en retire quand elle quitte la fenêtre ou que la ligne disparaît.
+final class LaneAnchorView: UIView {
+  private let recognizers: [UIGestureRecognizer]
+  private weak var host: UIView?
+
+  init(recognizers: [UIGestureRecognizer]) {
+    self.recognizers = recognizers
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    backgroundColor = .clear
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) n'est pas pris en charge") }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    let target = window == nil ? nil : Self.cell(containing: self)
+    guard target !== host else { return }
+    for recognizer in recognizers {
+      host?.removeGestureRecognizer(recognizer)
+      target?.addGestureRecognizer(recognizer)
+    }
+    host = target
+  }
+
+  func detach() {
+    for recognizer in recognizers { host?.removeGestureRecognizer(recognizer) }
+    host = nil
+  }
+
+  /// Cellule de la liste qui contient la vue ; à défaut (rendu hors liste), aucun glisser.
+  private static func cell(containing view: UIView) -> UIView? {
+    var current = view.superview
+    while let candidate = current, !(candidate is UIWindow) {
+      if candidate is UICollectionViewCell || candidate is UITableViewCell { return candidate }
+      current = candidate.superview
+    }
+    return nil
+  }
+}
+
+/// Glisser horizontal à seuil, comme le balayage natif : il reste en attente tant que le doigt n'a pas parcouru
+/// `slop` (un doigt posé pour l'appui long bouge de quelques points), démarre si le mouvement est surtout horizontal,
+/// échoue s'il est surtout vertical (défilement). La translation part du point où il démarre : le couloir ne saute
+/// pas du seuil. Positions dans le repère de la fenêtre, qui ne bouge pas avec le couloir.
+final class LaneSwipeRecognizer: UIGestureRecognizer {
+  /// Mouvement avant de décider (pt).
+  static let slop: CGFloat = 10
+  /// Durée sur laquelle la vitesse du relâcher est mesurée.
+  private static let velocityWindow: TimeInterval = 0.08
+
+  private(set) var startLocation: CGPoint = .zero
+  /// Mouvement au seuil, depuis le toucher : il donne le sens du glisser quand le délégué le laisse démarrer (la
+  /// translation, elle, repart de zéro à ce moment).
+  private(set) var startDelta: CGPoint = .zero
+  private var origin: CGPoint = .zero
+  private(set) var translation: CGPoint = .zero
+  private(set) var velocity: CGPoint = .zero
+  private var samples: [(point: CGPoint, time: TimeInterval)] = []
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let touch = touches.first, event.allTouches?.count == 1 else {
+      if state == .possible { state = .failed }
+      return
+    }
+    let point = touch.location(in: nil)
+    startLocation = point
+    startDelta = .zero
+    origin = point
+    translation = .zero
+    velocity = .zero
+    samples = [(point, touch.timestamp)]
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let touch = touches.first else { return }
+    let point = touch.location(in: nil)
+    record(point, at: touch.timestamp)
+    switch state {
+    case .possible:
+      let dx = abs(point.x - startLocation.x)
+      let dy = abs(point.y - startLocation.y)
+      if dy >= Self.slop && dy >= dx {
+        state = .failed
+      } else if dx >= Self.slop && dx > dy {
+        startDelta = CGPoint(x: point.x - startLocation.x, y: point.y - startLocation.y)
+        origin = point
+        translation = .zero
+        state = .began
+      }
+    case .began, .changed:
+      translation = CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+      state = .changed
+    default:
+      break
+    }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    if let touch = touches.first { record(touch.location(in: nil), at: touch.timestamp) }
+    state = state == .began || state == .changed ? .ended : .failed
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = state == .began || state == .changed ? .cancelled : .failed
+  }
+
+  override func reset() {
+    super.reset()
+    samples = []
+    translation = .zero
+    velocity = .zero
+  }
+
+  /// Vitesse sur les dernières `velocityWindow` secondes.
+  private func record(_ point: CGPoint, at time: TimeInterval) {
+    samples.append((point, time))
+    let recent = samples.filter { time - $0.time <= Self.velocityWindow }
+    samples = recent.count >= 2 ? recent : Array(samples.suffix(2))
+    guard let first = samples.first, let last = samples.last, last.time > first.time else { return }
+    let elapsed = CGFloat(last.time - first.time)
+    velocity = CGPoint(x: (last.point.x - first.point.x) / elapsed, y: (last.point.y - first.point.y) / elapsed)
+  }
+}
+
+/// Appui long des lignes sans menu, calé sur le `contextMenu` natif de « Mes listes » (mesuré au simulateur : la
+/// rangée réagit vers 0,16 s, le menu démarre vers 0,5 s). Sans rangée soulevée pour annoncer le menu, 0,5 s paraissait
+/// encore long au doigt (iPhone) : la feuille part à 0,4 s. Compté depuis l'horodatage du toucher : un
+/// `onLongPressGesture(minimumDuration: 0.5)` de SwiftUI, qui reçoit le toucher en retard dans une `List`, partait à
+/// 0,76 s. Échoue après `allowableMovement` de mouvement (glisser, défilement).
+final class LaneHoldRecognizer: UIGestureRecognizer {
+  /// Déclenchement, depuis le toucher.
+  static let duration: TimeInterval = 0.4
+  /// Enfoncement, depuis le toucher (l'animation d'`ItemLine` ajoute son propre délai).
+  static let pressDelay: TimeInterval = 0.06
+  static let allowableMovement: CGFloat = 10
+
+  var onPressing: (Bool) -> Void = { _ in }
+  private(set) weak var touch: UITouch?
+  private var start: CGPoint = .zero
+  private var timers: [Task<Void, Never>] = []
+  private var pressing = false
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let touch = touches.first, event.allTouches?.count == 1 else {
+      if state == .possible { state = .failed }
+      return
+    }
+    self.touch = touch
+    start = touch.location(in: nil)
+    let elapsed = ProcessInfo.processInfo.systemUptime - touch.timestamp
+    timers = [
+      after(Self.pressDelay - elapsed) { $0.setPressing(true) },
+      after(Self.duration - elapsed) { if $0.state == .possible { $0.state = .began } },
+    ]
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard state == .possible, let touch = touches.first else { return }
+    let point = touch.location(in: nil)
+    if hypot(point.x - start.x, point.y - start.y) > Self.allowableMovement { state = .failed }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = state == .began || state == .changed ? .ended : .failed
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    state = state == .began || state == .changed ? .cancelled : .failed
+  }
+
+  override func reset() {
+    super.reset()
+    for timer in timers { timer.cancel() }
+    timers = []
+    setPressing(false)
+    touch = nil
+  }
+
+  private func setPressing(_ value: Bool) {
+    guard pressing != value else { return }
+    pressing = value
+    onPressing(value)
+  }
+
+  private func after(_ delay: TimeInterval, _ action: @escaping @MainActor (LaneHoldRecognizer) -> Void) -> Task<
+    Void, Never
+  > {
+    Task { @MainActor [weak self] in
+      if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+      guard !Task.isCancelled, let self else { return }
+      action(self)
     }
   }
 }
