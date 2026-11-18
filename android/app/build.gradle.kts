@@ -1,5 +1,6 @@
 import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuildConfigField
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.parcourses.android.application)
@@ -91,9 +92,9 @@ if (signingPropertiesText == null && explicitSigningPath != null) {
         "Fichier de signature introuvable : $signingPropertiesFile (parcourses.signing ou PARCOURSES_ANDROID_SIGNING)",
     )
 }
-val uploadSigning: java.util.Properties? =
+val uploadSigning: Properties? =
     signingPropertiesText?.let { text ->
-        java.util.Properties().apply { load(text.reader()) }.also { properties ->
+        Properties().apply { load(text.reader()) }.also { properties ->
             val missing =
                 listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
                     .filter { properties.getProperty(it).isNullOrBlank() }
