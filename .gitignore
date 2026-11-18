@@ -19,3 +19,25 @@ local.properties
 # Claude
 .claude/worktrees/
 .claude/settings.local.json
+
+# Secrets de publication (#12) : ils restent dans ~/.config/parcourses/, jamais dans le dépôt.
+*.jks
+*.keystore
+*.p12
+*.p8
+*.pem
+*.aab
+*.apks
+*signing*.properties
+.env
+.env.*
+# fastlane : rapports, captures temporaires et clé de compte de service.
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/test_output/
+**/fastlane/*.json
+*service-account*.json
+!.env.example
+# Gems de fastlane installées localement par bundler.
+android/.bundle/
+android/vendor/bundle/

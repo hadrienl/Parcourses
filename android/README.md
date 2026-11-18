@@ -61,3 +61,4 @@ Room est la source de vérité : une écriture de liste ou d'article et son entr
 - **Macrobenchmark** : `./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest`, avec les mêmes options. Il mesure le démarrage à froid (`StartupBenchmark`) et les coches suivies du défilement du mode courses (`ShoppingBenchmark`), sans profil puis avec. La variante mesurée (`benchmarkRelease`) est minifiée comme la release. Rien de tout cela ne tourne en CI, où `:baselineprofile` est seulement compilé.
 - Avec `-Pparcourses.env=local`, les variantes de mesure (jamais publiées) reprennent la configuration réseau du debug pour joindre le Supabase local en HTTP. La release garde HTTPS uniquement.
 - **Sécurité des données (Play)** : voir `docs/play-data-safety.md`.
+- **Signature, version et envoi sur Play** : clé d'envoi, `-Pparcourses.versionCode` / `-Pparcourses.versionName`, AAB et fastlane, voir `docs/release-android.md`.

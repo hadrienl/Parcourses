@@ -1,0 +1,4 @@
+# fastlane pour la publication sur Google Play (#12). Installer : `bundle install` dans android/.
+source "https://rubygems.org"
+
+gem "fastlane", "~> 2.242"

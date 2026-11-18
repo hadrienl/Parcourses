@@ -1,0 +1,1 @@
+Votre liste de courses, rangée dans l’ordre des rayons de votre magasin.
