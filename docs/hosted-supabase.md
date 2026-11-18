@@ -300,6 +300,6 @@ left join accounts.device_attestations as a on a.user_id = u.id
 where u.is_anonymous and accounts.last_activity(u.id) > now() - interval '30 days';
 ```
 
-Puis activer : `update accounts.attestation_policy set required = true, updated_at = now();`. Revenir en arrière avec
+Puis activer : `update accounts.attestation_policy set required = true, updated_at = now() where id;`. Revenir en arrière avec
 `required = false`. Un compte anonyme non attesté garde alors toutes ses fonctions : il perd seulement son vote pour la
 publication d'un produit et garde le quota réduit d'un compte récent (100 par jour).

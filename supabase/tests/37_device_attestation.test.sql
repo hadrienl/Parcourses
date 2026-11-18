@@ -92,7 +92,7 @@ select is(public.attestation_challenge(), null, 'compte attesté : pas de défi'
 select tests.clear_authentication();
 
 -- 5. Interrupteur vrai : un compte anonyme doit avoir 7 jours ET une attestation.
-update accounts.attestation_policy set required = true, updated_at = now();
+update accounts.attestation_policy set required = true, updated_at = now() where id;
 select ok(not catalog.is_established(:'carl'), 'avec interrupteur : anonyme de 8 jours non attesté récent');
 select ok(catalog.is_established(:'dina'), 'avec interrupteur : anonyme de 8 jours attesté établi');
 select public.record_device_attestation(:'yann', 'android');

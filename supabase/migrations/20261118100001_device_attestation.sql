@@ -34,7 +34,7 @@ create table if not exists accounts.attestation_attempts (
 
 -- 3. Interrupteur, sur une seule ligne. À passer à vrai par l'éditeur SQL du projet, une fois les secrets de l'Edge
 -- Function posés et les apps avec attestation publiées (docs/hosted-supabase.md) :
---   update accounts.attestation_policy set required = true, updated_at = now();
+--   update accounts.attestation_policy set required = true, updated_at = now() where id;
 create table if not exists accounts.attestation_policy (
   id boolean primary key default true check (id),
   required boolean not null default false,
