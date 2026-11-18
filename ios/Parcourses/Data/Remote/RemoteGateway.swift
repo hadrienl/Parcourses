@@ -146,7 +146,8 @@ nonisolated struct AuthRequestError: Error, Sendable, Equatable {
 
 /// Accès distant de l'app. `SupabaseGateway` en est l'implémentation ; les tests fournissent une doublure.
 /// Toutes les écritures sont idempotentes : la file peut les rejouer. Elles lèvent `RemoteError`.
-nonisolated protocol RemoteGateway: Sendable {
+/// Preuve d'appareil (#137) : `AttestationGateway`.
+nonisolated protocol RemoteGateway: AttestationGateway {
   /// Renvoie l'utilisateur courant, et crée un compte anonyme s'il n'y a pas de session. Pendant une suppression de
   /// compte (drapeau `account.deletion`), n'en crée jamais : `unauthorized` sans session.
   @discardableResult

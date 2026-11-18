@@ -228,6 +228,19 @@
     func signOut() async throws { signedOut = true }
     func deleteAccount(accessToken: String) async throws {}
 
+    // MARK: - Preuve d'appareil (#137)
+
+    // Le simulateur n'a pas App Attest : `DeviceAttestation` s'arrête sur `unsupported` sans appeler ces deux-là.
+    func attestationAccount() async throws -> AttestationAccount {
+      AttestationAccount(id: me, isAnonymous: scenario == .anonymous || signedOut)
+    }
+    func attestationChallenge() async throws -> AttestationReply {
+      AttestationReply(httpStatus: 200, status: "not_configured")
+    }
+    func verifyAttestation(challenge: String, keyId: String, attestation: String) async throws -> AttestationReply {
+      AttestationReply(httpStatus: 200, status: "not_configured")
+    }
+
     // MARK: - Partage
 
     func sendInvitation(listId: UUID, email: String, role: ListRole) async throws -> SentInvitation {

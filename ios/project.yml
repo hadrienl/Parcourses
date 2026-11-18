@@ -106,6 +106,10 @@ targets:
       - path: ../shared/test-vectors/sharing
         type: folder
         buildPhase: resources
+      # Vecteurs de la preuve d'appareil (#137), lus tous par AttestationDecisionVectorTests.
+      - path: ../shared/test-vectors/attestation
+        type: folder
+        buildPhase: resources
       - path: ../supabase/migrations
         type: folder
         buildPhase: resources

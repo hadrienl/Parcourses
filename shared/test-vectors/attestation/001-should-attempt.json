@@ -1,0 +1,16 @@
+{
+  "id": "001-should-attempt",
+  "function": "shouldAttempt",
+  "description": "Faut-il tenter l'attestation de l'appareil (#137) au lancement ? Seulement pour un compte anonyme (un compte e-mail est déjà établi : rien n'est envoyé à Apple ni à Google). Aucun état pour ce compte : oui. attested et unsupported sont définitifs. pending : oui dès que nextAttemptAt est atteint.",
+  "format_version": 1,
+  "cases": [
+    { "name": "compte anonyme sans état : première tentative", "input": { "isAnonymous": true, "state": null, "now": "2026-11-18T10:00:00Z" }, "expected": true },
+    { "name": "compte e-mail : jamais", "input": { "isAnonymous": false, "state": null, "now": "2026-11-18T10:00:00Z" }, "expected": false },
+    { "name": "déjà attesté : jamais", "input": { "isAnonymous": true, "state": { "status": "attested", "nextAttemptAt": null }, "now": "2026-11-18T10:00:00Z" }, "expected": false },
+    { "name": "appareil sans service d'attestation : jamais", "input": { "isAnonymous": true, "state": { "status": "unsupported", "nextAttemptAt": null }, "now": "2026-11-18T10:00:00Z" }, "expected": false },
+    { "name": "en attente, échéance passée", "input": { "isAnonymous": true, "state": { "status": "pending", "nextAttemptAt": "2026-11-18T09:00:00Z" }, "now": "2026-11-18T10:00:00Z" }, "expected": true },
+    { "name": "en attente, échéance atteinte à la seconde", "input": { "isAnonymous": true, "state": { "status": "pending", "nextAttemptAt": "2026-11-18T10:00:00Z" }, "now": "2026-11-18T10:00:00Z" }, "expected": true },
+    { "name": "en attente, échéance future", "input": { "isAnonymous": true, "state": { "status": "pending", "nextAttemptAt": "2026-11-18T10:30:00Z" }, "now": "2026-11-18T10:00:00Z" }, "expected": false },
+    { "name": "compte e-mail même en attente : jamais", "input": { "isAnonymous": false, "state": { "status": "pending", "nextAttemptAt": "2026-11-18T09:00:00Z" }, "now": "2026-11-18T10:00:00Z" }, "expected": false }
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "id": "003-response-outcome",
+  "function": "responseOutcome",
+  "description": "Réponse de l'Edge Function attest-device (#137) → suite. step : challenge ou verify. status et error : champs du corps JSON (null si absents ou corps illisible). httpStatus 0 : pas de réponse (réseau). proceed : défi reçu, passer à la preuve (seulement pour challenge, avec status = challenge). Règle : un 2xx se lit par status (inconnu : transient) ; un 400 donne rejected, quel que soit error ; toute autre réponse donne transient.",
+  "format_version": 1,
+  "cases": [
+    {
+      "name": "défi reçu",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 200,
+        "status": "challenge",
+        "error": null
+      },
+      "expected": "proceed"
+    },
+    {
+      "name": "déjà attesté au défi",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 200,
+        "status": "attested",
+        "error": null
+      },
+      "expected": "attested"
+    },
+    {
+      "name": "non configuré au défi",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 200,
+        "status": "not_configured",
+        "error": null
+      },
+      "expected": "notConfigured"
+    },
+    {
+      "name": "attesté à la vérification",
+      "input": {
+        "step": "verify",
+        "httpStatus": 200,
+        "status": "attested",
+        "error": null
+      },
+      "expected": "attested"
+    },
+    {
+      "name": "non configuré à la vérification",
+      "input": {
+        "step": "verify",
+        "httpStatus": 200,
+        "status": "not_configured",
+        "error": null
+      },
+      "expected": "notConfigured"
+    },
+    {
+      "name": "défi invalide",
+      "input": {
+        "step": "verify",
+        "httpStatus": 400,
+        "status": null,
+        "error": "invalid_challenge"
+      },
+      "expected": "rejected"
+    },
+    {
+      "name": "preuve refusée",
+      "input": {
+        "step": "verify",
+        "httpStatus": 400,
+        "status": null,
+        "error": "rejected"
+      },
+      "expected": "rejected"
+    },
+    {
+      "name": "corps invalide",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 400,
+        "status": null,
+        "error": "invalid_body"
+      },
+      "expected": "rejected"
+    },
+    {
+      "name": "session refusée : passager",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 401,
+        "status": null,
+        "error": "unauthorized"
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "Google injoignable : passager",
+      "input": {
+        "step": "verify",
+        "httpStatus": 502,
+        "status": null,
+        "error": "upstream_unavailable"
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "erreur serveur : passager",
+      "input": {
+        "step": "verify",
+        "httpStatus": 500,
+        "status": null,
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "trop de requêtes : passager",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 429,
+        "status": null,
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "pas de réponse : passager",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 0,
+        "status": null,
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "200 sans statut connu : passager",
+      "input": {
+        "step": "verify",
+        "httpStatus": 200,
+        "status": null,
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "défi attendu à la vérification : passager",
+      "input": {
+        "step": "verify",
+        "httpStatus": 200,
+        "status": "challenge",
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "400 sans code connu : refus",
+      "input": {
+        "step": "verify",
+        "httpStatus": 400,
+        "status": null,
+        "error": null
+      },
+      "expected": "rejected"
+    },
+    {
+      "name": "fonction absente (404) : passager",
+      "input": {
+        "step": "challenge",
+        "httpStatus": 404,
+        "status": null,
+        "error": null
+      },
+      "expected": "transient"
+    },
+    {
+      "name": "201 attesté",
+      "input": {
+        "step": "verify",
+        "httpStatus": 201,
+        "status": "attested",
+        "error": null
+      },
+      "expected": "attested"
+    }
+  ]
+}

@@ -89,6 +89,8 @@ struct LocalDataPurge {
       UserDefaultsSyncCursors(defaults: defaults).removeAll()
       // Le nouveau compte naît anonyme : une session absente pourra en recréer un.
       UserDefaultsAccountKindStore(defaults: defaults).clear()
+      // Attestation d'appareil (#137) : celle du compte quitté ne passe pas au suivant.
+      UserDefaultsAttestationStateStore(defaults: defaults).clear()
       UserDefaultsActivityDismissals.forget(in: defaults)
       urlCache.removeAllCachedResponses()
     }

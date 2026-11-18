@@ -26,6 +26,9 @@ import fr.parcourses.core.data.account.SharedPreferencesAccountKindFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSignOutFlag
 import fr.parcourses.core.data.account.SharedPreferencesAccountSwitchFlag
 import fr.parcourses.core.data.account.purgeStep
+import fr.parcourses.core.data.attestation.AttestationStore
+import fr.parcourses.core.data.attestation.DeviceAttestation
+import fr.parcourses.core.data.attestation.SharedPreferencesAttestationStore
 import fr.parcourses.core.data.repository.CategoryRepository
 import fr.parcourses.core.data.repository.GraphRepository
 import fr.parcourses.core.data.repository.ListRepository
@@ -177,6 +180,24 @@ class AppContainer(
      */
     val gateway: RemoteGateway? by lazy {
         supabase?.let { DeletionGuardedGateway(it, deletionFlag, accountKind, signOutFlag) }
+    }
+
+    /** État de l'attestation d'appareil (#137), par compte : effacé par la purge locale. */
+    private val attestationStore: AttestationStore by lazy { SharedPreferencesAttestationStore(context) }
+
+    /**
+     * Attestation d'appareil (#137) : `null` sans Supabase. Hors de la garde de [gateway] (elle ne crée jamais de
+     * compte), mais muette pendant une suppression, une déconnexion ou un changement de compte.
+     */
+    private val deviceAttestation: DeviceAttestation? by lazy {
+        supabase?.let { remote ->
+            DeviceAttestation(
+                gateway = remote,
+                tokens = PlayIntegrityTokenSource(context),
+                store = attestationStore,
+                isAccountBusy = { deletionFlag.isPending || signOutFlag.isPending || switchFlag.isPending },
+            )
+        }
     }
 
     /** Entretien de la session (écran À propos) : `null` sans configuration Supabase. */
@@ -446,7 +467,9 @@ class AppContainer(
                 replayAccountSwitch()
                 coordinator?.start()
                 // Un échec n'empêche rien : tout est local et la file attend.
-                AuthBootstrap.signIn(remote)
+                val signedIn = AuthBootstrap.signIn(remote)
+                // Preuve d'appareil (#137) : une tentative par lancement, à part, sans rien attendre ni afficher.
+                if (signedIn) scope.launch(IO) { deviceAttestation?.runOnce() }
                 notifySessionChange()
             }
         }
@@ -492,9 +515,15 @@ class AppContainer(
         )
     }
 
-    /** Purge locale (#68), commune à la suppression et à la déconnexion : `account.kind` compris. */
+    /** Purge locale (#68), commune à la suppression et à la déconnexion : `account.kind` et attestation compris. */
     private val purge by lazy {
-        LocalDataPurge(database, cursors, accountKind = accountKind, switchFlag = switchFlag)
+        LocalDataPurge(
+            database,
+            cursors,
+            accountKind = accountKind,
+            switchFlag = switchFlag,
+            attestation = attestationStore,
+        )
     }
 
     /** « Se déconnecter » (#87 §2.4) : `null` sans Supabase. */
