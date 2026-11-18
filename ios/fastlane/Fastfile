@@ -1,6 +1,6 @@
 # Publication de l'app iOS (#145). Mode d'emploi : docs/release-ios.md.
 #
-#   bundle exec fastlane check        vérifie la fiche, sans réseau
+#   bundle exec fastlane check        vérifie la fiche, sans contacter Apple
 #   bundle exec fastlane screenshots  captures App Store sur le simulateur (iPhone 6,9 pouces)
 #   bundle exec fastlane beta         build Release signé, envoyé sur TestFlight (testeurs internes)
 #   bundle exec fastlane metadata     fiche App Store en français, sans soumettre à la revue
@@ -79,6 +79,8 @@ platform :ios do
       clean: true
     )
 
+    check_archive_versions(archive: File.join(build_dir, "Parcourses.xcarchive"), build_number: build_number)
+
     upload_to_testflight(
       api_key: key,
       ipa: ipa,
@@ -115,6 +117,19 @@ platform :ios do
       # Pas d'aperçu HTML à valider : les textes sont relus dans la PR qui les modifie.
       force: true
     )
+  end
+
+  # Versions lues dans l'archive, app et extension : celles qu'App Store Connect verra. Un Info.plist qui ne suivrait
+  # plus les réglages enverrait toujours 1.0 (1), refusé dès le deuxième envoi.
+  private_lane :check_archive_versions do |options|
+    app = File.join(options[:archive], "Products/Applications/Parcourses.app")
+    expected = { "CFBundleShortVersionString" => marketing_version, "CFBundleVersion" => options[:build_number].to_s }
+    [File.join(app, "Info.plist"), File.join(app, "PlugIns/ParcoursesWidgets.appex/Info.plist")].each do |plist|
+      expected.each do |key, value|
+        found = sh("/usr/libexec/PlistBuddy", "-c", "Print :#{key}", plist, log: false).strip
+        UI.user_error!("#{plist} : #{key} = #{found}, attendu #{value}") if found != value
+      end
+    end
   end
 
   # Clé d'API App Store Connect : variables d'environnement, sinon ~/.config/parcourses/app-store-connect.env.

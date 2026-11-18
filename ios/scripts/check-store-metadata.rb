@@ -42,12 +42,20 @@ read = lambda do |relative|
   text.chomp
 end
 
+# Marques et enseignes : interdites dans les textes (règle 2.3.7 de l'App Review), mots-clés compris.
+BRANDS = %w[
+  caddie nesquik nutella leclerc carrefour intermarché auchan lidl aldi monoprix franprix casino super-u système-u
+  bring anylist listonic
+].freeze
+
 LIMITS.each do |file, limit|
   text = read.call(File.join(LOCALE, file))
   errors << "#{LOCALE}/#{file} vide" if text.strip.empty?
   errors << "#{LOCALE}/#{file} : #{text.length} caractères, #{limit} au plus" if text.length > limit
   errors << "#{LOCALE}/#{file} : emoji ou pictogramme" if text.match?(EMOJI)
   errors << "#{LOCALE}/#{file} : espaces en début ou fin" if text != text.strip
+  brands = text.downcase.scan(/[[:alpha:]-]+/) & BRANDS
+  errors << "#{LOCALE}/#{file} : marque citée : #{brands.join(', ')}" unless brands.empty?
 end
 %w[name.txt subtitle.txt keywords.txt promotional_text.txt].each do |file|
   errors << "#{LOCALE}/#{file} : une seule ligne attendue" if read.call(File.join(LOCALE, file)).include?("\n")
@@ -81,12 +89,16 @@ if read.call("primary_category.txt") == read.call("secondary_category.txt")
 end
 errors << "copyright.txt : « <année> <titulaire> » attendu" unless read.call("copyright.txt").match?(/\A20\d\d \S/)
 
-# Classification 4+ : toutes les réponses à « NONE » ou false, sans tranche Kids ni surclassement.
+# Classification 4+ : toutes les réponses à « NONE » ou false, sans tranche Kids ni surclassement. Seule exception, le
+# contenu généré par les utilisateurs : les libellés tapés alimentent le catalogue commun, proposé à tous en
+# autocomplétion (#47, #138). Cette réponse ne change pas la classe d'âge.
+UGC_KEYS = %w[userGeneratedContent].freeze
 rating_path = File.join(FASTLANE, "age_rating.json")
 begin
   rating = JSON.parse(File.read(rating_path))
   rating.each do |key, value|
     next if value == "NONE" || value == false || (key == "kidsAgeBand" && value.nil?)
+    next if UGC_KEYS.include?(key) && value == true
 
     errors << "age_rating.json : #{key} = #{value.inspect}, l'app est classée 4+"
   end

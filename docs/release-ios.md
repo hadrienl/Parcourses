@@ -5,7 +5,7 @@ App Store Connect. Quatre lanes :
 
 | Commande (depuis `ios/`) | Ce qu'elle fait | Contacte Apple |
 | --- | --- | --- |
-| `bundle exec fastlane check` | Vérifie la fiche : limites de longueur, noms de fichiers, catégories, URL, classification par âge | Non |
+| `bundle exec fastlane check` | Vérifie la fiche : limites de longueur, noms de fichiers, marques, catégories, URL, classification par âge | Non |
 | `bundle exec fastlane screenshots` | Produit les captures App Store sur le simulateur iPhone 6,9 pouces | Non |
 | `bundle exec fastlane beta` | Build Release signé, envoyé sur TestFlight pour les testeurs internes | Oui |
 | `bundle exec fastlane metadata` | Envoie la fiche App Store en français, sans la soumettre à la revue | Oui |
@@ -19,6 +19,10 @@ de la fiche.
 
 ## Prérequis
 
+- **L'app existe dans App Store Connect** (*Apps → Nouvelle app* : iOS, bundle ID `app.parcourses`, SKU libre), avec
+  le **français comme langue principale**. C'est déjà fait (id 6836288730). Sans elle, `beta` échoue dès la lecture
+  du dernier numéro de build. Avec une autre langue principale, `metadata` ajouterait le français, mais la fiche de
+  la langue principale resterait vide.
 - **Xcode** à jour, et **XcodeGen 2.46.0**, la version de la CI (voir `ios/README.md`). Les lanes régénèrent le projet
   avant chaque build.
 - **Ruby 3.2 ou plus**, avec Bundler. Le Ruby de macOS est trop ancien : prendre celui de Homebrew (`brew install
@@ -110,6 +114,10 @@ bundle exec fastlane screenshots
 `ios/fastlane/screenshots/fr-FR/` et sont commités avec la fiche. Il faut un simulateur « iPhone 17 Pro Max » (Xcode
 le fournit) et environ 4 Gio libres pendant le build. Le dossier de build temporaire est supprimé à la fin.
 
+**Attention : ce simulateur est effacé** avant les captures (`erase_simulator`), données et réglages compris, pour
+partir d'un état neutre. N'utilisez pas le même « iPhone 17 Pro Max » pour vos essais, ou acceptez d'y perdre ce
+qu'il contient.
+
 Seule la taille 6,9 pouces est exigée pour l'iPhone : App Store Connect la réduit pour les autres tailles. L'app ne
 cible pas l'iPad (`TARGETED_DEVICE_FAMILY = 1`).
 
@@ -117,7 +125,7 @@ cible pas l'iPad (`TARGETED_DEVICE_FAMILY = 1`).
 
 ```sh
 cd ios
-bundle exec fastlane check      # sans réseau, à faire d'abord
+bundle exec fastlane check      # sans contacter Apple, à faire d'abord
 bundle exec fastlane metadata
 ```
 
@@ -141,11 +149,14 @@ Rien n'est soumis à la revue (`submit_for_review: false`), et aucun binaire n'e
   les courses, au magasin, et c'est sous « Achats » que l'on cherche une liste de courses. « Productivité » couvre
   l'organisation de la liste et son partage. Apple demande la catégorie qui décrit la fonction principale : une liste
   rangée pour faire ses courses relève plus des achats que de l'organisation en général.
-- **Âge : 4+.** Toutes les réponses du questionnaire sont « Aucun » ou « Non ». Pas de publicité, pas de navigateur
-  web, pas de réseau social. Le partage d'une liste ne fait ni du « contenu généré par les utilisateurs » au sens
-  d'Apple (contenu largement diffusé dans l'app) ni de la messagerie : une liste n'est visible que des personnes
-  invitées par e-mail, et l'app n'offre aucun moyen d'échanger des messages.
-- **Pas de marque** dans les textes ni dans les captures : les magasins de démonstration ont des noms génériques
+- **Âge : 4+.** Pas de publicité, pas de navigateur web, pas de réseau social ni de messagerie, aucun thème sensible :
+  ces réponses sont « Aucun » ou « Non ». Une seule réponse est « Oui » : **contenu généré par les utilisateurs**. Les
+  libellés que chacun tape alimentent le catalogue commun, qui les propose ensuite à tous en autocomplétion (après
+  plusieurs revendications et le filtre des termes refusés, #47 et #138). C'est du contenu d'utilisateur diffusé
+  largement, au sens d'Apple. Cette réponse ne relève pas la classe d'âge, mais l'App Review peut alors vérifier la
+  règle 1.2 : filtrer le contenu (fait), pouvoir le retirer (`unpublish_product`, côté serveur) et le signaler. Les
+  listes partagées, elles, ne sont visibles que des personnes invitées par e-mail.
+- **Pas de marque** dans les textes (vérifié par `check`, « caddie » compris) ni dans les captures : les magasins de démonstration ont des noms génériques
   (« Supermarché des Halles »), et les exemples de fautes de frappe sont des produits (« yahourt »).
 - **URL de support** : la page d'accueil du site, dont le pied de page donne l'adresse de contact.
 

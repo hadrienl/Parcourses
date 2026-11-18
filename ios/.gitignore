@@ -26,3 +26,5 @@ fastlane/README.md
 # Le .gitignore racine ignore **/fastlane/*.json (clés de compte de service Android) : la classification par âge est
 # versionnée.
 !fastlane/age_rating.json
+# Informations pour la revue (compte de démonstration, téléphone) : saisies dans App Store Connect, jamais versionnées.
+fastlane/metadata/review_information/

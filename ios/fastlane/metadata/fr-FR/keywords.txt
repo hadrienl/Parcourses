@@ -1,1 +1,1 @@
-supermarché,hypermarché,magasin,épicerie,caddie,pense-bête,partage,famille,trajet,commissions
+supermarché,hypermarché,magasin,épicerie,chariot,pense-bête,partage,famille,trajet,commissions

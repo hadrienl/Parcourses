@@ -22,7 +22,7 @@
   "socialMedia": false,
   "socialMediaAgeRestricted": false,
   "unrestrictedWebAccess": false,
-  "userGeneratedContent": false,
+  "userGeneratedContent": true,
   "ageRatingOverrideV2": "NONE",
   "koreaAgeRatingOverride": "NONE",
   "kidsAgeBand": null

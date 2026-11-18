@@ -47,6 +47,10 @@ targets:
       path: Parcourses/Info.plist
       properties:
         CFBundleDisplayName: Parcourses
+        # Versions tirées des réglages (Base.xcconfig, ou CURRENT_PROJECT_VERSION passé par `fastlane beta`, #145) :
+        # sans elles, XcodeGen écrit 1.0 (1) en dur. L'app et l'extension doivent porter les mêmes.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # App en français : les libellés système (clavier, VoiceOver) suivent.
         CFBundleDevelopmentRegion: fr
         CFBundleLocalizations: [fr]
@@ -87,6 +91,10 @@ targets:
       path: ParcoursesWidgets/Info.plist
       properties:
         CFBundleDisplayName: Parcourses
+        # Versions tirées des réglages (Base.xcconfig, ou CURRENT_PROJECT_VERSION passé par `fastlane beta`, #145) :
+        # sans elles, XcodeGen écrit 1.0 (1) en dur. L'app et l'extension doivent porter les mêmes.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         AppGroupIdentifier: $(APP_GROUP_ID)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
