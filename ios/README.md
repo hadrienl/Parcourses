@@ -161,7 +161,7 @@ Si le constat revient :
 1. **Confirmer.** Dans le journal de `xcodebuild`, les lignes `t = …s` montrent des écarts d'environ 60 s après `Wait for app.parcourses to idle`, avec le message ci-dessus.
 2. **Chercher l'animation.** Lancer l'app à la main sur ce simulateur, à l'écran concerné : indicateur d'activité, `repeatForever`, clavier ou bandeau système qui ne s'arrête pas. Si l'animation vient de l'app, c'est un défaut de l'app.
 3. **Écarter l'état du simulateur.** Vérifier que « I/O > Keyboard > Connect Hardware Keyboard » est décoché, puis `xcrun simctl erase <udid>` sur ce simulateur seulement.
-4. **Contourner.** Lancer les tests UI sur `scripts/simulator.sh 26`. C'est l'équivalent de la configuration actuelle de la CI `app (iOS latest)`, dont le runner `macos-26` n'a pas encore iOS 27. Ne pas allonger les délais des tests : l'attente est imposée par XCUITest, pas par eux.
+4. **Contourner.** Lancer les tests UI sur `scripts/simulator.sh 26`. Jusqu'au 20/11/2026, c'était l'équivalent de la CI `app (iOS latest)` sur le runner `macos-26` ; la CI tourne depuis sur `xcode-27` (SDK et simulateur iOS 27). Ne pas allonger les délais des tests : l'attente est imposée par XCUITest, pas par eux.
 
 ## Accessibilité et confidentialité
 

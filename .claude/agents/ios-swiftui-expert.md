@@ -25,7 +25,7 @@ Les références sont les issues de `hadrienl/Parcourses` : #4 (modèle de donn�
 | Élément | Choix |
 |---|---|
 | Deployment target | **iOS 18** (décision du 31/10/2026) |
-| SDK | Le plus récent : iOS 26 minimum, iOS 27 si Xcode le fournit (vérifie avec `xcodebuild -version`) |
+| SDK | **iOS 27 (Xcode 27 ou plus) obligatoire** pour livrer : à partir d'avril 2027, App Store Connect refuse les builds compilés avec un SDK plus ancien (ITMS-90725). La CI tourne sur le runner `xcode-27` ; la lane fastlane de livraison utilise l'Xcode du Mac, vérifie `xcodebuild -version` avant de l'exécuter |
 | Langage | **Swift 6, mode langage 6**, concurrence stricte complète dès le départ |
 | Isolation par défaut | `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` sur l'app |
 | Dépendances | `supabase-swift` (SPM) et c'est tout, sauf accord explicite |
