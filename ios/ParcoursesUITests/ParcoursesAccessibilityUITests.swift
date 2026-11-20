@@ -46,6 +46,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     /// Alerte de la déconnexion au-delà du seuil à l'écran (#129, audits « deconnexion-aide… ») : l'écran Compte reste
     /// visible sous son voile.
     let alertIsShown: Bool
+    /// Feuille « articles restants » à mi-hauteur à l'écran (audits « articles-restants… »), à la taille par défaut et
+    /// sur iOS 27 et plus (2 sexies).
+    let remainingSheetVeilsList: Bool
     /// Haut du pied de page opaque du choix du magasin (attribution OpenStreetMap, `safeAreaInset`), sous lequel la
     /// liste défile. `nil` hors de cet écran : ailleurs, l'attribution est dans le contenu.
     let pickerFooterTop: CGFloat?
@@ -59,6 +62,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       itemSheetIsShown =
         modal && (name == "article" || name.hasPrefix("article-")) && app.buttons["saveItem"].exists
       launchedAtLargestSize = app.launchArguments.contains(ParcoursesAccessibilityUITests.ax5[1])
+      remainingSheetVeilsList =
+        modal && name.hasPrefix("articles-restants") && !launchedAtLargestSize
+        && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 && app.buttons["keepRemaining"].exists
       let keyboard = app.keyboards.firstMatch
       self.keyboard = keyboard.exists ? keyboard.frame : nil
       let bar = app.navigationBars.firstMatch
@@ -143,6 +149,13 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
       if screen.alertIsShown && !screen.launchedAtLargestSize && issue.auditType == .elementDetection {
         return .veiledText
       }
+      // 2 sexies. Feuille « articles restants » (`.medium`) sur iOS 27 : même constat qu'en 2 quater, la liste du mode
+      //    courses et son compteur « RESTE 03 » restent visibles sous le voile. Constaté en CI sur iOS 27.2 (Xcode 27.2,
+      //    run 44783606925 du 20/11/2026), un constat par écran, à la taille par défaut, en clair, en sombre et avec
+      //    Réduire la transparence ; l'audit passe en AX5, où la feuille couvre la liste, et sur iOS 18, 26 et 27.0.
+      //    Même borne qu'en 2 quater (ce type, sans élément localisé, **un** constat par écran), plus la taille par
+      //    défaut et iOS 27 et plus. La feuille elle-même reste auditée, et le mode courses l'est sans feuille.
+      if screen.remainingSheetVeilsList && issue.auditType == .elementDetection { return .veiledText }
       if screen.modal && issue.auditType == .textClipped && !screen.launchedAtLargestSize {
         return .known("2 texte rogné à chaud en modal")
       }
@@ -334,7 +347,10 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
         veiled -= 1
         let veil =
           screen.alertIsShown
-          ? "2 quinquies texte voilé derrière une alerte" : "2 quater texte voilé derrière le panneau de l'article"
+          ? "2 quinquies texte voilé derrière une alerte"
+          : screen.remainingSheetVeilsList
+            ? "2 sexies texte voilé derrière les articles restants"
+            : "2 quater texte voilé derrière le panneau de l'article"
         exceptions.append("\(veil) — \(summary)")
         return true
       case .cutLine, .veiledText, nil:
@@ -365,8 +381,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     var exceptions: [String] = []
     // Quota de l'écran, commun au contraste et au texte rogné, qui sont audités dans deux passes différentes.
     var cutLineQuota = state.linesCutByDock * Self.issuesPerCutLine
-    // 2 quater : un constat (iOS 18 et 26). 2 quinquies : sans quota, le nombre varie d'une exécution à l'autre.
-    var veiledTextQuota = state.alertIsShown ? Int.max : state.itemSheetIsShown ? 1 : 0
+    // 2 quater : un constat (iOS 18 et 26). 2 sexies : un constat (iOS 27.2). 2 quinquies : sans quota, le nombre
+    // varie d'une exécution à l'autre.
+    var veiledTextQuota = state.alertIsShown ? Int.max : state.itemSheetIsShown || state.remainingSheetVeilsList ? 1 : 0
     for (pass, types) in Self.auditPasses {
       // Une passe qui dépasse son délai est relancée une fois, après une pause, et seulement sur ce code : tout
       // autre échec, ou un second dépassement, fait échouer le test. Les résultats d'un essai expiré sont jetés.

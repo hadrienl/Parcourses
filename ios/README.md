@@ -177,9 +177,10 @@ Le constat n'a pas été reproduit. Aucune étape n'attend 60 s et le message n'
 - la passerelle Supabase locale active ;
 - le clavier matériel du simulateur, déconnecté sur tous les simulateurs (`ConnectHardwareKeyboard = 0`).
 
-La cause la plus probable reste un état propre au simulateur supprimé : c'est une hypothèse, pas une cause démontrée. Sur la durée mesurée de `testShoppingJourney`, rien n'empêche la CI de passer à iOS 27, que `scripts/simulator.sh latest` prendra dès que le runner le proposera. Suite UI complète en CI sur `xcode-27` (20/11/2026, simulateur iOS 27.2) : 1,27 fois plus lente que sur iOS 26.5, sans attente de 60 s ni message « App animations complete notification not received ». Deux écarts propres à iOS 27, traités :
+La cause la plus probable reste un état propre au simulateur supprimé : c'est une hypothèse, pas une cause démontrée. Sur la durée mesurée de `testShoppingJourney`, rien n'empêche la CI de passer à iOS 27, que `scripts/simulator.sh latest` prendra dès que le runner le proposera. Suite UI complète en CI sur `xcode-27` (20/11/2026, simulateur iOS 27.2) : 1,27 fois plus lente que sur iOS 26.5, sans attente de 60 s ni message « App animations complete notification not received ». Trois écarts propres à iOS 27, traités :
 
 - L'audit de contraste signale le bouton système « OK » des feuilles À propos, Compte et adresse du support (déjà constaté pendant #108). Son texte est pourtant à 7,9:1 en clair et 4,9:1 en sombre sur les captures : exception « 1 bis » de `ParcoursesAccessibilityUITests`, bornée à ces boutons et à iOS 27.
+- Sur iOS 27.2 seulement (pas sur 27.0), l'audit de la feuille « articles restants », à mi-hauteur, signale un texte non localisé : la liste du mode courses et son compteur, visibles sous le voile, comme pour le panneau de l'article (2 quater). Exception « 2 sexies », bornée à cet écran, à la taille par défaut, à iOS 27 et à un constat.
 - L'alerte « La déconnexion n'a pas abouti. » ne revenait pas toujours après « Réessayer » : une purge qui échoue tout de suite la représentait pendant sa fermeture, ce qu'iOS 27 abandonne. La nouvelle tentative part une seconde après l'appui, et l'alerte reste masquée jusqu'au rendu qui suit son résultat (`SignOutFailurePresentation`).
 
 Si le constat revient :
