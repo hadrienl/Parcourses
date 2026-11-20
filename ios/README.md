@@ -52,6 +52,24 @@ TestFlight, fiche App Store et captures passent par fastlane, depuis `ios/` : `b
 **2.46.0**, épinglée dans `.github/workflows/ios.yml` (archive officielle vérifiée par SHA-256
 `4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806`). En local, utiliser la même version.
 
+## CI (`.github/workflows/ios.yml`)
+
+| Job | Runner | Xcode / SDK | Simulateur |
+| --- | --- | --- | --- |
+| `packages`, `lint` | `xcode-27` | 27.x / iOS 27 | aucun |
+| `app (iOS latest)` | `xcode-27` | 27.x / iOS 27 | dernier iOS 27 de l'image, plus le bundle iPhone Release signé ad hoc |
+| `app (iOS 18)` | `macos-26` | 26.6 / iOS 26 | iOS 18.6, téléchargé par le job |
+
+Les builds livrés doivent être compilés avec le SDK iOS 27 (ITMS-90725, obligatoire en avril 2027) : tout ce qui
+ressemble à la livraison tourne donc sur `xcode-27`. La cible minimale iOS 18 ne peut pas y être testée. L'image
+n'a que des runtimes iOS 27, et Xcode 27 ne propose plus aucun runtime iOS 18 ni 17 : `xcodebuild -downloadPlatform iOS
+-buildVersion 18.6` répond « iOS 18.6 is not available for download » (exit 70), avec le numéro de build `22G86`,
+avec `-architectureVariant arm64` ou `universal`, et pour 18.0 à 18.6. Constaté le 20/11/2026 en CI et sur un Mac
+sous macOS 27 et Xcode 27.2 (27B52), alors que le runtime figure encore dans l'index d'Apple. Le job iOS 18 reste
+donc sur `macos-26`. Il vérifie le comportement sur iOS 18, mais avec un binaire compilé par Xcode 26.6 : un écart
+qui ne viendrait que du SDK 27 sur iOS 18 lui échappe. Quand une image avec Xcode 27 proposera un runtime iOS 18,
+ou que `macos-26` sera retirée, revoir ce choix.
+
 ## Supabase local
 
 - `cp Config/Local.xcconfig.example Config/Local.xcconfig`, puis renseigner la clé locale.
@@ -161,7 +179,7 @@ Si le constat revient :
 1. **Confirmer.** Dans le journal de `xcodebuild`, les lignes `t = …s` montrent des écarts d'environ 60 s après `Wait for app.parcourses to idle`, avec le message ci-dessus.
 2. **Chercher l'animation.** Lancer l'app à la main sur ce simulateur, à l'écran concerné : indicateur d'activité, `repeatForever`, clavier ou bandeau système qui ne s'arrête pas. Si l'animation vient de l'app, c'est un défaut de l'app.
 3. **Écarter l'état du simulateur.** Vérifier que « I/O > Keyboard > Connect Hardware Keyboard » est décoché, puis `xcrun simctl erase <udid>` sur ce simulateur seulement.
-4. **Contourner.** Lancer les tests UI sur `scripts/simulator.sh 26`. Jusqu'au 20/11/2026, c'était l'équivalent de la CI `app (iOS latest)` sur le runner `macos-26` ; la CI tourne depuis sur `xcode-27` (SDK et simulateur iOS 27). Ne pas allonger les délais des tests : l'attente est imposée par XCUITest, pas par eux.
+4. **Contourner.** Lancer les tests UI sur `scripts/simulator.sh 26`. Jusqu'au 20/11/2026, c'était l'équivalent de la CI `app (iOS latest)` ; elle tourne depuis sur `xcode-27`, avec le SDK et le simulateur iOS 27 (voir « CI » plus haut). Ne pas allonger les délais des tests : l'attente est imposée par XCUITest, pas par eux.
 
 ## Accessibilité et confidentialité
 

@@ -54,11 +54,19 @@ jobs:
 
   app:
     name: app (iOS ${{ matrix.ios }})
-    runs-on: xcode-27
+    # iOS 18 reste sur macos-26 (Xcode 26.6) : Xcode 27 ne propose plus aucun runtime iOS 18 (« iOS 18.6 is not
+    # available for download », quels que soient la version, le build 22G86 ou -architectureVariant), et l'image
+    # xcode-27 n'a ni Xcode 26 ni runtime iOS 18. Le SDK livré (iOS 27) est couvert par « latest » : tests sur
+    # iOS 27 et bundle iPhone Release compilés avec Xcode 27.
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        ios: ["18", "latest"]
+        include:
+          - ios: "18"
+            runner: macos-26
+          - ios: latest
+            runner: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
@@ -83,7 +91,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ios/DerivedData
-          key: dd-${{ matrix.ios }}-${{ hashFiles('ios/project.yml', 'ios/Package.resolved', 'ios/Config/*.xcconfig', 'ios/Packages/*/Package.swift') }}
+          key: dd-${{ matrix.ios }}-${{ matrix.runner }}-${{ hashFiles('ios/project.yml', 'ios/Package.resolved', 'ios/Config/*.xcconfig', 'ios/Packages/*/Package.swift') }}
       - name: Build et tests
         # ~35 min mesurées sur iOS latest, ~75 min sur un runner iOS 18 lent : borne un démarrage de simulateur
         # bloqué (bootstatus attend sans limite).

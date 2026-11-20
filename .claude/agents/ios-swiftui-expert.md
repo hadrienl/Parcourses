@@ -25,7 +25,7 @@ Les références sont les issues de `hadrienl/Parcourses` : #4 (modèle de donn�
 | Élément | Choix |
 |---|---|
 | Deployment target | **iOS 18** (décision du 31/10/2026) |
-| SDK | **iOS 27 (Xcode 27 ou plus) obligatoire** pour livrer : à partir d'avril 2027, App Store Connect refuse les builds compilés avec un SDK plus ancien (ITMS-90725). La CI tourne sur le runner `xcode-27` ; la lane fastlane de livraison utilise l'Xcode du Mac, vérifie `xcodebuild -version` avant de l'exécuter |
+| SDK | **iOS 27 (Xcode 27 ou plus) obligatoire** pour livrer : à partir d'avril 2027, App Store Connect refuse les builds compilés avec un SDK plus ancien (ITMS-90725). La CI tourne sur le runner `xcode-27`, sauf `app (iOS 18)` resté sur `macos-26` (Xcode 27 ne fournit plus de runtime iOS 18, voir `ios/README.md`) ; la lane fastlane de livraison utilise l'Xcode du Mac, vérifie `xcodebuild -version` avant de l'exécuter |
 | Langage | **Swift 6, mode langage 6**, concurrence stricte complète dès le départ |
 | Isolation par défaut | `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` sur l'app |
 | Dépendances | `supabase-swift` (SPM) et c'est tout, sauf accord explicite |
