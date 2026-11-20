@@ -70,6 +70,10 @@ donc sur `macos-26`. Il vérifie le comportement sur iOS 18, mais avec un binair
 qui ne viendrait que du SDK 27 sur iOS 18 lui échappe. Quand une image avec Xcode 27 proposera un runtime iOS 18,
 ou que `macos-26` sera retirée, revoir ce choix.
 
+Chaque job prend le dernier Xcode **stable** de l'image (`scripts/select-xcode.sh`). L'image `xcode-27` du
+19/11/2026 contient `Xcode_27.3_beta.app` : l'ancien `ls … | sort -V | tail -1` le choisissait, et la CI compilait
+alors avec une bêta.
+
 ## Supabase local
 
 - `cp Config/Local.xcconfig.example Config/Local.xcconfig`, puis renseigner la clé locale.
