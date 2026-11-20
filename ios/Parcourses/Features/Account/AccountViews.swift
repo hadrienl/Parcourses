@@ -88,12 +88,31 @@ private struct SignOutFailurePresentation: ViewModifier {
   @State private var isContacting = false
   /// Aucune app de messagerie : l'adresse s'affiche dans une feuille, en texte sélectionnable.
   @State private var showsAddress = false
+  /// « Réessayer » touché : l'alerte reste masquée jusqu'à ce qu'un rendu observe le résultat de la tentative (voir
+  /// `onChange` ci-dessous).
+  @State private var isRetrying = false
+  /// Durée laissée à l'alerte pour se fermer avant la nouvelle tentative, avec de la marge pour un appareil chargé.
+  private static let dismissalDelay = Duration.seconds(1)
 
   func body(content: Content) -> some View {
     content
       .alert(PurgeHelpTexts.signOutTitle, isPresented: isPresented) {
-        Button(PurgeHelpTexts.retry) { Task { await account?.retrySignOut() } }
-          .accessibilityIdentifier("retrySignOut")
+        Button(PurgeHelpTexts.retry) {
+          isRetrying = true
+          let failures = account?.purgeFailureCount
+          Task {
+            // La tentative part une fois l'alerte fermée : une purge qui échoue tout de suite la représentait pendant
+            // son animation de fermeture, et iOS 27 abandonne cette présentation sans rien dire (constaté au 3ᵉ échec,
+            // une fois sur deux, en local sur iOS 27.0).
+            try? await Task.sleep(for: Self.dismissalDelay)
+            await account?.retrySignOut()
+            // Tentative abandonnée sans rien changer (une autre opération en cours) : aucun `onChange` ne viendra.
+            // Après un échec ou une réussite, c'est `onChange` qui rend la main, jamais cette tâche : elle peut finir
+            // avant le rendu et effacerait la transition.
+            if account?.purgeFailureCount == failures && account?.signOutFailed == true { isRetrying = false }
+          }
+        }
+        .accessibilityIdentifier("retrySignOut")
         if needsHelp {
           Button(PurgeHelpTexts.contact) { contact() }
             .accessibilityIdentifier("contactSupport")
@@ -102,6 +121,13 @@ private struct SignOutFailurePresentation: ViewModifier {
         Text(needsHelp ? PurgeHelpTexts.signOutHelpMessage : PurgeHelpTexts.signOutMessage)
       }
       .sheet(isPresented: $showsAddress, onDismiss: { isContacting = false }, content: PurgeSupportSheet.init)
+      // Une purge rejouée qui échoue repasse `signOutFailed` de faux à vrai sans rendu entre les deux : le getter
+      // restait vrai, et SwiftUI, qui ne voyait aucune transition, ne présentait plus l'alerte qu'UIKit venait de
+      // fermer (constaté sur iOS 27, au 2ᵉ ou 3ᵉ échec ; iOS 18 et 26 la présentaient de nouveau). Masquée pendant la
+      // tentative, l'alerte n'est rendue de nouveau qu'après ce rendu-ci, où elle est fausse : la transition existe.
+      // Chaque échec incrémente `purgeFailureCount`, une réussite le remet à zéro.
+      .onChange(of: account?.purgeFailureCount) { isRetrying = false }
+      .onChange(of: account?.signOutFailed) { isRetrying = false }
   }
 
   private var needsHelp: Bool { account?.needsPurgeHelp == true }
@@ -125,7 +151,8 @@ private struct SignOutFailurePresentation: ViewModifier {
   /// écrire.
   private var isPresented: Binding<Bool> {
     Binding(
-      get: { account?.signOutFailed == true && !isHidden && !isContacting && !showsAddress }, set: { _ in })
+      get: { account?.signOutFailed == true && !isHidden && !isContacting && !showsAddress && !isRetrying },
+      set: { _ in })
   }
 }
 

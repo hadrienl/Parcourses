@@ -21,6 +21,9 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     "quickEntry", "shoppingEntry", "finish", "undo", "undoMessage", "allChecked", "suggestion", "addItem",
   ]
 
+  /// Boutons « OK » des feuilles, en `.confirmationAction` (exception 1 bis).
+  private static let sheetConfirmButtons: Set<String> = ["closeAbout", "closeAccount", "closeSupportAddress"]
+
   /// Attribution OpenStreetMap, pied de page du choix du magasin : elle reste auditée.
   fileprivate static let pickerFooter = "osmAttribution"
 
@@ -100,6 +103,17 @@ nonisolated final class ParcoursesAccessibilityUITests: ParcoursesUITestCase {
     //    gris sémantiques des en-têtes de section). Les « Contrast failed » restent bloquants.
     if issue.auditType == .contrast && issue.compactDescription.localizedCaseInsensitiveContains("nearly") {
       return .known("1 contraste limite")
+    }
+    // 1 bis. Bouton « OK » (`.confirmationAction`) des feuilles À propos, Compte et adresse du support, sur iOS 27
+    //    seulement : « Contrast failed » alors que, sur les captures de l'audit, le texte est à 7,9:1 en clair (accent
+    //    #2340C8 sur le verre du bouton, #F7F7FC, `testAuditAbout`) et à 4,9:1 en sombre (#8FA6FF sur #3A3A3C,
+    //    `testAuditAccountDark`), mesuré le 20/11/2026 sur le simulateur iOS 27.0. L'audit mesure apparemment la
+    //    capsule de verre que le système dessine autour du bouton, et non son texte. Borné à ces boutons, à ce type et à
+    //    iOS 27 et plus : sur iOS 18 et 26, les mêmes boutons passent l'audit.
+    if issue.auditType == .contrast, let id = issue.element?.identifier, sheetConfirmButtons.contains(id),
+      ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+    {
+      return .known("1 bis bouton OK de feuille, iOS 27")
     }
     guard let element = issue.element else {
       // Problèmes sans élément localisé (iOS 18 surtout, qui ne relie pas le nœud SwiftUI à un élément XCUI).
